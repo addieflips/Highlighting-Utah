@@ -1937,6 +1937,34 @@
               </select>
             </div>
           </div>
+          <!-- ⭐⭐ THEIR OWN CALENDAR (2026-09-28, [[SCH-98]] / [[SCH-99]]). Addie: "Can we do a
+               calendar for members for when they will be gone and not schedule them during that
+               time frame and be able to add that on costumers?", then "Also a calendar timeframe
+               of when they want to be scheduled. But still keep be done in october, november
+               before thanksgiving after thanksgiving?"
+               ⚠ THE PREFERENCE DROPDOWN ABOVE IS UNTOUCHED AND MUST STAY THAT WAY. These two sit
+               BESIDE October / November / the Thanksgiving timings, never instead of them — that
+               was the whole of her second sentence. -->
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Their Own Calendar</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Both of these work alongside the timing preference above &mdash; they never replace it. Leave them blank and nothing changes.</p>
+
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they want it done</label>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="date" id="addCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+              <span style="font-size:12.5px; color:var(--slate);">until</span>
+              <input type="date" id="addCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            </div>
+            <p class="form-note" style="margin:6px 0 16px;">The stretch this customer would like us in. We will <b>never</b> hang them before the first date, and the schedule aims to have them done by the second. It does <b>not</b> move anyone into a month they did not ask for &mdash; somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
+
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
+            <div id="addCustAwayList"></div>
+            <button type="button" id="addCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
+            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab.</p>
+            <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
+            <input type="date" id="addCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose.</p>
+          </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both of these show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
@@ -2585,6 +2613,34 @@
             <div class="form-row"><label>Install Closest To This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). We will <b>never</b> hang them before it, and the schedule now aims to hang them <b>within a week of it</b> (five working days) rather than whenever we are next in their town. It puts them behind new members and ahead of everyone else, and it does not move them into a month they did not ask for. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. Leave blank for no restriction.</p>
+          <!-- ⭐⭐ THEIR OWN CALENDAR (2026-09-28, [[SCH-98]] / [[SCH-99]]). Addie: "Can we do a
+               calendar for members for when they will be gone and not schedule them during that
+               time frame and be able to add that on costumers?", then "Also a calendar timeframe
+               of when they want to be scheduled. But still keep be done in october, november
+               before thanksgiving after thanksgiving?"
+               ⚠ THE PREFERENCE DROPDOWN ABOVE IS UNTOUCHED AND MUST STAY THAT WAY. These two sit
+               BESIDE October / November / the Thanksgiving timings, never instead of them — that
+               was the whole of her second sentence. -->
+          <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Their Own Calendar</label>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Both of these work alongside the timing preference above &mdash; they never replace it. Leave them blank and nothing changes.</p>
+
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they want it done</label>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="date" id="editCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+              <span style="font-size:12.5px; color:var(--slate);">until</span>
+              <input type="date" id="editCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            </div>
+            <p class="form-note" style="margin:6px 0 16px;">The stretch this customer would like us in. We will <b>never</b> hang them before the first date, and the schedule aims to have them done by the second. It does <b>not</b> move anyone into a month they did not ask for &mdash; somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
+
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
+            <div id="editCustAwayList"></div>
+            <button type="button" id="editCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
+            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab.</p>
+            <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
+            <input type="date" id="editCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose.</p>
+          </div>
           <!-- ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Filled by
                openEditCustomerModal from seasonHold(), which is gated on isOutForSeason —
                the same rule the routes ask — so this box can never disagree with whether a
@@ -9024,6 +9080,20 @@ const CUSTOMER_FIELD_LABELS = {
      preference above it does: somebody will ask why they moved. */
   rushInstall: {label: 'Moved up the schedule', kind: 'yesno'},
   earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
+  /* ⭐ THEIR OWN CALENDAR AND THE PIN ([[SCH-98]] / [[SCH-99]] / [[SCH-100]], 2026-09-28).
+     All four belong in the history for the same reason installPreference and rushInstall
+     above do, only more so: these are the settings that decide whether a crew is sent at
+     all, so when somebody asks why a house was missed — or why it moved — this is the only
+     place the answer is written down. An unlabelled one makes the edit invisible, which
+     reads exactly like the field never having been touched. */
+  /* ⚠ THE AWAY LIST IS LABELLED THOUGH THE GATE DID NOT DEMAND IT. It is an array, so the
+     field sweep does not reach it — but "why was this house missed" is exactly the question
+     the history exists to answer, and a holiday added or removed is the answer. Rendered
+     through the same `list` kind houseSidesList and lightColors already use. */
+  awayDates: {label: 'Away dates', kind: 'list'},
+  wantedFrom: {label: 'Wants it done from', kind: 'date'},
+  wantedTo: {label: 'Wants it done by', kind: 'date'},
+  stuckOnDate: {label: 'Stuck on this day', kind: 'date'},
   rsvpStatus: 'RSVP answer',
   maybeNextYear: {label: 'Back next year', kind: 'yesno'},
   rsvpTextedAt: 'Texted the RSVP',
@@ -11617,6 +11687,13 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              lights down early this year has not asked for next year. Null, not '' —
              takedownTimingOf reads both as normal, and null says nobody has asked. */
           takedownTiming: null,
+          /* ⭐ [[SCH-100]] AND A PIN IS THIS SEASON'S TOO. Same rule as the takedown choice
+             above: a day agreed for last Christmas is not a day agreed for next. Left standing
+             it would pin that house to a date in a season that has gone — placeStuckHouses
+             would MAKE that day and put them on it, so the pin does not merely go stale, it
+             actively damages the new plan. The expiry rule [[MON-07]] and audienceNeverAsked
+             both point the same way. */
+          stuckOnDate: null,
           /* ⭐ THEY ARE NOT A NEW CUSTOMER ANY MORE. Owner: "if someone came from
              quotes this year but we are in 2027 than they are no longer a new
              costumer." Nothing else in the app has ever cleared this, while the
@@ -40532,6 +40609,237 @@ function isEarliestInstallDateLocked(data){
   const d = data.earliestInstallDate.toDate ? data.earliestInstallDate.toDate() : new Date(data.earliestInstallDate);
   return new Date() < d;
 }
+/* ---------------- THEIR OWN CALENDAR (2026-09-28, [[SCH-98]] / [[SCH-99]]) ----------
+   Addie: "Can we do a calendar for members for when they will be gone and not schedule
+   them during that time frame and be able to add that on costumers?", then "Also a
+   calendar timeframe of when they want to be scheduled. But still keep be done in
+   october, november before thanksgiving after thanksgiving?"
+
+   TWO CALENDARS, AND THEY ARE OPPOSITE SHAPES. That is the whole reason this is not one
+   field with a sign on it:
+     · AWAY is a HOLE — a stretch in the middle of a season they are otherwise happy
+       with. Nothing in this app could express one before. Every date rule here is a
+       FLOOR (houseAllowedFrom) or a CEILING (houseDeadline), and neither can say "any
+       day but these". So away is the one rule that has to be asked PER CANDIDATE DAY.
+     · WANTED is a WINDOW — a floor and a ceiling, which is exactly the shape the office's
+       own "Install Closest To This Date" already has. So it is carried by the two
+       functions that already do this rather than by a third mechanism.
+
+   ⛔ NEITHER ONE MAY EVER LEAVE A CONFIRMED CUSTOMER OFF A DAY. That is the headline rule
+   in CLAUDE.md, and both of these are exactly the kind of change it was written about:
+   they can only ever move somebody LATER. placeConfirmedLeftOff walks past an away window
+   rather than giving up in it, and the builder's jump-to-the-next-open-date step counts a
+   fully-away town as "ask again later" rather than as nobody left to place. Suite 346 is
+   the gate; if it goes red, the change is wrong.
+
+   ⚠ AND THE MONTH DROPDOWN IS UNTOUCHED. "still keep be done in october, november before
+   thanksgiving after thanksgiving" — October, November, the two Thanksgiving timings and
+   a named day all decide exactly what they decided before. A typed window sits BESIDE the
+   preference, and where the two disagree the rules below say which wins, once.
+
+   ⚠ BOTH ARE READ OFF THE HOUSE (h.away / h.wantFrom / h.wantTo), never off the customer
+   record, so every suite that lifts these functions alone keeps working and the builder
+   stays pure. SCHEDULE_SYNC_FIELDS is what puts them there. */
+const AWAY_MAX_RANGES = 12;
+/* The day after an ISO day. Written out rather than borrowed from isoOf/nextWorkingDay
+   because the two callers below are lifted into bare sandboxes, and a helper that is
+   absent there would quietly answer "never away". */
+function awayDayAfter(iso){
+  const p = ('' + (iso || '')).split('-');
+  if(p.length !== 3) return '';
+  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + 1);
+  if(isNaN(d)) return '';
+  const m = d.getMonth() + 1, dd = d.getDate();
+  return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (dd < 10 ? '0' : '') + dd;
+}
+/* ⭐ THE ONE SPELLING OF AN AWAY LIST, and it is a STRING on purpose. The customer record
+   holds objects (awayDates: [{from,to}]) because that is what a form edits; the HOUSE
+   holds "2026-11-10..2026-11-20|2026-12-01..2026-12-05" because the plan sync compares
+   what it finds with ('' + value), and an array of objects stringifies to
+   "[object Object]" — so every sync would read two different lists as identical and the
+   plan would never learn that somebody's holiday moved. Learned from notBefore, which is
+   carried as a plain ISO day for the same reason.
+   ⚠ BOTH ENDS OR NOTHING. A range missing one end is dropped, never read as "gone from
+   then on": a half-typed row would silently block the rest of the season, and the office
+   would see a customer fall off the schedule with nothing anywhere saying why. The form
+   says so out loud instead — "nothing should fail quietly".
+   ⚠ BACKWARDS DATES ARE SWAPPED, not discarded. There is no second reading of
+   20 Nov -> 10 Nov, and dropping it loses an instruction somebody meant. */
+const AWAY_ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+function awayListToKey(list){
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(function(r){
+    if(!r || out.length >= AWAY_MAX_RANGES) return;
+    let a = ('' + (r.from || '')).trim(), b = ('' + (r.to || '')).trim();
+    if(!AWAY_ISO_DAY.test(a) || !AWAY_ISO_DAY.test(b)) return;
+    if(b < a){ const t = a; a = b; b = t; }
+    out.push(a + '..' + b);
+  });
+  out.sort();
+  return out.join('|');
+}
+function awayKeyToList(key){
+  const out = [];
+  ('' + (key || '')).split('|').forEach(function(part){
+    const bits = part.split('..');
+    if(bits.length !== 2) return;
+    const a = bits[0].trim(), b = bits[1].trim();
+    if(!AWAY_ISO_DAY.test(a) || !AWAY_ISO_DAY.test(b)) return;
+    out.push({from: a, to: b});
+  });
+  return out;
+}
+/* ⭐ IS THIS HOUSE AWAY ON THIS DAY? The one question every placement site asks.
+   ⚠ IT ANSWERS false THE INSTANT THERE IS NO LIST, which is nearly the whole book — so
+   the cost of this feature to the ~960 customers who never name a date is one property
+   read per candidate day, and the builder's inner loops stay the shape they were. */
+function houseAwayOn(h, ds){
+  const key = (h && h.away) || '';
+  if(!key || !ds) return false;
+  const rs = awayKeyToList(key);
+  for(let i = 0; i < rs.length; i++){
+    if(ds >= rs[i].from && ds <= rs[i].to) return true;
+  }
+  return false;
+}
+/* ⭐ THE FIRST DAY FROM ds THAT THIS HOUSE IS NOT AWAY. Used two ways, and both matter:
+   as the floor when somebody's away window covers the day they would otherwise open on,
+   and as "ask again on this date" when a whole town is away and the builder would
+   otherwise conclude there is nobody left to place.
+   ⚠ IT WALKS RANGE BY RANGE, BOUNDED. Two touching windows (10th-20th, 21st-25th) have
+   to be stepped through together or the answer lands inside the second one; the guard is
+   the list's own maximum, so it can never spin. */
+function awayClearFrom(h, ds){
+  const key = (h && h.away) || '';
+  if(!key || !ds) return ds || '';
+  const rs = awayKeyToList(key);
+  let out = ds;
+  for(let guard = 0; guard <= AWAY_MAX_RANGES; guard++){
+    let hit = null;
+    for(let i = 0; i < rs.length; i++){
+      if(out >= rs[i].from && out <= rs[i].to){ hit = rs[i]; break; }
+    }
+    if(!hit) return out;
+    const next = awayDayAfter(hit.to);
+    if(!next || next <= out) return out;
+    out = next;
+  }
+  return out;
+}
+/* ---------------- THE TWO CALENDARS, ON SCREEN (2026-09-28) -----------------
+   Addie asked for both of these "on costumers", so they are on BOTH customer forms —
+   Add a Customer and Edit Customer — and the markup, the reader and the filler are one
+   set of functions used twice rather than two copies. Two copies of a date list is two
+   sets of rules about what a half-typed row means, and the one nobody looks at is the one
+   that reaches the schedule. Same argument as whNotesCell and whBinsForHouse.
+
+   ⚠ THE HOST ELEMENT CARRIES THE ROWS, and the rows are read back out of the DOM rather
+   than kept in a variable beside it. Edit Customer is repointed from house to house by
+   openEditCustomerModal without being torn down, so a list held in a module variable
+   would still be holding the previous customer's holidays when the next tab is clicked —
+   the exact leak the re-quote fields already have a note about. */
+function awayRowHtml(r){
+  const a = (r && r.from) || '', b = (r && r.to) || '';
+  return '<div class="awayrow" style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">' +
+           '<input type="date" class="awayfrom" value="' + esc(a) + '" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">' +
+           '<span style="font-size:12.5px; color:var(--slate);">until</span>' +
+           '<input type="date" class="awayto" value="' + esc(b) + '" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">' +
+           '<button type="button" class="awaydel" style="background:none; border:none; color:var(--slate); cursor:pointer; font-size:13px; padding:4px 6px;" title="Remove this one">&#10005;</button>' +
+         '</div>';
+}
+/* Always at least one empty row, so the control reads as something to fill in rather
+   than as an empty box somebody has to find a button for. */
+function awayFillHost(hostId, list){
+  const host = document.getElementById(hostId);
+  if(!host) return;
+  const rows = (Array.isArray(list) ? list : []).slice(0, AWAY_MAX_RANGES);
+  host.innerHTML = (rows.length ? rows : [{from: '', to: ''}]).map(awayRowHtml).join('');
+}
+/* ⭐ WHAT THE FORM IS OFFERING, STRAIGHT OFF THE SCREEN. Returns {list, dropped} —
+   `dropped` being rows with one date filled in and not the other.
+   ⛔ A HALF-TYPED ROW IS NEVER READ AS "gone from then on". It is counted and named, and
+   the save says so out loud. Silently blocking the rest of somebody's season because a
+   second date was never typed is invisible until a crew does not turn up, which is the
+   one failure this whole feature exists to prevent rather than create. */
+function awayReadHost(hostId){
+  const host = document.getElementById(hostId);
+  const list = [], dropped = [];
+  if(!host) return {list: list, dropped: dropped};
+  Array.prototype.forEach.call(host.querySelectorAll('.awayrow'), function(row){
+    const a = ((row.querySelector('.awayfrom') || {}).value || '').trim();
+    const b = ((row.querySelector('.awayto') || {}).value || '').trim();
+    if(!a && !b) return;                       // an untouched row is not an answer
+    if(!a || !b){ dropped.push(a || b); return; }
+    if(list.length >= AWAY_MAX_RANGES) return;
+    list.push(b < a ? {from: b, to: a} : {from: a, to: b});
+  });
+  return {list: list, dropped: dropped};
+}
+/* One delegated listener per host, bound once. Rebuilding the rows on every keystroke
+   would destroy the input somebody is typing into — the same trap the email-typo note's
+   Use-it button and the Inbox section editor each hit. Only ADD and REMOVE touch the
+   markup, and remove reads the other rows back first so nothing typed is lost. */
+function awayWireHost(hostId, addBtnId){
+  const host = document.getElementById(hostId);
+  const add = document.getElementById(addBtnId);
+  if(host && !host.dataset.awayWired){
+    host.dataset.awayWired = '1';
+    host.addEventListener('click', function(e){
+      const btn = e.target.closest ? e.target.closest('.awaydel') : null;
+      if(!btn || !host.contains(btn)) return;
+      const row = btn.closest('.awayrow');
+      if(row) row.remove();
+      if(!host.querySelector('.awayrow')) awayFillHost(hostId, []);
+    });
+  }
+  if(add && !add.dataset.awayWired){
+    add.dataset.awayWired = '1';
+    add.addEventListener('click', function(){
+      const h = document.getElementById(hostId);
+      if(!h) return;
+      if(h.querySelectorAll('.awayrow').length >= AWAY_MAX_RANGES){
+        toast('That is as many away dates as one customer can have (' + AWAY_MAX_RANGES + ').');
+        return;
+      }
+      h.insertAdjacentHTML('beforeend', awayRowHtml(null));
+    });
+  }
+}
+/* ⭐ WHAT THE SAVE WRITES, FOR BOTH FORMS. Returns the three fields plus a sentence for
+   the office where something was not usable.
+   ⚠ A WANTED WINDOW THE WRONG WAY ROUND IS SWAPPED, like an away range — there is no
+   second reading of it — and a window whose end sits before the customer's own month is
+   SAVED AS TYPED rather than corrected. houseDeadline is where that contradiction is
+   resolved, once; resolving it a second time here is how the form and the schedule start
+   disagreeing about the same customer. */
+function calendarFieldsFrom(hostId, wantFromId, wantToId, stuckId){
+  const read = awayReadHost(hostId);
+  /* ⭐ THE PIN RIDES THE SAME READER ([[SCH-100]]). It is a different KIND of setting — an
+     instruction rather than a preference — but it is typed on the same two forms and saved
+     by the same two handlers, and a second reader is a second answer about what an empty box
+     means. */
+  const stuckOn = ((document.getElementById(stuckId) || {}).value || '').trim();
+  let wf = ((document.getElementById(wantFromId) || {}).value || '').trim();
+  let wt = ((document.getElementById(wantToId) || {}).value || '').trim();
+  if(wf && wt && wt < wf){ const t = wf; wf = wt; wt = t; }
+  const notes = [];
+  if(read.dropped.length){
+    notes.push(read.dropped.length + ' away date' + (read.dropped.length === 1 ? '' : 's') +
+               ' had only one end filled in and ' + (read.dropped.length === 1 ? 'was' : 'were') +
+               ' not saved — both boxes are needed.');
+  }
+  /* ⚠ A PIN ONTO A DAY THEY SAID THEY ARE AWAY IS A REAL CONTRADICTION, AND IT IS NAMED
+     RATHER THAN RESOLVED HERE. The pin wins — it is the office overruling the form, the same
+     way round the office's own date already beats the customer's window ([[SCH-99]]) — but
+     sending a crew to a house nobody is at is worth a sentence on the save. Resolving it
+     silently either way is how somebody finds out from the crew. */
+  if(stuckOn && read.list.some(function(r){ return stuckOn >= r.from && stuckOn <= r.to; })){
+    notes.push('\u26a0 The day you pinned them to is inside one of their away dates \u2014 the pin wins, ' +
+               'so a crew will be sent while they are away. Check which is right.');
+  }
+  return {fields: {awayDates: read.list, wantedFrom: wf, wantedTo: wt, stuckOnDate: stuckOn},
+          list: read.list, note: notes.join(' ')};
+}
 // ---- Install-timing urgency flags (used in Routes list + Overview Map) ----
 // New Hang: a first-time customer who still isn't scheduled or installed.
 // "First-time" is read off chargeNewMemberFee - the "Charge $30 new member installation fee"
@@ -41318,6 +41626,15 @@ document.getElementById('addCustViewBlueprint').addEventListener('click', functi
   const orig = document.getElementById('addCustViewOriginal');
   orig.style.background = ''; orig.style.color = '';
 });
+/* ⭐ THEIR OWN CALENDAR, ON ADD A CUSTOMER ([[SCH-98]]). Bound once at module level
+   because this form's markup is static and never re-rendered — unlike Edit Customer,
+   which is repointed house to house and so wires itself on every open. awayWireHost is
+   idempotent either way (it marks the host), so the two call sites cannot double-bind
+   and start adding two rows per press.
+   ⚠ AND IT IS FILLED as well as wired: the list starts as one empty row, so the control
+   reads as something to fill in rather than as a button somebody has to find first. */
+awayFillHost('addCustAwayList', []);
+awayWireHost('addCustAwayList', 'addCustAwayAdd');
 document.getElementById('addCustPhoto').addEventListener('change', async function(e){
   const files = Array.prototype.slice.call(e.target.files || []);
   if(!files.length) return;
@@ -41817,6 +42134,9 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     : compileLightsDescription(selectedColors.join(', '), '');
   const wireColor = document.getElementById('addCustWireColor').value;
   const installPreference = document.getElementById('addCustInstallPref').value;
+  /* ⭐ THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]]). The SAME reader Edit Customer uses —
+     one answer about what a half-typed row or a backwards window means. */
+  const newCalendar = calendarFieldsFrom('addCustAwayList', 'addCustWantFrom', 'addCustWantTo', 'addCustStuckOn');
   const chargeNewMemberFee = document.getElementById('addCustNewMemberFee').checked;
   const billToPhone = document.getElementById('addCustBillTo').value.replace(/\D/g,'');
   const gateCode = document.getElementById('addCustGateCode').value.trim();
@@ -42019,6 +42339,14 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       housePhotos: customerPhotoUpdates([{url: addCustPhotoUrl, original: addCustPhotoOriginal || addCustPhotoUrl, markup: addCustPhotoMarkup}].concat(addCustExtraPhotos)).housePhotos,
       housePhotoUrl: addCustPhotoUrl, housePhotoOriginal: addCustPhotoOriginal, housePhotoMarkup: addCustPhotoMarkup,
       houseHighlights: addCustHighlights, portalToken: generatePortalToken(), referralToken: generateReferralToken(), referralTokenSeason: referralSeasonNow(), installPreference: installPreference,
+      /* ⭐ THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]]). Written on the way in so a customer
+         converted from a quote with a holiday already known does not have to be opened again
+         to have it typed a second time. Empty list and blank strings for almost everybody,
+         which is exactly what every rule reading them treats as no restriction. */
+      awayDates: newCalendar.fields.awayDates,
+      wantedFrom: newCalendar.fields.wantedFrom,
+      wantedTo: newCalendar.fields.wantedTo,
+      stuckOnDate: newCalendar.fields.stuckOnDate,
       chargeNewMemberFee: chargeNewMemberFee,
       /* ⭐ JOINING OPENS THEIR 48-HOUR WINDOW (added 2026-08-21). Owner: "48 hours
          will be from when they become a costumer and we won't schedule them within
@@ -42324,6 +42652,14 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
        records White. [[OPT-12]] closed the other doors and missed this one. */
     document.getElementById('addCustWireColor').value = '';
     document.getElementById('addCustInstallPref').value = 'Normal Schedule';
+    /* ⚠ CLEARED WITH THE REST OF THE FORM, or the next customer typed in is silently given
+       the last one's holidays — and nothing on the new record would say where they came
+       from. awayFillHost with an empty list leaves one blank row, which is what the form
+       opens with. */
+    document.getElementById('addCustWantFrom').value = '';
+    document.getElementById('addCustWantTo').value = '';
+    document.getElementById('addCustStuckOn').value = '';
+    awayFillHost('addCustAwayList', []);
     document.getElementById('addCustOneTimeNotes').value = '';
     document.getElementById('addCustInvoiceNotes').value = '';
     document.getElementById('addCustReferralCount').value = '';
@@ -42350,6 +42686,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
        error — the customer is saved — so it does not time out with the rest. */
     statusEl.textContent = 'Added!' + invoiceMsg +
       (pinFailed ? ' Google could not place this address, so there is no map pin yet — fix the address from All Customers or they cannot be routed.' : '') +
+      /* ⚠ A DROPPED AWAY ROW IS NAMED HERE TOO ([[SCH-98]]) — same reason as the Edit
+         Customer save: a holiday silently not saved reads exactly like one that was, and
+         the office finds out when a crew turns up. */
+      (newCalendar.note ? ' ' + newCalendar.note : '') +
       ' ' + autoSched.message;
     /* Anything that needs acting on stays on screen. Only the plain
        everything-worked case clears itself. */
@@ -57916,6 +58256,17 @@ function openEditCustomerModal(id){
   /* Confirmed is the default for anyone not explicitly sitting out, which is
      what an All Customers record has always meant. */
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
+  /* ⭐ THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]]). Filled on EVERY open, the away rows
+     included, because this function is what repoints the form at a SIBLING house on the
+     bill — so rows left standing from the last customer would be saved onto this one.
+     ⚠ AND IT IS FILLED BEFORE THE DIRTY BASELINE IS TAKEN, a few dozen lines below.
+     Rebuilding the rows after it would leave the form reading as unsaved the moment it
+     opens, and warning about losing changes nobody made. */
+  document.getElementById('editCustWantFrom').value = ('' + (d.wantedFrom || '')).trim();
+  document.getElementById('editCustWantTo').value = ('' + (d.wantedTo || '')).trim();
+  document.getElementById('editCustStuckOn').value = ('' + (d.stuckOnDate || '')).trim();
+  awayFillHost('editCustAwayList', d.awayDates);
+  awayWireHost('editCustAwayList', 'editCustAwayAdd');
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   /* Cleared with the form, or the last customer's arithmetic is still sitting
      under the next customer's boxes. */
@@ -59235,6 +59586,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
+  /* ⭐ THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]]). Read through the SAME function Add
+     Customer reads it through, so the two forms cannot start disagreeing about what a
+     half-typed row or a backwards window means. */
+  const newCalendar = calendarFieldsFrom('editCustAwayList', 'editCustWantFrom', 'editCustWantTo', 'editCustStuckOn');
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
   const newWireColor = document.getElementById('editCustWireColor').value;
@@ -59363,7 +59718,21 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
     const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, buildings: newBuildings, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, buildings: newBuildings, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null,
+      /* ⭐ THEIR OWN CALENDAR ([[SCH-98]] / [[SCH-99]]). Written UNCONDITIONALLY, which is
+         the opposite of this handler's usual rule and is the point: an empty away list and
+         a blank window are a person LIFTING a restriction, and the only way to take a
+         holiday back off the schedule is for the empty form to mean something. Same
+         reasoning as SCHEDULE_SYNC_FIELDS' blankClears on these three, and the same as
+         earliestInstallDate writing null beside it.
+         ⚠ THIS IS NOT THE COLOUR-WIPE CASE. editCustLightsRaw exists because the light
+         boxes CANNOT REPRESENT every stored value, so a blank there may mean "the form
+         could not show it". Every away row and both window dates round-trip exactly, so a
+         blank here can only mean somebody cleared it. */
+      awayDates: newCalendar.fields.awayDates,
+      wantedFrom: newCalendar.fields.wantedFrom,
+      wantedTo: newCalendar.fields.wantedTo,
+      stuckOnDate: newCalendar.fields.stuckOnDate};
     /* ⭐ A COUNT THE OFFICE MOVES DROPS A NAMED LIST IT NO LONGER FITS (2026-09-07).
        houseSidesList is the customer's own answer, ticked box by box in their Member
        Portal, and this form deliberately does not offer it — it is shown read-only
@@ -60681,6 +61050,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             '" is not something the tick boxes can show, so they were not overwritten. ' +
             'Tick the real colours and save again to correct it.');
     }
+    /* ⚠ AND A HALF-TYPED AWAY ROW SAYS SO TOO ([[SCH-98]]). It was DROPPED, and a drop
+       nobody is told about is indistinguishable from a holiday that was saved — which is
+       the worst version of this failing, because the office would believe nobody is being
+       sent and a crew would turn up. "Nothing should fail quietly", on the one field whose
+       whole job is to keep a van away from a house. */
+    if(newCalendar.note) toast('Saved. ' + newCalendar.note);
     /* ⚠ SAID OUT LOUD. A bill appearing for somebody who had none is a real change to
        what the office is looking at, and one that arrives unannounced reads as a bug. */
     if(mintedInvoiceForLedger){
@@ -63000,6 +63375,16 @@ function planNewCrewDays(waiting, taken, opts){
      useful half. */
   const centres = townCentres(byCity);
   const dateOf = function(ds){ return new Date(ds.slice(0,4), Number(ds.slice(5,7)) - 1, ds.slice(8,10)); };
+  /* ⭐ AWAY IS ASKED PER DAY, WHICH NOTHING ELSE IN THIS BUILDER IS ([[SCH-98]]). `from`
+     and `until` are one comparison each because a floor and a ceiling are single days; a
+     holiday is a hole, so every place that asks "can this house ride today" has to ask
+     this as well. There are four of them below and each is marked.
+     ⚠ GUARDED, like tempFor and dayShape — several suites lift this builder into a bare
+     sandbox, and there it must lay the season out exactly as it did before this existed.
+     ⚠ AND IT COSTS THE OTHER ~960 CUSTOMERS NOTHING: houseAwayOn answers false on its
+     first line for any house with no list, which is nearly all of them. */
+  const awayOn = (typeof houseAwayOn === 'function') ? houseAwayOn : function(){ return false; };
+  const awayNext = (typeof awayClearFrom === 'function') ? awayClearFrom : function(h, ds){ return ds; };
   /* How many are allowed today, and how urgent the most urgent of them is.
      byCity is sorted by priority first, so the first allowed house IS the most
      urgent allowed house — no second scan needed. */
@@ -63008,6 +63393,10 @@ function planNewCrewDays(waiting, taken, opts){
     let n = 0, urg = 99, urgRush = 99;
     for(let i = 0; i < q.length; i++){
       if(q[i].from > ds) continue;
+      /* ⭐ AWAY, site 1 of 4. A town's head-count is what wins it a crew, so a house
+         whose family is in Idaho this week must not be counted towards the day it cannot
+         be on — otherwise a town of twenty "wins" the morning and places twelve. */
+      if(awayOn(q[i], ds)) continue;
       n++;
       /* ⚠ townPriority, NOT priority — a house asked to go sooner orders itself
          inside its town and does NOT make the town urgent (Dax, 2026-09-09: "if
@@ -63182,7 +63571,10 @@ function planNewCrewDays(waiting, taken, opts){
         /* Only the houses allowed out today. A named day that has not arrived cannot
            be taken, however much room the crew has. */
         const eligible = [];
-        for(let i = 0; i < queue.length; i++) if(queue[i].from <= ds) eligible.push(i);
+        /* ⭐ AWAY, site 2 of 4 — the one that actually keeps them off the van. */
+        for(let i = 0; i < queue.length; i++){
+          if(queue[i].from <= ds && !awayOn(queue[i], ds)) eligible.push(i);
+        }
         /* ⭐ A FULL CREW-DAY, EVERY TIME. See the note above byCity: trimming this to
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
@@ -63213,6 +63605,10 @@ function planNewCrewDays(waiting, taken, opts){
             let best = null;
             for(let i = 0; i < oq.length; i++){
               if(oq[i].from > ds) continue;
+              /* ⭐ AWAY, site 3 of 4. A neighbour is chosen on how urgent its best
+                 waiting house is; scoring it on somebody who cannot be visited today
+                 sends the crew to the wrong town for a house it will not pick up. */
+              if(awayOn(oq[i], ds)) continue;
               if(best === null || oq[i].priority < best) best = oq[i].priority;
             }
             if(best === null) continue;
@@ -63226,8 +63622,9 @@ function planNewCrewDays(waiting, taken, opts){
                side of American Fork. Anchored on where the day has actually got
                to, the loan continues the run instead of restarting it. */
             const oel = [];
+            /* ⭐ AWAY, site 4 of 4 — the borrowed houses themselves. */
             for(let i = 0; i < borrow.queue.length; i++){
-              if(borrow.queue[i].from <= ds) oel.push(i);
+              if(borrow.queue[i].from <= ds && !awayOn(borrow.queue[i], ds)) oel.push(i);
             }
             const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
             if(lent.length){
@@ -63272,7 +63669,18 @@ function planNewCrewDays(waiting, taken, opts){
       let soonest = null;
       Object.keys(byCity).forEach(function(c){
         byCity[c].forEach(function(w){
-          if(w.from > ds && (soonest === null || w.from < soonest)) soonest = w.from;
+          /* ⛔ AND A HOUSE THAT IS MERELY AWAY TODAY IS "ASK AGAIN ON THE DAY THEY ARE
+             BACK", NEVER "nobody is left" ([[SCH-98]]). This is the one place an away
+             window could have broken the HEADLINE RULE, and it would have done it in
+             silence: crews free, nobody placeable, soonest null, `break` — and every
+             remaining house falls out of the season with no day and no message. A house
+             past its floor but inside a window answers with the day the window ends, so
+             the calendar walks on and they are placed when they are home.
+             ⚠ awayClearFrom NEVER ANSWERS EARLIER THAN IT WAS ASKED, so this can only
+             move the jump later, never drag the season backwards into days already
+             built. */
+          let f = (w.from > ds) ? w.from : (awayOn(w, ds) ? awayNext(w, ds) : '');
+          if(f && f > ds && (soonest === null || f < soonest)) soonest = f;
         });
       });
       if(soonest === null) break;
@@ -63290,6 +63698,16 @@ function planNewCrewDays(waiting, taken, opts){
     cap: cap, crews: crews, thin: o.thin, taken: taken || {}, dayShape: o.dayShape,
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
     until: function(id){ return (wById[id] && wById[id].until) || ''; },
+    /* ⭐ THE PACKER MOVES HOUSES BETWEEN DAYS, SO IT HAS TO ASK ([[SCH-98]]). The builder
+       keeping somebody off their holiday is worth nothing if the tail sweep then posts
+       them onto it to kill a thin morning — and that sweep is the one most likely to,
+       because a day nobody else wanted is exactly the day a lone away house is sitting
+       on. Passed as an accessor beside from/until so a caller that omits it gets the old
+       behaviour rather than a crash. */
+    awayOn: function(id, ds){
+      const w = wById[id];
+      return !!w && typeof houseAwayOn === 'function' && houseAwayOn(w, ds);
+    },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
     nearby: function(c){ return nearbyTowns(c, centres); },
     dist: function(a, b){
@@ -63442,6 +63860,12 @@ function gatherStrayHouses(days, opts){
     const lo = (w && w.from) || '', hi = (w && w.until) || '';
     if(lo && to.date < lo) return false;
     if(hi && to.date > hi) return false;
+    /* ⭐ AND NEVER ONTO A DAY THEY ARE AWAY ([[SCH-98]]). Both gatherers carry this
+       clause, deliberately: they are two copies of one rule about moving a house between
+       days, and a window honoured by one of them is a house the other quietly posts into
+       a holiday. Read off the waiting row rather than re-derived, so the gatherers and
+       the builder cannot disagree about the same customer. */
+    if(typeof houseAwayOn === 'function' && houseAwayOn(w, to.date)) return false;
     if(to.date > from.date &&
        (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
     return true;
@@ -63648,6 +64072,12 @@ function evenCrewDates(days, opts){
     const lo = (w && w.from) || '', hi = (w && w.until) || '';
     if(lo && to.date < lo) return false;
     if(hi && to.date > hi) return false;
+    /* ⭐ AND NEVER ONTO A DAY THEY ARE AWAY ([[SCH-98]]). Both gatherers carry this
+       clause, deliberately: they are two copies of one rule about moving a house between
+       days, and a window honoured by one of them is a house the other quietly posts into
+       a holiday. Read off the waiting row rather than re-derived, so the gatherers and
+       the builder cannot disagree about the same customer. */
+    if(typeof houseAwayOn === 'function' && houseAwayOn(w, to.date)) return false;
     if(to.date > from.date &&
        (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
     return true;
@@ -63841,6 +64271,16 @@ function packTailCrewDays(built, opts){
      work started from — and it would be silent. */
   const allowedUntil = o.until || null;
   const mayMoveLater = !!allowedUntil;
+  /* ⭐ IS THIS HOUSE AWAY ON THIS DATE ([[SCH-98]])? Defaults to "never", so every suite
+     that lifts this packer without it packs exactly as it always has. */
+  const awayOn = typeof o.awayOn === 'function' ? o.awayOn : function(){ return false; };
+  /* A WHOLE CREW-DAY can only ride a date that suits every house on it, so one house
+     away is enough to refuse the move for all of them — the same shape as latestAllowed
+     below, which takes the latest floor rather than an average. */
+  const anyAwayOn = function(ids, ds){
+    for(let i = 0; i < ids.length; i++) if(awayOn(ids[i], ds)) return true;
+    return false;
+  };
   const townOf = o.townOf || function(){ return ''; };
   const nearby = o.nearby || function(){ return []; };
   /* Miles between two towns, for the rescue below only. Without it a far town
@@ -63946,6 +64386,10 @@ function packTailCrewDays(built, opts){
         const d = list[j].date;
         if(d >= src.date || d <= best) continue;   // never later; keep the closest
         if(need && d < need) continue;
+        /* ⭐ AND NOT ONTO A DAY SOMEBODY ON THIS CREW IS AWAY ([[SCH-98]]). This move is
+           EARLIER by construction, which is exactly the direction that walks into a
+           holiday nobody had reached yet. */
+        if(anyAwayOn(src.ids, d)) continue;
         if(crewsOn(d, src) >= crewsOnDate(d)) continue;
         const busyTowns = townsOn(d, src);
         let clash = false;
@@ -64003,6 +64447,7 @@ function packTailCrewDays(built, opts){
           if(deadline && tgt.date > deadline) continue;
         }
         if(okDate && tgt.date < okDate) continue;        // never before they may be hung
+        if(awayOn(id, tgt.date)) continue;               // and never while they are away
         if(capOnDate(tgt.date) - (tgt.ids.length + extra[j]) <= 0) continue;
         const towns = tgt.towns || [];
         const planned = addTowns[j];
@@ -71496,7 +71941,7 @@ function attachDeleteHandlers(container){
 (function(){ try{
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
-  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n";
+  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stuckbadge{display:inline-block;background:#e7f0ff;color:#2a4d8f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.qbtn.stuck{border-color:#c5d8f4;background:#eef4fd;color:#25548f}\n";
   const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
@@ -71676,6 +72121,15 @@ function takedownDays(){return ORDER.filter(d=>d.isTakedown);}
 function phaseDays(day){return day.isTakedown?takedownDays():installDays();}
 function allHouses(){return SEASON.flatMap(d=>d.houses);}
 function findHouse(id){for(const d of SEASON){const h=d.houses.find(x=>String(x.id)===String(id));if(h)return{house:h,day:d};}return null;}
+/* The date a day id names, without walking anybody's houses. See the note at its caller in
+   stopHTML: the obvious findHouse(id).day is a full scan of the plan per stop. */
+function dayIsoById(dayId){
+  if(!dayId) return '';
+  for(const d of SEASON){
+    if(String(d.id) === String(dayId)){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; }
+  }
+  return '';
+}
 // "New member" for this imported house means a quote that has gone Closed - the status
 // the Convert-to-Customer flow itself sets the moment a quote becomes this house's
 // customer record (see the {status:'closed', convertedToCustomerAt:...} write above).
@@ -73135,6 +73589,78 @@ function takedownTimingOf(d){
    locked, or to the last one — so the press visibly does something, and the next
    Recalculate lays it out the same way from the stored choice. Normal leaves the house
    where it is until the next Recalculate, and says so. */
+/* ⭐⭐ STUCK HERE, FROM THE DAY PANEL ([[SCH-100]], 2026-09-28). Addie, asked whether the pin
+   should be a typed date on Customers or a one-click toggle on the day she is looking at:
+   "yes add the toggle on the schedule day panel."
+
+   ⭐ IT IS THE SAME ONE FIELD, NOT A SECOND MECHANISM. `stuckOnDate` on the customer record
+   is what Edit Customer types and what this button writes, so the two can never disagree
+   about whether somebody is pinned — and every rule that holds a pinned house
+   (houseAllowedFrom, houseDeadline, placeStuckHouses) is untouched by this. All that is new
+   is a second door onto the same setting, and the day supplies the date so nobody has to
+   type one.
+
+   ⚠ THE DAY IT IS ON IS THE DATE. That is the whole point of the button: you are looking at
+   the stop on the day it should stay on, so there is nothing to type and nothing to get
+   wrong. A pin already pointing at some OTHER day is MOVED here rather than refused — that
+   is what pressing it on this stop means.
+
+   ⚠ INSTALL STOPS ONLY. A takedown has its own Soonest/Latest choice ([[SCH-92]]) and a
+   fixer route is its own day; neither is placed by the rules this pin works through, so a
+   button there would look like it did something and do nothing.
+
+   ⚠ AND AN IMPORTED CSV ROW CANNOT BE PINNED, because there is no customer record to write
+   to — those rows carry no id and never will. Said out loud rather than failing quietly:
+   a button that silently does nothing is the thing this repo has shipped once already. */
+async function setStuckHere(houseId){
+  const f = findHouse(houseId);
+  if(!f || !f.house || f.house.isTakedown || f.house.isFix) return;
+  const dt = dayDate(f.day);
+  if(!dt){ toast('This day has no date yet — nothing was saved'); return; }
+  const here = isoOf(dt);
+  const cust = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(f.house) : null;
+  if(!cust){ toast('Could not find this customer in All Customers — nothing was saved'); return; }
+  /* The stored answer decides, never the plan row, so the button cannot claim one thing
+     while the record says another — the same way round takedownTimingOf is read. */
+  const was = ('' + (((cust.data || {}).stuckOnDate) || f.house.stuck || '')).trim();
+  const next = (was === here) ? '' : here;
+  try{
+    await updateDoc(doc(db, 'jobAddresses', cust.id),
+      {stuckOnDate: next || null, updatedAt: serverTimestamp()});
+  }catch(err){
+    console.error('[HU] could not save the pinned day', err);
+    toast('Could not save that — ' + ((err && err.message) || 'try again'));
+    return;
+  }
+  /* ⚠ MIRRORED INTO BOTH CACHES BEFORE THE REPAINT. The panel redraws from the plan and the
+     customer list, not from Firestore, so without this the button visibly springs back and
+     somebody presses it again — two writes in flight over one pin. Same optimistic mirror
+     every other writer here uses. */
+  if(cust.data) cust.data.stuckOnDate = next || null;
+  f.house.stuck = next;
+  renderAll();
+  scheduleSave();
+  const who = personName(f.house.name, f.house) || 'They';
+  toast(next
+    ? (who + ' are stuck on ' + fmtDayLabel(dt) + ' — nothing will move them off it')
+    : (who + ' are no longer stuck to a day — they will be scheduled normally'));
+}
+/* The day a pin names, in the words the panel already uses for a date. Its own function so
+   the toast and the button's title cannot start describing the same day differently. */
+function fmtDayLabel(dt){
+  if(!dt) return '';
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return days[dt.getDay()] + ' ' + dt.getDate() + ' ' + months[dt.getMonth()];
+}
+/* ⭐ WHAT THIS STOP'S PIN SAYS, for the button and the badge. Reads the CUSTOMER first for
+   the reason above, and answers '' for anybody who is not pinned. */
+function stuckDayOf(h){
+  if(!h || h.isTakedown || h.isFix) return '';
+  const cust = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+  const stored = cust && cust.data ? cust.data.stuckOnDate : null;
+  return ('' + (stored || h.stuck || '')).trim();
+}
 async function setTakedownTiming(houseId, value){
   const f = findHouse(houseId);
   if(!f || !f.house.isTakedown) return;
@@ -73522,6 +74048,13 @@ function stopFlagBadges(h){
   if(missed){
     out+='<span class="missbadge" title="The crew did not reach this house on '+missed+' day'+(missed===1?'':'s')+' already">MISSED ×'+missed+'</span>';
   }
+  /* ⭐ STUCK ([[SCH-100]]). On the NAME rather than only in the controls, because the control
+     row is one line down and the question "why did this house not move" is asked while
+     scanning the list. Same reason ASKED SOONER and MISSED are badges. */
+  const stuckOn=(typeof stuckDayOf==='function')?stuckDayOf(h):'';
+  if(stuckOn){
+    out+='<span class="stuckbadge" title="Stuck on '+esc(stuckOn)+' — nothing moves them off it">📌 STUCK</span>';
+  }
   return out;
 }
 function stopHTML(h,n,dayId){
@@ -73532,7 +74065,29 @@ function stopHTML(h,n,dayId){
   const kind=h.isTakedown?'take':(h.isFix?'fix':'install');
   let extra='<div class="sctl"><span class="lbl">'+(h.isTakedown?'Move takedown to':'Reschedule to')+'</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(dayId,kind)+'</select>';
   if(h.isFix)extra+='<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button>';
-  else if(!h.isTakedown)extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
+  else if(!h.isTakedown){
+    extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
+    /* ⭐⭐ STUCK HERE ([[SCH-100]]). One press pins this house to the day you are looking at,
+       and nothing moves them off it. The date comes from the DAY, so there is nothing to type.
+       ⚠ THREE STATES, NOT TWO, and the third is the one worth drawing: a pin pointing at some
+       OTHER day. Shown as itself, and pressing it MOVES the pin here — which is what pressing
+       it on this stop means. Rendered as two states, a pin on the wrong day would read as no
+       pin at all, which is the one reading that loses the office's own instruction. */
+    const sd=(typeof stuckDayOf==='function')?stuckDayOf(h):'';
+    /* ⚠ RESOLVED FROM dayId, WHICH THIS FUNCTION IS ALREADY HANDED — never findHouse. That
+       walks every day's houses looking for one id, and this runs once PER STOP: on the real
+       book that is ~40 × ~1,000 comparisons a repaint, the exact shape that has locked this
+       page up on a keystroke before. dayIsoById walks the ~35 DAYS and stops. */
+    const hereIso=(typeof dayIsoById==='function')?dayIsoById(dayId):'';
+    const pinnedHere=!!sd&&sd===hereIso;
+    const pinnedElse=!!sd&&!pinnedHere;
+    extra+='<button class="qbtn stuck'+(pinnedHere?' on':'')+'" data-stuck="'+h.id+'" title="'+
+      (pinnedHere?'Stuck on this day — press to unpin and let the schedule move them again'
+       :pinnedElse?('Stuck on '+esc(sd)+' — press to move the pin to this day')
+       :'Pin them to this day so nothing moves them off it')+'">'+
+      (pinnedHere?'📌 Stuck here — unpin':pinnedElse?('📌 Stuck on '+esc(sd)+' — pin here'):'📌 Stuck here')+
+      '</button>';
+  }
   /* [[SCH-92]] Soonest / Latest possible, one customer at a time. */
   else{const tc=(typeof hlxResolvePlanHouse==='function')?hlxResolvePlanHouse(h):null;const tt=takedownTimingOf(tc&&tc.data?tc.data:h);extra+='<button class="qbtn soon'+(tt==='soonest'?' on':'')+'" data-taketiming="soonest" data-takehouse="'+h.id+'">⏫ Soonest possible</button>'+'<button class="qbtn late'+(tt==='latest'?' on':'')+'" data-taketiming="latest" data-takehouse="'+h.id+'">⏬ Latest possible</button>'+(tt?'<button class="qbtn" data-taketiming="normal" data-takehouse="'+h.id+'">Normal</button>':'');}
   extra+='</div>';
@@ -74755,7 +75310,45 @@ function houseAllowedFrom(h, startStr){
   if(p.indexOf('NOV')===0) return (BASE_START.getFullYear())+'-11-01';
   return startStr;
   })();
-  return (nb && nb > base) ? nb : base;
+  /* ⭐ AND THE CUSTOMER'S OWN WINDOW IS A FLOOR TOO ([[SCH-99]]). Addie asked for "a
+     calendar timeframe of when they want to be scheduled" while keeping the month
+     preference, so this is the "not before" half of that window and it joins the same
+     queue every other date rule here is already in.
+     ⚠ THE LATEST OF ALL THREE WINS — their month, the office's date, their own window —
+     and that ordering is the one thing in this function that has never changed. A
+     November customer who types a window opening on 20 October is still a November
+     customer; a window can delay somebody, never drag them into a month they did not
+     ask for. Same limit rushInstall and the office date carry. */
+  /* ⭐⭐ STUCK ON ONE DAY, AND NOTHING MOVES THEM ([[SCH-100]], 2026-09-28). Addie: "Can we
+     also make it so that we can choose someone that can't move from a day and is stuck
+     there?"
+     ⭐ A PIN IS A WINDOW ONE DAY WIDE, WHICH IS WHY IT IS EXPRESSED HERE AND NOWHERE ELSE.
+     Every mover in this app already refuses a day outside `from`..`until` — the timing
+     sweep, both stray gatherers, the tail packer's whole-day ride and its per-house move,
+     and nextInstallDayFor. Saying "the floor and the ceiling are both this day" makes all
+     eight of them hold the house without one line being added to any of them, and it
+     cannot be half-applied the way a new flag checked in eight places can.
+     ⛔ IT WINS OUTRIGHT, unlike every other rule here, which takes the LATER of two floors.
+     A pin is not a preference to be weighed — it is somebody in the office saying this
+     house is on this day — so it beats their month, the office's own earliest date, their
+     wanted window and a warehouse hold. Taking the later of the two would silently slide
+     them off the very day they were pinned to.
+     ⚠ IT DOES NOT PUT THEM THERE. Holding a house on a day is this function's job; getting
+     them onto it in the first place is placeStuckHouses, at the end of the rebuild. A pin
+     with no placer is a house pinned to a day it is not on. */
+  const stuck = ('' + ((h && h.stuck) || '')).trim();
+  if(stuck) return stuck;
+  let out = (nb && nb > base) ? nb : base;
+  const want = ('' + ((h && h.wantFrom) || '')).trim();
+  if(want && want > out) out = want;
+  /* ⭐ AND IF THAT DAY IS ONE THEY ARE AWAY, THE FLOOR STEPS PAST IT ([[SCH-98]]).
+     ⚠ THIS IS NOT THE WHOLE AWAY RULE AND MUST NOT BE MISTAKEN FOR IT. It only moves the
+     day they OPEN on. A holiday in the middle of a season they are otherwise open for —
+     the ordinary case, and the one Addie asked about — is a hole, and a floor cannot
+     describe a hole; houseAwayOn is what every placement site asks per candidate day.
+     Deleting one of the two leaves the other looking like it works.
+     ⚠ GUARDED so a sandbox that lifts this function alone behaves exactly as it did. */
+  return (typeof awayClearFrom === 'function') ? (awayClearFrom(h, out) || out) : out;
 }
 /* ⭐ THE LAST DAY A HOUSE MAY BE HUNG, where the customer named one.
    Owner, 2026-08-18, reading October customers sitting on a 26 November day:
@@ -74795,6 +75388,16 @@ function houseHoldFrom(custData){
 }
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
+  /* ⭐⭐ THE OTHER HALF OF THE PIN ([[SCH-100]]). houseAllowedFrom says this day is the
+     earliest; this says it is also the last, and the two together are what every mover in
+     the app already reads as "may not go anywhere else".
+     ⛔ FIRST IN THE FUNCTION, ahead of even the office's own date, for the same reason the
+     floor is: a pin is not weighed against anything. A ceiling from any other branch would
+     be a different day from the floor, which is an impossible window — and packTailCrewDays
+     reads one of those as "never move this house", so it would LOOK like the pin was
+     working while the customer sat on whatever day the builder first gave them. */
+  const stuckDay = ('' + ((h && h.stuck) || '')).trim();
+  if(stuckDay) return stuckDay;
   /* ⭐ AN OFFICE DATE IS A WINDOW, NOT JUST A STARTING GUN (2026-09-09, SCH-49). Asked
      how close "just after" should be, Addie chose within a week of the date. Without a
      ceiling the tail sweep is free to push the house to the end of the season, which is
@@ -74808,6 +75411,29 @@ function houseDeadline(h){
      ceiling — the behaviour every house had before this existed. */
   if(h && h.notBefore && typeof staffDateWindowEnd === 'function'){
     return staffDateWindowEnd(h.notBefore) || '';
+  }
+  /* ⭐ AND THE CUSTOMER'S OWN WINDOW CLOSES ([[SCH-99]]). The other half of "a calendar
+     timeframe of when they want to be scheduled": houseAllowedFrom holds the opening day,
+     this is the last day of it.
+     ⚠ IT SITS BELOW THE OFFICE'S DATE AND ABOVE THE MONTH, which is the same order the
+     floors are in. The office overrules the customer; a typed window is more specific
+     than the word "November", so an October customer who asks for 5-15 November gets
+     15 November as their last day rather than the 31 October the month would have given
+     them — and their floor moved to the 5th in the same breath, so the window is whole.
+     ⛔ A CEILING THAT SITS BEFORE THE FLOOR IS NOT A WINDOW, IT IS A CONTRADICTION, and
+     this is the one place in this function that says so. packTailCrewDays reads an
+     impossible window as "this house may never move" rather than as two settings that
+     disagree, so a customer whose window closes before their own month opens would be
+     pinned wherever the builder first dropped them, silently. Dropping the ceiling leaves
+     the floor — the half that protects the customer — still doing its job.
+     ⚠ THE OFFICE'S OWN BRANCH ABOVE CAN STILL PRODUCE ONE (12 October typed on a November
+     customer) and is deliberately NOT changed here: it has its own gates and its own
+     ruling, and quietly altering it under cover of this change is how one of those gets
+     lost. Said rather than fixed. */
+  const wantTo = ('' + ((h && h.wantTo) || '')).trim();
+  if(wantTo){
+    const floor = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, '') || '') : '';
+    if(!floor || wantTo >= floor) return wantTo;
   }
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
   if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){
@@ -75354,6 +75980,12 @@ function rebuildSeasonDays(){
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */
             until:houseDeadline(h),
+            /* ⭐ THE AWAY LIST TRAVELS AS ITSELF ([[SCH-98]]). `from` and `until` are
+               ANSWERS worked out from the house; this is the QUESTION, because a hole
+               cannot be collapsed into either of them — which day is blocked depends on
+               which day is being offered. houseAwayOn reads it off the waiting row the
+               same way it reads it off the house. */
+            away:(h && h.away) || '',
             /* Coordinates come off the customer record — the imported rows have
                none — and only decide whether two towns are near enough to share
                a crew. A house without them still gets a day in its own town. */
@@ -75497,9 +76129,20 @@ function rebuildSeasonDays(){
     let net0 = {placed: [], still: []};
     try{ if(typeof placeConfirmedLeftOff === 'function') net0 = placeConfirmedLeftOff(floorStr, startStr); }
     catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
+    /* ⭐ THE PIN IS HONOURED ON THIS EXIT TOO ([[SCH-100]]). Nothing new could be built, so
+       the old plan stands — and a house pinned to a day it is not on is still pinned to a day
+       it is not on. "Nothing moves them off it" has to be true of every press, not only the
+       ones that rebuilt something, or the promise depends on how the season happened to go. */
+    let stuck0 = {placed: [], blocked: []};
+    try{ if(typeof placeStuckHouses === 'function') stuck0 = placeStuckHouses(floorStr); }
+    catch(err){ console.error('Could not hold the pinned customers on their day:', err); }
     return {error:'Nothing could be scheduled — check the towns on these customers.',
             safetyNet: net0.placed.length, safetyNetNames: net0.placed.slice(0, 5),
-            confirmedOff: net0.still.length, confirmedOffNames: net0.still.slice(0, 5)};
+            confirmedOff: net0.still.length, confirmedOffNames: net0.still.slice(0, 5),
+            stuckMoved: stuck0.placed.length,
+            stuckMovedNames: stuck0.placed.slice(0, 5).map(function(x){ return x.name; }),
+            stuckBlocked: stuck0.blocked.length,
+            stuckBlockedNames: stuck0.blocked.slice(0, 5).map(function(x){ return x.name; })};
   }
   BASE_START=start;
   globalDelta=0;
@@ -75528,8 +76171,24 @@ function rebuildSeasonDays(){
     try{ if(typeof placeConfirmedLeftOff === 'function') net = placeConfirmedLeftOff(floorStr, startStr); }
     catch(err){ console.error('Could not put every confirmed customer on a day:', err); }
   }
+  /* ⭐⭐ AND ANYBODY PINNED TO A DAY IS PUT BACK ON IT ([[SCH-100]]). LAST, after the
+     safety net above, and the order is the rule: placeConfirmedLeftOff guarantees everybody
+     Confirmed has SOME day, this one moves the pinned few onto the EXACT day they were given.
+     Run the other way round, a house the net had just placed on an open day would keep it and
+     the pin would look ignored on the one press that is supposed to honour it.
+     ⚠ IT CANNOT LEAVE ANYBODY OFF — it only ever moves a house from one day to another, and
+     where it may not (a printed sheet inside the 48-hour lock) it leaves them exactly where
+     they are and says so. So the headline rule measured above still holds after it. */
+  let stuckMoves = {placed: [], blocked: []};
+  try{ if(typeof placeStuckHouses === 'function') stuckMoves = placeStuckHouses(floorStr); }
+  catch(err){ console.error('Could not hold the pinned customers on their day:', err); }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
           safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
+          /* ⚠ SAID OUT LOUD ([[SCH-100]]). A pin that could not be honoured because its day is
+             already printed is the one case the office has to act on — re-print, or move the
+             pin — and a silent one is indistinguishable from a pin that worked. */
+          stuckMoved:stuckMoves.placed.length, stuckMovedNames:stuckMoves.placed.slice(0,5).map(function(x){ return x.name; }),
+          stuckBlocked:stuckMoves.blocked.length, stuckBlockedNames:stuckMoves.blocked.slice(0,5).map(function(x){ return x.name; }),
           confirmedOff:net.still.length,
           confirmedOffNames:net.still.slice(0,5),
           left:left.length, orphans:orphans.length, stillSet:stillSet,
@@ -75862,7 +76521,31 @@ const SCHEDULE_SYNC_FIELDS = [
                                    read:function(d){
                                      const ms = (typeof anyStampMillis === 'function') ? anyStampMillis(d.earliestInstallDate) : 0;
                                      return ms ? isoOf(new Date(ms)) : '';
-                                   }}
+                                   }},
+  /* ⭐ THE TWO CALENDARS ([[SCH-98]], [[SCH-99]], 2026-09-28). All three carry
+     blankClears for the reason notBefore's entry already spells out: an empty box here is
+     a person LIFTING a restriction, not a half-loaded record. Without it, a holiday typed
+     once would hold the house for the rest of the season with nothing on screen able to
+     remove it — and unlike a wrong phone number, nobody would see it until the crew did
+     not turn up.
+     ⚠ PLAIN ISO STRINGS, NOT TIMESTAMPS, and that is a deliberate difference from
+     earliestInstallDate beside them. Every rule that reads these compares them against
+     a day string, so a Timestamp would be converted on the way in and on the way out,
+     through the local-midnight step that has already cost this app a day either side
+     more than once. The schedule's vocabulary is the day; these are stored in it. */
+  {key:'away', label:'away dates', blankClears:true,
+                                   read:function(d){
+                                     return (typeof awayListToKey === 'function') ? awayListToKey(d.awayDates) : '';
+                                   }},
+  {key:'wantFrom', label:'wanted from', blankClears:true,
+                                   read:function(d){ return ('' + (d.wantedFrom || '')).trim(); }},
+  {key:'wantTo', label:'wanted until', blankClears:true,
+                                   read:function(d){ return ('' + (d.wantedTo || '')).trim(); }},
+  /* ⭐ THE PIN ([[SCH-100]]). blankClears for the same reason as the three above, and here
+     it is the whole of unpinning somebody: without it, a day typed once holds that house
+     for the rest of the season and clearing the box would do nothing. */
+  {key:'stuck', label:'stuck on this day', blankClears:true,
+                                   read:function(d){ return ('' + (d.stuckOnDate || '')).trim(); }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
@@ -75947,6 +76630,12 @@ function nextInstallDayFor(h, opts){
       if((t.houses || []).length >= cap) return false;
       if(from && ts < from) return false;
       if(until && ts > until) return false;
+      /* ⭐ AND NOT A DAY THEY ARE AWAY ([[SCH-98]]). This is the answer BOTH the timing
+         sweep and the rejoin placer use, and it runs on the five-minute customer sync —
+         long after Recalculate everything. Left out here, a holiday the rebuild had
+         honoured would be undone minutes later by a sweep nobody was watching, which is
+         the exact shape of the build-evict-rebuild loop Suite 18.9 exists to stop. */
+      if(typeof houseAwayOn === 'function' && houseAwayOn(h, ts)) return false;
       if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ts)) return false;
       return true;
     });
@@ -76049,9 +76738,17 @@ function enforceInstallTiming(){
          not name one — a named day is a FLOOR, never a ceiling — so this can never
          drag somebody earlier who simply had no opinion. */
       const until = houseDeadline(h);
+      /* ⭐ AND A HOUSE STANDING ON A DAY ITS FAMILY IS AWAY IS IN THE WRONG PLACE TOO
+         ([[SCH-98]]). The other two are a house outside its window; this is a house
+         inside a hole, which is the same fault and wants the same repair. It matters
+         most for the case the feature was asked for: a holiday typed in AFTER the season
+         was laid out. The plan is saved, so the rebuild is not coming on its own — this
+         sweep is what moves them, on the next five-minute tick, without anybody pressing
+         anything. */
+      const awayHere = (typeof houseAwayOn === 'function') && houseAwayOn(h, here);
       const tooEarly = !!from && here < from;
       const tooLate  = !!until && here > until;
-      if(!tooEarly && !tooLate) return;   // allowed to be here
+      if(!tooEarly && !tooLate && !awayHere) return;   // allowed to be here
       /* ⭐ ONE RULE, ASKED (2026-08-22). This block used to choose the day itself;
          placeRejoinersOnNextDay needs the identical answer minutes later on the same
          timer, and two copies of "which day can take this house" is two answers. The
@@ -76068,7 +76765,7 @@ function enforceInstallTiming(){
            customer on a day earlier than they asked for is visible and fixable; a
            crew handed a six-town sheet finds out on the road. */
         stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
-                    notAfter: until, late: tooLate});
+                    notAfter: until, late: tooLate, away: awayHere});
         return;
       }
       day.houses = day.houses.filter(function(x){ return x !== h; });
@@ -76773,6 +77470,82 @@ function confirmedNotOnAnyDay(){
 
    Returns the customers it placed (by name, for the report) and any it still could not
    place, which should always be empty. */
+/* ⭐⭐ STUCK ON ONE DAY — THE STEP THAT PUTS THEM THERE ([[SCH-100]], 2026-09-28).
+   Addie: "Can we also make it so that we can choose someone that can't move from a day and
+   is stuck there?"
+
+   houseAllowedFrom and houseDeadline are what make a pinned house immovable — a window one
+   day wide, which every mover in this app already refuses to go outside. This is the other
+   half: getting them ONTO that day, and putting them back if anything ever takes them off.
+
+   ⚠ IT RUNS AFTER THE REBUILD HAS LAID THE SEASON OUT, not inside the builder. The builder
+   groups houses by area and fills crew-days to a cap; a house that must be on one exact
+   date is not a scheduling preference it can weigh, it is an instruction. Teaching it that
+   would mean a special case in the town pick, the borrow and the tail sweep — three more
+   places to get wrong — when a single pass afterwards says the same thing once.
+
+   ⛔ IT WILL NOT TOUCH A DAY INSIDE THE 48-HOUR LOCK. That sheet is printed and the truck is
+   loaded; moving a house onto it is the one thing every other writer in the planner refuses,
+   and a pin is not a reason to start. A house already ON its locked day is left alone —
+   nothing needs doing — and one that would have to be moved onto it is REPORTED instead, so
+   the office can re-print or pick another day. Silence there would be a stop appearing on a
+   sheet somebody has already read.
+
+   ⚠ A HOUSE TICKED DONE IS HISTORY AND IS NEVER MOVED, the same rule the timing sweep keeps.
+
+   ⚠ AND IT MAKES THE DAY IF THE DATE HAS NONE. A pin to a date the season does not cover is
+   still a pin; refusing it would leave the house wherever the builder happened to put it,
+   which reads exactly like the feature not working.
+
+   Returns what it moved and what it could not, for the press to report. */
+function placeStuckHouses(floorStr){
+  const res = {placed: [], blocked: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return res;
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const locked = function(ds){
+    return typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds);
+  };
+  /* Every stuck house on the plan, wherever it currently sits. Read off the HOUSE, which
+     SCHEDULE_SYNC_FIELDS keeps in step with the customer record, so this and the rules
+     above cannot disagree about which day somebody is pinned to. */
+  const pinned = [];
+  SEASON.forEach(function(day){
+    if(day.isFixRoute || day.isTakedown) return;
+    (day.houses || []).forEach(function(h){
+      if(h.isFix || h.isTakedown || h.done) return;
+      const want = ('' + ((h && h.stuck) || '')).trim();
+      if(want) pinned.push({h: h, day: day, want: want});
+    });
+  });
+  pinned.forEach(function(p){
+    const here = dayStr(p.day);
+    if(here === p.want) return;                       // already where they belong
+    if(locked(here) || locked(p.want)){
+      res.blocked.push({name: p.h.name || '(no name)', from: here, to: p.want});
+      return;
+    }
+    let target = SEASON.filter(function(d){
+      return !d.isFixRoute && !d.isTakedown && dayStr(d) === p.want;
+    })[0];
+    if(!target){
+      const q = p.want.split('-').map(Number);
+      const dt = new Date(q[0], q[1] - 1, q[2]);
+      if(isNaN(dt)){ res.blocked.push({name: p.h.name || '(no name)', from: here, to: p.want}); return; }
+      /* ⚠ THE EXACT DATE, NOT the next working day. The office pinned this house to this
+         day; quietly sliding a Saturday pin to the Monday is the schedule overruling the
+         person who set it, on the one control whose whole promise is that nothing moves. */
+      target = {id: 'st' + Date.now().toString(36) + res.placed.length,
+                base: daysBetween(dt, BASE_START), cascade: 0, pin: null, houses: []};
+      SEASON.push(target);
+      computeDates();
+    }
+    p.day.houses = (p.day.houses || []).filter(function(x){ return x !== p.h; });
+    target.houses.push(p.h);
+    res.placed.push({name: p.h.name || '(no name)', from: here, to: p.want});
+  });
+  if(res.placed.length) computeDates();
+  return res;
+}
 function placeConfirmedLeftOff(floorStr, startStr){
   const res = {placed: [], still: []};
   if(typeof confirmedNotOnAnyDay !== 'function' || typeof houseFromCustomer !== 'function') return res;
@@ -76795,7 +77568,16 @@ function placeConfirmedLeftOff(floorStr, startStr){
     const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
     if(hold && hold > from) from = hold;
     const t = extractCleanCity(h.city);
-    const late = openDays().filter(function(day){ return isoOf(dayDate(day)) >= from; });
+    /* ⭐ AND NOT A DAY THEY ARE AWAY ([[SCH-98]]). The HEADLINE RULE says this step may
+       move a Confirmed customer LATER and may never leave them off — so an away window
+       narrows which day they get and can never cost them one: if nothing open is clear of
+       it, the block below MAKES a day past the window. That is the only reading of the
+       two rules that keeps both, and it is why this filter is safe to add here at all. */
+    const clear = function(day){
+      const ds = isoOf(dayDate(day));
+      return !(typeof houseAwayOn === 'function' && houseAwayOn(h, ds));
+    };
+    const late = openDays().filter(function(day){ return isoOf(dayDate(day)) >= from && clear(day); });
     let day = late.filter(function(day){
       return t && (day.houses || []).some(function(x){ return extractCleanCity(x.city) === t; });
     })[0]
@@ -76804,9 +77586,23 @@ function placeConfirmedLeftOff(floorStr, startStr){
     if(!day){
       /* Nothing open is late enough: make the day. First working day on or after both
          the floor and their own earliest day. */
-      const want = (from && from > floorStr) ? from : floorStr;
+      let want = (from && from > floorStr) ? from : floorStr;
       const p = want.split('-').map(Number);
-      const dt = nextWorkingDay(new Date(p[0], p[1] - 1, p[2]));
+      let dt = nextWorkingDay(new Date(p[0], p[1] - 1, p[2]));
+      /* ⛔ AND THE DAY WE MAKE IS NOT ONE THEY ARE AWAY EITHER ([[SCH-98]]). Two steps
+         have to alternate here and neither alone is enough: stepping past the window can
+         land on a Sunday, and stepping to the next working day can land back inside a
+         window. Bounded, and it FAILS TOWARDS PLACING THEM — if it ever ran out of tries
+         the customer still goes on the day it has, because being on a slightly wrong day
+         is recoverable and being on no day is the thing the headline rule forbids. */
+      for(let guard = 0; guard < AWAY_MAX_RANGES + 1; guard++){
+        const ds = isoOf(dt);
+        if(!(typeof houseAwayOn === 'function' && houseAwayOn(h, ds))) break;
+        const nextFree = (typeof awayClearFrom === 'function') ? awayClearFrom(h, ds) : '';
+        if(!nextFree || nextFree <= ds) break;
+        const q = nextFree.split('-').map(Number);
+        dt = nextWorkingDay(new Date(q[0], q[1] - 1, q[2]));
+      }
       day = {id: 'cf' + Date.now().toString(36) + res.placed.length, base: daysBetween(dt, BASE_START),
              cascade: 0, pin: null, houses: []};
       SEASON.push(day);
@@ -77204,6 +78000,18 @@ RT.addEventListener('click',e=>{const t=e.target;
       ' added to the schedule so every Confirmed is on a day: '+(r.safetyNetNames||[]).join(', ')+(r.safetyNet>5?' and others':''));
     if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
       ' still not on any day: '+(r.confirmedOffNames||[]).join(', ')+(r.confirmedOff>5?' and others':''));
+    /* ⭐ [[SCH-100]] — the pinned houses. Said on the press for the same reason the safety
+       net is: a control whose whole promise is "nothing moves them" has to be able to show
+       that it did its job on the one button that rearranges everything. */
+    if(r.stuckMoved) parts.push(r.stuckMoved+' customer'+(r.stuckMoved===1?'':'s')+
+      ' put back on the exact day they are stuck to: '+(r.stuckMovedNames||[]).join(', ')+(r.stuckMoved>5?' and others':''));
+    /* ⚠ AND THE ONE CASE THE OFFICE HAS TO ACT ON. A pin whose day is already printed is
+       not honoured, because moving a stop onto a loaded truck is the thing every writer in
+       this planner refuses. Silence here would read exactly like a pin that worked. */
+    if(r.stuckBlocked) parts.push('⚠ '+r.stuckBlocked+' pinned customer'+(r.stuckBlocked===1?'':'s')+
+      ' could NOT be moved to their day because it is within the next two working days and already printed: '+
+      (r.stuckBlockedNames||[]).join(', ')+(r.stuckBlocked>5?' and others':'')+
+      ' — re-print that day or pick another one.');
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
        2027 and not split for this year on schedule." A house quietly disappearing off
        the plan reads as a bug; the same house with a sentence beside it reads as the
@@ -77333,6 +78141,7 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.skip){cascade(t.dataset.skip,1,'Day off — pushed later');return;}
   if(t.dataset.unpin){const d=getDay(t.dataset.unpin);d.pin=null;renderAll();toast('Manual date cleared');return;}
   if(t.dataset.reassign){reassign(t.dataset.reassign,+t.dataset.month);return;}
+  if(t.dataset.stuck){setStuckHere(t.dataset.stuck);return;}
   if(t.dataset.taketiming){setTakedownTiming(t.dataset.takehouse,t.dataset.taketiming);return;}
   if(t.dataset.tolist){sendFixToList(t.dataset.tolist);return;}
   if(t.dataset.disband){disbandFixRoute(t.dataset.disband);return;}
