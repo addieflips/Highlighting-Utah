@@ -1960,10 +1960,10 @@
             <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
             <div id="addCustAwayList"></div>
             <button type="button" id="addCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
-            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab.</p>
+            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect <b>on its own</b> &mdash; the schedule picks it up within a few minutes, and nobody else on the plan is moved. No need to press anything.</p>
             <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
             <input type="date" id="addCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
-            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose.</p>
+            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. Takes effect <b>on its own</b> within a few minutes &mdash; no need to press anything. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose; and if you pin somebody to a date the schedule has no day for at all, it says so and you press <b>Recalculate everything</b> to create that day.</p>
           </div>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
@@ -2636,10 +2636,10 @@
             <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
             <div id="editCustAwayList"></div>
             <button type="button" id="editCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
-            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab.</p>
+            <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect <b>on its own</b> &mdash; the schedule picks it up within a few minutes, and nobody else on the plan is moved. No need to press anything.</p>
             <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
             <input type="date" id="editCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
-            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose.</p>
+            <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. Takes effect <b>on its own</b> within a few minutes &mdash; no need to press anything. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose; and if you pin somebody to a date the schedule has no day for at all, it says so and you press <b>Recalculate everything</b> to create that day.</p>
           </div>
           <!-- ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Filled by
                openEditCustomerModal from seasonHold(), which is gated on isOutForSeason —
@@ -76624,8 +76624,14 @@ function enforceInstallTiming(){
            2026-08-20: "we should never have a day with 5 towns no exceptions." A
            customer on a day earlier than they asked for is visible and fixable; a
            crew handed a six-town sheet finds out on the road. */
+        /* ⚠ A PIN THAT CANNOT BE HONOURED IS ITS OWN REASON ([[SCH-101]]). Reported as
+           "past the day they asked for — no earlier day has room" it sends the office
+           looking for a full day, when the real answer is that the date they pinned to has
+           no crew-day at all. Naming the wrong cause is how somebody stops trusting the
+           message. */
         stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
-                    notAfter: until, late: tooLate, away: awayHere});
+                    notAfter: until, late: tooLate, away: awayHere,
+                    pinned: !!(('' + ((h && h.stuck) || '')).trim())});
         return;
       }
       day.houses = day.houses.filter(function(x){ return x !== h; });
@@ -79194,8 +79200,14 @@ function exportCSV(){
         /* ⚠ WHICH WAY THEY ARE STUCK IS THE WHOLE MESSAGE. This read "no later day
            has room" for everybody, which is exactly backwards for a customer who has
            missed a deadline and needs an EARLIER day. */
-        const lateN = timing.stuck.filter(function(x){ return x.late; }).length;
-        const earlyN = timing.stuck.length - lateN;
+        /* ⭐ THE PINNED ONES ARE COUNTED SEPARATELY AND FIRST ([[SCH-101]]). Their day
+           exists nowhere in the plan, which no amount of room on another day fixes. */
+        const pinnedN = timing.stuck.filter(function(x){ return x.pinned; }).length;
+        const rest = timing.stuck.filter(function(x){ return !x.pinned; });
+        const lateN = rest.filter(function(x){ return x.late; }).length;
+        const earlyN = rest.length - lateN;
+        if(pinnedN) bits.push(pinnedN+" stuck to a day the schedule does not have \u2014 " +
+          "press Recalculate everything to create it, or pin them to a day that is already there");
         if(earlyN) bits.push(earlyN+" could not be moved \u2014 no later day has room");
         if(lateN) bits.push(lateN+" past the day they asked for \u2014 no earlier day has room");
       }

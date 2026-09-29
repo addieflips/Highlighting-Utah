@@ -3024,9 +3024,25 @@ November, November before Thanksgiving, After Thanksgiving and a named day all s
 exactly what they always decided. Addie asked for that explicitly, and `away-calendar.test.js`
 holds it by running all five with no calendar set and requiring the old answers.
 
-All three take effect on the next **⚙ Recalculate everything**, and all three are carried onto
-the plan by `SCHEDULE_SYNC_FIELDS`, so the five-minute customer sync keeps a saved season in
-step with them too. **Clearing a box clears it on the plan** (`blankClears`) — without that, a
+⛔ **YOU DO NOT HAVE TO PRESS ANYTHING.** Addie, after the first version shipped: *"Okay
+nothing should change on how it is now. It should be an add on and I should not have to
+recalculate anything."* All three take effect **by themselves**: `SCHEDULE_SYNC_FIELDS` carries
+them onto the plan and the timing sweep then moves the affected house — and that sweep runs on
+every customer change, whenever the Schedule tab is opened, and on a five-minute timer. Ruling
+**SCH-101**.
+
+⛔ **AND IT IS AN ADD-ON: A CUSTOMER WITH NONE OF THE THREE SET IS NEVER MOVED BY ANY OF IT.**
+The sweep only ever touches a house that is actually in the wrong place, and it is a LOCAL
+move — the house goes to the nearest day it is allowed on, preferring one already working its
+town. Nothing else on the plan is reshuffled. A full re-flow is what ⚙ Recalculate everything
+is for, and that is a separate decision.
+
+⚠ **THE ONE CASE THAT STILL NEEDS THE BUTTON**, and it says so on screen: a pin to a date the
+plan has **no crew-day for at all**. The sweep only moves houses between days that already
+exist, so it leaves that house where it is and reports *"N stuck to a day the schedule does not
+have"* — pressing ⚙ Recalculate everything creates the day, or pin them to a day that is
+already there. It is reported under its own reason rather than lumped in with "no earlier day
+has room", which would send you looking for a full day. **Clearing a box clears it on the plan** (`blankClears`) — without that, a
 date typed once would hold that house for the rest of the season with nothing on screen able to
 take it back.
 
