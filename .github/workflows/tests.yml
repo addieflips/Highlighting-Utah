@@ -292,6 +292,14 @@ jobs:
       # she chose, to several hundred people, with every other gate green.
       - name: What the RSVP text actually says
         run: npm run test:textwording
+      # Their own calendar — away dates, and the window they want us in. Named as its own
+      # step because the two things it protects fail in OPPOSITE directions and a generic
+      # npm test failure says neither: an away window that stops working sends a crew to an
+      # empty house, and one that goes too far takes a Confirmed customer off the schedule
+      # altogether, which is the headline rule breaking. It also holds the month dropdown —
+      # October, November, the two Thanksgiving timings — to exactly what it decided before.
+      - name: Their own calendar (away dates and wanted window)
+        run: npm run test:awaycal
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
