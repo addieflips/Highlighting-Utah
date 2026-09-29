@@ -590,6 +590,135 @@ suite('The two customer forms fill from the record');
 }
 
 /* ===================================================================== */
+suite('⭐⭐ NO RECALCULATE NEEDED, AND NOTHING ELSE MOVES ([[SCH-101]])');
+/* Addie, after the first version shipped: "Okay nothing should change on how it is now.
+   It should be an add on and I should not have to recalculate anything."
+
+   TWO PROMISES, AND THIS SUITE IS BOTH OF THEM:
+     · an away date, a wanted window or a pin typed today takes effect BY ITSELF — through
+       the sweep that already runs on every customer change, on opening the Schedule tab
+       and on a five-minute timer. No press required.
+     · and a customer with none of them set is NEVER MOVED by any of it.
+
+   ⛔ RUN, NOT MATCHED. Both claims are about which day a house ENDS UP ON after the sweep,
+   which no regex over the source can see. The sweep is lifted whole with the real rules
+   behind it — a stub would decide the very thing under test. */
+{
+  const AWAY_SRC = 'const AWAY_MAX_RANGES=' + R.MAX + ';' +
+    (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0] + LF +
+    ['awayDayAfter', 'awayKeyToList', 'houseAwayOn', 'awayClearFrom'].map(n => lift(admin, n)).join(LF);
+  const names = ['dayTownList', 'dayTownCount', 'maxTownsPerDay', 'thanksgivingDate',
+                 'isThanksgivingDay', 'isWorkingDay', 'isoToLocalDate', 'addWorkingDays',
+                 'staffDateWindowEnd', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
+                 'nextInstallDayFor', 'enforceInstallTiming'];
+  const absent = names.filter(n => !lift(admin, n));
+  check('the timing sweep and everything it calls were lifted', absent.length === 0,
+    'missing: ' + absent.join(', '));
+  const BODY = AWAY_SRC + LF +
+    'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';' + LF +
+    'const STAFF_DATE_WINDOW_DAYS=' + (admin.match(/const STAFF_DATE_WINDOW_DAYS = (\d+);/) || [])[1] + ';' + LF +
+    'const PRE_THANKSGIVING_DAYS=' + (admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/) || [])[1] + ';' + LF +
+    'const CREWS_PER_DAY=2;' + LF + 'function dayLimitFor(){return null;}' + LF +
+    names.map(n => lift(admin, n)).join(LF) + LF + 'this.sweep = enforceInstallTiming;';
+
+  /* One house on a two-day plan, swept ONCE. No rebuildSeasonDays anywhere in here — that
+     is the whole point: this is the path a press-nothing office actually gets. */
+  const sweepOnce = function (house, onIso) {
+    const SEASON = [{id: 'd1', _iso: '2026-11-12', houses: []},
+                    {id: 'd2', _iso: '2026-11-25', houses: []}];
+    SEASON.filter(d => d._iso === onIso)[0].houses.push(house);
+    const ctx = {};
+    new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'extractCleanCity',
+      'maxStopsPerWorkingDay', 'BASE_START', 'routeDayIsLocked', BODY)
+      .call(ctx, SEASON,
+        d => d.toISOString().slice(0, 10),
+        () => new Date(2026, 9, 1),
+        d => new Date(d._iso + 'T00:00:00'),
+        c => String(c == null ? '' : c).trim(),
+        () => 40, new Date(2026, 9, 1), () => false);
+    const res = ctx.sweep();
+    const on = SEASON.filter(d => (d.houses || []).indexOf(house) !== -1)[0];
+    return {landed: on ? on._iso : null, moved: res.moved.length, stuck: res.stuck};
+  };
+  const base = {city: 'Lehi', pref: 'November'};
+  const H = o => Object.assign({id: 'h', name: 'Test'}, base, o);
+
+  /* ⭐ AWAY, with no press. A house sitting on a day its family is away moves off it. */
+  {
+    const r = sweepOnce(H({away: '2026-11-10..2026-11-20'}), '2026-11-12');
+    check('an away date moves the house off that day with NO rebuild',
+      r.landed === '2026-11-25' && r.moved === 1,
+      'landed on ' + r.landed + ' — Addie: "I should not have to recalculate anything"');
+  }
+  /* ⭐ THE WANTED WINDOW, with no press. */
+  {
+    const r = sweepOnce(H({wantFrom: '2026-11-10', wantTo: '2026-11-14'}), '2026-11-25');
+    check('a wanted window pulls them into it with NO rebuild',
+      r.landed === '2026-11-12' && r.moved === 1, 'landed on ' + r.landed);
+  }
+  /* ⭐ THE PIN, with no press. */
+  {
+    const r = sweepOnce(H({stuck: '2026-11-12'}), '2026-11-25');
+    check('a pin puts them on that exact day with NO rebuild',
+      r.landed === '2026-11-12' && r.moved === 1, 'landed on ' + r.landed);
+  }
+  /* ⛔⛔ AND THE OTHER HALF OF HER SENTENCE: "nothing should change on how it is now."
+     A customer with none of the three set must come out of the sweep exactly where they
+     went in. This is the check that makes the feature an ADD-ON rather than a change. */
+  {
+    const r = sweepOnce(H({}), '2026-11-25');
+    check('a customer with none of the three set is never moved',
+      r.landed === '2026-11-25' && r.moved === 0 && r.stuck.length === 0,
+      'it is an add-on: a book that uses none of this behaves exactly as it did');
+  }
+  /* And the same when the fields are present but empty — a blank must read as no answer,
+     not as a restriction nobody gave. */
+  {
+    const r = sweepOnce(H({away: '', wantFrom: '', wantTo: '', stuck: ''}), '2026-11-25');
+    check('and blank fields are no restriction at all', r.landed === '2026-11-25' && r.moved === 0);
+  }
+  /* ⚠ A PIN TO A DATE THE PLAN HAS NO DAY FOR is the one case the sweep cannot finish: it
+     only ever moves a house between days that already exist. It is REPORTED, by its own
+     reason, and the house is left where it was — never dropped. */
+  {
+    const r = sweepOnce(H({stuck: '2026-11-13'}), '2026-11-25');
+    check('a pin to a date with no day is reported as pinned, and the house is left in place',
+      r.landed === '2026-11-25' && r.moved === 0 &&
+      r.stuck.length === 1 && r.stuck[0].pinned === true,
+      'it must not be reported as "no earlier day has room", which sends the office ' +
+      'looking for a full day when the date simply has no crew-day');
+  }
+  /* ⚠ AND THE SYNC SAYS THAT IN ITS OWN WORDS. The reason is only useful if it reaches
+     the screen separately from the two it used to be lumped in with. */
+  {
+    const sync = bare(admin).slice(bare(admin).indexOf('if(timing.stuck.length){'));
+    check('the sync counts pinned separately and names the real fix',
+      /const pinnedN = timing\.stuck\.filter\(function\(x\)\{ return x\.pinned; \}\)\.length;/.test(sync.slice(0, 1200)) &&
+      /stuck to a day the schedule does not have/.test(sync.slice(0, 1600)));
+  }
+  /* ⛔ AND THE SWEEP REALLY IS ON THE NO-PRESS PATH. The checks above prove the sweep
+     honours the settings; this proves the sweep is what runs without a press. Wired into
+     scheduleSyncFromCustomers, which CLAUDE.md records as running three ways: on any
+     customer change, on opening the Schedule tab, and on a five-minute timer. */
+  {
+    const src = bare(admin);
+    /* ⚠ THE WHOLE STATEMENT, ANCHORED AT THE START OF ITS LINE — not the mere presence of
+       the call. Both of these were first written as "does this text appear", and wrapping
+       either in `if(false)` left the text exactly where it was: the sweep would silently
+       stop running and every setting here would quietly start needing a Recalculate, with
+       this suite green. The if(false) trap CLAUDE.md names by hand. */
+    check('the sweep is on the path that runs without anybody pressing anything',
+      /^ *try\{ timing=enforceInstallTiming\(\); \}catch/m.test(src) &&
+      /window\.scheduleSyncFromCustomers=function/.test(src),
+      'if this call goes, or is wrapped in a dead guard, every setting here silently ' +
+      'starts needing a Recalculate');
+    check('and that path is on a timer as well as on a customer change',
+      /^ *__syncTimer=setInterval\(/m.test(src) &&
+      /window\.scheduleSyncFromCustomers\(\{quiet:false\}\)/.test(src),
+      'the timer is the backstop for a tab left open all day');
+  }
+}
+/* ===================================================================== */
 suite('Stuck here — the one-click toggle on the day panel');
 /* ⭐ Addie asked for this after the typed field shipped: "yes add the toggle on the schedule
    day panel." It is a SECOND DOOR onto `stuckOnDate`, never a second mechanism — so the
