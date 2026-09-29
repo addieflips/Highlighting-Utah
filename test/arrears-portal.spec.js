@@ -151,6 +151,96 @@ test.describe('The payment panel', () => {
     stub.assertNoRealCalls();
   });
 
+  /* ⭐ PRESSING IT RECORDS AN INTENTION, AND NOTHING ELSE (2026-09-29).
+     Venmo has no webhook and sends us nothing, so a payment made that way was
+     invisible: the customer stayed Unpaid on every screen, joined the 1 February
+     text list and would have collected an April late fee for money they had
+     already sent. `portalVenmoOpened` marks that they went to pay.
+
+     ⛔ AND THE POINT OF DRIVING IT IN A BROWSER IS THE PAYLOAD. Addie's worry is
+     that the amount on that link is a pre-fill the customer can change — so the
+     one thing this press must never do is send us a number. The node gate proves
+     the SERVER ignores one; only this proves the page never puts one on the wire
+     in the first place. */
+  test('pressing Venmo records that they opened it, and sends no amount', async ({ page }) => {
+    /* ⚠ THE LINK IS target="_blank" TO venmo.com, which the test environment cannot
+       reach and must not try to. Aborted at the route so the popup fails instantly
+       rather than spending the spec's timeout on a DNS lookup. */
+    await page.context().route('**venmo.com/**', r => r.abort());
+    const stub = await openPortal(page);
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('#otherPaymentsPanel summary').click();
+    const venmo = page.locator('#venmoPayBtn');
+    await expect(venmo).toBeVisible();
+
+    /* The popup is expected and is not what is under test — take it and close it so
+       the spec is not left holding an open page. */
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup').catch(() => null),
+      venmo.click()
+    ]);
+    if (popup) await popup.close().catch(() => { /* already gone with the aborted route */ });
+
+    const call = await expect.poll(async () => {
+      const calls = await stub.calls();
+      const c = calls.filter(x => x.name === 'portalVenmoOpened');
+      return c.length ? c[c.length - 1].payload : null;
+    }, { timeout: 5000 }).not.toBeNull()
+      .then(async () => {
+        const calls = await stub.calls();
+        return calls.filter(x => x.name === 'portalVenmoOpened').pop().payload;
+      });
+
+    /* ⛔ THE TOKEN AND NOTHING ELSE. Not the amount, not the balance, not a tip. */
+    expect(Object.keys(call).sort()).toEqual(['token']);
+    expect(String(call.token).length).toBeGreaterThan(0);
+
+    /* ⛔ AND NOT ONE FIRESTORE WRITE FROM THE PAGE. The portal reaches protected data
+       only through callables; a direct write here would be a customer's browser
+       editing their own record. */
+    expect(await stub.writes()).toEqual([]);
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND A FAILURE MUST NOT COST THEM THE PAYMENT. Recording the press is a note
+     for the office; the customer is already on their way to Venmo in another tab,
+     so there is no screen left to tell and nothing for them to do about it. */
+  test('a failure to record the press still leaves them able to pay', async ({ page }) => {
+    await page.context().route('**venmo.com/**', r => r.abort());
+    /* ⚠ THE FORCING TOKEN HAS TO BE THE ONE THE PAGE SIGNS IN WITH, because that is
+       the token the click sends — the same shape address-move.spec.js uses for
+       forcemovefail. openPortal navigates with the fixture's own token, so this one
+       drives the stub and the goto by hand. */
+    const forced = JSON.parse(JSON.stringify(CUSTOMERS));
+    forced.standard.token = 'forcevenmofail';
+    const stub = await installFirebaseStub(page, { customers: forced });
+    await page.goto('/index.html#/payment?token=forcevenmofail');
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('#otherPaymentsPanel summary').click();
+    const venmo = page.locator('#venmoPayBtn');
+    await expect(venmo).toBeVisible();
+    /* The href is what actually pays them, so it has to survive a refused note. */
+    await expect(venmo).toHaveAttribute('href', /venmo\.com.*amount=\d+\.\d\d/);
+
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup').catch(() => null),
+      venmo.click()
+    ]);
+    if (popup) await popup.close().catch(() => { /* aborted route */ });
+
+    /* Still on the payment panel, nothing broken, and no failure text shown — unlike
+       every other portal call, this one deliberately does NOT reach
+       portalCallFailedText: there is nothing the customer can do about a note we
+       keep for ourselves, and they are already in Venmo. */
+    await expect(page.locator('#venmoPayBtn')).toBeVisible();
+    await expect(venmo).toHaveAttribute('href', /venmo\.com/);
+    stub.assertNoRealCalls();
+  });
+
   /* ⚠ THE QR IS GONE, NOT HIDDEN. It was a ~30KB base64 image shipped to every
      customer on every load, and it asked them to type the amount in
      themselves — which is how a payment arrives for the wrong figure. */

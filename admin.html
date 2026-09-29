@@ -4600,6 +4600,7 @@
                 <label><input type="checkbox" id="filterNeedsRemoval"> Needs Removal</label>
                 <label><input type="checkbox" id="filterCannotBill"> Cannot Be Billed</label>
                 <label><input type="checkbox" id="filterBillHeld"> Bill Held</label>
+                <label><input type="checkbox" id="filterVenmo"> Waiting on Venmo</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -8253,6 +8254,13 @@ const HISTORY_STEPS = [
      what was missing is that a held bill said nothing to anybody. See reportHeldBill. */
   { field: 'billHeldAt',               from: 'cust',
     what: 'Their bill was held, waiting on another house on it' },
+
+  /* ⚠ AND THIS ONE IS NOT A PAYMENT, WHICH IS THE WHOLE OF IT. They pressed Pay with
+     Venmo in their portal; Venmo tells us nothing back, so all we know is that they
+     opened it. On the history it answers "I paid by Venmo, did you get it?" — the date
+     they say they sent it, beside whatever the ledger later recorded arriving. */
+  { field: 'venmoOpenedAt',            from: 'cust',
+    what: 'Opened Venmo to pay — not a payment, just that they went to send one' },
   /* ⭐ THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
      Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
      has existed for a while, is written by the portal, by Edit Customer and by the sheet
@@ -28844,12 +28852,30 @@ function renderInvoicesList(){
            correction must not re-date a payment made weeks ago. */
         paidNow > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         toast('Payment status updated');
+        /* ⭐ A VENMO PAYMENT IS RECORDED AS ONE (2026-09-29). PAYMENT_METHOD_LABEL has
+           carried a `venmo` label since the ledger was built and NOTHING ever wrote it — a
+           reader with no writer, which §1 calls an error rather than a detail. The office
+           types these in off the Venmo email, so the honest method is known: if that
+           customer had pressed Pay with Venmo and is still unsettled, this money is what
+           they were told to send.
+           ⚠ DERIVED, AND THE NOTE SAYS SO, so nobody later reads it as a claim somebody
+           made by hand. A customer who opened Venmo and then paid by cheque would be filed
+           as Venmo, which is a wrong line in an audit trail and not a wrong balance — the
+           alternative was a second prompt on a `prompt()`-based entry, which buys accuracy
+           nobody asked for at the cost of a click on every payment.
+           ⚠ AND IT IS READ BEFORE THE WRITE LANDS IN THE CACHE, which is what makes it
+           work: custWaitingOnVenmo asks getLiveInvoiceStatus off allInvoicesCache, and that
+           still holds the OLD deposit here, so somebody being marked paid right now still
+           reads as waiting. */
+        const venmoCust = jobAddresses.find(a => custInvoiceKey(a.data) === invId);
+        const wasVenmo = paidNow > 0 && !!venmoCust && custWaitingOnVenmo(venmoCust.data);
         await logPayment({
           invoiceKey: invId,
           name: invRec ? (invRec.data.name || '') : '',
           amount: paidNow,
-          method: paidNow < 0 ? 'correction' : 'manual',
-          note: 'Payment status set to "' + sel.value + '" from the invoice list'
+          method: paidNow < 0 ? 'correction' : (wasVenmo ? 'venmo' : 'manual'),
+          note: 'Payment status set to "' + sel.value + '" from the invoice list' +
+            (wasVenmo ? ' — recorded as Venmo because they had opened it from their portal' : '')
         });
         if(invRec){
           reportReceiptOutcome(await sendPaymentReceipt(invId, Object.assign({}, invRec.data, {deposit: deposit}), paidNow));
@@ -48660,6 +48686,39 @@ function custBillHeld(d){
   return dd.invoiceEmailSent !== true;
 }
 let activeBillHeldFilter = false;
+/* ⭐ THEY OPENED VENMO TO PAY, AND WE HAVE NOT SEEN IT YET (added 2026-09-29).
+   Addie, asked how a Venmo payment should reach the app: "We can't even login to venmo
+   we just see it if it comes to email so I think it will be easiest if this was
+   manual", and on recording the press itself: "We can do this one so people are marked
+   as venmo and we can just check on venmo."
+
+   ⛔ VENMO TELLS US NOTHING, WHICH IS THE WHOLE PROBLEM. PayPal records itself through
+   its webhook; a Venmo deep link has no callback, no receipt and no webhook — so a
+   customer who paid that way stayed Unpaid on every screen, went onto the 1 February
+   text list, and would have collected an April late fee. `portalVenmoOpened` stamps
+   `venmoOpenedAt` when they press the button in their portal. This is the list of who
+   to go looking for in the Venmo email.
+
+   ⛔ IT IS NEVER A PAYMENT. Nothing about the press touches the invoice, and nothing
+   here reports them as settled. The money is recorded when the office types in what the
+   Venmo email actually says — which is also the answer to Addie's own worry, that the
+   amount in the link is a PRE-FILL the customer can change: she enters the real figure,
+   a short payment comes out Partial Payment, and the shortfall shows on the bill.
+
+   ⚠ DERIVED, SO NOTHING HAS TO CLEAR IT. Opening Venmo is a historical fact; what
+   changes is whether they still owe. Asking the bill means the mark disappears by itself
+   the moment the payment is entered — stored fact, derived display, the same shape as
+   derivedDoneFor and custCannotBeBilled. A clearing path would be a second writer.
+   ⚠ AND IT ASKS THE BILL THEY ARE ACTUALLY ON (getLiveInvoiceStatus), not their own
+   key, so somebody billed to a payer who has settled is not left on the list.
+   ⚠ A PARTIAL PAYMENT IS STILL WAITING, deliberately: they opened Venmo owing $430 and
+   $50 arrived, so there is still something to chase. */
+function custWaitingOnVenmo(d){
+  const dd = d || {};
+  if(!dd.venmoOpenedAt) return false;
+  return getLiveInvoiceStatus(dd) !== 'Paid in Full';
+}
+let activeVenmoFilter = false;
 let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
@@ -49037,7 +49096,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(custBillHeld(d) ? ' <span class="status-pill" style="background:#FFF8E9; color:#8A6D1F;" title="'+esc(d.billHeldWhy || '')+'">Bill Held</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(custBillHeld(d) ? ' <span class="status-pill" style="background:#FFF8E9; color:#8A6D1F;" title="'+esc(d.billHeldWhy || '')+'">Bill Held</span>' : '')+(custWaitingOnVenmo(d) ? ' <span class="status-pill" style="background:#EEF1FF; color:#33397a;" title="They pressed Pay with Venmo in their portal. Venmo tells us nothing, so check the Venmo email and enter what actually arrived.">&#128179; Check Venmo</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -49770,6 +49829,7 @@ function renderRouteAddressList(){
   if(activeNeedsRemovalFilter) filtered = filtered.filter(a => a.data.completed && !a.data.removalDone);
   if(activeCannotBillFilter) filtered = filtered.filter(a => custCannotBeBilled(a.data));
   if(activeBillHeldFilter) filtered = filtered.filter(a => custBillHeld(a.data));
+  if(activeVenmoFilter) filtered = filtered.filter(a => custWaitingOnVenmo(a.data));
   if(searchTerm){
     const t = searchTerm.toLowerCase();
     filtered = filtered.filter(a =>
@@ -49861,6 +49921,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   activeNeedsRemovalFilter = document.getElementById('filterNeedsRemoval').checked;
   activeCannotBillFilter = document.getElementById('filterCannotBill').checked;
   activeBillHeldFilter = document.getElementById('filterBillHeld').checked;
+  activeVenmoFilter = document.getElementById('filterVenmo').checked;
   const parts = [];
   if(activeDiffFilters.length) parts.push(activeDiffFilters.join('/'));
   if(activeNeedsFixFilter) parts.push('Needs Fix');
@@ -49870,6 +49931,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   if(activeNeedsRemovalFilter) parts.push('Needs Removal');
   if(activeCannotBillFilter) parts.push('Cannot Be Billed');
   if(activeBillHeldFilter) parts.push('Bill Held');
+  if(activeVenmoFilter) parts.push('Waiting on Venmo');
   document.getElementById('activeFilterSummary').textContent = parts.length ? parts.join(', ') : '';
   document.getElementById('filterDropdown').classList.remove('open');
   renderRouteAddressList();

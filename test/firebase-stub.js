@@ -445,6 +445,32 @@ const FAKE_FUNCTIONS_MODULE = `
       if (hit.record) hit.record.gateCode = gateCode;
       return { ok: true, gateCode: gateCode };
     },
+    /* Mirrors portalVenmoOpened (2026-09-29): the token is the credential and ONE field
+       is written. An unknown token THROWS not-found like every other portal callable.
+
+       ⛔ AND IT MUST STAY AS POOR AS THE REAL ONE. The whole claim about this callable is
+       that opening Venmo touches no money — no deposit, no status, no amount — so a stub
+       that helpfully marked the invoice, or recorded what we asked for, would let a spec
+       prove the opposite of the rule while passing. §9.14 has this both ways round: a fake
+       poorer than production fails loudly and looks like a product bug, a fake RICHER or
+       staler than production goes green while proving the wrong thing. This one is the
+       second kind of risk, so it writes exactly what the server writes and no more.
+
+       ⚠ NO BACKTICK AND NO DOLLAR-BRACE ANYWHERE IN HERE — see the note below; this whole
+       block sits inside the FAKE_FUNCTIONS_MODULE template literal. */
+    portalVenmoOpened: function (payload) {
+      const token = String((payload && payload.token) || '').trim();
+      if (token === 'forcevenmofail') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      let hit = null;
+      Object.keys(F.customers || {}).forEach(function (k) {
+        if (F.customers[k].token === token) hit = F.customers[k];
+      });
+      if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      if (hit.record) hit.record.venmoOpenedAt = new Date().toISOString();
+      return { ok: true };
+    },
     /* Mirrors portalChangeAddress (2026-09-10, QT-35): the token is the credential,
        both the street and the town are required, and an unknown token THROWS
        not-found like every other portal callable.

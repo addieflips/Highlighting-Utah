@@ -7289,6 +7289,68 @@ billed. It now says to tick the Installation Fee box.
 real Timestamp rather than a server sentinel, because the `{{due_date}}` maths further down
 reads this invoice back inside the same run.
 
+### A Venmo payment used to be invisible, and now somebody is told to look
+
+⛔ **Venmo tells us nothing.** It is a deep link — `venmo.com/HighLightingUtah?txn=pay&amount=…`
+— with no webhook, no callback and no receipt coming back to us. PayPal records itself
+through `paypalWebhook`; Venmo records *nothing*. So a customer who paid that way stayed
+**Unpaid on every screen**: they went onto the 1 February text list, and would have
+collected an April late fee for money they had already sent.
+
+⭐ **The amount on that link is a PRE-FILL, and that is the whole design constraint.**
+Addie, asked to fix this: *"you can change the amount so if someone changes the amount it
+can be problamatic."* She is right — the payer confirms in the Venmo app and can edit the
+figure there. So nothing in this reads that number as a payment, and nothing stores it.
+
+**How it works now:**
+
+| | |
+|---|---|
+| **Pressing Pay with Venmo** in the portal | stamps `venmoOpenedAt` on the customer, and **nothing else** |
+| **The office sees** | a **Check Venmo** chip, and a **Waiting on Venmo** filter in All Customers |
+| **The money is recorded** | by hand, from the Venmo notification email, so the figure entered is the one that actually arrived |
+| **The mark goes away** | by itself, the moment that payment settles them |
+
+⛔ **The entry is manual because the data cannot be reached any other way.** Addie: *"We
+can't even login to venmo we just see it if it comes to email so I think it will be easiest
+if this was manual."* A statement importer was offered and turned down on those facts, not
+on effort — the existing payment importer would take the amount from a file, which is safe
+by construction, but there is no login to get a file from. **Do not re-propose it** unless
+the Venmo access changes.
+
+⛔ **No amount is stored, deliberately.** The only number that could be recorded at the
+press is what we *asked* for, which is already on the bill and derived by one rule — a
+snapshot would be a second opinion about a balance, sitting next to real money. And the
+shortfall she is worried about is visible without it: she enters what the email says, the
+bill comes out **Partial Payment**, and they stay on the chase list with the gap showing.
+
+⚠ **The mark is derived, so nothing has to clear it.** Opening Venmo is a historical fact;
+what changes is whether they still owe. `custWaitingOnVenmo` asks the bill, so the chip
+disappears the instant the payment is entered — stored fact, derived display, the same shape
+as `derivedDoneFor`. **A part payment leaves the mark standing**, which is exactly the
+short-payment case.
+
+⚠ **It is not in `PORTAL_READ_FIELDS`.** *"We have not seen your payment"* is a thing we
+cannot honestly say when nobody has checked yet, and saying it to somebody who really did
+pay is worse than saying nothing.
+
+⚠ **And it does not promote Venmo.** Her 2026-09-01 ruling — *"I want venmo under other
+payments not showing at all cause I want venmo to be a last resort"* — is untouched: the
+button stays inside a `<details>` that is shut on every render. Recording a press must not
+make it a more visible option.
+
+⚠ **The ledger's `venmo` method finally has a writer.** `PAYMENT_METHOD_LABEL` has carried
+that label since the ledger was built and nothing ever wrote it. The method is derived from
+the mark and the note says so, rather than costing a second prompt on every payment — a
+customer who opened Venmo and then paid by cheque is filed as Venmo, which is a wrong line
+in an audit trail and not a wrong balance.
+
+⚠ **What this does NOT catch, said plainly: a click in an EMAIL.** The Venmo button is also
+in the nightly invoice, the payment receipt and the late-fee email, and a click there is a
+plain link in a mail client — there is nothing to record it with. So the list is *"who
+pressed it in their portal"*, not *"everybody paying by Venmo"*. The ordinary Unpaid and
+Partial filters are still what covers the rest.
+
 ### A bill held by an unfinished house is named now, not just counted
 
 A payer's bill covers every house they pay for, and the nightly run holds it until all of

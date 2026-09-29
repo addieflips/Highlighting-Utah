@@ -362,8 +362,32 @@ const STEPS = [
     next: [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },
+      { to: 'venmoopen', label: 'they open Venmo to pay' },
       { to: 'unmatched', label: 'their card is charged but the bill cannot be found' },
       { to: 'chase1',    label: '1 February comes and nothing has come in' }
+    ] },
+
+  /* ⛔ THE ONE STAGE ON THIS PICTURE THAT IS NOT A FACT ABOUT MONEY. Pressing Pay with
+   * Venmo in the portal stamps `venmoOpenedAt` and touches nothing else — no deposit, no
+   * status, no balance. Venmo is a deep link with no webhook, no callback and no receipt
+   * coming back to us, so opening it is the LAST thing this app knows about that payment.
+   * ⚠ WHICH IS WHY IT IS DRAWN AT ALL. Before this, a Venmo payment was invisible: the
+   * customer stayed Unpaid on every screen, joined the 1 February text list and would have
+   * collected an April late fee for money they had already sent. The stage is the office's
+   * cue to go and look in the Venmo email.
+   * ⚠ IT LEADS BOTH WAYS ON PURPOSE. Somebody can open Venmo and send nothing, or send
+   * less than the bill — the amount in that link is a pre-fill the payer can edit — so the
+   * honest next steps are paid, part paid, and still being chased. */
+  { id: 'venmoopen', title: 'Opened Venmo to pay',
+    plain: 'They pressed Pay with Venmo in their portal. That is all we know — Venmo sends ' +
+      'nothing back, so nobody can tell from here whether the money arrived, or how much of ' +
+      'it. The office checks the Venmo email and types in what actually came. Until then ' +
+      'they are still unpaid, and they show as Check Venmo in All Customers.',
+    records: ['venmoOpenedAt'],
+    next: [
+      { to: 'paid',     label: 'the full amount arrived and was entered' },
+      { to: 'partpaid', label: 'less than the bill arrived' },
+      { to: 'chase1',   label: 'nothing arrived and February comes' }
     ] },
 
   /* ⚠ PART PAID IS NOT PAID AND NOT UNPAID, and the difference reaches the money: the

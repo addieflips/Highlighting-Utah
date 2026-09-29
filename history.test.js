@@ -448,7 +448,8 @@ check('every step of the path reaches the history',
     seasonStatusAt: 'cust', seasonResetAt: 'cust', mergedAt: 'cust',
     maybeNextYearAt: 'cust', requoteAppliedAt: 'cust', lightsChangedAt: 'cust',
     lightsChangedAfterAssignAt: 'cust', askSameAsLastYearAt: 'cust',
-    cannotBillNoEmailAt: 'cust', billHeldAt: 'cust', invoiceEmailSentAt: 'cust',
+    cannotBillNoEmailAt: 'cust', billHeldAt: 'cust', venmoOpenedAt: 'cust',
+    invoiceEmailSentAt: 'cust',
     invoicedAt: 'inv', newMemberFeeAppliedAt: 'inv'
   };
   const unstated = STEPS.map(s => s.field).filter(f => !(f in FIELD_HOME));

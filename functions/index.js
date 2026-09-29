@@ -3594,6 +3594,66 @@ exports.portalSetGateCode = onCall({ cors: true }, async (request) => {
   return { ok: true, gateCode: gateCode };
 });
 
+/* --- portalVenmoOpened ----------------------------------------------------
+ * Input: { token }
+ *
+ * ⭐ SOMEBODY OPENED VENMO TO PAY, AND THAT IS ALL THIS RECORDS (2026-09-29).
+ * Addie, asked how a Venmo payment should reach the app: *"We can't even login to
+ * venmo we just see it if it comes to email so I think it will be easiest if this
+ * was manual"*, and on recording the press: *"We can do this one so people are
+ * marked as venmo and we can just check on venmo."*
+ *
+ * ⛔ IT IS AN INTENTION, NEVER A PAYMENT, and every line of this is that sentence.
+ * Venmo is a deep link — `venmo.com/HighLightingUtah?txn=pay&amount=…` — with no
+ * webhook, no callback and no receipt coming back to us. So nothing here may touch
+ * the invoice: no `deposit`, no `status`, no `lastPaymentAt`. It writes one field on
+ * one customer record and returns.
+ *
+ * ⚠ THE WHOLE REASON IT EXISTS IS THAT A VENMO PAYMENT WAS INVISIBLE. PayPal records
+ * itself through `paypalWebhook`; Venmo records nothing, so a customer who paid by
+ * Venmo stayed Unpaid on every screen, went on the 1 February text list and would
+ * have collected an April late fee. The office now has a list of who to go looking
+ * for in their Venmo email, which is the half a machine can do.
+ *
+ * ⛔ AND IT STORES NO AMOUNT, DELIBERATELY. Addie's worry, in her own words: *"you
+ * can change the amount so if someone changes the amount it can be problamatic"* —
+ * and she is right, the `amount` in that link is a PRE-FILL the payer confirms and
+ * can edit in the Venmo app. So a number recorded here could only ever be what we
+ * ASKED for, which is already on the bill, live and correct, and derived by one rule
+ * in four places on this server. A snapshot of it here would be a fifth copy and a
+ * second opinion about a balance, and the gap she is worried about is visible
+ * without it: she types in what the Venmo email actually says, the invoice comes out
+ * Partial Payment, and they stay on the chase list with the shortfall showing.
+ *
+ * ⚠ AND NOTHING CLEARS IT. Opening Venmo is a historical fact about that customer.
+ * The office-side reader (`custWaitingOnVenmo` in admin.html) asks whether they are
+ * still unsettled, so the mark disappears by itself the moment the payment is
+ * recorded — stored fact, derived display, the same shape as `derivedDoneFor`. A
+ * clearing path would be a second writer and one more thing to get wrong.
+ *
+ * ⚠ IT IS NOT IN `PORTAL_READ_FIELDS`, on purpose. This is an office to-do, not
+ * something to tell the customer: "we have not seen your payment" is a thing we
+ * cannot honestly say when nobody has checked yet, and saying it to somebody who
+ * has genuinely paid is worse than saying nothing.
+ * ------------------------------------------------------------------------- */
+exports.portalVenmoOpened = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+
+  /* The token IS the credential, the same trust model as every other portal
+     callable — and nothing here reads anything the caller sent beyond it. */
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  await db.collection('jobAddresses').doc(match.id).update({
+    venmoOpenedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return { ok: true };
+});
+
 /* --- portalChangeAddress --------------------------------------------------
  * Input: { token, street, city, zip, moveDate }
  *

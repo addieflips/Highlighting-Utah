@@ -213,6 +213,14 @@ jobs:
       # expensive silence in the app and the hardest to notice from any screen.
       - name: The nightly billing run (executed, not read)
         run: npm run test:nightly
+      # ⛔ OPENING VENMO IS AN INTENTION, NEVER A PAYMENT. Named separately because the
+      # rule it holds is about money not moving: Venmo has no webhook, so the press is
+      # the LAST thing this app knows about that payment, and the amount on the link is
+      # a pre-fill the customer can edit. A failure here means something has started
+      # treating "they went to pay" as "they paid" — which marks a bill settled that
+      # nobody has collected, and nothing downstream would ever question it.
+      - name: Opening Venmo records an intention, not a payment
+        run: npm run test:venmo
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,
