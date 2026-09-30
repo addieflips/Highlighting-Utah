@@ -300,6 +300,17 @@ jobs:
       # October, November, the two Thanksgiving timings — to exactly what it decided before.
       - name: Their own calendar (away dates and wanted window)
         run: npm run test:awaycal
+      # ⭐ EARLIEST / LATEST POSSIBLE ([[SCH-102]]) — its own step so a red run reads as
+      # "where in the season" in the Actions list rather than being swallowed by a generic
+      # npm test failure, the same reason the calendar step above it has one.
+      # ⛔ THE CHECK THIS STEP EXISTS FOR IS THE LAPSE. A late request that did not expire
+      # once the customer's own month was running out would push her October customers into
+      # November, silently, on a setting that only meant "no hurry" — and every other check
+      # in that file stays green while it does. It also holds the month dropdown to exactly
+      # what it decided before, and proves the flag reaches no rule that can take somebody
+      # out of the season.
+      - name: Where in the season (earliest / latest possible)
+        run: npm run test:instiming
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

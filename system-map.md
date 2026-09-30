@@ -2963,8 +2963,11 @@ and turn one missed morning into a customer who outranks the book. A list is ide
 and it lets somebody missed three times go before somebody missed once (`missed` is carried
 into the builder's queue sort for that).
 
-**3. A customer the office moves up by hand.** `rushInstall`, a checkbox in Edit Customer
-beside the timing preference. It ranks **level with a new hang — not above one** (Dax,
+**3. A customer the office moves up by hand.** `rushInstall`, now the **⬆ Earliest possible**
+option of the *How soon in the season* choice on **both** Add a Customer and Edit Customer,
+beside the timing preference (ruling **SCH-102** — it was a lone tick on Edit Customer only
+until 2026-09-30, so a customer typed in asking to go sooner had to be saved and re-opened
+to record it). It ranks **level with a new hang — not above one** (Dax,
 2026-09-09: *"ask sooner is the same as new hangs"*), so it puts them at the front of the
 queue the moment their town is being worked and cannot invent a day for them.
 
@@ -3102,6 +3105,42 @@ Ruling **SCH-100**.
   printed, and the press names whose pin it was so you can re-print or pick another day.
 - **Start New Season clears it**, like the Soonest/Latest takedown choice. A day agreed for last
   Christmas is not a day agreed for next.
+
+**4. Asked to go as late as possible.** `lateInstall`, the **⬇ Latest possible** option of the
+same *How soon in the season* choice, on both customer forms. The install-season mirror of the
+Soonest/Latest pair the takedown season has had since **SCH-92**. Ruling **SCH-102**.
+
+- They are ranked **tier 70 — below every month**, so they fill in at the very end of the season.
+  For somebody with no month preference that is exactly what the words mean: their tier is the
+  whole season, so the back of it is the end of it.
+- ⛔ **It expires once their own month is a week from closing**, and that is the whole safety of
+  it. Without the expiry this would be the only rule in the app that pushes somebody **out** of
+  the month they asked for: an October customer marked latest would be passed over all month and
+  then passed over into November, silently, on a setting that only meant *no hurry*. Once the
+  deadline is close (a week out, **SCH-51**) the late request is spent and they take their
+  ordinary October place, with the same nudge every house running out of month gets.
+- A house with **no month preference has no deadline**, so nothing ever expires for them and they
+  genuinely go last. That difference is the rule working, not a gap.
+- **It changes the order and never the window.** It is absent from `houseAllowedFrom`, from
+  `houseDeadline` and from every rule that can take a customer out of the season — so a
+  Confirmed customer marked latest is ordered last and is **still on a day** (**SCH-85**).
+- **What still outranks it:** a pin (**SCH-100**), the office's own date box (**SCH-49**), a new
+  member who has been waiting two weeks (**SCH-52**), and a house we promised a day and missed
+  (**SCH-61**) — we told them a date and did not turn up, so asking to go last is not a licence
+  to keep missing somebody.
+- ⚠ **Unlike the rush box, it DOES move their town down the list**, and the difference is
+  deliberate: `forTown` exists to stop one customer's request *inventing* a crew-day, and lowering
+  a town's urgency cannot invent anything — it can only make a town wait. A town's urgency is the
+  best number in it, so one latest house among thirty October houses moves that town not at all;
+  only a town where every house asked to go last drops.
+- A stop marked either way carries a badge on the day panel — **ASKED SOONER** or **ASKED LATER**
+  — because *why is this house at the back of the route* is asked as often as why one is at the
+  front, and with no answer on screen the office re-orders the day by hand and the next sweep
+  puts it back.
+- **Start New Season clears both halves of the pair**, the same rule as the takedown choice
+  (**SCH-93**: *"yes clear it each season"*). ⚠ That is a change to `rushInstall`, which nothing
+  had ever cleared — a phone call made last October used to move that house up the schedule every
+  October for ever.
 - Pinning somebody onto a day they said they are away is allowed — the pin wins — and the save
   says so, so you can decide which is right.
 

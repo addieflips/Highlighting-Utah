@@ -1421,6 +1421,13 @@ const RETIRED_CHECKLIST_TERMS = [
   ['trace it and compare', 'the scale check button, removed 2026-08-25'],
   ['working height', 'the typed height box and its 1 storey / 2 storey / Ground presets were removed 2026-08-25 — heights are measured in Street View, or the tool says they are not measured yet'],
   ['2 storey', 'the height presets went with the Working Height box on 2026-08-25'],
+  /* ⭐ [[SCH-102]], 2026-09-30. The lone "Move this customer up the schedule" tick became one
+     Normal / Earliest possible / Latest possible choice on BOTH customer forms. No seed row
+     described the old label — measured, not assumed — so nothing needed rewording and no
+     version was bumped. It is named here anyway, because that is what this list is for:
+     stopping the NEXT row being written against a control that has gone. */
+  ['move this customer up the schedule', 'the lone tick became a Normal / Earliest possible / Latest possible choice on 2026-09-30 ([[SCH-102]]) — pick "⬆ Earliest possible" under "How soon in the season", on Add a Customer as well as Edit Customer'],
+  ['they asked to be hung sooner', 'still the wording beside Earliest possible, but it is a radio in the "How soon in the season" group now, not a tick of its own (2026-09-30)'],
   ['approval link', 'the Get Approval Link button was renamed to Send Email on 2026-08-08 (it now also shows the filled-in email, not just the link)'],
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
@@ -56382,10 +56389,24 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
     check('S300', 'and saved every time, including when it is unticked',
       /addrUpdates\.rushInstall = newRushInstall === true;/.test(admin),
       'a field only written when it is on can never be turned off again');
-    check('S300', 'the box explains that it does not move their month',
-      /does <b>not<\/b> move them into a month they did not ask for/.test(admin),
-      "owner: 'dont do someone in a month they dont want to be hung though' — somebody " +
-      'ticking this must not expect a November customer to be hung in October');
+    /* ⚠ REPOINTED 2026-09-30, NOT WEAKENED. This matched the literal
+       `does <b>not</b> move them into a month they did not ask for` — that is, the exact
+       sentence the Edit Customer note happened to use — so it failed on correct code the
+       moment [[SCH-102]] turned that tick into an Earliest / Latest pair and rewrote the
+       paragraph around it. The §7 slow-fuse shape, the same as S82, S129 and folder-names.
+       It asserts the GUARANTEE now, and asserts it on BOTH forms: Add a Customer gained the
+       control in that change, and a promise made on one form and not the other is how two
+       doors start telling somebody different things about one choice ([[OPT-22]]). */
+    {
+      const monthPromise =
+        (admin.match(/<b>Neither moves them into a month they did not ask for<\/b>/g) || []).length;
+      check('S300', 'both customer forms say the pair does not move their month',
+        monthPromise >= 2,
+        "found " + monthPromise + " of 2 — owner: 'dont do someone in a month they dont " +
+        "want to be hung though'. Somebody picking Earliest must not expect a November " +
+        'customer in October, and somebody picking Latest must not expect an October ' +
+        'customer to slide into November');
+    }
 
     // The forecast loader.
     const load = bare(fn('loadSeasonForecast'));
@@ -60008,8 +60029,17 @@ suite('Suite 316. Closest to a date the office typed');
     fn('anyStampMillis') + fn('prefSpecificDate') +
     fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
     fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
+    /* ⭐ AND WHO ASKED TO GO LAST ([[SCH-102]], 2026-09-30). houseInstallPriority reads it,
+       so it arrives here — LIFTED, never stubbed, for the same reason the away rules above
+       are: a stub answering "nobody asked" leaves every check in this suite green while the
+       ordering stops honouring the setting, and this is the suite that owns the ordering.
+       ⚠ THIS SANDBOX'S OWN GATE IS WHAT FOUND IT, failing with the missing name — which is
+       exactly what sandboxDeps exists for, and cheaper than the bare ReferenceError that
+       used to kill a whole suite with no clue which name was absent. */
+    fn('isRushInstall') + fn('isLateInstall') +
     fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
     'this.from = houseAllowedFrom; this.until = houseDeadline; this.pri = houseInstallPriority;' +
+    'this.late = isLateInstall;' +
     'this.close = deadlineIsClose; this.waited = newHangWaitDays; this.wd = workingDaysBetween;';
   assertSandbox('S316', 'the closest-to-a-date chain', BODY, admin,
     ['BASE_START', 'houseMissedCount', 'String', 'Number', 'Boolean', 'Object', 'Array',
