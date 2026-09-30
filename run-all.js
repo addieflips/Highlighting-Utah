@@ -10153,8 +10153,12 @@ suite('17. A new customer lands on the next day in their city');
       const cache = {};
       cache[dstr(-20)] = [{id:'past', date:dstr(-20), type:'install', crew:'1',
         stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]}];
-      cache[dstr(3)] = [
-        {id:'soonLehi', date:dstr(3), type:'install', crew:'1', stops:[
+      /* ⚠ A WEEK OUT, NOT THREE DAYS (Schedule V2, [[SCH-102]]). The lock became "48 hours OR
+         the next two working days", and three calendar days from a Wednesday is inside it — so
+         this fixture's "upcoming" day read as printed on some weekdays and not others, which is
+         a flaky check. Seven days out is past the lock whatever day the suite runs. */
+      cache[dstr(7)] = [
+        {id:'soonLehi', date:dstr(7), type:'install', crew:'1', stops:[
           {id:'ok',    name:'Fine House',  address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
            phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''},
           {id:'said',  name:'Said No',     address:'2 No St',   lat:40.4, lng:-111.8},
@@ -10163,9 +10167,9 @@ suite('17. A new customer lands on the next day in their city');
           {id:'dupe',  name:'Twice Booked',address:'4 Two Way', lat:40.4, lng:-111.8},
           {id:'late',  name:'Later Please',address:'5 Wait Ln', lat:40.4, lng:-111.8}
         ]},
-        {id:'fixday', date:dstr(3), type:'fix', crew:'1',
+        {id:'fixday', date:dstr(7), type:'fix', crew:'1',
           stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]},
-        {id:'remday', date:dstr(3), type:'removal', crew:'1',
+        {id:'remday', date:dstr(7), type:'removal', crew:'1',
           stops:[{id:'done', name:'All Done', address:'8 Done Dr', lat:40.4, lng:-111.8}]}
       ];
       cache[dstr(14)] = [{id:'lateLehi', date:dstr(14), type:'install', crew:'1',
@@ -10228,7 +10232,7 @@ suite('17. A new customer lands on the next day in their city');
         'taking it off without rebooking it is just losing the customer more slowly');
 
       check('reconcile', 'a house stranded on a day that has been and gone is rescued',
-        (custWrite('strand') || {payload:{}}).payload.scheduledDate === dstr(3),
+        (custWrite('strand') || {payload:{}}).payload.scheduledDate === dstr(7),
         'route generation only looks at UNSCHEDULED houses, so these are invisible to every tool');
       check('reconcile', 'a completed house is never dragged back onto a route',
         !custWrite('done') || custWrite('done').payload.scheduled !== true);
@@ -10287,10 +10291,10 @@ suite('17. A new customer lands on the next day in their city');
       const clean = {
         houses: [{id:'ok', data:{name:'Fine House', city:'Lehi', address:'1 Fine St',
                                  lat:40.4, lng:-111.8, rsvpStatus:'yes',
-                                 scheduled:true, scheduledDate:dstr(3), assignedCrew:'1'}}],
+                                 scheduled:true, scheduledDate:dstr(7), assignedCrew:'1'}}],
         cache: {}
       };
-      clean.cache[dstr(3)] = [{id:'cleanDay', date:dstr(3), type:'install', crew:'1', stops:[
+      clean.cache[dstr(7)] = [{id:'cleanDay', date:dstr(7), type:'install', crew:'1', stops:[
         {id:'ok', name:'Fine House', address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
          phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''}
       ]}];
@@ -10308,7 +10312,7 @@ suite('17. A new customer lands on the next day in their city');
         specificOutletNotes:'', customerNumber:''});
       const oneDay = (houses, extra) => {
         const cache = {};
-        cache[dstr(3)] = [Object.assign({id:'d1', date:dstr(3), type:'install', crew:'1',
+        cache[dstr(7)] = [Object.assign({id:'d1', date:dstr(7), type:'install', crew:'1',
           autoBuilt:true, stops: houses.map(h => stopFor(h.id, h.data.name))}, extra || {})];
         return cache;
       };
@@ -10325,11 +10329,11 @@ suite('17. A new customer lands on the next day in their city');
 
       // a town corrected by hand — the case the 374 will produce
       let r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
-        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}},
+          scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay2', data:{name:'Stays Too', city:'Lehi', address:'3 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}}]);
+          scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'a customer whose town is corrected comes off the wrong town\'s day',
         r.stops.indexOf('moved') === -1 && r.stops.indexOf('stay') !== -1,
         'nothing re-checked this, so a town fixed by hand left them on the old ' +
@@ -10348,9 +10352,9 @@ suite('17. A new customer lands on the next day in their city');
 
       // ...but a day somebody built BY HAND is left alone
       r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
-        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}}], {autoBuilt:false});
+          scheduled:true, scheduledDate:dstr(7)}}], {autoBuilt:false});
       check('reconcile', 'a hand-built day may carry a house from the next town over',
         r.stops.indexOf('moved') !== -1,
         'a favour, or a detour that makes sense on the ground — evicting it ' +
@@ -10358,7 +10362,7 @@ suite('17. A new customer lands on the next day in their city');
 
       // a timing preference corrected from shorthand to something real
       r = await stillOn([{id:'thx', data:{name:'Was THX', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(3)}}]);
+        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'a preference corrected to November comes off an October day',
         r.dropped.some(w => /cannot be installed until/.test(w)),
         'the 1 customer reading THX and the 190 reading NOV will be tidied up by ' +
@@ -10366,7 +10370,7 @@ suite('17. A new customer lands on the next day in their city');
 
       // and the everyday one: sitting somebody out
       r = await stillOn([{id:'out', data:{name:'Sitting Out', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, maybeNextYear:true, scheduled:true, scheduledDate:dstr(3)}}]);
+        lat:40.4, lng:-111.8, maybeNextYear:true, scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'Maybe Next Year comes off the day it was on',
         r.stops.indexOf('out') === -1 && r.dropped.some(w => /sitting out/.test(w)));
 
@@ -10393,7 +10397,7 @@ suite('17. A new customer lands on the next day in their city');
        call isOutForSeason would pass on code that still loops, because the
        loop is about two rules AGREEING, not about either one existing. */
     {
-      const soon = dstr(4);
+      const soon = dstr(8);
       const past = dstr(-9);
       const sweepFor = houses => {
         const cache = {};
@@ -12540,8 +12544,18 @@ check('build', 'the setting is loaded BEFORE the sweep starts',
   admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
   'building a season on the default two while one is saved means building it ' +
   'and then taking it apart again');
+/* ⚠ REPOINTED (Schedule V2, [[SCH-102]]): the crew-routes sweep no longer runs, so "re-spread
+   straight away" now means telling the office to press Recalculate everything — the one
+   thing that lays the season out — and NOT quietly kicking the retired second planner. */
 check('build', 'changing it re-spreads straight away rather than in fifteen minutes',
-  /crewsPerDay[\s\S]{0,900}runReconcileAuto\(\);/.test(admin.replace(/\r/g, '')),
+  (() => {
+    const s = admin.replace(/\r/g, '');
+    const i = s.indexOf("logActivity('Crews per day set to '");
+    const j = s.indexOf('} catch(err){', i);
+    const k = s.lastIndexOf("setDoc(doc(db,'settings','scheduling'), {crewsPerDay: want}", i);
+    return i > 0 && k > 0 && s.slice(k, j).indexOf('Recalculate everything') !== -1 &&
+      s.slice(k, j).indexOf('runReconcileAuto') === -1;
+  })(),
   'the office has just changed the shape of the season and expects to see it');
 check('build', 'days the scheduler builds are stamped so they can be told apart',
   /autoBuilt: true/.test(admin) && /if\(r\.autoBuilt\)\{ retire\.push\(r\); over--; \}/.test(admin),
@@ -13650,7 +13664,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function isWorkingDay(d){return !isWeekend(d);}' +
       'function dayDate(d){return d._date;}' +
@@ -17557,7 +17571,7 @@ suite('Suite 48. Days within two working days are set');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
       /* ⚠ ITS OWN BOOK, DECLARED HERE (2026-09-01). The orphan rule below is gated on
          the customer book having loaded, and this sandbox had no jobAddresses of its
          own — so it read whichever one an earlier suite had left in the global scope and
@@ -30772,6 +30786,8 @@ suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
   const box = {};
   new Function('const ROUTE_LOCK_HOURS = 48;' +
     extractFn(admin, 'mtnNowParts') + extractFn(admin, 'hoursUntilDayStarts') +
+    (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] +
+    extractFn(admin, 'lockThanksgivingUtc') + extractFn(admin, 'workingDaysUntil') +
     extractFn(admin, 'routeDayIsLocked') +
     'this.now = mtnNowParts; this.hours = hoursUntilDayStarts; this.locked = routeDayIsLocked;'
   ).call(box);
@@ -30788,23 +30804,33 @@ suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
   check('S92', 'the day after tomorrow is locked at noon',
     box.locked('2026-10-17', NOON) === true,
     'it starts in 36 hours, which is inside the window');
+  /* ⚠ REPOINTED (Schedule V2, [[SCH-102]]): THE LOCK IS "48 HOURS OR THE NEXT TWO WORKING
+     DAYS" NOW — the rule Recalculate everything always used and the rest of the movers did
+     not. From a Thursday that locks Friday and Monday, so the first day with "still time to
+     move somebody" is Tuesday. The old dates here (Sat 17th, Sun 18th) are not working days
+     and are locked by the count, which costs nothing: no crew-day is ever on one. */
   check('S92', 'and the day after THAT is not',
-    box.locked('2026-10-18', NOON) === false,
-    'it starts in 60 hours, so there is still time to move somebody');
+    box.locked('2026-10-19', NOON) === true && box.locked('2026-10-20', NOON) === false,
+    'Monday is the second working day out and is printed; Tuesday is the third and is not');
 
   /* ⚠ THE BOUNDARY MOVES WITH THE CLOCK, which is the whole point of measuring
      hours rather than counting dates. */
   check('S92', 'late at night, the third day out is still open',
-    box.locked('2026-10-18', at('2026-10-15', 23, 0)) === false,
-    'at 11pm it starts 49 hours away');
+    box.locked('2026-10-20', at('2026-10-15', 23, 0)) === false,
+    'the third working day out is open whatever the hour');
   /* ⚠ THE BOUNDARY IS AT THE DAY-AFTER-TOMORROW, and it is worth being exact:
      that day starts exactly 48 hours from midnight, so it is open only in the
      first instant of today and locked from then on. My first go at this test
      asserted a flip on the THIRD day out, which never happens — it is 71 hours
      away at 1am and 60 at noon. The test was wrong, not the rule. */
-  check('S92', 'the day after tomorrow is open at the stroke of midnight',
-    box.locked('2026-10-17', at('2026-10-15', 0, 0)) === false,
-    'exactly 48 hours away is not INSIDE 48 hours');
+  /* ⚠ REPOINTED: on a weekday the day after tomorrow is always one of the next two working
+     days, so it is locked at the stroke of midnight too — the 48-hour edge this used to pin
+     is now inside the working-day lock. The hours are still measured, and the check below
+     still proves they are counted to the START of the day. */
+  check('S92', 'at the stroke of midnight the lock reaches exactly two working days out',
+    box.locked('2026-10-16', at('2026-10-14', 0, 0)) === true &&
+    box.locked('2026-10-19', at('2026-10-14', 0, 0)) === false,
+    'Wed midnight: Friday is the second working day (locked), Monday the third (open)');
   check('S92', 'and locked half an hour later',
     box.locked('2026-10-17', at('2026-10-15', 0, 30)) === true,
     'this is what measuring hours buys over counting dates');
@@ -34505,10 +34531,17 @@ suite('77. Schedule route generator');
 
     /* The clock itself: Mountain time, measured to the START of the day, because
        the truck is loaded the night before. */
+    /* ⚠ REPOINTED, NOT WEAKENED (Schedule V2, [[SCH-102]]). This used to assert that a
+       Thursday reads OPEN at midnight on the Tuesday — true while the lock was the 48 hours
+       alone. The lock is now "48 hours OR the next two working days", the rule Recalculate
+       everything always used, so that Thursday is printed paper and must read locked. The
+       half this check exists for — hours measured to the START of the day — is still held,
+       and the first working day past the lock still reads open. */
     check('S77', 'the lock is measured to the start of the day, not the end',
       Math.round(gen.hours('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 })) === 48 &&
       gen.locked('2026-11-05', { date: '2026-11-03', hour: 1, minute: 0 }) === true &&
-      gen.locked('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 }) === false,
+      gen.locked('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 }) === true &&
+      gen.locked('2026-11-06', { date: '2026-11-03', hour: 0, minute: 0 }) === false,
       'the crew loads the truck the night before, so the useful moment is when the day starts');
     check('S77', 'a nonsense date never reads as locked',
       gen.locked('') === false && gen.hours('not-a-date', { date: '2026-11-03', hour: 0, minute: 0 }) === Infinity,
@@ -34627,6 +34660,8 @@ suite('77. Schedule route generator');
       (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
       extractFn(admin, 'mtnNowParts') + '\n' +
       extractFn(admin, 'hoursUntilDayStarts') + '\n' +
+      (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'lockThanksgivingUtc') + '\n' + extractFn(admin, 'workingDaysUntil') + '\n' +
       extractFn(admin, 'routeDayIsLocked') + '\n' +
       /* The marked-date list, lifted rather than stubbed — see dayLimitSrc. Empty,
          so the control draws its "Normal" state and the groupings below are the
@@ -51450,13 +51485,17 @@ suite('286. A record stops claiming a day it no longer has');
        `if(false)` left the call sitting there in plain text and this passed — the
        trap this file records four times over. Slicing from the guard means the check
        fails when the guard is what changed. */
-    const guarded = (recalc.split("if(typeof clearStaleInstallBookings === 'function'){")[1] || '').split('}')[0];
+    /* ⚠ REPOINTED (Schedule V2, [[SCH-102]]). The press no longer clears stamps against the
+       crew-routes calendar — that planner does not run, and asked here it would have cleared
+       every correct day. It MIRRORS the Schedule onto the records instead, which both sets and
+       clears. Same two guarantees: the press runs it, and does not sit waiting on the writes. */
+    const guarded = (recalc.split("if(typeof syncInstallStampsFromSchedule !== 'function') return;")[1] || '').split('}, 0);')[0];
     check('S286', 'the Recalculate button is the thing that runs it',
-      /clearStaleInstallBookings\(\)/.test(guarded),
+      /syncInstallStampsFromSchedule\(\)/.test(guarded),
       'a sweep nothing calls is a green suite and a row still promising a crew');
     check('S286', 'and it does not block the press waiting for the writes',
-      /clearStaleInstallBookings\(\)\.then\(/.test(guarded) &&
-      !/await clearStaleInstallBookings/.test(recalc),
+      /syncInstallStampsFromSchedule\(\)\.then\(/.test(guarded) &&
+      !/await syncInstallStampsFromSchedule/.test(recalc),
       'it is a round trip per stale record; awaited, the button sits there looking hung');
   }
   if (sweepSrc) {
@@ -56210,7 +56249,7 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
         'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
         'function isWorkingDay(d){return !isWeekend(d);}' +
         'function dayDate(d){return d._date;}' +
@@ -57480,12 +57519,19 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
 
   /* ---- and the rebuild both feeds it in and reports what it found ---- */
   const rb = extractFn(admin, 'rebuildSeasonDays');
+  /* ⚠ REPOINTED, NOT WEAKENED (Schedule V2, [[SCH-102]]). "The later of the preference and
+     the hold" moved out of the rebuild into `houseEarliestDay`, the ONE place every mover now
+     asks — the Confirmed safety net used to work it out a second time. Both halves are still
+     asserted: the rebuild feeds the builder from that function, and that function reads the
+     hold and keeps the later of the two. */
+  const earliestSrc = extractFn(admin, 'houseEarliestDay') || '';
   check('S306', 'the rebuild turns a hold into the earliest day rather than a removal',
-    /houseHoldFrom\(d\)/.test(rb) && /from:\(function\(\)/.test(rb),
+    /from:\(typeof houseEarliestDay==='function'\)\?houseEarliestDay\(h,d,startStr\)/.test(rb) &&
+    /houseHoldFrom\(custData/.test(earliestSrc),
     'the builder already understands "not before this" — a second way to keep ' +
     'somebody off a day is how the two start disagreeing');
   check('S306', 'and the later of the preference and the hold is the one that wins',
-    /hold > pref/.test(rb),
+    /hold > pref/.test(earliestSrc),
     'a November customer inside a warehouse hold is held by whichever runs out last');
   check('S306', 'the rebuild checks the promise on the season it just built',
     /confirmedNotOnAnyDay\(\)/.test(rb) &&
@@ -57508,7 +57554,7 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
                    'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                    'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                    'scheduleHoldMillis', 'scheduleHoldEndsMillis',
-                   'houseHoldFrom', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
+                   'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
                    'customersMissingFromSeason', 'houseFromCustomer', 'rebuildSeasonDays',
                    'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
     const gone = lifts.filter(f => !extractFn(admin, f));
@@ -63595,7 +63641,7 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
                  'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                  'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                  'scheduleHoldMillis', 'scheduleHoldEndsMillis',
-                 'houseHoldFrom', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
+                 'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
                  'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
                  'houseFromCustomer', 'rebuildSeasonDays',
                  'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
@@ -63812,13 +63858,20 @@ suite('Suite 347. HEADLINE: All Customers shows the Schedule\'s day, every time 
             first === '2026-10-02' && nextDraw === '2026-11-03',
             'first ' + first + ', same draw ' + sameDraw + ', next draw ' + nextDraw +
             ' — a memo that outlives one draw is the page "not updating"');
-          /* The fallback, unchanged: with no plan to ask, a stamp is still checked against
-             the crew routes exactly as SCH-73 built it. */
+          /* ⚠ REPOINTED BY A RULING, NOT WEAKENED — [[SCH-102]] (2026-09-30) supersedes the
+             stamp-fallback half of [[SCH-73]]. That fallback checked a stamp against the crew
+             routes because the crew routes WROTE the stamp. Since SCH-102 the only writer is the
+             Schedule mirror and the crew-routes sweep does not run, so asking it would call
+             every correct stamp an orphan — the "279 of 298 rows read not on the schedule"
+             failure SCH-86 was written about, arriving by the back door. While the plan cannot
+             answer, the stamp is the Schedule's own last answer: it is DRAWN, and never
+             accused. The half of SCH-73 that matters — a row never keeps promising a day the
+             Schedule does not hold — is held by the mirror clearing it (schedule-v2.test.js). */
           global.window = { schedulePlanBookings: function(){ return null; } };
           return Promise.resolve().then(function(){}).then(function(){
-            check('S347', 'while the plan cannot answer, an orphaned crew-routes stamp is still flagged',
-              /not on the schedule/.test(api.chip(STAMP, 'c1')),
-              'SCH-73 still stands for the stamp fallback');
+            check('S347', 'while the plan cannot answer, the stamp is drawn and never accused (SCH-102 over SCH-73)',
+              /Oct 16/.test(api.chip(STAMP, 'c1')) && !/not on the schedule/.test(api.chip(STAMP, 'c1')),
+              'SCH-102: the stamp is the Schedule\'s own last answer, drawn and not accused, while the plan loads');
             global.window = saved.w; global.scheduledRoutesLoaded = saved.l;
             global.scheduledRoutesCache = saved.c; global.esc = saved.e;
           });

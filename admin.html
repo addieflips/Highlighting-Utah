@@ -11094,15 +11094,15 @@ document.querySelectorAll('#crewsPerDaySelect').forEach(function(sel){
       const was = CREWS_PER_DAY;
       CREWS_PER_DAY = want;
       if(st){
+        /* ⚠ SCHEDULE V2 ([[SCH-102]]): the crew-routes sweep no longer re-spreads days on
+           its own, so both directions now say the same thing — the Schedule is re-laid out
+           by Recalculate everything and by nothing else. */
         st.textContent = (want < was
-          ? '✓ ' + crewsPerDayStatusText(want) + ' Days that had more towns are being taken apart and those houses re-spread — watch System notices.'
+          ? '✓ ' + crewsPerDayStatusText(want) + ' Press ⚙ Recalculate everything on the Schedule tab to lay the season out for fewer crews.'
           : '✓ ' + crewsPerDayStatusText(want) + ' Name the new crew on the Schedule tab, then press ⚙ Recalculate everything.');
         st.style.color = 'var(--emerald)';
       }
       logActivity('Crews per day set to ' + want, 'routes', '');
-      /* Re-spread straight away rather than waiting up to fifteen minutes — the
-         office has just changed the shape of the season and expects to see it. */
-      runReconcileAuto();
     } catch(err){
       if(st){ st.textContent = 'Could not save that — try again.'; st.style.color = 'var(--rose)'; }
     }
@@ -56482,6 +56482,17 @@ function nextVisitFor(d, todayStr, custId){
    `null` means "cannot tell" and draws exactly what it drew before. Same shape as
    `cnFreePool` holding the pool back until `jobAddresses` has landed. */
 function scheduledDayIsReal(custId, dateStr){
+  /* ⭐ SCHEDULE V2 ([[SCH-102]]): "REAL" MEANS THE SCHEDULE HOLDS THEM ON THAT DAY. The stamp
+     is now written FROM the Schedule, and the crew-routes calendar this used to consult is
+     built by a sweep that no longer runs — asked here, it would call every correct stamp an
+     orphan. Same three answers as before: null while the plan cannot say. */
+  if(typeof window !== 'undefined' && typeof window.schedulePlanBookings === 'function'){
+    const day0 = String(dateStr || '');
+    if(!day0 || !custId) return null;
+    const plan = window.schedulePlanBookings();
+    if(!plan) return null;
+    return !!(plan[custId] && plan[custId].date === day0);
+  }
   if(typeof scheduledRoutesLoaded === 'undefined' || !scheduledRoutesLoaded) return null;
   if(typeof scheduledRoutesCache === 'undefined' || !scheduledRoutesCache) return null;
   const day = String(dateStr || '');
@@ -61485,6 +61496,17 @@ async function noticeCustomerPushedBack(cust, fromDate, toDate, becauseOf){
  * Returns {done, message} — never throws, because failing to schedule someone
  * must never be a reason the customer record itself does not get created. */
 async function autoScheduleNewCustomer(custId, d){
+  /* ⛔ SCHEDULE V2 ([[SCH-102]]): A NEW CUSTOMER'S DAY COMES FROM THE SCHEDULE. This used to
+     drop them onto a crew-routes day and stamp that date on the record — a second planner
+     choosing a date the Schedule tab had never seen. The Schedule's own sync now places a
+     newly Confirmed customer on the nearest day they are allowed (`placeJoinedHouses`, on
+     the five-minute sync and whenever the Schedule tab opens), and the mirror copies that
+     day onto their record. The old body below is left for the suites that lift it, and is
+     unreachable from the page. */
+  if(!AUTO_ROUTE_NEW_CUSTOMERS){
+    return {done:false, message:'They will be put on the Schedule by themselves once they are Confirmed — ' +
+      'the nearest day that suits them, after the 72-hour warehouse hold.'};
+  }
   try{
     const city = extractCleanCity(d.city);
     if(typeof d.lat !== 'number' || typeof d.lng !== 'number'){
@@ -64557,9 +64579,45 @@ function hoursUntilDayStarts(dateStr, nowParts){
      never touches a UTC offset, so it cannot be an hour out over a clock change. */
   return (daysAhead * 24) - (now.hour + (now.minute / 60));
 }
+/* ⭐ THE LOCK IS ONE RULE, ASKED IN ONE PLACE (Schedule V2, 2026-09-30, [[SCH-102]]).
+   A day is printed paper once EITHER of two things is true: it starts inside 48 hours, OR
+   it is one of the next ROUTE_LOCK_WORKING_DAYS working days. Recalculate everything has
+   always asked both (`pinHorizon` or this function); every OTHER mover — the five-minute
+   timing sweep, the away-date sweep, the Confirmed safety net, the pin placer and the
+   route orderer — asked only the 48 hours. On a Friday morning Monday starts ~62 hours out,
+   so Recalculate treated Monday's sheet as printed while the sync was still free to move a
+   house onto or off it. One function now answers for all of them.
+   ⚠ WORKING DAYS ARE COUNTED IN UTAH, off the same `nowParts` the hours are, and never off
+   the browser's clock — the two halves must agree about what "today" is.
+   ⚠ A DAY ALREADY BEGUN IS LOCKED by the hours half (negative is < 48), so the working-day
+   half only ever widens the lock forwards. */
+const ROUTE_LOCK_WORKING_DAYS = 2;
+function lockThanksgivingUtc(year){
+  const first = new Date(Date.UTC(year, 10, 1));
+  const toThu = (4 - first.getUTCDay() + 7) % 7;
+  return Date.UTC(year, 10, 1 + toThu + 21);
+}
+function workingDaysUntil(dateStr, nowParts){
+  const now = nowParts || mtnNowParts();
+  const a = Date.UTC(Number(now.date.slice(0,4)), Number(now.date.slice(5,7)) - 1, Number(now.date.slice(8,10)));
+  const b = Date.UTC(Number(String(dateStr).slice(0,4)), Number(String(dateStr).slice(5,7)) - 1, Number(String(dateStr).slice(8,10)));
+  if(isNaN(a) || isNaN(b)) return Infinity;
+  if(b <= a) return 0;
+  let n = 0;
+  for(let t = a + 86400000; t <= b; t += 86400000){
+    const d = new Date(t);
+    const w = d.getUTCDay();
+    if(w === 0 || w === 6) continue;
+    if(t === lockThanksgivingUtc(d.getUTCFullYear())) continue;
+    n++;
+    if(n > 400) break;
+  }
+  return n;
+}
 function routeDayIsLocked(dateStr, nowParts){
   if(!dateStr) return false;
-  return hoursUntilDayStarts(dateStr, nowParts) < ROUTE_LOCK_HOURS;
+  if(hoursUntilDayStarts(dateStr, nowParts) < ROUTE_LOCK_HOURS) return true;
+  return workingDaysUntil(dateStr, nowParts) <= ROUTE_LOCK_WORKING_DAYS;
 }
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
@@ -65516,7 +65574,20 @@ function runReconcileAuto(){
     console.error('[HU] route reconcile failed', err);
   }).then(function(){ reconcileRunning = false; });
 }
+/* ⛔ THE FIFTEEN-MINUTE SWEEP NO LONGER RUNS (Schedule V2, 2026-09-30, [[SCH-102]]).
+   It was a SECOND PLANNER: it built its own crew-days in `scheduledRoutes` and stamped
+   them onto customers, so the date a customer saw could differ from the day the office
+   printed. The Schedule tab is the only authority now and `syncInstallStampsFromSchedule`
+   is the only writer of an install date. `reconcileUpcomingRoutes` itself is left in the
+   file, unreachable from the page, because a dozen suites still RUN it as a unit and its
+   rules (the town list, the one-other-town cap) are still what those suites protect.
+   ⚠ DO NOT RE-ENABLE THIS without first taking its customer writes out: it reads
+   `d.scheduled` to decide who needs a day, and the mirror now writes that field from the
+   Schedule — the two together re-home the whole book every fifteen minutes. */
+const RECONCILE_SWEEP_ENABLED = false;
+const AUTO_ROUTE_NEW_CUSTOMERS = false;
 function startReconcileAuto(){
+  if(!RECONCILE_SWEEP_ENABLED) return;
   if(reconcileTimer) return;
   setTimeout(whileSignedIn(runReconcileAuto), 20000);
   reconcileTimer = setInterval(whileSignedIn(runReconcileAuto), RECONCILE_INTERVAL_MS);
@@ -65538,6 +65609,88 @@ function scheduledFieldForType(type, dateVal, crew){
   // this IS the re-add step the flag was asking for.
   return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew,
           assignedCrewAt: serverTimestamp(), lightsChangedAfterAssign: false};
+}
+/* ⭐⭐ THE SCHEDULE IS THE ONLY INSTALL-DATE AUTHORITY (Schedule V2, 2026-09-30, [[SCH-102]]).
+   Owner, asked directly: "Schedule is the only authority — the sweep may still order stops,
+   but it never assigns or stamps a date."
+   ⛔ WHAT IT REPLACES. `scheduled` / `scheduledDate` / `assignedCrew` on the customer were
+   written ONLY by the crew-routes side — the fifteen-minute reconcile sweep, Save on the
+   Routes tab and the auto-routing of a new customer — and the sweep BUILDS ITS OWN DAYS.
+   The customer's portal reads `scheduledDate` (functions/index.js PORTAL_READ_FIELDS), so a
+   customer could be told a day the office never printed. That sweep no longer starts
+   (`startReconcileAuto`), and the two manual install writers refuse; this is now the only
+   writer of an install date, and it copies it FROM the Schedule plan.
+   ⚠ IT IS A MIRROR, NOT A PLANNER. It decides nothing: `window.schedulePlanBookings` says
+   who is on which day, and this writes the difference onto the records. Pure half first
+   (`installStampDiffs`) so a test can RUN it.
+   ⚠ null PLAN MEANS "CANNOT SAY" AND WRITES NOTHING. The plan reader answers null before
+   the Schedule has loaded; reading that as "nobody is booked" would clear ~950 real days.
+   ⚠ OUT FOR THE SEASON IS CLEARED EVEN IF A STALE PLAN STILL HOLDS THEM — the plan only
+   drops them on the next Recalculate, and a customer who said no must not go on reading a
+   hang day in their portal in the meantime. `isOutForSeason` is asked, never re-decided.
+   ⚠ A COMPLETED HOUSE NOT ON THE PLAN IS LEFT ALONE: its stamp is the day it was hung. */
+function installStampDiffs(plan, customers, isOut){
+  if(!plan || !Array.isArray(customers)) return null;
+  const out = [];
+  customers.forEach(function(item){
+    const d = item && item.data;
+    if(!d || !item.id) return;
+    const gone = typeof isOut === 'function' ? !!isOut(d) : false;
+    const want = gone ? null : (plan[item.id] || null);
+    const stamped = d.scheduled === true || !!d.scheduledDate || !!d.assignedCrew;
+    if(want){
+      if(d.scheduled === true && d.scheduledDate === want.date && String(d.assignedCrew || '') === String(want.crew || '')) return;
+      out.push({id: item.id, set: true, dateChanged: d.scheduledDate !== want.date,
+                updates: {scheduled: true, scheduledDate: want.date, assignedCrew: String(want.crew || '1')}});
+    } else {
+      if(!stamped) return;
+      if(d.completed === true && !gone) return;
+      out.push({id: item.id, set: false, dateChanged: true,
+                updates: {scheduled: false, scheduledDate: null, assignedCrew: null}});
+    }
+  });
+  return out;
+}
+let installStampSyncInFlight = null;
+let installStampSyncAgain = false;
+async function syncInstallStampsFromSchedule(){
+  if(installStampSyncInFlight){ installStampSyncAgain = true; return installStampSyncInFlight; }
+  installStampSyncInFlight = (async function(){
+    let written = 0;
+    do {
+      installStampSyncAgain = false;
+      if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) break;
+      const plan = (typeof window !== 'undefined' && typeof window.schedulePlanBookings === 'function')
+        ? window.schedulePlanBookings() : null;
+      const diffs = installStampDiffs(plan, jobAddresses, (typeof isOutForSeason === 'function') ? isOutForSeason : null);
+      if(!diffs || !diffs.length) break;
+      const BATCH_LIMIT = 400;
+      for(let i = 0; i < diffs.length; i += BATCH_LIMIT){
+        const chunk = diffs.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        chunk.forEach(function(x){
+          const upd = Object.assign({}, x.updates);
+          /* When the booking was MADE (added 2026-08-28) follows the date, not every tick. */
+          if(x.set && x.dateChanged){ upd.assignedCrewAt = serverTimestamp(); upd.lightsChangedAfterAssign = false; }
+          if(!x.set){ upd.assignedCrewAt = null; }
+          batch.update(doc(db, 'jobAddresses', x.id), upd);
+        });
+        try{
+          await batch.commit();
+          chunk.forEach(function(x){
+            const local = jobAddresses.find(function(a){ return a.id === x.id; });
+            if(local) Object.assign(local.data, x.updates);
+          });
+          written += chunk.length;
+        }catch(err){
+          console.error('[HU] could not copy ' + chunk.length + ' Schedule day(s) onto customer records', err);
+        }
+      }
+    } while(installStampSyncAgain);
+    return written;
+  })();
+  try{ return await installStampSyncInFlight; }
+  finally{ installStampSyncInFlight = null; }
 }
 function freeUpFieldForType(type){
   /* ⚠ THE DATE GOES WITH THE ASSIGNMENT. Left standing it says a house is on a sheet
@@ -66093,6 +66246,14 @@ document.getElementById('markScheduledBtn').addEventListener('click', async func
   if(!currentRouteStops.length){ return; }
   if(!currentRouteDate){
     toast('Pick a date for this route first');
+    return;
+  }
+  /* ⛔ SCHEDULE V2 ([[SCH-102]]): AN INSTALL DAY IS NOT SAVED FROM HERE. Saving an install
+     route stamped its date onto every customer on it — a second authority beside the
+     Schedule tab, and the customer's portal shows that stamp. Fix and removal routes are
+     untouched: neither has a planner of its own. */
+  if(currentRouteType === 'install'){
+    toast('Install days are set on the Schedule tab — that is the one place a hang day comes from. Fix and removal routes still save here.');
     return;
   }
   // Assignment-only lock: on an INSTALL route, hold back anyone still inside their
@@ -75246,6 +75407,44 @@ function houseHoldFrom(custData){
   const end = new Date(ms);
   return isoOf(nextWorkingDay(new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1)));
 }
+/* ⭐ SCHEDULE V2 — ONE ANSWER TO "MAY THIS HOUSE GO ON THIS DAY" (2026-09-30, [[SCH-102]]).
+   The date rules already lived one per function — the floor (`houseAllowedFrom`: month,
+   named day, office date, wanted-from, pin), the ceiling (`houseDeadline`: October,
+   Thanksgiving, office week, wanted-until, pin), the warehouse hold (`houseHoldFrom`), the
+   holes (`houseAwayOn`) and the calendar (`isWorkingDay`). What was repeated was COMBINING
+   them: Recalculate and the Confirmed safety net each worked "the later of the floor and the
+   hold" out for themselves. These three are the combination, written once.
+   ⚠ HARD RULES ONLY. Nothing here weighs weather, miles, crews or priority — those are
+   preferences the builder trades against each other; these are never traded.
+   ⚠ A PIN OVERRULES EVERYTHING ELSE, including an away date and the hold ([[SCH-100]]: "a
+   pin is not a preference to be weighed; it is somebody in the office saying this house is
+   on this day"). It is still refused inside the next two working days where it is SET. */
+function houseEarliestDay(h, custData, startStr){
+  const pinned = ('' + ((h && h.stuck) || '')).trim();
+  if(pinned) return pinned;
+  const pref = houseAllowedFrom(h, startStr) || '';
+  const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(custData || {}) : '';
+  return (hold && hold > pref) ? hold : pref;
+}
+function houseDateWindow(h, custData, startStr){
+  const pinned = ('' + ((h && h.stuck) || '')).trim();
+  return {from: houseEarliestDay(h, custData, startStr) || '',
+          until: (typeof houseDeadline === 'function' ? (houseDeadline(h) || '') : ''),
+          pinned: pinned, away: (h && h.away) || ''};
+}
+function houseMayGoOn(h, custData, ds, startStr){
+  if(!ds) return {ok: false, why: 'no date'};
+  const p = ds.split('-').map(Number);
+  const dt = new Date(p[0], p[1] - 1, p[2]);
+  if(isNaN(dt.getTime())) return {ok: false, why: 'not a date'};
+  if(typeof isWorkingDay === 'function' && !isWorkingDay(dt)) return {ok: false, why: 'not a working day'};
+  const w = houseDateWindow(h, custData, startStr);
+  if(w.pinned) return w.pinned === ds ? {ok: true, why: 'pinned to this day'} : {ok: false, why: 'pinned to ' + w.pinned};
+  if(w.from && ds < w.from) return {ok: false, why: 'before their earliest day (' + w.from + ')'};
+  if(w.until && ds > w.until) return {ok: false, why: 'after their last day (' + w.until + ')'};
+  if(typeof houseAwayOn === 'function' && houseAwayOn(h, ds)) return {ok: false, why: 'they are away that day'};
+  return {ok: true, why: ''};
+}
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   /* ⭐⭐ THE OTHER HALF OF THE PIN ([[SCH-100]]). houseAllowedFrom says this day is the
@@ -75424,8 +75623,9 @@ function houseInstallPriority(h, custData, opts){
      TIER to be level with, so it reads it on the pool sort that feeds fillDays
      instead. The two still agree; they say it in the place each one ranks. */
   let tier;
+  let cls = 'normal';
   if((custData && custData.chargeNewMemberFee === true) ||
-     (!forTown && custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
+     (!forTown && custData && custData.rushInstall === true)){ tier = 10; cls = (custData && custData.chargeNewMemberFee === true) ? 'new' : 'rush'; }   // never been hung, or asked to go sooner
   /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-57]]). Addie: "New members
      come first and should be done within a week but can push it to 2 weeks if
      necessary. The staff dates should be second to these."
@@ -75446,7 +75646,7 @@ function houseInstallPriority(h, custData, opts){
      gives the house that window, so `deadlineIsClose` moves the TOWN as the window
      closes — which is [[SCH-58]]'s own mechanism doing the job, and the one claim about
      a town that is genuinely about the work rather than about one phone call. */
-  else if(!forTown && h && h.notBefore) tier = 20;
+  else if(!forTown && h && h.notBefore){ tier = 20; cls = 'office-date'; }
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
@@ -75456,15 +75656,15 @@ function houseInstallPriority(h, custData, opts){
      is a different thing. houseAllowedFrom already holds them until that day; from
      there they take their turn like anybody with no preference, which is exactly
      "the next time we have a chance". */
-  else if(prefSpecificDate(p, BASE_START.getFullYear())) tier = 40;
-  else if(p.indexOf('OCT')===0) tier = 30;   // asked for October
-  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') tier = 60;   // last of all
+  else if(prefSpecificDate(p, BASE_START.getFullYear())){ tier = 40; cls = 'named-day'; }
+  else if(p.indexOf('OCT')===0){ tier = 30; cls = 'october'; }   // asked for October
+  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX'){ tier = 60; cls = 'after-thanksgiving'; }   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
      week of the holiday, so this decides only what happens inside that week —
      and there they must outrank everybody, because for them a day late is a
      missed Thanksgiving rather than a slightly later hang. */
-  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 30;
-  else if(p.indexOf('NOV')===0) tier = 50;   // asked for November — waits
+  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){ tier = 30; cls = 'pre-thanksgiving'; }
+  else if(p.indexOf('NOV')===0){ tier = 50; cls = 'november'; }   // asked for November — waits
   else tier = 40;                            // no preference — fills in behind October
   /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN — THIRD OVERALL (changed
      2026-09-09). Dax: "we want houses that were scheduled for a day but werent to
@@ -75551,8 +75751,8 @@ function houseInstallPriority(h, custData, opts){
      todayStr && typeof newHangWaitDays === 'function'){
     const waited = newHangWaitDays(custData, todayStr);
     if(waited !== null){
-      if(waited >= NEW_HANG_LIMIT_DAYS) return -10;
-      if(waited >= NEW_HANG_TARGET_DAYS) return 5;
+      if(waited >= NEW_HANG_LIMIT_DAYS) return o.explain ? {value: -10, cls: 'new-overdue', tier: tier, pressed: false, missed: 0, waited: waited} : -10;
+      if(waited >= NEW_HANG_TARGET_DAYS) return o.explain ? {value: 5, cls: 'new-waiting', tier: tier, pressed: false, missed: 0, waited: waited} : 5;
     }
   }
   const missed = (typeof houseMissedCount === 'function') ? houseMissedCount(h) : 0;
@@ -75580,7 +75780,11 @@ function houseInstallPriority(h, custData, opts){
      one house that has both reasons to be first. Being missed may only ever pull a
      house up, and that is the whole care in this line. */
   const base = pressed ? tier - 5 : tier;
-  return missed ? Math.min(base, 15) : base;
+  const value = missed ? Math.min(base, 15) : base;
+  /* ⭐ SCHEDULE V2: `explain` hands back WHICH class and which bumps produced the number, from
+     the same branches that produced it  so a label can never disagree with the order. */
+  if(o.explain) return {value: value, cls: (missed && value === 15 && tier > 15) ? 'missed' : cls, tier: tier, pressed: pressed, missed: missed};
+  return value;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
@@ -75832,11 +76036,7 @@ function rebuildSeasonDays(){
                ⚠ THE LATER OF THE TWO WINS. A November customer inside a warehouse hold
                is held by whichever runs out last — taking either one alone would put them
                on a day the other rule forbids. */
-            from:(function(){
-              const pref=houseAllowedFrom(h,startStr);
-              const hold=(typeof houseHoldFrom==='function')?houseHoldFrom(d):'';
-              return (hold && hold > pref) ? hold : pref;
-            })(),
+            from:(typeof houseEarliestDay==='function')?houseEarliestDay(h,d,startStr):houseAllowedFrom(h,startStr),
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */
             until:houseDeadline(h),
@@ -77421,7 +77621,12 @@ function placeConfirmedLeftOff(floorStr, startStr){
     return SEASON.filter(function(d){
       if(d.isFixRoute || d.isTakedown) return false;
       const dt = dayDate(d);
-      return !!dt && isoOf(dt) >= floorStr;
+      /* ⚠ SCHEDULE V2: THE LOCK IS ASKED HERE TOO, not left to the caller's floor. Inside
+         Recalculate the floor already sits past every printed day; the incremental placer
+         (`placeJoinedHouses`) calls this with today's floor, where only the lock stands
+         between a newcomer and a sheet the crew is already holding. */
+      return !!dt && isoOf(dt) >= floorStr &&
+        !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt)));
     }).sort(function(a, b){ return dayDate(a) - dayDate(b); });
   };
   const cap = function(d){ return (typeof maxTownsPerDay === 'function') ? maxTownsPerDay(d) : 4; };
@@ -77430,9 +77635,8 @@ function placeConfirmedLeftOff(floorStr, startStr){
     const h = houseFromCustomer(item);
     if(!h) return;
     const d = (item && item.data) || {};
-    let from = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '';
-    const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
-    if(hold && hold > from) from = hold;
+    const from = (typeof houseEarliestDay === 'function') ? (houseEarliestDay(h, d, startStr) || '')
+      : ((typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '');
     const t = extractCleanCity(h.city);
     /* ⭐ AND NOT A DAY THEY ARE AWAY ([[SCH-98]]). The HEADLINE RULE says this step may
        move a Confirmed customer LATER and may never leave them off — so an away window
@@ -77461,6 +77665,9 @@ function placeConfirmedLeftOff(floorStr, startStr){
          window. Bounded, and it FAILS TOWARDS PLACING THEM — if it ever ran out of tries
          the customer still goes on the day it has, because being on a slightly wrong day
          is recoverable and being on no day is the thing the headline rule forbids. */
+      for(let lk = 0; lk < 10 && typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt)); lk++){
+        dt = nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1));
+      }
       for(let guard = 0; guard < AWAY_MAX_RANGES + 1; guard++){
         const ds = isoOf(dt);
         if(!(typeof houseAwayOn === 'function' && houseAwayOn(h, ds))) break;
@@ -77565,7 +77772,17 @@ function hydrate(o){
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
 }
 function scheduleSave(){clearTimeout(saveTimer);RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
-async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
+/* ⭐ SCHEDULE V2 ([[SCH-102]]): EVERY SAVED PLAN IS MIRRORED ONTO THE CUSTOMER RECORDS, so a
+   day moved by the five-minute sync, a pin, a new customer placed, or a house moved by hand
+   reaches the customer's own record (and their portal) without anybody pressing anything.
+   Only after the plan itself is saved — never ahead of it — and debounced, because the plan
+   saves on most redraws. The mirror writes only the records whose day actually differs. */
+let stampMirrorTimer=null;
+function mirrorStampsSoon(){clearTimeout(stampMirrorTimer);stampMirrorTimer=setTimeout(function(){
+  if(typeof syncInstallStampsFromSchedule!=='function')return;
+  syncInstallStampsFromSchedule().catch(function(err){console.error('[HU] Schedule → customer day mirror failed',err);});
+},3000);}
+async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
 function showDashboard(){RT.getElementById('importBox').classList.add('hide');RT.getElementById('dashboard').classList.remove('hide');}
 function showImport(msg){RT.getElementById('dashboard').classList.add('hide');RT.getElementById('importBox').classList.remove('hide');if(msg)RT.getElementById('importErr').textContent=msg;}
 function startReplace(){
@@ -77824,16 +78041,19 @@ RT.addEventListener('click',e=>{const t=e.target;
        the rest of this press is instant. The count arrives in its own toast, so the
        press never sits there looking hung and never reports a number it does not
        have yet. */
-    if(typeof clearStaleInstallBookings === 'function'){
-      clearStaleInstallBookings().then(function(n){
-        /* ⚠ WORDED FOR BOTH REASONS SINCE [[SCH-74]]. It used to say "they are out for the
-           season", which was the only reason it could fire for; an orphaned day is the
-           other one now, and naming the wrong cause is how the office learns to distrust
-           a message. What is true of every record it clears is that the row was claiming
-           a day nothing was going to honour. */
-        if(n) toast(n + ' record' + (n===1?'':'s') + ' stopped claiming a day nobody is coming on');
-      }).catch(function(err){ console.error('Could not clear stale bookings:', err); });
-    }
+    /* ⭐ SCHEDULE V2 ([[SCH-102]]): THE RECORDS ARE MADE TO SAY WHAT THE SCHEDULE SAYS.
+       This used to call clearStaleInstallBookings, which judged a stamp against the
+       crew-routes calendar — the second planner that no longer runs. Left in place it would
+       have cleared every day this mirror writes, because none of them is a crew-routes day.
+       The mirror both sets and clears, so it covers everything that did: an out-for-the-season
+       stamp and an orphaned one are both simply "not what the Schedule says".
+       ⚠ Deferred a tick so the plan saved below is the one it reads. */
+    setTimeout(function(){
+      if(typeof syncInstallStampsFromSchedule !== 'function') return;
+      syncInstallStampsFromSchedule().then(function(n){
+        if(n) toast(n + ' customer record' + (n===1?'':'s') + ' updated to the day the Schedule has them on');
+      }).catch(function(err){ console.error('Could not copy Schedule days onto customers:', err); });
+    }, 0);
     preRebuild=before;
     RT.getElementById('undoRebuildBtn').style.display='';
     computeDates();renderAll();scheduleSave();
