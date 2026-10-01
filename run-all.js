@@ -59482,6 +59482,9 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
      page. assertSandbox named all three the first time this ran, which is what that
      gate is for. */
   const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
+                   /* [[SCH-106]] both read a printed day's frozen split first — lifted, never stubbed;
+                      these fixtures carry no freeze, so the split is worked out exactly as before. */
+                   'frozenCrewSplit',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
                    'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',

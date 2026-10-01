@@ -30,7 +30,9 @@ module.exports = function makeHarness(liftDeep){
     'isOneManDay', 'dayCrewCount', 'houseGeoPoint', 'tourMiles', 'haversine',
     'advancePriorityHouses', 'placeJoinedHouses', 'validateSeasonPlan', 'lockedDaySnapshot', 'placementReasons',
     'houseSchedulingProfile', 'bestEarlierDayFor', 'milesFromDay', 'generateDayRoutes', 'INVARIANT_NAMES', 'PRIORITY_CLASS_LABELS',
-    'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs'],
+    'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
+    'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
+    'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -80,6 +82,7 @@ module.exports = function makeHarness(liftDeep){
     '    custByAddrKey = new Map(); book.forEach(function(c){ var d = c.data || {}; if(d.address) custByAddrKey.set(custAddrKey(d.address, d.city), c); });',
     '    var yard = opts.home || {lat: 40.3866, lng: -111.8616};',
     '    custByAddrKey.set(custAddrKey(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY), {id: "__yard", data: {lat: yard.lat, lng: yard.lng}});',
+    '    window.scheduleLockedDates = undefined; LOCKED_DATES = null; PRINTED_OVERRIDE = false;',
     '    SEASON = opts.season || []; BASE_START = new __RealDate(2026, 9, 1); globalDelta = 0;',
     '    CREWS_PER_DAY = opts.crews || 2;',
     '    CREWS = []; for(var i = 0; i < CREWS_PER_DAY; i++) CREWS.push({name: "Crew " + (i + 1), city: ""});',
@@ -90,6 +93,10 @@ module.exports = function makeHarness(liftDeep){
     '  },',
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
+    /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); return {r: r, g: g, lb: lb}; },',
+    /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
+    '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
     '  setSeason: function(s){ SEASON = s; computeDates(); },',
     '  api: {installDays: installDays, dayDate: dayDate, isoOf: isoOf, crewHousesFor: crewHousesFor,',
