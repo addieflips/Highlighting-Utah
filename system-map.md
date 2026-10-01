@@ -2978,7 +2978,9 @@ purpose, and the priority and colour-change cases.
 
 **Who is a new hang on paper** (`printIsNewHang`): a house whose quote was converted into this customer, asked FIRST — so a new member who then picked or changed colours in the portal is still one; otherwise not if their colours were changed (a returning customer's colour change is never a new hang); otherwise the $30 new-member box or an applied re-quote.
 
-**How the quote is found** (`closedQuoteFor`): the closed quote that NAMES this customer (`convertedToCustomerId`, which the everyday Add Customer convert now writes, or `existingCustomerId` on a re-quote) wins; only then the old phone-and-address match, for quotes converted before the id was written.
+**How the quote is found** (`closedQuoteFor`, [[SCH-110]]): the closed quote that NAMES this customer (`convertedToCustomerId` / `existingCustomerId`) wins; then the closed quote at the same STREET AND TOWN (whole addresses are never compared — the quote has no ", UT" and the customer does); then the same email; then the same phone. A shared email or phone never matches a different house. Found live: email-only new hangs (no phone anywhere) and a phone new hang rejected over ", UT" were all being missed.
+
+**Not scheduled until built** ([[SCH-110]]): a new hang (the $30 box, or a converted quote) whose `needsLightBuild` is still true reads **Being built** on All Customers instead of Confirmed, and `isOffTheSchedule` keeps them off every day. When the warehouse marks the bundle done the flag clears, they are Confirmed again, and the next sync or Recalculate places them. A returning customer whose set is being rebuilt is NOT held — the crew has hung that house before. A house already on one of the next two scheduled days stays until the override.
 
 **Which record the sheet reads** (`printCustData`): the house's own customer id (`planCustomerFor`), like the rest of the Schedule — never the customer number first. A new hang is the customer most likely to have no number yet, a number given after they were placed, or a phone shared with a parent's house, and the number-first lookup printed the wrong house's photos or none.
 

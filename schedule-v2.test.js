@@ -921,6 +921,28 @@ suite('LIVE-3 The lock is the next two SCHEDULED days, not a clock (SCH-106)');
 }
 
 /* ======================================================================================= */
+suite('SCH-110 A new hang is not scheduled until their lights are built');
+{
+  const book = makeBook(120, 110);
+  const nh = book[4];
+  nh.data.chargeNewMemberFee = true; nh.data.needsLightBuild = true;
+  const res = run(book);
+  check('an unbuilt new hang is on no day after Recalculate', !dayOfCust(nh.id));
+  check('and the plan is clean — they are Being built, not a Confirmed customer left off', res.violations.length === 0 && res.r.confirmedOff === 0 && H.api.seasonBadgeKey(nh.data) === 'building',
+    JSON.stringify(res.violations.slice(0, 2)));
+  nh.data.needsLightBuild = false;
+  run(book);
+  check('the bundle built, the next Recalculate places them', !!dayOfCust(nh.id));
+  /* already on an unprinted day when the build is queued: they come off it */
+  const season = H.season();
+  const later = book.filter(function(b){ const ds = dayOfCust(b.id); return ds && ds > '2026-10-09'; })[0];
+  later.data.chargeNewMemberFee = true; later.data.needsLightBuild = true;
+  H.setNow(TODAY); H.load(book, {season: season}); H.press();
+  check('a new hang already on an unprinted day comes off it when their build is queued', !dayOfCust(later.id));
+  check('a returning customer being rebuilt keeps their day', (function(){ const r = book[9]; const was = dayOfCust(r.id); r.data.needsLightBuild = true; H.load(book, {season: H.season()}); H.press(); return !!was && dayOfCust(r.id) === was; })());
+}
+
+/* ======================================================================================= */
 suite('13 Individual customer priority');
 {
   /* A realistic season, then priority added to one customer at a time. */
