@@ -76054,6 +76054,28 @@ function houseInstallPriority(h, custData, opts){
   if(o.explain) return {value: value, cls: (missed && value === 15 && tier > 15) ? 'missed' : cls, tier: tier, pressed: pressed, missed: missed};
   return value;
 }
+/* ⭐ [[SCH-112]] EVERY DAY HAS ITS OWN ID. Dax, 2026-10-01: "oct 1 and oct 2 are like connected in some way so
+   when i click oct 1 it highlights oct 1 and oct 2 and shows me oct 2". The day list selects by id, so two
+   days sharing one are one day to the screen. The cause: Recalculate named its new days 'rb0', 'rb1'… from
+   zero on every press, while the days it KEEPS (the printed next two, anything already worked) still carry
+   the names an earlier press gave them — so a kept 1 October and a freshly built day could both be 'rb1'.
+   Since [[SCH-106]] the first two days of the season are kept on every press, which is why it surfaced now.
+   Renaming a duplicate is safe: nothing outside the plan points at a day by id — the selection, the freeze
+   and the lock snapshot are all re-read from the day objects. The FIRST holder keeps its id. */
+function uniqueDayIds(days, taken){
+  const seen = taken || new Set();
+  let n = 0;
+  (days || []).forEach(function(d){
+    if(!d) return;
+    const id = String(d.id == null ? '' : d.id);
+    if(id && !seen.has(id)){ seen.add(id); return; }
+    let fresh;
+    do { fresh = 'dd' + (n++); } while(seen.has(fresh));
+    d.id = fresh;
+    seen.add(fresh);
+  });
+  return seen;
+}
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
      house with no position at all cannot be clustered. */
@@ -76401,6 +76423,10 @@ function rebuildSeasonDays(){
   built.forEach(function(cd){ (byDate[cd.date]=byDate[cd.date]||[]).push(cd); });
   const dates=Object.keys(byDate).sort();
   const placedIds={};
+  /* [[SCH-112]] the kept days' ids are taken first (and made unique among themselves), so no new day reuses one. */
+  const takenDayIds=uniqueDayIds(keep);
+  let rbSeq=0;
+  const freshDayId=function(){ while(takenDayIds.has('rb'+rbSeq)) rbSeq++; const id='rb'+(rbSeq++); takenDayIds.add(id); return id; };
   const newDays=dates.map(function(dt,i){
     const crews=byDate[dt].slice().sort(function(a,b){return String(a.crew)<String(b.crew)?-1:1;});
     const houses=[];
@@ -76427,7 +76453,7 @@ function rebuildSeasonDays(){
         houses.push(h);
       });
     });
-    return {id:'rb'+i, base:daysBetween(mdToDate((dt.slice(5,7)*1)+'-'+(dt.slice(8,10)*1)), BASE_START),
+    return {id:freshDayId(), base:daysBetween(mdToDate((dt.slice(5,7)*1)+'-'+(dt.slice(8,10)*1)), BASE_START),
             cascade:0, pin:null, houses:houses};
   });
   /* Anything the builder could not place keeps a home rather than vanishing:
@@ -78409,6 +78435,8 @@ function hydrate(o){
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
+  /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
+  uniqueDayIds(SEASON);
   computeDates();
   try{ refreshLockedDates(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
