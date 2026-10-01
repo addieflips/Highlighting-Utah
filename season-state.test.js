@@ -717,8 +717,12 @@ if (portalRsvp) {
   check('and Start New Season clears it in the same write as the rest of the reset',
     /chargeNewMemberFee: false,[\s\S]{0,600}needsDayAssignedAt: null/.test(admin),
     'a separate write can fail on its own and carry the flag into the new season');
+  /* ⚠ REPOINTED, NOT WEAKENED ([[SCH-105]]): the guard now asks isOffTheSchedule — out for the
+     season OR on the colour-change list — and still falls back to isOutForSeason itself. Both
+     spellings end in the same `return;` before anybody is placed. */
   check('it never places somebody who is out for the season',
-    /isOutForSeason\(d\)\) return;/.test(placer),
+    /isOutForSeason\(d\)\) return;/.test(placer) ||
+    /isOffTheSchedule\(d\) : \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)+ return;/.test(placer),
     'the flag can outlive the answer — somebody who rejoined and then said no again ' +
     'must not be scheduled off a stale instruction');
   check('and never places somebody already on the plan',

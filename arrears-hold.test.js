@@ -767,8 +767,15 @@ function seasonResetWrite() {
     !!afterYes.needsDayAssignedAt,
     'if it stopped asking, the check below would be guarding nothing');
   const placer = lift('placeUnscheduledOnNextDay');
+  /* REPOINTED, NOT WEAKENED (SCH-105, 2026-09-30): the placer now asks isOffTheSchedule,
+     which is isOutForSeason OR the colour-change list. The guarantee is unchanged, so
+     both halves are asserted: the placer asks the wrapper (falling back to the season
+     rule), and the wrapper still asks the season rule itself. */
+  const offSrc = lift('isOffTheSchedule');
   check('and the placer refuses anybody the season rule holds',
-    /if\(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\) return;/.test(placer),
+    (/if\(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\) return;/.test(placer) ||
+     /isOffTheSchedule\(d\) : \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)\)\) return;/.test(placer)) &&
+    (!/isOffTheSchedule\(d\)/.test(placer) || /return isOutForSeason\(d\) \|\|/.test(offSrc)),
     'without this line an unpaid customer who approves by email is put straight onto ' +
     'the next day going');
 

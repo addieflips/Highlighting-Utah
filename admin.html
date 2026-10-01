@@ -1947,19 +1947,24 @@
                was the whole of her second sentence. -->
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Their Own Calendar</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Both of these work alongside the timing preference above &mdash; they never replace it. Leave them blank and nothing changes.</p>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Three hard rules the schedule always keeps, on top of the timing preference above &mdash; they never replace it. Leave any of them blank and nothing changes. They take effect <b>on their own</b> within a few minutes; nobody else on the plan is moved.</p>
 
-            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they want it done</label>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input type="date" id="addCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
-              <span style="font-size:12.5px; color:var(--slate);">until</span>
-              <input type="date" id="addCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            <!-- ⭐ SCHEDULE V2 ([[SCH-104]], 2026-09-30). Owner: "we also need a way to add a not before, and not after
+                 button, and then also a not in between a certain range button (phrase those however you want)".
+                 ⚠ THE SAME THREE FIELDS AS BEFORE, RENAMED FOR WHAT THEY DO: wantedFrom / wantedTo / awayDates. No
+                 data moved and no second mechanism was added. What CHANGED is that "Don't hang after" is now firm:
+                 Recalculate pulls anybody past it back onto an earlier legal day (pullBackPastDeadline). -->
+            <div style="display:flex; gap:14px; flex-wrap:wrap;">
+              <div><label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang before</label>
+              <input type="date" id="addCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;"></div>
+              <div><label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang after</label>
+              <input type="date" id="addCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;"></div>
             </div>
-            <p class="form-note" style="margin:6px 0 16px;">The stretch this customer would like us in. We will <b>never</b> hang them before the first date, and the schedule aims to have them done by the second. It does <b>not</b> move anyone into a month they did not ask for &mdash; somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
+            <p class="form-note" style="margin:6px 0 16px;"><b>Don&rsquo;t hang before</b>: never on a day earlier than this. <b>Don&rsquo;t hang after</b>: never planned on a day later than this &mdash; if the schedule genuinely has no room before it, <b>Recalculate everything</b> names them so you can add a crew day or pin them. Neither moves anyone into a month they did not ask for: somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
 
-            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang between &mdash; dates they are away</label>
             <div id="addCustAwayList"></div>
-            <button type="button" id="addCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
+            <button type="button" id="addCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another range</button>
             <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect <b>on its own</b> &mdash; the schedule picks it up within a few minutes, and nobody else on the plan is moved. No need to press anything.</p>
             <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
             <input type="date" id="addCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
@@ -2419,7 +2424,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="colorchange">Colour change &mdash; waiting on the warehouse</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -2623,19 +2628,24 @@
                was the whole of her second sentence. -->
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:4px;">Their Own Calendar</label>
-            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Both of these work alongside the timing preference above &mdash; they never replace it. Leave them blank and nothing changes.</p>
+            <p style="font-size:12px; color:var(--slate); margin:0 0 12px;">Three hard rules the schedule always keeps, on top of the timing preference above &mdash; they never replace it. Leave any of them blank and nothing changes. They take effect <b>on their own</b> within a few minutes; nobody else on the plan is moved.</p>
 
-            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they want it done</label>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input type="date" id="editCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
-              <span style="font-size:12.5px; color:var(--slate);">until</span>
-              <input type="date" id="editCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            <!-- ⭐ SCHEDULE V2 ([[SCH-104]], 2026-09-30). Owner: "we also need a way to add a not before, and not after
+                 button, and then also a not in between a certain range button (phrase those however you want)".
+                 ⚠ THE SAME THREE FIELDS AS BEFORE, RENAMED FOR WHAT THEY DO: wantedFrom / wantedTo / awayDates. No
+                 data moved and no second mechanism was added. What CHANGED is that "Don't hang after" is now firm:
+                 Recalculate pulls anybody past it back onto an earlier legal day (pullBackPastDeadline). -->
+            <div style="display:flex; gap:14px; flex-wrap:wrap;">
+              <div><label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang before</label>
+              <input type="date" id="editCustWantFrom" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;"></div>
+              <div><label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang after</label>
+              <input type="date" id="editCustWantTo" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;"></div>
             </div>
-            <p class="form-note" style="margin:6px 0 16px;">The stretch this customer would like us in. We will <b>never</b> hang them before the first date, and the schedule aims to have them done by the second. It does <b>not</b> move anyone into a month they did not ask for &mdash; somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
+            <p class="form-note" style="margin:6px 0 16px;"><b>Don&rsquo;t hang before</b>: never on a day earlier than this. <b>Don&rsquo;t hang after</b>: never planned on a day later than this &mdash; if the schedule genuinely has no room before it, <b>Recalculate everything</b> names them so you can add a crew day or pin them. Neither moves anyone into a month they did not ask for: somebody set to November who picks 20 October here is still a November customer. Fill in one box or both.</p>
 
-            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">When they are away &mdash; never schedule these days</label>
+            <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px;">Don&rsquo;t hang between &mdash; dates they are away</label>
             <div id="editCustAwayList"></div>
-            <button type="button" id="editCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another time they are away</button>
+            <button type="button" id="editCustAwayAdd" style="margin-top:2px; padding:7px 11px; border-radius:9px; font-size:12.5px; font-weight:650; border:1px solid var(--line); background:#fff; color:var(--emerald); cursor:pointer;">+ Add another range</button>
             <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect <b>on its own</b> &mdash; the schedule picks it up within a few minutes, and nobody else on the plan is moved. No need to press anything.</p>
             <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
             <input type="date" id="editCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
@@ -2797,10 +2807,10 @@
           <div class="form-row" style="margin-top:14px;">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" id="editCustRushInstall" style="width:auto; margin:0;">
-              <span>Move this customer up the schedule &mdash; they asked to be hung sooner</span>
+              <span>&#11088; Priority customer &mdash; do them as soon as it makes sense in a route</span>
             </label>
           </div>
-          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. It puts them first in their own town &mdash; ahead of new hangs &mdash; and nudges that town up the list for its next crew&nbsp;day. It does <b>not</b> move them into a month they did not ask for, and it does not override <b>Install Closest To This Date</b>.</p>
+          <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Takes effect <b>on its own</b> within a few minutes &mdash; or tick it from the Schedule with <b>&#11088; Add priority</b> on their stop. They go on the <b>earliest day a crew is already working near them</b> (within a few miles), level with a new hang. It never sends a crew on a trip just for them, does <b>not</b> move them into a month they did not ask for, and never touches a printed day. Untick it and they keep the day they have.</p>
           <div style="border-top:1px solid var(--line); margin:16px 0; padding-top:16px;">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:10px;">Notes for the Crew</label>
             <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Both show to your crew only &mdash; never on the customer&rsquo;s invoice or portal.</p>
@@ -9075,9 +9085,9 @@ const CUSTOMER_FIELD_LABELS = {
      field sweep does not reach it — but "why was this house missed" is exactly the question
      the history exists to answer, and a holiday added or removed is the answer. Rendered
      through the same `list` kind houseSidesList and lightColors already use. */
-  awayDates: {label: 'Away dates', kind: 'list'},
-  wantedFrom: {label: 'Wants it done from', kind: 'date'},
-  wantedTo: {label: 'Wants it done by', kind: 'date'},
+  awayDates: {label: "Don't hang between (away dates)", kind: 'list'},
+  wantedFrom: {label: "Don't hang before", kind: 'date'},
+  wantedTo: {label: "Don't hang after", kind: 'date'},
   stuckOnDate: {label: 'Stuck on this day', kind: 'date'},
   rsvpStatus: 'RSVP answer',
   maybeNextYear: {label: 'Back next year', kind: 'yesno'},
@@ -11094,15 +11104,15 @@ document.querySelectorAll('#crewsPerDaySelect').forEach(function(sel){
       const was = CREWS_PER_DAY;
       CREWS_PER_DAY = want;
       if(st){
+        /* ⚠ SCHEDULE V2 ([[SCH-102]]): the crew-routes sweep no longer re-spreads days on
+           its own, so both directions now say the same thing — the Schedule is re-laid out
+           by Recalculate everything and by nothing else. */
         st.textContent = (want < was
-          ? '✓ ' + crewsPerDayStatusText(want) + ' Days that had more towns are being taken apart and those houses re-spread — watch System notices.'
+          ? '✓ ' + crewsPerDayStatusText(want) + ' Press ⚙ Recalculate everything on the Schedule tab to lay the season out for fewer crews.'
           : '✓ ' + crewsPerDayStatusText(want) + ' Name the new crew on the Schedule tab, then press ⚙ Recalculate everything.');
         st.style.color = 'var(--emerald)';
       }
       logActivity('Crews per day set to ' + want, 'routes', '');
-      /* Re-spread straight away rather than waiting up to fifteen minutes — the
-         office has just changed the shape of the season and expects to see it. */
-      runReconcileAuto();
     } catch(err){
       if(st){ st.textContent = 'Could not save that — try again.'; st.style.color = 'var(--rose)'; }
     }
@@ -40180,8 +40190,26 @@ function seasonBadgeKey(d){
   const said = String(d.rsvpStatus || '').toLowerCase();
   if(said === 'no') return 'no';
   if(d.maybeNextYear || said === 'backnextyear') return 'maybe';
-  return isOutForSeason(d) ? 'pending' : 'confirmed';
+  if(isOutForSeason(d)) return 'pending';
+  /* ⭐ [[SCH-105]] ON THE COLOUR-CHANGE LIST IS NOT CONFIRMED YET — see isWaitingOnColorChange. The badge
+     changes rather than a gate being added inside the schedule, which is the headline rule's own instruction
+     ([[SCH-85]]): a Confirmed customer is never left off a day; somebody who genuinely should not be
+     scheduled stops being Confirmed. */
+  return (typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) ? 'colorchange' : 'confirmed';
 }
+/* ⭐⭐ [[SCH-105]] THE COLOUR-CHANGE LIST HOLDS A CUSTOMER OFF THE SCHEDULE (2026-09-30). Owner: "anyone on the
+   color change list cant be scheduled and waits for them to not be in color changes for any reason but the
+   second they are off the color change list for any reason and we recalculate everything then they get added".
+   ⚠ THE LIST IS `needsColorChange` — the warehouse's own Color Change queue, set by every door that recognises
+   a real colour change and cleared by its Mark Done (or anything else that takes them off it). It is NOT
+   `lightsChangedAt`: that is history and is never cleared, so reading it would hold everybody who ever
+   changed colours off the schedule for good.
+   ⚠ ONLY THE SCHEDULE — NEVER THE WAREHOUSE. They are on this list precisely because a new set must be built,
+   so isOutForSeason (which also governs the build and recycle queues) is deliberately untouched; the schedule
+   asks isOffTheSchedule instead. Somebody who said No or Back Next Year keeps that badge: the list only ever
+   stands between a would-be Confirmed customer and a day. */
+function isWaitingOnColorChange(d){ return !!(d && d.needsColorChange === true); }
+function isOffTheSchedule(d){ return isOutForSeason(d) || isWaitingOnColorChange(d); }
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -56482,6 +56510,17 @@ function nextVisitFor(d, todayStr, custId){
    `null` means "cannot tell" and draws exactly what it drew before. Same shape as
    `cnFreePool` holding the pool back until `jobAddresses` has landed. */
 function scheduledDayIsReal(custId, dateStr){
+  /* ⭐ SCHEDULE V2 ([[SCH-102]]): "REAL" MEANS THE SCHEDULE HOLDS THEM ON THAT DAY. The stamp
+     is now written FROM the Schedule, and the crew-routes calendar this used to consult is
+     built by a sweep that no longer runs — asked here, it would call every correct stamp an
+     orphan. Same three answers as before: null while the plan cannot say. */
+  if(typeof window !== 'undefined' && typeof window.schedulePlanBookings === 'function'){
+    const day0 = String(dateStr || '');
+    if(!day0 || !custId) return null;
+    const plan = window.schedulePlanBookings();
+    if(!plan) return null;
+    return !!(plan[custId] && plan[custId].date === day0);
+  }
   if(typeof scheduledRoutesLoaded === 'undefined' || !scheduledRoutesLoaded) return null;
   if(typeof scheduledRoutesCache === 'undefined' || !scheduledRoutesCache) return null;
   const day = String(dateStr || '');
@@ -57022,6 +57061,8 @@ function renderAllCustomersTable(){
       ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:700;" title="They answered No, so they are out for this season until they say otherwise">No</span>'+unpaidPill
       : badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">' + esc(backNextYearLabel(r.d)) + '</span>'+unpaidPill
+      : badgeKey === 'colorchange'
+      ? '<span class="status-pill" style="background:#F3ECF8; color:#5B3A86; font-weight:700;" title="On the warehouse colour-change list — not scheduled until the new set is marked done, then placed on the next Recalculate">Colour change</span>'+unpaidPill
       : badgeKey === 'pending'
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
@@ -61485,6 +61526,17 @@ async function noticeCustomerPushedBack(cust, fromDate, toDate, becauseOf){
  * Returns {done, message} — never throws, because failing to schedule someone
  * must never be a reason the customer record itself does not get created. */
 async function autoScheduleNewCustomer(custId, d){
+  /* ⛔ SCHEDULE V2 ([[SCH-102]]): A NEW CUSTOMER'S DAY COMES FROM THE SCHEDULE. This used to
+     drop them onto a crew-routes day and stamp that date on the record — a second planner
+     choosing a date the Schedule tab had never seen. The Schedule's own sync now places a
+     newly Confirmed customer on the nearest day they are allowed (`placeJoinedHouses`, on
+     the five-minute sync and whenever the Schedule tab opens), and the mirror copies that
+     day onto their record. The old body below is left for the suites that lift it, and is
+     unreachable from the page. */
+  if(!AUTO_ROUTE_NEW_CUSTOMERS){
+    return {done:false, message:'They will be put on the Schedule by themselves once they are Confirmed — ' +
+      'the nearest day that suits them, after the 72-hour warehouse hold.'};
+  }
   try{
     const city = extractCleanCity(d.city);
     if(typeof d.lat !== 'number' || typeof d.lng !== 'number'){
@@ -63110,6 +63162,15 @@ function planNewCrewDays(waiting, taken, opts){
     const t = tempFor(areaTown(city), ds);
     return typeof t === 'number' && isFinite(t) && t <= coldBelow;
   };
+  /* ⭐ SCHEDULE V2: THE VETO IS ALSO ASKED OF EACH HOUSE'S OWN TOWN. A block is judged by the town most
+     of it sits in, so a warm block could carry houses from a frozen town beside it, and a frozen-
+     majority block hid the warm houses inside it — measured, both at once: warmer towns had work and
+     the day still went to frozen towns with the veto lifted. `w.city` is still the house's own town
+     (seasonAreasFor only ADDS `area`), and with no forecast this answers false exactly as before. */
+  const houseFrozen = function(w, ds){
+    const t = tempFor(w && w.city, ds);
+    return typeof t === 'number' && isFinite(t) && t <= coldBelow;
+  };
   /* Which of two candidate towns should get this crew-slot. Written out rather than
      nested into the `if` it replaced, because the ordering IS the rule and every
      line of it was decided separately:
@@ -63419,7 +63480,8 @@ function planNewCrewDays(waiting, taken, opts){
             if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
             const st = allowedStats(c, ds);
             if(!st.n) return;
-            const cold = tooCold(c, ds);
+            const cold = tooCold(c, ds) && !byCity[c].some(function(w){
+              return w.from <= ds && !awayOn(w, ds) && !houseFrozen(w, ds); });
             if(cold && !allowCold) return;
             const fits = fillableCount(c, ds);
             /* ⭐ A HOUSE ASKED TO GO SOONER MOVES ITS AREA UP — WHEN THE AREA CAN
@@ -63465,7 +63527,7 @@ function planNewCrewDays(waiting, taken, opts){
         const eligible = [];
         /* ⭐ AWAY, site 2 of 4 — the one that actually keeps them off the van. */
         for(let i = 0; i < queue.length; i++){
-          if(queue[i].from <= ds && !awayOn(queue[i], ds)) eligible.push(i);
+          if(queue[i].from <= ds && !awayOn(queue[i], ds) && (pick.cold || !houseFrozen(queue[i], ds))) eligible.push(i);
         }
         /* ⭐ A FULL CREW-DAY, EVERY TIME. See the note above byCity: trimming this to
            leave a healthier last day was built, shown to her, and overruled — forty
@@ -63492,6 +63554,13 @@ function planNewCrewDays(waiting, taken, opts){
           for(let n = 0; n < near.length; n++){
             const other = near[n];
             if(townsUsedOn(ds).indexOf(other) !== -1) continue;
+            /* ⚠ SCHEDULE V2: THE VETO REACHES THE LOAN TOO. The two passes above keep a crew from
+               being SENT to an area at or below the cutoff, but the top-up then borrowed from any
+               neighbour — so a warm crew-day filled itself from the frozen town next door and the
+               veto was quietly undone (measured: 22 houses in frozen towns on a frozen day while
+               warmer towns still had work). A frozen neighbour lends nothing unless the day itself
+               is the "unless" — the veto already lifted because nowhere warmer had anybody. */
+            if(!pick.cold && tooCold(other, ds)) continue;
             const oq = byCity[other];
             if(!oq || !oq.length) continue;
             let best = null;
@@ -63516,7 +63585,7 @@ function planNewCrewDays(waiting, taken, opts){
             const oel = [];
             /* ⭐ AWAY, site 4 of 4 — the borrowed houses themselves. */
             for(let i = 0; i < borrow.queue.length; i++){
-              if(borrow.queue[i].from <= ds && !awayOn(borrow.queue[i], ds)) oel.push(i);
+              if(borrow.queue[i].from <= ds && !awayOn(borrow.queue[i], ds) && (pick.cold || !houseFrozen(borrow.queue[i], ds))) oel.push(i);
             }
             const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
             if(lent.length){
@@ -63598,7 +63667,7 @@ function planNewCrewDays(waiting, taken, opts){
        behaviour rather than a crash. */
     awayOn: function(id, ds){
       const w = wById[id];
-      return !!w && typeof houseAwayOn === 'function' && houseAwayOn(w, ds);
+      return !!w && ((typeof houseAwayOn === 'function' && houseAwayOn(w, ds)) || houseFrozen(w, ds));
     },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
     nearby: function(c){ return nearbyTowns(c, centres); },
@@ -63615,6 +63684,7 @@ function planNewCrewDays(waiting, taken, opts){
     ? gatherStrayHouses(packed.days, {
         cap: cap, dayShape: o.dayShape,
         house: function(id){ return wById[id] || null; },
+        blockedOn: function(id, ds){ return houseFrozen(wById[id], ds); },
         home: o.home || null
       })
     : packed.days;
@@ -63624,7 +63694,8 @@ function planNewCrewDays(waiting, taken, opts){
   const evened = (o.even !== false && typeof evenCrewDates === 'function')
     ? evenCrewDates(gathered, {
         cap: cap, dayShape: o.dayShape,
-        house: function(id){ return wById[id] || null; }
+        house: function(id){ return wById[id] || null; },
+        blockedOn: function(id, ds){ return houseFrozen(wById[id], ds); }
       })
     : gathered;
   return renumberCrewsByDate(evened, taken || {});
@@ -63758,6 +63829,8 @@ function gatherStrayHouses(days, opts){
        a holiday. Read off the waiting row rather than re-derived, so the gatherers and
        the builder cannot disagree about the same customer. */
     if(typeof houseAwayOn === 'function' && houseAwayOn(w, to.date)) return false;
+    /* SCHEDULE V2: and never into a frozen town's day (the builder's own veto, see houseFrozen). */
+    if(typeof o.blockedOn === 'function' && o.blockedOn(id, to.date)) return false;
     if(to.date > from.date &&
        (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
     return true;
@@ -63970,6 +64043,8 @@ function evenCrewDates(days, opts){
        a holiday. Read off the waiting row rather than re-derived, so the gatherers and
        the builder cannot disagree about the same customer. */
     if(typeof houseAwayOn === 'function' && houseAwayOn(w, to.date)) return false;
+    /* SCHEDULE V2: and never into a frozen town's day (the builder's own veto, see houseFrozen). */
+    if(typeof o.blockedOn === 'function' && o.blockedOn(id, to.date)) return false;
     if(to.date > from.date &&
        (!mayWait(w) || daysApart(from.date, to.date) > STRAY_LATER_MAX_DAYS)) return false;
     return true;
@@ -64557,9 +64632,45 @@ function hoursUntilDayStarts(dateStr, nowParts){
      never touches a UTC offset, so it cannot be an hour out over a clock change. */
   return (daysAhead * 24) - (now.hour + (now.minute / 60));
 }
+/* ⭐ THE LOCK IS ONE RULE, ASKED IN ONE PLACE (Schedule V2, 2026-09-30, [[SCH-102]]).
+   A day is printed paper once EITHER of two things is true: it starts inside 48 hours, OR
+   it is one of the next ROUTE_LOCK_WORKING_DAYS working days. Recalculate everything has
+   always asked both (`pinHorizon` or this function); every OTHER mover — the five-minute
+   timing sweep, the away-date sweep, the Confirmed safety net, the pin placer and the
+   route orderer — asked only the 48 hours. On a Friday morning Monday starts ~62 hours out,
+   so Recalculate treated Monday's sheet as printed while the sync was still free to move a
+   house onto or off it. One function now answers for all of them.
+   ⚠ WORKING DAYS ARE COUNTED IN UTAH, off the same `nowParts` the hours are, and never off
+   the browser's clock — the two halves must agree about what "today" is.
+   ⚠ A DAY ALREADY BEGUN IS LOCKED by the hours half (negative is < 48), so the working-day
+   half only ever widens the lock forwards. */
+const ROUTE_LOCK_WORKING_DAYS = 2;
+function lockThanksgivingUtc(year){
+  const first = new Date(Date.UTC(year, 10, 1));
+  const toThu = (4 - first.getUTCDay() + 7) % 7;
+  return Date.UTC(year, 10, 1 + toThu + 21);
+}
+function workingDaysUntil(dateStr, nowParts){
+  const now = nowParts || mtnNowParts();
+  const a = Date.UTC(Number(now.date.slice(0,4)), Number(now.date.slice(5,7)) - 1, Number(now.date.slice(8,10)));
+  const b = Date.UTC(Number(String(dateStr).slice(0,4)), Number(String(dateStr).slice(5,7)) - 1, Number(String(dateStr).slice(8,10)));
+  if(isNaN(a) || isNaN(b)) return Infinity;
+  if(b <= a) return 0;
+  let n = 0;
+  for(let t = a + 86400000; t <= b; t += 86400000){
+    const d = new Date(t);
+    const w = d.getUTCDay();
+    if(w === 0 || w === 6) continue;
+    if(t === lockThanksgivingUtc(d.getUTCFullYear())) continue;
+    n++;
+    if(n > 400) break;
+  }
+  return n;
+}
 function routeDayIsLocked(dateStr, nowParts){
   if(!dateStr) return false;
-  return hoursUntilDayStarts(dateStr, nowParts) < ROUTE_LOCK_HOURS;
+  if(hoursUntilDayStarts(dateStr, nowParts) < ROUTE_LOCK_HOURS) return true;
+  return workingDaysUntil(dateStr, nowParts) <= ROUTE_LOCK_WORKING_DAYS;
 }
 async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
@@ -65516,7 +65627,20 @@ function runReconcileAuto(){
     console.error('[HU] route reconcile failed', err);
   }).then(function(){ reconcileRunning = false; });
 }
+/* ⛔ THE FIFTEEN-MINUTE SWEEP NO LONGER RUNS (Schedule V2, 2026-09-30, [[SCH-102]]).
+   It was a SECOND PLANNER: it built its own crew-days in `scheduledRoutes` and stamped
+   them onto customers, so the date a customer saw could differ from the day the office
+   printed. The Schedule tab is the only authority now and `syncInstallStampsFromSchedule`
+   is the only writer of an install date. `reconcileUpcomingRoutes` itself is left in the
+   file, unreachable from the page, because a dozen suites still RUN it as a unit and its
+   rules (the town list, the one-other-town cap) are still what those suites protect.
+   ⚠ DO NOT RE-ENABLE THIS without first taking its customer writes out: it reads
+   `d.scheduled` to decide who needs a day, and the mirror now writes that field from the
+   Schedule — the two together re-home the whole book every fifteen minutes. */
+const RECONCILE_SWEEP_ENABLED = false;
+const AUTO_ROUTE_NEW_CUSTOMERS = false;
 function startReconcileAuto(){
+  if(!RECONCILE_SWEEP_ENABLED) return;
   if(reconcileTimer) return;
   setTimeout(whileSignedIn(runReconcileAuto), 20000);
   reconcileTimer = setInterval(whileSignedIn(runReconcileAuto), RECONCILE_INTERVAL_MS);
@@ -65538,6 +65662,88 @@ function scheduledFieldForType(type, dateVal, crew){
   // this IS the re-add step the flag was asking for.
   return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew,
           assignedCrewAt: serverTimestamp(), lightsChangedAfterAssign: false};
+}
+/* ⭐⭐ THE SCHEDULE IS THE ONLY INSTALL-DATE AUTHORITY (Schedule V2, 2026-09-30, [[SCH-102]]).
+   Owner, asked directly: "Schedule is the only authority — the sweep may still order stops,
+   but it never assigns or stamps a date."
+   ⛔ WHAT IT REPLACES. `scheduled` / `scheduledDate` / `assignedCrew` on the customer were
+   written ONLY by the crew-routes side — the fifteen-minute reconcile sweep, Save on the
+   Routes tab and the auto-routing of a new customer — and the sweep BUILDS ITS OWN DAYS.
+   The customer's portal reads `scheduledDate` (functions/index.js PORTAL_READ_FIELDS), so a
+   customer could be told a day the office never printed. That sweep no longer starts
+   (`startReconcileAuto`), and the two manual install writers refuse; this is now the only
+   writer of an install date, and it copies it FROM the Schedule plan.
+   ⚠ IT IS A MIRROR, NOT A PLANNER. It decides nothing: `window.schedulePlanBookings` says
+   who is on which day, and this writes the difference onto the records. Pure half first
+   (`installStampDiffs`) so a test can RUN it.
+   ⚠ null PLAN MEANS "CANNOT SAY" AND WRITES NOTHING. The plan reader answers null before
+   the Schedule has loaded; reading that as "nobody is booked" would clear ~950 real days.
+   ⚠ OUT FOR THE SEASON IS CLEARED EVEN IF A STALE PLAN STILL HOLDS THEM — the plan only
+   drops them on the next Recalculate, and a customer who said no must not go on reading a
+   hang day in their portal in the meantime. `isOutForSeason` is asked, never re-decided.
+   ⚠ A COMPLETED HOUSE NOT ON THE PLAN IS LEFT ALONE: its stamp is the day it was hung. */
+function installStampDiffs(plan, customers, isOut){
+  if(!plan || !Array.isArray(customers)) return null;
+  const out = [];
+  customers.forEach(function(item){
+    const d = item && item.data;
+    if(!d || !item.id) return;
+    const gone = typeof isOut === 'function' ? !!isOut(d) : false;
+    const want = gone ? null : (plan[item.id] || null);
+    const stamped = d.scheduled === true || !!d.scheduledDate || !!d.assignedCrew;
+    if(want){
+      if(d.scheduled === true && d.scheduledDate === want.date && String(d.assignedCrew || '') === String(want.crew || '')) return;
+      out.push({id: item.id, set: true, dateChanged: d.scheduledDate !== want.date,
+                updates: {scheduled: true, scheduledDate: want.date, assignedCrew: String(want.crew || '1')}});
+    } else {
+      if(!stamped) return;
+      if(d.completed === true && !gone) return;
+      out.push({id: item.id, set: false, dateChanged: true,
+                updates: {scheduled: false, scheduledDate: null, assignedCrew: null}});
+    }
+  });
+  return out;
+}
+let installStampSyncInFlight = null;
+let installStampSyncAgain = false;
+async function syncInstallStampsFromSchedule(){
+  if(installStampSyncInFlight){ installStampSyncAgain = true; return installStampSyncInFlight; }
+  installStampSyncInFlight = (async function(){
+    let written = 0;
+    do {
+      installStampSyncAgain = false;
+      if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) break;
+      const plan = (typeof window !== 'undefined' && typeof window.schedulePlanBookings === 'function')
+        ? window.schedulePlanBookings() : null;
+      const diffs = installStampDiffs(plan, jobAddresses, (typeof isOffTheSchedule === 'function') ? isOffTheSchedule : ((typeof isOutForSeason === 'function') ? isOutForSeason : null));
+      if(!diffs || !diffs.length) break;
+      const BATCH_LIMIT = 400;
+      for(let i = 0; i < diffs.length; i += BATCH_LIMIT){
+        const chunk = diffs.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        chunk.forEach(function(x){
+          const upd = Object.assign({}, x.updates);
+          /* When the booking was MADE (added 2026-08-28) follows the date, not every tick. */
+          if(x.set && x.dateChanged){ upd.assignedCrewAt = serverTimestamp(); upd.lightsChangedAfterAssign = false; }
+          if(!x.set){ upd.assignedCrewAt = null; }
+          batch.update(doc(db, 'jobAddresses', x.id), upd);
+        });
+        try{
+          await batch.commit();
+          chunk.forEach(function(x){
+            const local = jobAddresses.find(function(a){ return a.id === x.id; });
+            if(local) Object.assign(local.data, x.updates);
+          });
+          written += chunk.length;
+        }catch(err){
+          console.error('[HU] could not copy ' + chunk.length + ' Schedule day(s) onto customer records', err);
+        }
+      }
+    } while(installStampSyncAgain);
+    return written;
+  })();
+  try{ return await installStampSyncInFlight; }
+  finally{ installStampSyncInFlight = null; }
 }
 function freeUpFieldForType(type){
   /* ⚠ THE DATE GOES WITH THE ASSIGNMENT. Left standing it says a house is on a sheet
@@ -66093,6 +66299,14 @@ document.getElementById('markScheduledBtn').addEventListener('click', async func
   if(!currentRouteStops.length){ return; }
   if(!currentRouteDate){
     toast('Pick a date for this route first');
+    return;
+  }
+  /* ⛔ SCHEDULE V2 ([[SCH-102]]): AN INSTALL DAY IS NOT SAVED FROM HERE. Saving an install
+     route stamped its date onto every customer on it — a second authority beside the
+     Schedule tab, and the customer's portal shows that stamp. Fix and removal routes are
+     untouched: neither has a planner of its own. */
+  if(currentRouteType === 'install'){
+    toast('Install days are set on the Schedule tab — that is the one place a hang day comes from. Fix and removal routes still save here.');
     return;
   }
   // Assignment-only lock: on an INSTALL route, hold back anyone still inside their
@@ -71801,7 +72015,7 @@ function attachDeleteHandlers(container){
 (function(){ try{
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
-  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stuckbadge{display:inline-block;background:#e7f0ff;color:#2a4d8f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.qbtn.stuck{border-color:#c5d8f4;background:#eef4fd;color:#25548f}\n";
+  const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stuckbadge{display:inline-block;background:#e7f0ff;color:#2a4d8f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.qbtn.stuck{border-color:#c5d8f4;background:#eef4fd;color:#25548f}\n.qbtn.prio{border-color:#ecd9a8;background:#fdf7e8;color:#8a6414}.qbtn.prio.on{background:#c99a2e;color:#fff;border-color:#c99a2e}\n.why{margin-top:4px;font-size:11.5px;color:var(--muted)}.why summary{cursor:pointer}.why ul{margin:4px 0 0 16px;padding:0}\n";
   const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
@@ -73310,7 +73524,7 @@ function seasonAimPoints(days){
   return out;
 }
 /* Every day of the season, except the ones nobody may touch. */
-function generateAllRoutes(){
+function generateAllRoutes(opts){
   /* Learned fresh, not cached: the office edits addresses and adds customers,
      and a grid worked out an hour ago would place houses from a book that has
      since moved. Guarded because the suites lift this function on its own. */
@@ -73326,7 +73540,14 @@ function generateAllRoutes(){
        moving a house off it: the crew is holding paper that no longer matches
        what the office is looking at. Asked in MOUNTAIN time, so a laptop on a
        trip cannot decide that the crew's morning is still editable. */
-    if(dt && typeof routeDayIsLocked==='function' && routeDayIsLocked(isoOf(dt))){ res.locked++; return; }
+    /* ⚠ SCHEDULE V2: A DAY THAT DID NOT EXIST BEFORE THIS PRESS CANNOT HAVE BEEN PRINTED. The first
+       Recalculate of a season builds its opening days INSIDE the lock window (on 30 September, 1 and
+       2 October are the next two working days), and skipping them here left the crew's first sheets
+       in raw build order. With the press's own snapshot (opts.lockedBefore) a locked day is left
+       alone only if it was already there. Without one — the sync, a lifted copy — every locked day
+       is left alone exactly as before. */
+    if(dt && typeof routeDayIsLocked==='function' && routeDayIsLocked(isoOf(dt)) &&
+       !(opts && opts.lockedBefore && opts.lockedBefore[isoOf(dt)+'|'+d.id]===undefined)){ res.locked++; return; }
     /* A day somebody has started ticking through is being worked right now.
        Re-ordering what is left of it under them helps nobody. */
     if((d.houses||[]).some(function(h){ return h.done; })){ res.started++; return; }
@@ -73902,7 +74123,7 @@ function stopFlagBadges(h){
   let out='';
   const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
   if(typeof isRushInstall==='function' && isRushInstall(cust&&cust.data)){
-    out+='<span class="rushbadge" title="Moved up by hand — they asked to be hung sooner">ASKED SOONER</span>';
+    out+='<span class="rushbadge" title="Priority customer — placed at the first day that makes sense in a route, never on a trip of their own">⭐ PRIORITY</span>';
   }
   const missed=(typeof houseMissedCount==='function')?houseMissedCount(h):0;
   if(missed){
@@ -73947,10 +74168,26 @@ function stopHTML(h,n,dayId){
        :'Pin them to this day so nothing moves them off it')+'">'+
       (pinnedHere?'📌 Stuck here — unpin':pinnedElse?('📌 Stuck on '+esc(sd)+' — pin here'):'📌 Stuck here')+
       '</button>';
+    /* ⭐⭐ ADD / REMOVE PRIORITY ([[SCH-103]]). The same field as the Priority tick on Edit Customer, so
+       the two doors cannot disagree. See setPriorityFor. */
+    const pc=(typeof hlxResolvePlanHouse==='function')?hlxResolvePlanHouse(h):null;
+    const isPrio=!!(pc&&pc.data&&pc.data.rushInstall===true);
+    if(pc) extra+='<button class="qbtn prio'+(isPrio?' on':'')+'" data-prio="'+h.id+'" title="'+
+      (isPrio?'Priority customer — press to take the priority off (they keep their day)'
+             :'Make them a priority customer — they go on the earliest day a crew is already working near them')+'">'+
+      (isPrio?'⭐ Remove priority':'⭐ Add priority')+'</button>';
   }
   /* [[SCH-92]] Soonest / Latest possible, one customer at a time. */
   else{const tc=(typeof hlxResolvePlanHouse==='function')?hlxResolvePlanHouse(h):null;const tt=takedownTimingOf(tc&&tc.data?tc.data:h);extra+='<button class="qbtn soon'+(tt==='soonest'?' on':'')+'" data-taketiming="soonest" data-takehouse="'+h.id+'">⏫ Soonest possible</button>'+'<button class="qbtn late'+(tt==='latest'?' on':'')+'" data-taketiming="latest" data-takehouse="'+h.id+'">⏬ Latest possible</button>'+(tt?'<button class="qbtn" data-taketiming="normal" data-takehouse="'+h.id+'">Normal</button>':'');}
   extra+='</div>';
+  /* ⭐ WHY THIS DAY (Schedule V2). A few plain sentences, read off the same rules that placed them —
+     see placementReasons. Folded away so a day of forty stays a list. */
+  if(!h.isFix&&!h.isTakedown&&typeof placementReasons==='function'){
+    try{ const dy=(typeof SEASON!=='undefined')?SEASON.filter(function(x){ return x.id===dayId; })[0]:null;
+      const why=dy?placementReasons(h,dy):[];
+      if(why.length) extra+='<details class="why"><summary>Why this day</summary><ul>'+why.map(function(w){ return '<li>'+esc(w)+'</li>'; }).join('')+'</ul></details>'; }
+    catch(err){ /* a reason is not worth a thrown stop — the stop still draws without it */ }
+  }
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
     '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
@@ -75246,6 +75483,44 @@ function houseHoldFrom(custData){
   const end = new Date(ms);
   return isoOf(nextWorkingDay(new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1)));
 }
+/* ⭐ SCHEDULE V2 — ONE ANSWER TO "MAY THIS HOUSE GO ON THIS DAY" (2026-09-30, [[SCH-102]]).
+   The date rules already lived one per function — the floor (`houseAllowedFrom`: month,
+   named day, office date, wanted-from, pin), the ceiling (`houseDeadline`: October,
+   Thanksgiving, office week, wanted-until, pin), the warehouse hold (`houseHoldFrom`), the
+   holes (`houseAwayOn`) and the calendar (`isWorkingDay`). What was repeated was COMBINING
+   them: Recalculate and the Confirmed safety net each worked "the later of the floor and the
+   hold" out for themselves. These three are the combination, written once.
+   ⚠ HARD RULES ONLY. Nothing here weighs weather, miles, crews or priority — those are
+   preferences the builder trades against each other; these are never traded.
+   ⚠ A PIN OVERRULES EVERYTHING ELSE, including an away date and the hold ([[SCH-100]]: "a
+   pin is not a preference to be weighed; it is somebody in the office saying this house is
+   on this day"). It is still refused inside the next two working days where it is SET. */
+function houseEarliestDay(h, custData, startStr){
+  const pinned = ('' + ((h && h.stuck) || '')).trim();
+  if(pinned) return pinned;
+  const pref = houseAllowedFrom(h, startStr) || '';
+  const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(custData || {}) : '';
+  return (hold && hold > pref) ? hold : pref;
+}
+function houseDateWindow(h, custData, startStr){
+  const pinned = ('' + ((h && h.stuck) || '')).trim();
+  return {from: houseEarliestDay(h, custData, startStr) || '',
+          until: (typeof houseDeadline === 'function' ? (houseDeadline(h) || '') : ''),
+          pinned: pinned, away: (h && h.away) || ''};
+}
+function houseMayGoOn(h, custData, ds, startStr){
+  if(!ds) return {ok: false, why: 'no date'};
+  const p = ds.split('-').map(Number);
+  const dt = new Date(p[0], p[1] - 1, p[2]);
+  if(isNaN(dt.getTime())) return {ok: false, why: 'not a date'};
+  if(typeof isWorkingDay === 'function' && !isWorkingDay(dt)) return {ok: false, why: 'not a working day'};
+  const w = houseDateWindow(h, custData, startStr);
+  if(w.pinned) return w.pinned === ds ? {ok: true, why: 'pinned to this day'} : {ok: false, why: 'pinned to ' + w.pinned};
+  if(w.from && ds < w.from) return {ok: false, why: 'before their earliest day (' + w.from + ')'};
+  if(w.until && ds > w.until) return {ok: false, why: 'after their last day (' + w.until + ')'};
+  if(typeof houseAwayOn === 'function' && houseAwayOn(h, ds)) return {ok: false, why: 'they are away that day'};
+  return {ok: true, why: ''};
+}
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   /* ⭐⭐ THE OTHER HALF OF THE PIN ([[SCH-100]]). houseAllowedFrom says this day is the
@@ -75424,8 +75699,9 @@ function houseInstallPriority(h, custData, opts){
      TIER to be level with, so it reads it on the pool sort that feeds fillDays
      instead. The two still agree; they say it in the place each one ranks. */
   let tier;
+  let cls = 'normal';
   if((custData && custData.chargeNewMemberFee === true) ||
-     (!forTown && custData && custData.rushInstall === true)) tier = 10;   // never been hung, or asked to go sooner
+     (!forTown && custData && custData.rushInstall === true)){ tier = 10; cls = (custData && custData.chargeNewMemberFee === true) ? 'new' : 'rush'; }   // never been hung, or asked to go sooner
   /* ⭐ A DATE THE OFFICE TYPED SITS SECOND (2026-09-09, [[SCH-57]]). Addie: "New members
      come first and should be done within a week but can push it to 2 weeks if
      necessary. The staff dates should be second to these."
@@ -75446,7 +75722,7 @@ function houseInstallPriority(h, custData, opts){
      gives the house that window, so `deadlineIsClose` moves the TOWN as the window
      closes — which is [[SCH-58]]'s own mechanism doing the job, and the one claim about
      a town that is genuinely about the work rather than about one phone call. */
-  else if(!forTown && h && h.notBefore) tier = 20;
+  else if(!forTown && h && h.notBefore){ tier = 20; cls = 'office-date'; }
   /* ⭐ A NAMED DAY IS NOT AN URGENT ONE. Owner, 2026-08-19: "if they ask for a
      specific day though that is not top priority we just do it the next time we
      have a chance for when they ask."
@@ -75456,15 +75732,15 @@ function houseInstallPriority(h, custData, opts){
      is a different thing. houseAllowedFrom already holds them until that day; from
      there they take their turn like anybody with no preference, which is exactly
      "the next time we have a chance". */
-  else if(prefSpecificDate(p, BASE_START.getFullYear())) tier = 40;
-  else if(p.indexOf('OCT')===0) tier = 30;   // asked for October
-  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') tier = 60;   // last of all
+  else if(prefSpecificDate(p, BASE_START.getFullYear())){ tier = 40; cls = 'named-day'; }
+  else if(p.indexOf('OCT')===0){ tier = 30; cls = 'october'; }   // asked for October
+  else if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX'){ tier = 60; cls = 'after-thanksgiving'; }   // last of all
   /* ⚠ FIRST ONCE THE RUN-UP OPENS. houseAllowedFrom holds these back until the
      week of the holiday, so this decides only what happens inside that week —
      and there they must outrank everybody, because for them a day late is a
      missed Thanksgiving rather than a slightly later hang. */
-  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING') tier = 30;
-  else if(p.indexOf('NOV')===0) tier = 50;   // asked for November — waits
+  else if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){ tier = 30; cls = 'pre-thanksgiving'; }
+  else if(p.indexOf('NOV')===0){ tier = 50; cls = 'november'; }   // asked for November — waits
   else tier = 40;                            // no preference — fills in behind October
   /* ⭐ A DAY THEY WERE PROMISED THAT DID NOT HAPPEN — THIRD OVERALL (changed
      2026-09-09). Dax: "we want houses that were scheduled for a day but werent to
@@ -75551,8 +75827,8 @@ function houseInstallPriority(h, custData, opts){
      todayStr && typeof newHangWaitDays === 'function'){
     const waited = newHangWaitDays(custData, todayStr);
     if(waited !== null){
-      if(waited >= NEW_HANG_LIMIT_DAYS) return -10;
-      if(waited >= NEW_HANG_TARGET_DAYS) return 5;
+      if(waited >= NEW_HANG_LIMIT_DAYS) return o.explain ? {value: -10, cls: 'new-overdue', tier: tier, pressed: false, missed: 0, waited: waited} : -10;
+      if(waited >= NEW_HANG_TARGET_DAYS) return o.explain ? {value: 5, cls: 'new-waiting', tier: tier, pressed: false, missed: 0, waited: waited} : 5;
     }
   }
   const missed = (typeof houseMissedCount === 'function') ? houseMissedCount(h) : 0;
@@ -75580,7 +75856,11 @@ function houseInstallPriority(h, custData, opts){
      one house that has both reasons to be first. Being missed may only ever pull a
      house up, and that is the whole care in this line. */
   const base = pressed ? tier - 5 : tier;
-  return missed ? Math.min(base, 15) : base;
+  const value = missed ? Math.min(base, 15) : base;
+  /* ⭐ SCHEDULE V2: `explain` hands back WHICH class and which bumps produced the number, from
+     the same branches that produced it — so a label can never disagree with the order. */
+  if(o.explain) return {value: value, cls: (missed && value === 15 && tier > 15) ? 'missed' : cls, tier: tier, pressed: pressed, missed: missed};
+  return value;
 }
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
@@ -75734,7 +76014,7 @@ function rebuildSeasonDays(){
       if(bookLoaded){ orphans.push(h); movable.splice(i,1); }
       continue;
     }
-    if(typeof isOutForSeason==='function' && isOutForSeason(cd)){
+    if((typeof isOffTheSchedule === 'function' ? isOffTheSchedule(cd) : (typeof isOutForSeason === 'function' && isOutForSeason(cd)))){
       left.push(h);
       movable.splice(i,1);
     }
@@ -75832,11 +76112,7 @@ function rebuildSeasonDays(){
                ⚠ THE LATER OF THE TWO WINS. A November customer inside a warehouse hold
                is held by whichever runs out last — taking either one alone would put them
                on a day the other rule forbids. */
-            from:(function(){
-              const pref=houseAllowedFrom(h,startStr);
-              const hold=(typeof houseHoldFrom==='function')?houseHoldFrom(d):'';
-              return (hold && hold > pref) ? hold : pref;
-            })(),
+            from:(typeof houseEarliestDay==='function')?houseEarliestDay(h,d,startStr):houseAllowedFrom(h,startStr),
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */
             until:houseDeadline(h),
@@ -76009,6 +76285,16 @@ function rebuildSeasonDays(){
   SEASON=newDays.concat(keep);
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
+  /* ⭐ SCHEDULE V2 ([[SCH-104]]): nobody is left on a day past their last allowed day when an
+     earlier legal day has room. Before the Confirmed net, which may only ever ADD. */
+  let pulled = {moved: [], stuck: []};
+  try{ if(typeof pullBackPastDeadline === 'function') pulled = pullBackPastDeadline(); }
+  catch(err){ console.error('Could not pull houses back inside their last day:', err); }
+  /* ⭐ [[SCH-103]]: a priority customer the day walk left late is moved to the earliest SENSIBLE day
+     — beside other work, never a trip of their own. */
+  let prio = {moved: [], stayed: []};
+  try{ if(typeof advancePriorityHouses === 'function') prio = advancePriorityHouses(); }
+  catch(err){ console.error('Could not place the priority customers:', err); }
   /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
      Addie: "if anyone has a confirmed tag they should be scheduled somehow no
      exceptions." Asked here rather than only on the button, because this is the moment
@@ -76049,6 +76335,9 @@ function rebuildSeasonDays(){
              pin — and a silent one is indistinguishable from a pin that worked. */
           stuckMoved:stuckMoves.placed.length, stuckMovedNames:stuckMoves.placed.slice(0,5).map(function(x){ return x.name; }),
           stuckBlocked:stuckMoves.blocked.length, stuckBlockedNames:stuckMoves.blocked.slice(0,5).map(function(x){ return x.name; }),
+          priorityMoved:prio.moved.length, priorityMovedNames:prio.moved.slice(0,5).map(function(x){ return x.name; }),
+          pulledBack:pulled.moved.length, pulledBackNames:pulled.moved.slice(0,5).map(function(x){ return x.name; }),
+          pastLastDay:pulled.stuck.length, pastLastDayNames:pulled.stuck.slice(0,5).map(function(x){ return x.name + ' (last day ' + x.until + ')'; }),
           confirmedOff:net.still.length,
           confirmedOffNames:net.still.slice(0,5),
           left:left.length, orphans:orphans.length, stillSet:stillSet,
@@ -76472,13 +76761,363 @@ function dayTownCount(day){ return dayTownList(day).length; }
      · and if neither exists it returns null. There is no last resort: the caller
        reports it and the office decides. Owner, 2026-08-20: "we should never have a
        day with 5 towns no exceptions." */
+/* ⭐ "DON'T HANG AFTER" IS FIRM (Schedule V2, 2026-09-30, [[SCH-104]]). Owner: "we also need a
+   way to add a not before, and not after button, and then also a not in between a certain
+   range button", then "design those however works".
+   The builder places a house from its FIRST allowed day and only the tail sweep ever read the
+   last one, so a customer's last day was a target the day-by-day walk could overshoot. This
+   runs over the season Recalculate has just laid out and pulls anybody standing on a day past
+   their last allowed day (`houseDeadline` — their "don't hang after", the October 31 line, the
+   Thanksgiving line, the office week) back onto the nearest earlier legal day with room.
+   ⚠ IT ASKS nextInstallDayFor, which already refuses a full day, a locked day, an away day and
+   anything outside the window — so it can make a day fuller but never illegal.
+   ⚠ IT NEVER LEAVES ANYBODY OFF. Where no legal day has room it leaves the house where it is and
+   NAMES them on the button: "on a day after their last" is recoverable (add a crew, pin them);
+   "on no day" is what the headline rule forbids.
+   ⚠ A PINNED HOUSE IS NEVER PULLED — its window is one day wide and the pin is the answer — and
+   a locked day is never touched from either end. */
+function pullBackPastDeadline(){
+  const res = {moved: [], stuck: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return res;
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+    .forEach(function(day){
+      const ds = dayStr(day);
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
+      (day.houses || []).slice().forEach(function(h){
+        if(!h || h.done || h.isTakedown || h.isFix) return;
+        if(('' + (h.stuck || '')).trim()) return;
+        const until = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
+        if(!until || ds <= until) return;
+        const target = nextInstallDayFor(h, {exclude: day});
+        const ts = target ? dayStr(target) : null;
+        if(!target || !ts || ts > until){ res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return; }
+        day.houses.splice(day.houses.indexOf(h), 1);
+        target.houses.push(h);
+        res.moved.push({name: h.name || '(no name)', from: ds, to: ts});
+      });
+    });
+  if(res.moved.length){
+    SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || (d.houses || []).length; });
+    computeDates();
+  }
+  return res;
+}
+/* ========================= SCHEDULE V2 ENGINE PIECES (2026-09-30) =========================
+   [[SCH-102]] one authority, [[SCH-103]] individual priority, [[SCH-104]] firm last day.
+   Everything here is built ON the existing scheduler, never beside it: the day builder is still
+   planNewCrewDays, the order is still houseInstallPriority, the legality is houseMayGoOn. What is
+   new is (1) a readable profile of each house, (2) placing ONE house without a full rebuild,
+   (3) the reason a house is where it is, and (4) a validator that proves the plan's invariants. */
+
+/* (1) THE PRIORITY CLASSES, NAMED. The ORDER stays in houseInstallPriority; this only gives each
+   class the words the office reads. `explain` is how a class is found, so a label can never
+   disagree with the number that actually ordered the house. */
+const PRIORITY_CLASS_LABELS = {
+  'new-overdue': 'New member — overdue (10+ working days since joining)',
+  'new-waiting': 'New member — waiting 5+ working days',
+  'new': 'New hang',
+  'rush': 'Priority customer',
+  'missed': 'Missed — the crew did not reach them on their day',
+  'office-date': 'Office date',
+  'october': 'October',
+  'pre-thanksgiving': 'Before Thanksgiving',
+  'normal': 'Any time',
+  'named-day': 'Their own named day',
+  'november': 'November',
+  'after-thanksgiving': 'After Thanksgiving'
+};
+function houseSchedulingProfile(h, custData, opts){
+  const o = opts || {};
+  const d = custData || {};
+  const startStr = o.startStr || isoOf(seasonStartDate());
+  const win = houseDateWindow(h, d, startStr);
+  const pr = houseInstallPriority(h, d, {today: o.today || '', explain: true});
+  const pt = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, d) : null;
+  const holdFrom = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
+  return {
+    customerId: String((h && h.id) || '').indexOf('cust-') === 0 ? String(h.id).slice(5) : '',
+    name: (h && h.name) || d.name || '',
+    location: (pt && typeof pt.lat === 'number') ? {lat: pt.lat, lng: pt.lng} : null,
+    town: (typeof extractCleanCity === 'function') ? extractCleanCity((d.city) || (h && h.city) || '') : '',
+    area: (h && h.area) || '',
+    confirmed: (typeof seasonBadgeKey === 'function') ? seasonBadgeKey(d) === 'confirmed' : null,
+    warehouseHoldUntil: holdFrom,
+    earliest: win.from, latest: win.until, away: win.away, pinned: win.pinned,
+    requestedTiming: (h && h.pref) || d.installPreference || '',
+    priorityClass: pr.cls, priorityLabel: PRIORITY_CLASS_LABELS[pr.cls] || pr.cls, priorityValue: pr.value,
+    deadlineClose: !!pr.pressed, missed: pr.missed || 0,
+    priority: !!(d.rushInstall === true)
+  };
+}
+
+/* (2a) HOW FAR OUT OF THE WAY A HOUSE IS FOR A DAY: the distance to the nearest house already on
+   it. A day with no located houses answers Infinity — "we cannot say it is near" is never read as
+   "it is near". Straight-line miles, the same measure the builder uses. */
+function milesFromDay(day, pt){
+  if(!pt || typeof pt.lat !== 'number') return Infinity;
+  let best = Infinity;
+  (day.houses || []).forEach(function(x){
+    if(!x || x.isTakedown || x.isFix) return;
+    const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null;
+    const q = (typeof houseGeoPoint === 'function') ? houseGeoPoint(x, (c && c.data) || {}) : null;
+    if(!q || typeof q.lat !== 'number') return;
+    const m = haversine(pt.lat, pt.lng, q.lat, q.lng);
+    if(m < best) best = m;
+  });
+  return best;
+}
+/* ⭐ [[SCH-103]] A PRIORITY CUSTOMER GOES ON THE EARLIEST DAY THAT MAKES SENSE IN A ROUTE — never on
+   a day invented for them. Dax, 2026-09-09: "if someone has priority that doesnt mean they will be
+   done the very next day it means they will be done the very next time it makes any sense in a
+   route", and "dont make a route that is 100 miles longer because you were to worried about
+   priority". So a day qualifies only if it is legal for them (houseMayGoOn), not printed, has room,
+   and already has a house within PRIORITY_REACH_MILES of theirs. Among those the EARLIEST wins —
+   that is the priority — and on the same date the one with the shortest detour. Nothing else on
+   the plan moves: one house changes day, and the two days it touched are re-ordered.
+   ⚠ An isolated customer with no qualifying earlier day STAYS WHERE THEY ARE. Priority chooses
+   between reasonable opportunities; it never manufactures an unreasonable one. */
+const PRIORITY_REACH_MILES = 3;
+function bestEarlierDayFor(h, custData, currentDs, opts){
+  const o = opts || {};
+  const reach = (typeof o.reach === 'number') ? o.reach : PRIORITY_REACH_MILES;
+  const startStr = isoOf(seasonStartDate());
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const pt = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, custData || {}) : null;
+  let best = null;
+  SEASON.forEach(function(day){
+    if(day.isFixRoute || day.isTakedown || day === o.exclude) return;
+    const dt = dayDate(day);
+    if(!dt) return;
+    const ds = isoOf(dt);
+    if(currentDs && ds >= currentDs) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
+    if((day.houses || []).length >= cap) return;
+    if(!houseMayGoOn(h, custData || {}, ds, startStr).ok) return;
+    const miles = milesFromDay(day, pt);
+    if(!(miles <= reach)) return;
+    if(!best || ds < best.ds || (ds === best.ds && miles < best.miles)) best = {day: day, ds: ds, miles: miles};
+  });
+  return best;
+}
+function advancePriorityHouses(){
+  const res = {moved: [], stayed: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return res;
+  SEASON.slice().forEach(function(day){
+    if(day.isFixRoute || day.isTakedown) return;
+    const dt = dayDate(day);
+    if(!dt) return;
+    const ds = isoOf(dt);
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
+    (day.houses || []).slice().forEach(function(h){
+      if(!h || h.done || h.isTakedown || h.isFix || ('' + (h.stuck || '')).trim()) return;
+      const cust = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+      const d = (cust && cust.data) || null;
+      if(!d || d.rushInstall !== true) return;
+      const best = bestEarlierDayFor(h, d, ds, {exclude: day});
+      if(!best){ res.stayed.push({name: h.name || '(no name)', day: ds}); return; }
+      day.houses.splice(day.houses.indexOf(h), 1);
+      best.day.houses.push(h);
+      res.moved.push({name: h.name || '(no name)', from: ds, to: best.ds, miles: Math.round(best.miles * 10) / 10,
+                      fromDay: day, toDay: best.day});
+    });
+  });
+  if(res.moved.length) computeDates();
+  return res;
+}
+/* (2b) A CONFIRMED CUSTOMER WHO IS ON NO DAY IS PLACED WITHOUT A REBUILD. Until now somebody newly
+   Confirmed (a Yes arriving, a quote converted) reached the plan only on the next Recalculate
+   everything. The five-minute sync places them on the nearest legal day with room, preferring a
+   day already working their town — nextInstallDayFor, the same rule the timing sweep uses — and a
+   priority customer additionally reaches for an earlier sensible day. Nobody else moves.
+   ⚠ Where no existing day can take them they are left for Recalculate (whose safety net places
+   everybody) and COUNTED, never dropped silently. */
+function placeJoinedHouses(){
+  const res = {placed: [], waiting: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return res;
+  if(typeof customersMissingFromSeason !== 'function') return res;
+  let joiners = [];
+  try{ joiners = customersMissingFromSeason(); }catch(err){ console.error('[HU] could not list new customers for the plan', err); return res; }
+  joiners.forEach(function(item){
+    const h = houseFromCustomer(item);
+    if(!h) return;
+    const d = (item && item.data) || {};
+    let target = nextInstallDayFor(h);
+    if(d.rushInstall === true){
+      const early = bestEarlierDayFor(h, d, target ? isoOf(dayDate(target)) : '');
+      if(early) target = early.day;
+    }
+    if(!target){ res.waiting.push({name: d.name || '(no name)'}); return; }
+    target.houses.push(h);
+    res.placed.push({name: d.name || '(no name)', toDate: isoOf(dayDate(target)), toDay: target});
+  });
+  if(res.placed.length) computeDates();
+  return res;
+}
+
+/* (3) WHY THIS HOUSE IS ON THIS DAY — a few plain sentences, each one true of the decision. Read
+   off the same functions that made it, so the explanation cannot describe a rule that did not run. */
+function placementReasons(h, day){
+  const out = [];
+  if(!h || !day) return out;
+  const cust = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const d = (cust && cust.data) || {};
+  const dt = dayDate(day);
+  const ds = dt ? isoOf(dt) : '';
+  const p = houseSchedulingProfile(h, d);
+  if(p.pinned) { out.push('Pinned to this day by the office'); return out; }
+  out.push(p.priorityLabel + (p.deadlineClose ? ' — close to their last allowed day' : ''));
+  if(p.priority) out.push('Priority customer — placed at the first sensible chance');
+  if(p.missed) out.push('The crew did not reach them before (' + p.missed + ' time' + (p.missed === 1 ? '' : 's') + ')');
+  if(p.earliest || p.latest) out.push('Allowed ' + (p.earliest ? 'from ' + p.earliest : '') + (p.earliest && p.latest ? ' ' : '') + (p.latest ? 'until ' + p.latest : ''));
+  if(p.warehouseHoldUntil && ds && p.warehouseHoldUntil >= ds) out.push('Warehouse hold ends ' + p.warehouseHoldUntil);
+  const near = milesFromDay({houses: (day.houses || []).filter(function(x){ return x !== h; })}, p.location);
+  const others = (day.houses || []).filter(function(x){ return x !== h && !x.isTakedown && !x.isFix; }).length;
+  if(isFinite(near)) out.push(others + ' other house' + (others === 1 ? '' : 's') + ' that day, nearest ' + (Math.round(near * 10) / 10) + ' mi away');
+  const t = (typeof forecastHighFor === 'function' && ds) ? forecastHighFor(p.town, ds) : null;
+  if(t !== null && t !== undefined) out.push('Forecast high ' + Math.round(t) + '°F' + (t <= COLD_DAY_MAX_F ? ' — cold, placed only because nowhere warmer had work' : ''));
+  return out;
+}
+
+/* (4) THE INVARIANTS, PROVED ON EVERY RECALCULATE. It reports; it never repairs — a checker that
+   quietly fixed what it found would hide the rule that broke it (the confirmedNotOnAnyDay rule).
+   `lockedBefore` is a snapshot of the locked days taken before the press, so "no locked day was
+   modified" is measured rather than assumed. */
+function lockedDaySnapshot(){
+  const snap = {};
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(day){
+    if(day.isFixRoute || day.isTakedown) return;
+    const dt = dayDate(day);
+    if(!dt) return;
+    const ds = isoOf(dt);
+    if(!(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds))) return;
+    /* ⚠ TODAY AND LATER ONLY. A day already gone is history, not paper the crew is holding: its
+       unfinished houses are MEANT to go back in the pool as missed ([[SCH-61]]), so counting it
+       here would report that correct rescue as "a printed day changed". */
+    if(typeof mtnNowParts === 'function' && ds < mtnNowParts().date) return;
+    snap[ds + '|' + day.id] = (day.houses || []).map(function(h){ return h.id; }).join(',');
+  });
+  return snap;
+}
+function validateSeasonPlan(opts){
+  const o = opts || {};
+  const v = [];
+  const add = function(rule, who, ds, detail){ v.push({rule: rule, name: who || '', day: ds || '', detail: detail || ''}); };
+  const startStr = isoOf(seasonStartDate());
+  const seen = {};
+  const byCust = {};
+  installDays().forEach(function(day){
+    const dt = dayDate(day);
+    if(!dt){ add(11, '', '', 'a day with no date'); return; }
+    const ds = isoOf(dt);
+    const locked = typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds);
+    if(typeof isWorkingDay === 'function' && !isWorkingDay(dt) && (day.houses || []).length) add(11, '', ds, 'houses on a day that is not a working day');
+    /* 3 / 8: every house on exactly one crew sheet */
+    const sheets = {};
+    (typeof crewIndexes === 'function' ? crewIndexes() : [0, 1]).forEach(function(i){
+      (crewHousesFor(i, day) || []).forEach(function(h){ sheets[h.id] = (sheets[h.id] || 0) + 1; });
+    });
+    (day.houses || []).forEach(function(h){
+      if(!h || h.isTakedown || h.isFix) return;
+      const who = h.name || h.id;
+      if(!sheets[h.id]) add(8, who, ds, 'on no crew sheet');
+      else if(sheets[h.id] > 1) add(3, who, ds, 'on ' + sheets[h.id] + ' crew sheets');
+      if(seen[h.id]) add(1, who, ds, 'also on ' + seen[h.id]);
+      seen[h.id] = seen[h.id] || ds;
+      const cust = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+      if(!cust || !cust.id){ add(10, who, ds, 'no customer record behind this house'); return; }
+      if(byCust[cust.id] && byCust[cust.id] !== ds && !h.done) add(1, who, ds, 'customer also on ' + byCust[cust.id]);
+      byCust[cust.id] = byCust[cust.id] || ds;
+      if(h.done) return;   // a house already hung is history, not a plan
+      /* ⚠ A PRINTED DAY IS STILL JUDGED — it cannot be moved, but somebody who said No, or went
+         away, after the sheet was printed is exactly the phone call the office needs to make. */
+      const note = locked ? ' (on a printed day — ring them)' : '';
+      const d = cust.data || {};
+      if((typeof isOffTheSchedule === 'function' ? isOffTheSchedule(d) : (typeof isOutForSeason === 'function' && isOutForSeason(d))))
+        add(2, who, ds, ((typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) ? 'on the colour-change list' : 'not Confirmed') + ', but on a day' + note);
+      const ok = houseMayGoOn(h, d, ds, startStr);
+      if(!ok.ok){
+        const rule = /earliest/.test(ok.why) ? 4 : /last day/.test(ok.why) ? 5 : /away/.test(ok.why) ? 6 : /pinned/.test(ok.why) ? 4 : 11;
+        add(rule, who, ds, ok.why + note);
+      }
+    });
+  });
+  /* 1 / 12: every Confirmed customer has a day */
+  if(typeof confirmedNotOnAnyDay === 'function'){
+    confirmedNotOnAnyDay().forEach(function(item){ add(12, (item.data && item.data.name) || item.id, '', 'Confirmed but on no day'); });
+  }
+  /* 7: no locked day changed */
+  if(o.lockedBefore){
+    const now = lockedDaySnapshot();
+    Object.keys(o.lockedBefore).forEach(function(k){
+      if(now[k] !== o.lockedBefore[k]) add(7, '', k.split('|')[0], 'a printed day changed');
+    });
+  }
+  /* 9: the customer record agrees with the Schedule — checked by the mirror's own diff */
+  if(o.checkStamps && typeof installStampDiffs === 'function' && typeof window !== 'undefined' &&
+     typeof window.schedulePlanBookings === 'function' && typeof jobAddresses !== 'undefined'){
+    const diffs = installStampDiffs(window.schedulePlanBookings(), jobAddresses,
+      (typeof isOutForSeason === 'function') ? isOutForSeason : null) || [];
+    diffs.forEach(function(x){ add(9, x.id, (x.updates && x.updates.scheduledDate) || '', 'record not yet matching the Schedule'); });
+  }
+  return v;
+}
+const INVARIANT_NAMES = {
+  1: 'a customer is on more than one day', 2: 'an unconfirmed customer has a day',
+  3: 'a house is on two crew sheets', 4: 'a house is before its earliest day',
+  5: 'a house is after its last day', 6: 'a house is on a day they are away',
+  7: 'a printed (locked) day changed', 8: 'a house is on no crew sheet',
+  9: 'a customer record disagrees with the Schedule', 10: 'a house has no customer record',
+  11: 'a house is on a date that is not a working day', 12: 'a Confirmed customer is on no day'
+};
+
+/* ⭐ [[SCH-103]] ADD / REMOVE PRIORITY FROM THE SCHEDULE ITSELF — the same field as the Priority tick
+   on Edit Customer (`rushInstall`), so the two doors can never disagree. Turning it on places them
+   at once on the earliest SENSIBLE day (bestEarlierDayFor); turning it off moves nobody — they keep
+   the day they have, and the next Recalculate orders them normally. */
+async function setPriorityFor(houseId){
+  const f = findHouse(houseId);
+  if(!f || !f.house || f.house.isTakedown || f.house.isFix) return;
+  const cust = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(f.house) : null;
+  if(!cust){ toast('Could not find this customer in All Customers — nothing was saved'); return; }
+  const next = !(cust.data && cust.data.rushInstall === true);
+  try{
+    await updateDoc(doc(db, 'jobAddresses', cust.id), {rushInstall: next, updatedAt: serverTimestamp()});
+  }catch(err){
+    console.error('[HU] could not save priority', err);
+    toast('Could not save that — ' + ((err && err.message) || 'try again'));
+    return;
+  }
+  if(cust.data) cust.data.rushInstall = next;
+  const who = personName(f.house.name, f.house) || 'They';
+  if(next){
+    const res = advancePriorityHouses();
+    const me = res.moved.filter(function(m){ return m.name === f.house.name; })[0];
+    res.moved.forEach(function(m){
+      [m.fromDay, m.toDay].forEach(function(dy){ try{ generateDayRoutes(dy); }catch(e){ console.error('[HU] re-order after priority move failed', e); } });
+    });
+    computeDates(); renderAll(); scheduleSave();
+    toast(me ? (who + ' are a priority customer — moved to ' + me.to + ', beside houses ' + me.miles + ' mi away')
+             : (who + ' are a priority customer — no earlier day has room near them yet, so they keep their day and go first the next time a crew is there'));
+  } else {
+    renderAll(); scheduleSave();
+    toast(who + ' are no longer a priority customer — they keep their day, and are ordered normally from the next Recalculate');
+  }
+}
 function nextInstallDayFor(h, opts){
   const o = opts || {};
   if(typeof SEASON === 'undefined' || !SEASON.length) return null;
   const startStr = isoOf(seasonStartDate());
   const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
   const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
-  const from = houseAllowedFrom(h, startStr);
+  /* ⚠ SCHEDULE V2: THE HOLD IS PART OF THE FLOOR HERE TOO. This read houseAllowedFrom alone,
+     so the five-minute sync — and anything else that moves one house — could put somebody
+     inside their 72-hour warehouse hold onto a day before the bundle exists. houseEarliestDay
+     is the one combination Recalculate uses; the customer is found the way the plan finds it. */
+  const custForFloor = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const from = (typeof houseEarliestDay === 'function')
+    ? houseEarliestDay(h, (custForFloor && custForFloor.data) || null, startStr)
+    : houseAllowedFrom(h, startStr);
   const until = houseDeadline(h);
   const town = extractCleanCity(h.city);
   const room = SEASON
@@ -76541,7 +77180,7 @@ function placeUnscheduledOnNextDay(){
        the name stopped being true. Anything stamped in that window still has to be
        placed — a rename that silently strands records is worse than the bad name. */
     if(!d.needsDayAssignedAt && !d.rejoinedForSeasonAt) return;
-    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if((typeof isOffTheSchedule === 'function' ? isOffTheSchedule(d) : (typeof isOutForSeason === 'function' && isOutForSeason(d)))) return;
     if(have.has(item.id)) return;
     const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
     if(!h) return;
@@ -77095,7 +77734,7 @@ function dropHousesWhoLeftSeason(){
       const cust = planCustomerFor(h);
       const cd = (cust && cust.data) || null;
       if(!cd) return;
-      if(!isOutForSeason(cd)) return;
+      if(!(typeof isOffTheSchedule === 'function' ? isOffTheSchedule(cd) : (typeof isOutForSeason === 'function' && isOutForSeason(cd)))) return;
       if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
         out.locked.push({name: h.name || '(no name)', date: here});
         return;
@@ -77220,7 +77859,7 @@ function customersMissingFromSeason(){
   const have = seasonCustomerIds();
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
-    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if((typeof isOffTheSchedule === 'function' ? isOffTheSchedule(d) : (typeof isOutForSeason === 'function' && isOutForSeason(d)))) return;
     /* ⭐ AND NOTHING ELSE KEEPS THEM OFF THE PLAN (changed 2026-09-04). Addie: "if
        anyone has a confirmed tag they should be scheduled somehow no exceptions."
 
@@ -77421,7 +78060,12 @@ function placeConfirmedLeftOff(floorStr, startStr){
     return SEASON.filter(function(d){
       if(d.isFixRoute || d.isTakedown) return false;
       const dt = dayDate(d);
-      return !!dt && isoOf(dt) >= floorStr;
+      /* ⚠ SCHEDULE V2: THE LOCK IS ASKED HERE TOO, not left to the caller's floor. Inside
+         Recalculate the floor already sits past every printed day; the incremental placer
+         (`placeJoinedHouses`) calls this with today's floor, where only the lock stands
+         between a newcomer and a sheet the crew is already holding. */
+      return !!dt && isoOf(dt) >= floorStr &&
+        !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt)));
     }).sort(function(a, b){ return dayDate(a) - dayDate(b); });
   };
   const cap = function(d){ return (typeof maxTownsPerDay === 'function') ? maxTownsPerDay(d) : 4; };
@@ -77430,9 +78074,8 @@ function placeConfirmedLeftOff(floorStr, startStr){
     const h = houseFromCustomer(item);
     if(!h) return;
     const d = (item && item.data) || {};
-    let from = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '';
-    const hold = (typeof houseHoldFrom === 'function') ? houseHoldFrom(d) : '';
-    if(hold && hold > from) from = hold;
+    const from = (typeof houseEarliestDay === 'function') ? (houseEarliestDay(h, d, startStr) || '')
+      : ((typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, startStr) || '') : '');
     const t = extractCleanCity(h.city);
     /* ⭐ AND NOT A DAY THEY ARE AWAY ([[SCH-98]]). The HEADLINE RULE says this step may
        move a Confirmed customer LATER and may never leave them off — so an away window
@@ -77461,6 +78104,9 @@ function placeConfirmedLeftOff(floorStr, startStr){
          window. Bounded, and it FAILS TOWARDS PLACING THEM — if it ever ran out of tries
          the customer still goes on the day it has, because being on a slightly wrong day
          is recoverable and being on no day is the thing the headline rule forbids. */
+      for(let lk = 0; lk < 10 && typeof routeDayIsLocked === 'function' && routeDayIsLocked(isoOf(dt)); lk++){
+        dt = nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1));
+      }
       for(let guard = 0; guard < AWAY_MAX_RANGES + 1; guard++){
         const ds = isoOf(dt);
         if(!(typeof houseAwayOn === 'function' && houseAwayOn(h, ds))) break;
@@ -77565,7 +78211,17 @@ function hydrate(o){
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
 }
 function scheduleSave(){clearTimeout(saveTimer);RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
-async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
+/* ⭐ SCHEDULE V2 ([[SCH-102]]): EVERY SAVED PLAN IS MIRRORED ONTO THE CUSTOMER RECORDS, so a
+   day moved by the five-minute sync, a pin, a new customer placed, or a house moved by hand
+   reaches the customer's own record (and their portal) without anybody pressing anything.
+   Only after the plan itself is saved — never ahead of it — and debounced, because the plan
+   saves on most redraws. The mirror writes only the records whose day actually differs. */
+let stampMirrorTimer=null;
+function mirrorStampsSoon(){clearTimeout(stampMirrorTimer);stampMirrorTimer=setTimeout(function(){
+  if(typeof syncInstallStampsFromSchedule!=='function')return;
+  syncInstallStampsFromSchedule().catch(function(err){console.error('[HU] Schedule → customer day mirror failed',err);});
+},3000);}
+async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
 function showDashboard(){RT.getElementById('importBox').classList.add('hide');RT.getElementById('dashboard').classList.remove('hide');}
 function showImport(msg){RT.getElementById('dashboard').classList.add('hide');RT.getElementById('importBox').classList.remove('hide');if(msg)RT.getElementById('importErr').textContent=msg;}
 function startReplace(){
@@ -77803,6 +78459,10 @@ RT.addEventListener('click',e=>{const t=e.target;
      did (serialize, rebuildSeasonDays, toast) without any of them being moved. */
   function runRecalculateEverything(){
     const before=JSON.stringify(serialize());
+    /* ⭐ SCHEDULE V2: the printed days as they stood BEFORE the press, so invariant 7 (no locked day
+       changed) is measured against what the crew is holding rather than assumed. */
+    let lockedBefore=null;
+    try{ if(typeof lockedDaySnapshot==='function') lockedBefore=lockedDaySnapshot(); }catch(err){ console.error('[HU] could not snapshot the locked days',err); }
     let pulled=[];
     try{ pulled=syncHousesFromCustomers(); }catch(err){ console.error('Customer sync failed:',err); }
     const towns=pulled.filter(function(c){ return c.field==='town'; }).length;
@@ -77816,7 +78476,14 @@ RT.addEventListener('click',e=>{const t=e.target;
     let td=null;
     try{ td=rebuildTakedownDays(); computeDates(); }
     catch(err){ console.error('[HU] takedown rebuild failed',err); }
-    const routes=generateAllRoutes();
+    const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
+    /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button
+       and in the console; never repaired here — a check that quietly fixed what it found would hide
+       the rule that broke it. It should find nothing. */
+    let invariants=[];
+    try{ if(typeof validateSeasonPlan==='function') invariants=validateSeasonPlan({lockedBefore:lockedBefore}); }
+    catch(err){ console.error('[HU] the plan could not be checked',err); }
+    if(invariants.length) console.warn('[HU] Recalculate: the plan breaks '+invariants.length+' invariant(s)',invariants);
     /* ⭐ AND THE RECORDS STOP CLAIMING A DAY THEY NO LONGER HAVE. Addie asked for
        this to happen on THIS button — "make sure that this updates when you
        recalculate everything too" — rather than waiting for a sweep on a timer.
@@ -77824,16 +78491,19 @@ RT.addEventListener('click',e=>{const t=e.target;
        the rest of this press is instant. The count arrives in its own toast, so the
        press never sits there looking hung and never reports a number it does not
        have yet. */
-    if(typeof clearStaleInstallBookings === 'function'){
-      clearStaleInstallBookings().then(function(n){
-        /* ⚠ WORDED FOR BOTH REASONS SINCE [[SCH-74]]. It used to say "they are out for the
-           season", which was the only reason it could fire for; an orphaned day is the
-           other one now, and naming the wrong cause is how the office learns to distrust
-           a message. What is true of every record it clears is that the row was claiming
-           a day nothing was going to honour. */
-        if(n) toast(n + ' record' + (n===1?'':'s') + ' stopped claiming a day nobody is coming on');
-      }).catch(function(err){ console.error('Could not clear stale bookings:', err); });
-    }
+    /* ⭐ SCHEDULE V2 ([[SCH-102]]): THE RECORDS ARE MADE TO SAY WHAT THE SCHEDULE SAYS.
+       This used to call clearStaleInstallBookings, which judged a stamp against the
+       crew-routes calendar — the second planner that no longer runs. Left in place it would
+       have cleared every day this mirror writes, because none of them is a crew-routes day.
+       The mirror both sets and clears, so it covers everything that did: an out-for-the-season
+       stamp and an orphaned one are both simply "not what the Schedule says".
+       ⚠ Deferred a tick so the plan saved below is the one it reads. */
+    setTimeout(function(){
+      if(typeof syncInstallStampsFromSchedule !== 'function') return;
+      syncInstallStampsFromSchedule().then(function(n){
+        if(n) toast(n + ' customer record' + (n===1?'':'s') + ' updated to the day the Schedule has them on');
+      }).catch(function(err){ console.error('Could not copy Schedule days onto customers:', err); });
+    }, 0);
     preRebuild=before;
     RT.getElementById('undoRebuildBtn').style.display='';
     computeDates();renderAll();scheduleSave();
@@ -77862,6 +78532,14 @@ RT.addEventListener('click',e=>{const t=e.target;
     /* ⭐ [[SCH-85]] — who the safety net had to place. Every Confirmed customer is on a
        day after this press; this line says which ones only got there because of the net,
        so the rule that dropped them is not hidden. */
+    if(r.pulledBack) parts.push(r.pulledBack+' customer'+(r.pulledBack===1?'':'s')+' moved earlier to stay inside their last allowed day: '+(r.pulledBackNames||[]).join(', ')+(r.pulledBack>5?' and others':''));
+    if(r.pastLastDay) parts.push('⚠ '+r.pastLastDay+' customer'+(r.pastLastDay===1?' is':'s are')+' still after their last allowed day because no earlier day has room — add a crew day or pin them: '+(r.pastLastDayNames||[]).join(', ')+(r.pastLastDay>5?' and others':''));
+    if(r.priorityMoved) parts.push(r.priorityMoved+' priority customer'+(r.priorityMoved===1?'':'s')+' moved to an earlier day beside other work: '+(r.priorityMovedNames||[]).join(', ')+(r.priorityMoved>5?' and others':''));
+    if(invariants.length){
+      const kinds={}; invariants.forEach(function(x){ kinds[x.rule]=(kinds[x.rule]||0)+1; });
+      parts.push('⚠ The plan breaks '+invariants.length+' of its own rules — '+Object.keys(kinds).map(function(k){ return kinds[k]+' × '+((typeof INVARIANT_NAMES!=='undefined'&&INVARIANT_NAMES[k])||('rule '+k)); }).join('; ')+
+        ' (first: '+invariants.slice(0,3).map(function(x){ return (x.name||'?')+(x.day?' on '+x.day:'')+' — '+x.detail; }).join('; ')+')');
+    }
     if(r.safetyNet) parts.push(r.safetyNet+' confirmed customer'+(r.safetyNet===1?'':'s')+
       ' added to the schedule so every Confirmed is on a day: '+(r.safetyNetNames||[]).join(', ')+(r.safetyNet>5?' and others':''));
     if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
@@ -78008,6 +78686,7 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.unpin){const d=getDay(t.dataset.unpin);d.pin=null;renderAll();toast('Manual date cleared');return;}
   if(t.dataset.reassign){reassign(t.dataset.reassign,+t.dataset.month);return;}
   if(t.dataset.stuck){setStuckHere(t.dataset.stuck);return;}
+  if(t.dataset.prio){setPriorityFor(t.dataset.prio);return;}
   if(t.dataset.taketiming){setTakedownTiming(t.dataset.takehouse,t.dataset.taketiming);return;}
   if(t.dataset.tolist){sendFixToList(t.dataset.tolist);return;}
   if(t.dataset.disband){disbandFixRoute(t.dataset.disband);return;}
@@ -79116,6 +79795,14 @@ function exportCSV(){
     catch(err){ console.error("Re-homing moved customers failed:",err); }
     let rejoin={placed:[],stuck:[]};
     try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
+    /* ⭐ SCHEDULE V2 ([[SCH-102]] / [[SCH-103]]): ANYBODY CONFIRMED WHO IS ON NO DAY IS PLACED NOW, and a
+       priority customer is moved to the earliest SENSIBLE day, one house at a time. Nothing else moves.
+       After the rejoin placer (which handles its own flagged cases) and before the timing sweep, so a
+       house placed here is held to its timing in the same pass. */
+    let joinedV2={placed:[],waiting:[]};
+    try{ joinedV2=placeJoinedHouses(); }catch(err){ console.error('New-customer placement failed:',err); }
+    let prioV2={moved:[],stayed:[]};
+    try{ prioV2=advancePriorityHouses(); }catch(err){ console.error('Priority placement failed:',err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
     /* ⭐ [[SCH-94]] AND THE TAKEDOWN DAYS FOLLOW. Somebody who has just said No or Back
@@ -79133,6 +79820,7 @@ function exportCSV(){
        back on at the next reload — the change never reaching Firestore at all. */
     if(!moved.length && !timing.moved.length && !timing.stuck.length
        && !rejoin.placed.length && !rejoin.stuck.length
+       && !joinedV2.placed.length && !prioV2.moved.length
        && !leftSeason.dropped.length && !leftSeason.locked.length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
        && !tdGone.length) return 0;
@@ -79150,7 +79838,7 @@ function exportCSV(){
     let routes={days:0};
     /* A house dropped onto a day is on the END of it, so that day is no longer in
        driving order — the same reason a timing move triggers this. */
-    if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged){
+    if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged || joinedV2.placed.length || prioV2.moved.length){
       try{ routes=generateAllRoutes(); }catch(err){ console.error('Route generation failed:',err); }
     }
     computeDates(); renderAll(); scheduleSave();
@@ -79166,6 +79854,12 @@ function exportCSV(){
       if(rejoin.placed.length) bits.push(rejoin.placed.length===1
         ? (rejoin.placed[0].name+" is back in \u2014 scheduled "+rejoin.placed[0].toDate)
         : (rejoin.placed.length+" back in \u2014 scheduled on the next day with room"));
+      if(joinedV2.placed.length) bits.push(joinedV2.placed.length===1
+        ? (joinedV2.placed[0].name+" is Confirmed — put on "+joinedV2.placed[0].toDate)
+        : (joinedV2.placed.length+" newly Confirmed customers put on the nearest day that suits them"));
+      if(prioV2.moved.length) bits.push(prioV2.moved.length===1
+        ? (prioV2.moved[0].name+" (priority) moved to "+prioV2.moved[0].to)
+        : (prioV2.moved.length+" priority customers moved to an earlier day near other work"));
       if(rejoin.stuck.length) bits.push(rejoin.stuck.length+
         " back in but no day has room \u2014 press Recalculate everything");
       /* ⚠ NAMED FOR THE SAME REASON A MOVE IS ([[SCH-78]]). "Somebody left Tuesday" with
