@@ -13649,7 +13649,18 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       Draper: [40.524, -111.863], Orem: [40.297, -111.695]
     };
     const ctx = {};
+    /* ⚠ A FIXED CLOCK (2026-09-30). This suite lays out a 2026 season starting 1 October
+       and read the REAL clock for "today" — so at 00:00 UTC on 1 October (6 pm Mountain
+       the day before) 1 October became today, was kept as a worked day, and four checks
+       went red on main and on every PR at once, with nothing in the code having changed.
+       A check that passes or fails by the calendar is the flaky test §9.7 says is fixed,
+       not retried. "Now" is pinned to 15 September 2026, before the season it builds;
+       a Date called with arguments is the real one, so every fixture date is unchanged. */
     const src =
+      'var Date=(function(R){var FIX=R.UTC(2026,8,15,18);' +
+      'function D(){if(!(this instanceof D))return new R(FIX).toString();' +
+      'return arguments.length?new (Function.prototype.bind.apply(R,[null].concat([].slice.call(arguments))))():new R(FIX);}' +
+      'D.now=function(){return FIX;};D.UTC=R.UTC;D.parse=R.parse;D.prototype=R.prototype;return D;})(globalThis.Date);' +
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
