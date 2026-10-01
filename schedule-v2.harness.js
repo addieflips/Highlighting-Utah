@@ -32,7 +32,8 @@ module.exports = function makeHarness(liftDeep){
     'houseSchedulingProfile', 'bestEarlierDayFor', 'milesFromDay', 'generateDayRoutes', 'INVARIANT_NAMES', 'PRIORITY_CLASS_LABELS',
     'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
-    'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES'],
+    'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
+    'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -98,6 +99,7 @@ module.exports = function makeHarness(liftDeep){
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
     '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
+    '  unbuiltOff: function(){ return PRINTED_UNBUILT_OFF; },',
     '  setSeason: function(s){ SEASON = s; computeDates(); },',
     '  api: {installDays: installDays, dayDate: dayDate, isoOf: isoOf, crewHousesFor: crewHousesFor,',
     '        crewIndexes: crewIndexes, planCustomerFor: planCustomerFor, houseMayGoOn: houseMayGoOn,',

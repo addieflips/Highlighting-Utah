@@ -17543,8 +17543,11 @@ suite('Suite 48. Days within two working days are set');
     /const setSoon = dt && dt >= today/.test(admin),
     'a past day belongs to the worked branch, which is what puts the houses nobody got to back in the pool');
 
+  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01): the set day is still kept and returned before the
+     pool — the only thing allowed off it is an unbuilt new hang, and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
-    /if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin),
+    (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
     'the return is the important part: without it the houses fall through into the pool and get a second day');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',

@@ -897,6 +897,37 @@ suite('LIVE-2 Customers already on days who go onto the colour-change list come 
     eight.map(function(b){ return b.data.name + '@' + (dayOfCust(b.id) || '-'); }).join(', '));
   check('and leaves no Confirmed customer off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
 }
+suite('LIVE-5 An unbuilt new hang comes off even a printed day, and nothing else does (SCH-113)');
+function liveUnbuilt(useTick){
+  const book = makeBook(160, 4405);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  const before = lockedPrint();
+  const lockedDs = Object.keys(before).sort();
+  const onDay = daysOf().filter(function(d){ return d.ds === lockedDs[1]; })[0];
+  const ids = onDay ? onDay.ids.map(function(x){ return x.replace(/^cust-/, ''); }) : [];
+  const byId = {}; book.forEach(function(b){ byId[b.id] = b; });
+  const rachel = byId[ids[2]], rebuilt = byId[ids[3]];
+  /* The hold arrives after she was placed: a new hang, her bundle still queued. */
+  rachel.data.chargeNewMemberFee = true; rachel.data.needsLightBuild = true;
+  rebuilt.data.needsLightBuild = true;   // a returning customer being rebuilt — the crew has hung them before
+  H.load(book, {season: season});
+  if(useTick) H.tick(); else H.press();
+  const after = lockedPrint();
+  const strip = function(str){ return str.split('|').map(function(c){ return c.split(',').filter(function(x){ return x && x !== 'cust-' + rachel.id; }).join(','); }).join('|'); };
+  const label = useTick ? 'the five-minute sync' : 'Recalculate everything';
+  check(label + ': the unbuilt new hang is taken off the printed day', !dayOfCust(rachel.id), lockedDs[1] + ' → ' + dayOfCust(rachel.id));
+  check(label + ': everybody else on that day keeps exactly their crew and order', after[lockedDs[1]] === strip(before[lockedDs[1]]),
+    'before ' + strip(before[lockedDs[1]]).slice(0, 120) + ' | after ' + (after[lockedDs[1]] || '').slice(0, 120));
+  check(label + ': the other printed day is untouched', after[lockedDs[0]] === before[lockedDs[0]]);
+  check(label + ': a returning customer being rebuilt stays on the printed day', dayOfCust(rebuilt.id) === lockedDs[1]);
+  if(!useTick) check(label + ': and the office is told who came off which day', H.unbuiltOff().some(function(x){ return x.date === lockedDs[1]; }), JSON.stringify(H.unbuiltOff()));
+}
+liveUnbuilt(false);
+liveUnbuilt(true);
+
 suite('LIVE-4 Kept days and new days never share an id (SCH-112)');
 {
   const book = makeBook(160, 4404);

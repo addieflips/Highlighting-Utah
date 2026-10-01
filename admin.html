@@ -72170,6 +72170,43 @@ function frozenCrewSplit(day){
   day.houses.forEach(function(h){ byId[String(h.id)] = h; });
   return day.frozenCrews.map(function(c){ return (c || []).map(function(id){ return byId[String(id)]; }).filter(Boolean); });
 }
+/* ⭐⭐ [[SCH-113]] THE ONE THING THAT MAY LEAVE A PRINTED DAY: A NEW HANG WHOSE LIGHTS ARE NOT BUILT. Dax,
+   2026-10-01, finding Rachel Oslund — a new hang with her bundle still queued — on a printed day: "diagnose how
+   that happened and fix it", then, asked: take them off automatically. She had been placed before the build hold
+   ([[SCH-110]]) went live, onto a day the lock ([[SCH-106]]) then protected from every mover. A house with no
+   lights cannot be hung, so taking it off changes nothing the crew can do — and leaving it costs a van a stop.
+   ⚠ REMOVAL ONLY. Nothing is added to a printed day and nothing on it is reordered; the house simply comes off,
+   and it comes off the FROZEN split too, so the rest of the sheet keeps exactly the crews and order it was printed
+   with. Days already worked (before today) are history and are never touched.
+   ⚠ AND THE OFFICE IS TOLD, IN THE INBOX — a toast is gone the moment somebody looks away, and this is a crew
+   holding a sheet with a house on it they should skip. */
+let PRINTED_UNBUILT_OFF = [];
+function takeOffPrintedDay(day, h){
+  day.houses = (day.houses || []).filter(function(x){ return x !== h; });
+  const id = String(h && h.id);
+  if(Array.isArray(day.frozenIds)) day.frozenIds = day.frozenIds.filter(function(x){ return String(x) !== id; });
+  if(Array.isArray(day.frozenCrews)) day.frozenCrews = day.frozenCrews.map(function(c){ return (c || []).filter(function(x){ return String(x) !== id; }); });
+}
+function unbuiltNewHangOnPrintedDay(h){
+  if(!h || h.isFix || h.isTakedown || h.done) return false;
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  return !!(c && c.data && typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(c.data));
+}
+function noticeUnbuiltOffPrinted(list){
+  if(!list || !list.length) return;
+  if(typeof addDoc !== 'function' || typeof collection !== 'function' || typeof db === 'undefined') return;
+  const lines = list.map(function(x){ return x.name + ' — ' + x.date; });
+  addDoc(collection(db, 'messages'), {
+    topic: 'A Route Sheet Is Out Of Date', folder: 'System',
+    name: list.length === 1 ? list[0].name : (list.length + ' new hangs not built yet'), phone: '', email: '', contactMethod: '',
+    message: 'Taken off a printed day because their lights are not built yet — a new hang is not scheduled until the ' +
+      'warehouse marks their bundle done, and then they are placed on the next Recalculate.\n\n' + lines.join('\n') +
+      '\n\nIf that sheet is already with the crew, tell them to skip ' + (list.length === 1 ? 'this house' : 'these houses') +
+      '. Nothing else on those days was moved.',
+    autoQueuedToWarehouse: false, needsReassign: false,
+    createdAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date()
+  }).catch(function(err){ console.error('[HU] could not raise the note about unbuilt new hangs taken off a printed day', err); });
+}
 function freezePrintedDays(){
   let n = 0;
   if(typeof SEASON === 'undefined' || !SEASON.length) return n;
@@ -76095,6 +76132,7 @@ function rebuildSeasonDays(){
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
+  if(typeof PRINTED_UNBUILT_OFF!=='undefined') PRINTED_UNBUILT_OFF = [];
   /* WHAT IS LEFT TO DO drives everything, not what was planned.
      Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
      will need another day for that day if it still has more houses than the city
@@ -76135,7 +76173,15 @@ function rebuildSeasonDays(){
     const setSoon = dt && dt >= today &&
       (scheduledLock ? routeDayIsLocked(isoOf(dt))
                      : ((dt <= pinHorizon()) || (typeof routeDayIsLocked==='function' && routeDayIsLocked(isoOf(dt)))));
-    if(setSoon){ locked.push(d); keep.push(d); return; }
+    if(setSoon){
+      /* [[SCH-113]] the only house that may leave a printed day — see takeOffPrintedDay. */
+      (d.houses||[]).slice().forEach(function(h){
+        if(typeof unbuiltNewHangOnPrintedDay==='function' && unbuiltNewHangOnPrintedDay(h)){
+          takeOffPrintedDay(d, h); PRINTED_UNBUILT_OFF.push({name:h.name||'(no name)', date:isoOf(dt)});
+        }
+      });
+      locked.push(d); keep.push(d); return;
+    }
     const worked=(dt&&dt<today)||houses.some(function(h){return h.done;});
     if(!worked){
       houses.forEach(function(h){ (h.isFix?riders:movable).push(h); });
@@ -77218,7 +77264,9 @@ function lockedDaySnapshot(){
        unfinished houses are MEANT to go back in the pool as missed ([[SCH-61]]), so counting it
        here would report that correct rescue as "a printed day changed". */
     if(typeof mtnNowParts === 'function' && ds < mtnNowParts().date) return;
-    snap[ds + '|' + day.id] = (day.houses || []).map(function(h){ return h.id; }).join(',');
+    /* [[SCH-113]] an unbuilt new hang is EXPECTED to leave a printed day, so it is not part of what must stay. */
+    snap[ds + '|' + day.id] = (day.houses || []).filter(function(h){ return !(typeof unbuiltNewHangOnPrintedDay === 'function' && unbuiltNewHangOnPrintedDay(h)); })
+      .map(function(h){ return h.id; }).join(',');
   });
   return snap;
 }
@@ -77948,7 +77996,8 @@ function rehomeMovedHouses(ids){
    somebody sitting the season out may still need theirs taking down — the same exemption
    rebuildSeasonDays makes, for the same reason. */
 function dropHousesWhoLeftSeason(){
-  const out = {dropped: [], locked: []};
+  const out = {dropped: [], locked: [], unbuiltOff: []};
+  const todayStr = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
   if(typeof SEASON === 'undefined' || !SEASON.length) return out;
   if(typeof isOutForSeason !== 'function') return out;
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return out;
@@ -77963,6 +78012,12 @@ function dropHousesWhoLeftSeason(){
       if(!cd) return;
       if(!(typeof isOffTheSchedule === 'function' ? isOffTheSchedule(cd) : (typeof isOutForSeason === 'function' && isOutForSeason(cd)))) return;
       if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
+        /* [[SCH-113]] an unbuilt new hang comes off even a printed day (today or later — never history). */
+        if(here >= todayStr && typeof unbuiltNewHangOnPrintedDay === 'function' && unbuiltNewHangOnPrintedDay(h)){
+          takeOffPrintedDay(day, h);
+          out.unbuiltOff.push({name: h.name || '(no name)', date: here});
+          return;
+        }
         out.locked.push({name: h.name || '(no name)', date: here});
         return;
       }
@@ -78786,6 +78841,11 @@ RT.addEventListener('click',e=>{const t=e.target;
     /* ⭐ [[SCH-85]] — who the safety net had to place. Every Confirmed customer is on a
        day after this press; this line says which ones only got there because of the net,
        so the rule that dropped them is not hidden. */
+    if(PRINTED_UNBUILT_OFF.length){
+      parts.push(PRINTED_UNBUILT_OFF.length+' new hang'+(PRINTED_UNBUILT_OFF.length===1?'':'s')+' with no lights built yet taken off a printed day: '+
+        PRINTED_UNBUILT_OFF.slice(0,5).map(function(x){ return x.name+' ('+x.date+')'; }).join(', ')+' — tell the crew; a note is in the Inbox');
+      noticeUnbuiltOffPrinted(PRINTED_UNBUILT_OFF);
+    }
     if(r.pulledBack) parts.push(r.pulledBack+' customer'+(r.pulledBack===1?'':'s')+' moved earlier to stay inside their last allowed day: '+(r.pulledBackNames||[]).join(', ')+(r.pulledBack>5?' and others':''));
     if(r.pastLastDay) parts.push('⚠ '+r.pastLastDay+' customer'+(r.pastLastDay===1?' is':'s are')+' still after their last allowed day because no earlier day has room — add a crew day or pin them: '+(r.pastLastDayNames||[]).join(', ')+(r.pastLastDay>5?' and others':''));
     if(r.priorityMoved) parts.push(r.priorityMoved+' priority customer'+(r.priorityMoved===1?'':'s')+' moved to an earlier day beside other work: '+(r.priorityMovedNames||[]).join(', ')+(r.priorityMoved>5?' and others':''));
@@ -80176,7 +80236,7 @@ function exportCSV(){
     if(!moved.length && !timing.moved.length && !timing.stuck.length
        && !rejoin.placed.length && !rejoin.stuck.length
        && !joinedV2.placed.length && !prioV2.moved.length
-       && !leftSeason.dropped.length && !leftSeason.locked.length
+       && !leftSeason.dropped.length && !leftSeason.locked.length && !(leftSeason.unbuiltOff||[]).length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
        && !tdGone.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
@@ -80231,6 +80291,13 @@ function exportCSV(){
         : (tdGone.length+" will not be hung \u2014 takedowns rescheduled"));
       if(leftSeason.locked.length) bits.push(leftSeason.locked.length+
         " out for the season but still on a day the crew has \u2014 ring them");
+      /* [[SCH-113]] named, and written to the Inbox — see noticeUnbuiltOffPrinted. */
+      if((leftSeason.unbuiltOff||[]).length){
+        bits.push(leftSeason.unbuiltOff.length===1
+          ? (leftSeason.unbuiltOff[0].name+" taken off "+leftSeason.unbuiltOff[0].date+" \u2014 lights not built yet, tell the crew")
+          : (leftSeason.unbuiltOff.length+" unbuilt new hangs taken off printed days \u2014 see the Inbox"));
+        noticeUnbuiltOffPrinted(leftSeason.unbuiltOff);
+      }
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how
          the office stops trusting the plan — and a house that changed TOWN is the one
          the crew would otherwise have driven to the wrong address for. */
