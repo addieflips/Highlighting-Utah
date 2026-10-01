@@ -2972,6 +2972,18 @@ printed day is still judged, with "ring them" on the line, because it cannot be 
 20, 100 and 952 houses on real Utah towns, an adversarial season, every invariant broken on
 purpose, and the priority and colour-change cases.
 
+### New hangs on the printed sheets — found by their own record, printed with every photo (2026-10-01)
+
+[[SCH-107]]. Dax: *"we also need to ensure that we can detect new hangs, and that when new hangs are printed it prints them with their house picture/s"*.
+
+**Who is a new hang on paper** (`printIsNewHang`): a house whose quote was converted into this customer, asked FIRST — so a new member who then picked or changed colours in the portal is still one; otherwise not if their colours were changed (a returning customer's colour change is never a new hang); otherwise the $30 new-member box or an applied re-quote.
+
+**How the quote is found** (`closedQuoteFor`): the closed quote that NAMES this customer (`convertedToCustomerId`, which the everyday Add Customer convert now writes, or `existingCustomerId` on a re-quote) wins; only then the old phone-and-address match, for quotes converted before the id was written.
+
+**Which record the sheet reads** (`printCustData`): the house's own customer id (`planCustomerFor`), like the rest of the Schedule — never the customer number first. A new hang is the customer most likely to have no number yet, a number given after they were placed, or a phone shared with a parent's house, and the number-first lookup printed the wrong house's photos or none.
+
+**What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
+
 ### Three things that move somebody up a season
 
 Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:
