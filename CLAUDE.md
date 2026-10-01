@@ -54,6 +54,27 @@ that permanent as well for everytime all customers is ever pressed."* Ruling [[S
 
 ---
 
+## ⭐ SCHEDULE V2 (2026-09-30) — THE SCHEDULE IS THE ONLY INSTALL-DATE AUTHORITY
+
+[[SCH-102]]–[[SCH-105]]; full account in `system-map.md` §5, *Schedule V2*. What a session
+touching scheduling must know before editing anything:
+
+- **The fifteen-minute crew-routes sweep does not run** (`RECONCILE_SWEEP_ENABLED = false`), Routes-tab
+  install saves refuse, and `autoScheduleNewCustomer` no longer stamps a day. Older notes below that say
+  the crew's days are "built by the reconcile sweep" describe the retired second planner.
+  `reconcileUpcomingRoutes` / `clearStaleInstallBookingsRun` stay in the file because suites still run
+  them — ⛔ **do not re-enable the sweep**: it reads `d.scheduled`, which the mirror now writes.
+- **`syncInstallStampsFromSchedule` is the only writer of `scheduled` / `scheduledDate` / `assignedCrew`**,
+  copying the Schedule plan onto the record after every plan save and on Recalculate.
+- **`routeDayIsLocked` is 48 hours OR the next two working days** — one lock for every mover.
+- **`houseMayGoOn` is the one legality check** (working day, `houseEarliestDay`, `houseDeadline`, away,
+  pin). **`validateSeasonPlan`** proves twelve invariants on every Recalculate.
+- **A new scheduling rule that should keep somebody OFF the schedule changes their badge**
+  (`seasonBadgeKey`) and goes through **`isOffTheSchedule`** — never a gate in the schedule — exactly as
+  the colour-change list does ([[SCH-105]]). That is the headline rule's own instruction.
+- **`schedule-v2.test.js` runs the real Recalculate offline** through `schedule-v2.harness.js`; add a
+  scheduling claim there and RUN it, rather than matching source text.
+
 ## ⭐ R-023 — write the ruling down, in the same change
 
 **If Addie answers a question during this session, add a row to `claude/questions-map.md`

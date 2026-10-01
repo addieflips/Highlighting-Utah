@@ -2881,6 +2881,83 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### Schedule V2 — one authority, and the rules it now proves (2026-09-30)
+
+Rulings [[SCH-102]] to [[SCH-105]]. Everything below is built ON the scheduler described in the
+rest of this section; the day builder, the priority ladder and the crew split are unchanged.
+
+**The Schedule tab is the only place a hang day comes from.** The fifteen-minute crew-routes
+sweep no longer runs, an install route can no longer be saved from the Routes tab (fix and
+removal routes still can), and adding a customer no longer drops them onto a crew-routes day.
+Instead, after every save of the plan and on every Recalculate, a mirror
+(`syncInstallStampsFromSchedule`) copies each customer's Schedule day onto their record —
+`scheduled`, `scheduledDate`, `assignedCrew` — and clears it for anybody the Schedule does not
+hold. So **the day a customer sees in their portal is the day the office prints.** It writes
+only the records that differ, and writes nothing at all while the plan has not loaded.
+⚠ `reconcileUpcomingRoutes` and `clearStaleInstallBookingsRun` are still in admin.html and
+still run by their suites, but nothing on the page calls them. Do not re-enable the sweep
+without taking its customer writes out — it reads the very field the mirror writes.
+
+**One lock, for every mover.** A day is printed paper if it starts within 48 hours **or** is
+one of the next two working days (`routeDayIsLocked`). Recalculate always used both; the
+five-minute sync, the away sweep, the Confirmed safety net and the pin placer used only the
+48 hours, so on a Friday they could still move Monday's printed sheet. Now none can. A day
+that did not exist before a press cannot have been printed, so Recalculate still puts brand-new
+days inside the window into driving order.
+
+**One answer to "may this house go on this day"** — `houseMayGoOn`: a working day, not before
+their earliest day (`houseEarliestDay` — month, named day, office date, wanted-from and the
+72-hour warehouse hold, whichever is latest), not after their last day (`houseDeadline`), not on
+a day they are away, and on their pinned day if they have one. The five-minute sync's placer
+now uses the same earliest day, so it can no longer put a house on a day inside its hold.
+
+**Customer calendar ([[SCH-104]]).** On Add and Edit Customer: **Don't hang before**,
+**Don't hang after**, and **Don't hang between** (one or more ranges). They are the old
+wanted-from / wanted-until / away fields renamed — no data moved. **"Don't hang after" is now
+firm**: after the season is laid out, `pullBackPastDeadline` moves anybody past their last
+allowed day onto an earlier legal day with room, and the button names anybody it could not.
+
+**Priority customers ([[SCH-103]]).** ⭐ Priority on Edit Customer, or **⭐ Add priority /
+Remove priority** on their Schedule stop — the same `rushInstall` field either way. A priority
+customer goes on the **earliest day a crew is already working within 3 miles of them**
+(`PRIORITY_REACH_MILES`) that has room and is legal for them — on its own within minutes, and
+again on Recalculate. Only that house moves; the two days it touched are re-ordered. It never
+beats a hard rule and never creates a trip just for them: an isolated priority customer keeps
+their day until a crew is nearby. Removing priority moves nobody. The stop shows **⭐ PRIORITY**.
+
+**The colour-change list ([[SCH-105]]).** Anybody on the warehouse's Color Change queue
+(`needsColorChange`) is not scheduled: their badge reads **Colour change** instead of Confirmed,
+they come off any unprinted day, and their record's hang date is cleared. When they come off the
+list (Mark Done, or anything else), they are Confirmed again and placed on the next sync or
+Recalculate. They stay in the season for everything else — the warehouse still builds their set.
+
+**New customers are placed without a rebuild.** A customer who becomes Confirmed is put on the
+nearest legal day with room by the five-minute sync (`placeJoinedHouses`); nobody else moves.
+Recalculate still lays the whole season out from scratch, and its safety net still guarantees
+every Confirmed customer a day ([[SCH-85]]).
+
+**Weather, per house.** The freeze veto (31°F) used to judge a whole map block by its main
+town, so a warm block could carry houses from a frozen town and the neighbour top-up borrowed
+from frozen towns. Now a house whose own town is frozen that day is not put on it — by the
+builder, the neighbour loan, the tail packer, the stray gatherer or the crew evener — unless
+the veto was lifted because nowhere warmer had any work.
+
+**Why this day.** Every stop has a folded **Why this day** line: their class (New hang,
+October, Priority customer…), their allowed window, the warehouse hold, how near the other
+houses are, and the forecast. It is read off the same rules that placed them.
+
+**The plan checks itself.** Every Recalculate runs `validateSeasonPlan` over twelve
+invariants — nobody on two days or two sheets, nobody unconfirmed on a day, nobody outside
+their window or on an away day, every Confirmed customer on a day, every house with a customer
+record and a working date, and **no printed day changed** (measured against a snapshot taken
+before the press). Anything it finds is named on the button; it never repairs silently. A
+printed day is still judged, with "ring them" on the line, because it cannot be moved.
+
+*Where it's proved*: `schedule-v2.test.js` runs the real Recalculate offline
+(`schedule-v2.harness.js` lifts ~300 real functions out of admin.html) over seeded seasons of
+20, 100 and 952 houses on real Utah towns, an adversarial season, every invariant broken on
+purpose, and the priority and colour-change cases.
+
 ### Three things that move somebody up a season
 
 Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:

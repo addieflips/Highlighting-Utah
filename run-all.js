@@ -13444,7 +13444,9 @@ suite('Suite 26. Schedule picks up a corrected town');
       press.indexOf('syncHousesFromCustomers()') < press.indexOf('rebuildSeasonDays()'),
       'rebuilding first lays the whole season out from the towns somebody just corrected');
     check('S26', 'and generates the routes after the days exist',
-      press.indexOf('rebuildSeasonDays()') < press.indexOf('generateAllRoutes()'),
+      /* Schedule V2: the call carries the press's lock snapshot now — generateAllRoutes({lockedBefore…}). The
+         ORDER is the claim and is unchanged. */
+      press.indexOf('rebuildSeasonDays()') > -1 && press.indexOf('rebuildSeasonDays()') < press.indexOf('generateAllRoutes('),
       'ordering days that are about to be rebuilt orders the wrong days');
     check('S26', 'one press is still one undo',
       /preRebuild=before/.test(press) && press.indexOf('const before=JSON.stringify(serialize())') <
@@ -16754,7 +16756,7 @@ suite('Suite 44. The plan keeps up with the customer list');
     'a customer appearing on Tuesday with no explanation is how the office stops ' +
     'trusting the plan');
   check('S44', 'and the day they landed on is re-ordered for driving',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(admin),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(admin),
     'a house dropped on the END of a day leaves that day out of driving order');
 }
 
@@ -16991,7 +16993,14 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
-      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
+      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map',
+      /* ⚠ DELIBERATELY NOT SUPPLIED (Schedule V2, [[SCH-102]]), the routeDayIsLocked reasoning below:
+         nextInstallDayFor now floors a house on houseEarliestDay — the warehouse hold as well as
+         the month — and finds the customer through planCustomerFor. Both calls are typeof-guarded,
+         and this sandbox has no customer book to find anybody in, so here it falls back to
+         houseAllowedFrom exactly as it always did. The hold half is RUN, with real customers,
+         by schedule-v2.test.js (suites 2.1 and 9.4). */
+      'houseEarliestDay', 'planCustomerFor'];
     /* ⭐ THEIR OWN CALENDAR ([[SCH-98]], 2026-09-28). LIFTED, NEVER STUBBED. This sweep is
        what moves a house off a day its family is away on, and it runs on the five-minute
        customer sync — long after Recalculate everything. A stubbed houseAwayOn answering
@@ -34613,7 +34622,7 @@ suite('77. Schedule route generator');
      pushed onto the END of that day, so it is no longer in driving order — exactly
      the case this trigger exists for. A changed phone number still is not. */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
@@ -35485,7 +35494,7 @@ suite('121. A Utah address is already a map reference');
     check('S121', 'the day builder clusters on the same answer',
       /stop:\(typeof houseGeoPoint==='function'/.test(rb),
       'without this a house is not merely last in the order — it lands on the wrong day');
-    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes('));
     check('S121', 'the grids are relearned at the start of a run, not cached',
       /if\(typeof refreshTownGrids==='function'\) refreshTownGrids\(\);/.test(ga),
       'a grid learned an hour ago places houses from a book that has moved');
@@ -60478,7 +60487,8 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
        aimed at anything. These are the checks that fail instead. */
     {
       const gen = sectionFrom(admin, admin.indexOf('function generateDayRoutes(day'));
-      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+      /* SCH-102: generateAllRoutes now takes opts ({lockedBefore}), so anchor on the name, not on an empty parameter list. */
+      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes('));
       const genC = stripComments(gen), allC = stripComments(all);
       check('S317', 'the day generator hands its aim to every crew',
         /* counted on the argument, not on a bracket walk: one of the three call sites
@@ -64454,7 +64464,7 @@ suite('351. Takedown days are built from the customers, busiest town first');
   const recalc = strippedA.indexOf('function runRecalculateEverything(');
   const body = recalc === -1 ? '' : strippedA.slice(recalc, strippedA.indexOf('\n  }', recalc));
   check('S351', 'Recalculate everything rebuilds the takedowns before it generates the routes',
-    body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes()'),
+    body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes('),
     'without this the builder exists and nothing ever calls it');
   check('S351', 'the press names who was left off for saying No',
     /td\.saidNo\)\s*parts\.push/.test(body), 'a hung house with no takedown is lights left on a roof');
