@@ -26439,6 +26439,8 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
       extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
+      extractFn(admin, 'printCrewPhotoGaps') + extractFn(admin, 'printPhotoGapsHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
       extractFn(admin, 'printDayLabel') +
       admin.slice(admin.indexOf('const PRINT_COLUMNS = {'),
@@ -65728,4 +65730,80 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
     check('S365', 'and the builder hands it on to the stray gatherer',
       /home: o\.home \|\| null/.test(plan));
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 366. NEW HANGS ARE FOUND, AND PRINTED WITH THEIR PICTURES ([[SCH-107]], 2026-10-01).
+ * Dax: "we also need to ensure that we can detect new hangs, and that when new hangs are
+ * printed it prints them with their house picture/s".
+ * Every claim here is RUN against the lifted functions — never matched as text — except
+ * the one write that only exists inside a 36,000-character save handler.
+ * --------------------------------------------------------------------------- */
+suite('366. New hangs are found by their own record, and printed with their pictures');
+{
+  const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
+                  'printCrewPhotos', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+    .map(n => extractFn(admin, n));
+  check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
+  const make = (opts) => new Function('o',
+    'const quotesCache = o.quotes || [];' +
+    'const jobAddresses = o.custs || [];' +
+    'const custById = new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ const id = String(h.id || "").replace(/^cust-/, ""); return custById.get(id) || null; }' +
+    'function planCustomerFor(h){ return hlxResolvePlanHouse(h); }' +
+    /* customerForHouse answers WRONGLY on purpose — the number lookup a stale `cu` would make. */
+    'function customerForHouse(h){ return o.wrong || null; }' +
+    'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
+    'function customerPhotoList(d){ return (d && d.housePhotos) || []; }' +
+    'function crewHousesFor(){ return o.houses || []; }' +
+    'const esc = function(x){ return String(x == null ? "" : x); };' +
+    lifted.join('\n') +
+    'return {cq: closedQuoteFor, isNew: isNewMemberHouse, data: printCustData, printNew: printIsNewHang,' +
+    '  photos: printCrewPhotos, gaps: printCrewPhotoGaps, gapsHtml: printPhotoGapsHtml};')(opts);
+
+  /* A converted quote that names its customer, with NO phone on the house at all. */
+  const kim = {id: 'kim', data: {name: 'Kim New', customerNumber: '', address: '5 New Rd',
+               housePhotos: [{url: 'front'}, {url: 'side'}]}};
+  const parent = {id: 'par', data: {name: 'Parent Old', customerNumber: '12', address: '1 Old St',
+                  housePhotos: [{url: 'parent-house'}]}};
+  const quotes = [{data: {status: 'closed', convertedToCustomerId: 'kim', phone: '', address: '5 New Rd'}}];
+  const h = {id: 'cust-kim', name: 'Kim New', cu: '12', phone: ''};
+  const a = make({quotes: quotes, custs: [kim, parent], wrong: parent, houses: [h]});
+  check('S366', 'a converted quote finds its customer by id, with no phone to match on',
+    !!a.cq(h) && a.isNew(h) === true);
+  check('S366', 'the printed sheet reads the house\'s own record, not the one its stale number points at',
+    a.data(h).name === 'Kim New', a.data(h).name);
+  const shots = a.photos({}, 0);
+  check('S366', 'and prints that house\'s own pictures — all of them',
+    shots.length === 2 && shots[0].url === 'front' && shots[1].url === 'side', JSON.stringify(shots));
+
+  /* A new hang who picked colours in the portal (lightsChangedAt) is still a new hang. */
+  kim.data.lightsChangedAt = '2026-09-20';
+  check('S366', 'a new hang who changed colours is still printed as a new hang',
+    a.printNew(a.data(h), h) === true && a.photos({}, 0).length === 2);
+  delete kim.data.lightsChangedAt;
+
+  /* A returning customer's colour change is still not a new hang (S104's rule, unchanged). */
+  const ret = {id: 'ret', data: {name: 'Ret', address: '9 Ret Ln', lightsChangedAt: '2026-09-01', chargeNewMemberFee: true,
+               housePhotos: [{url: 'r'}]}};
+  const b = make({quotes: [], custs: [ret], houses: [{id: 'cust-ret', phone: ''}]});
+  check('S366', 'a returning customer\'s colour change is still not a new hang',
+    b.printNew(b.data({id: 'cust-ret'}), {id: 'cust-ret', phone: ''}) === false && b.photos({}, 0).length === 0);
+
+  /* A new hang with no photo is named under the photos, not dropped in silence. */
+  kim.data.housePhotos = [];
+  kim.data.customerNumber = '977';
+  check('S366', 'a new hang with no photo is not given an empty frame', a.photos({}, 0).length === 0);
+  const gaps = a.gaps({}, 0);
+  check('S366', 'but is named on the sheet as having no photo on file',
+    gaps.length === 1 && /#977 Kim New/.test(gaps[0]) && /no photo on file/.test(a.gapsHtml(gaps)), JSON.stringify(gaps));
+  check('S366', 'and a sheet with no gaps says nothing at all', a.gapsHtml([]) === '');
+
+  /* Both printers carry the line. */
+  ['printCrewSheetPage', 'printDaySheet'].forEach(function(n){
+    check('S366', n + ' prints the no-photo line', /printPhotoGapsHtml\(printCrewPhotoGaps\(/.test(stripComments(extractFn(admin, n) || '')));
+  });
+  /* The everyday convert path records which customer the quote became. */
+  check('S366', 'converting a quote records the customer it became',
+    /convertedToCustomerId:\s*newAddrRef\.id/.test(admin));
 }

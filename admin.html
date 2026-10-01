@@ -42488,7 +42488,11 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          saying so. Say it. (The figure no longer depends on this write landing,
          because quoteAlreadyACustomer catches it either way, but a quote stuck
          in the wrong folder is still wrong.) */
-      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp()})
+      /* ⭐ AND WHICH CUSTOMER IT BECAME ([[SCH-107]]). The other convert path already wrote
+         convertedToCustomerId; this one — the one used every day — did not, so the only way
+         back from a new hang to their quote was a shared phone number. */
+      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp(),
+                                                             convertedToCustomerId: newAddrRef.id})
         .catch(function(err){
           console.error('The customer was created but their quote could not be closed:', err);
           toast('Customer added \u2014 but their quote could not be closed. Set it to Closed by hand.');
@@ -72317,6 +72321,18 @@ function dayIsoById(dayId){
    photo is the failure the badge exists to prevent (see printIsNewHang, and Ashley
    Wray, who is the reason it looks at quotes at all). */
 function closedQuoteFor(h){
+  /* ⭐ [[SCH-107]] THE QUOTE THAT NAMES THIS CUSTOMER WINS, before any phone matching. A converted
+     quote now records the customer it created (convertedToCustomerId), a re-quote names its customer
+     (existingCustomerId), and a house on the plan carries its customer's document id — so a new
+     hang with no phone, a shared phone, or a number given later is still found. */
+  const own = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+  if(own && own.id && typeof quotesCache !== 'undefined'){
+    const named = quotesCache.find(function(q){
+      return q.data && q.data.status === 'closed' &&
+        String(q.data.convertedToCustomerId || q.data.existingCustomerId || '') === String(own.id);
+    });
+    if(named) return named;
+  }
   const digits = (''+(h.phone||'')).replace(/\D/g,'');
   if(!digits) return null;
   const sameNumber = quotesCache.filter(q => q.data && q.data.status === 'closed' && (''+(q.data.phone||'')).replace(/\D/g,'') === digits);
@@ -78995,6 +79011,7 @@ function printDaySheet(dayId){
       ' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</h2>'+
       printTableHtml(mine,printCrewColumns(mine))+
       printPhotosHtml(printCrewPhotos(day,i))+
+      printPhotoGapsHtml(printCrewPhotoGaps(day,i))+
       printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos'));
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
@@ -79275,6 +79292,14 @@ function printLightColor(d){
    hang and print a photo of a house the crew has hung before. */
 function printIsNewHang(d, h){
   if(!d && !h) return false;
+  /* ⭐ [[SCH-107]] A CONVERTED QUOTE IS ASKED FIRST. Nobody has hung a house whose quote was turned
+     into this customer, so a colour change made since — a new member picking their colours in the
+     portal, which stamps lightsChangedAt — cannot make them a house the crew has seen before. The
+     colour-change rule below still stands for everybody else: a returning customer who changed
+     colours is not a new hang, fee or no fee. */
+  if(h && typeof isNewMemberHouse === 'function'){
+    try{ if(isNewMemberHouse(h)) return true; }catch(err){ /* no quotes loaded yet — the rules below still answer */ }
+  }
   if(d && d.lightsChangedAt) return false;
   if(d && (d.chargeNewMemberFee === true || d.requoteAppliedAt)) return true;
   /* ⭐ AND THE SCHEDULE'S OWN NEW BADGE COUNTS TOO (added 2026-08-20). Owner, asked
@@ -79296,7 +79321,14 @@ function printIsNewHang(d, h){
   return false;
 }
 function printCustData(h){
-  const c = (typeof customerForHouse === 'function') ? customerForHouse(h) : null;
+  /* ⭐ [[SCH-107]] BY THE CUSTOMER'S OWN ID FIRST. This asked customerForHouse — the customer NUMBER,
+     then the phone — while every other part of the Schedule asks planCustomerFor, the document id
+     the house was built from. A new hang is exactly the customer most likely to have no number
+     yet, a number given after they were placed, or a phone shared with a parent's house, so their
+     sheet could print somebody else's photos or none. The number/phone match is kept only as the
+     fallback for imported rows that carry no id. */
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h)
+          : ((typeof customerForHouse === 'function') ? customerForHouse(h) : null);
   return (c && c.data) || {};
 }
 /* ---------- the lists ---------- */
@@ -79578,6 +79610,29 @@ function printCrewPhotos(day, i){
    housePhotos array, so there is no "2 of 3" to number here. If it ever becomes a list,
    this should follow the new-hang rule ("make sure if a new hang has multiple pictures
    you include all") rather than printing the first. */
+/* ⭐ [[SCH-107]] A NEW HANG WITH NO PHOTO IS NAMED, NOT DROPPED. printCrewPhotos leaves them out,
+   because an empty frame helps nobody — but leaving them out silently meant a crew turned up at a
+   house it had never seen with no picture and no word that one was missing, and the office never
+   found out it should have taken one. One line under the photos says who. */
+function printCrewPhotoGaps(day, i){
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const out = [];
+  mine.forEach(function(h){
+    const d = printCustData(h);
+    if(!printIsNewHang(d, h)) return;
+    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+      .filter(function(p){ return p && p.url; });
+    if(photos.length) return;
+    const num = d.customerNumber || h.cu || '';
+    out.push((num ? '#' + num + ' ' : '') + (d.name || h.name || ''));
+  });
+  return out;
+}
+function printPhotoGapsHtml(names){
+  if(!names || !names.length) return '';
+  return '<p class="photogap"><b>New hang' + (names.length === 1 ? '' : 's') + ' with no photo on file:</b> ' +
+    esc(names.join(', ')) + ' — take one at the house.</p>';
+}
 function printFixPhotos(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
   const out = [];
@@ -79752,6 +79807,7 @@ function printCrewSheetPage(day, i){
     body: rows.length
       ? (printTableHtml(rows, printCrewColumns(rows)) +
          printPhotosHtml(printCrewPhotos(day, i)) +
+         printPhotoGapsHtml(printCrewPhotoGaps(day, i)) +
          printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos'))
       : '',
     empty: who + ' has nothing on this day.'
