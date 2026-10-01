@@ -49296,6 +49296,12 @@ function houseCardIsRed(d, inv){
   if(!feeDay) return false;
   return Date.now() >= feeDay.getTime();
 }
+/* ⭐ [[SCH-108]] "New hang" beside the name on All Customers — the Schedule's own rule, asked through
+   window.customerIsNewHang (see there). Nothing until the Schedule has loaded, never a guess. */
+function newHangChip(item){
+  const isNew = (typeof window !== 'undefined' && typeof window.customerIsNewHang === 'function') ? window.customerIsNewHang(item) : false;
+  return isNew ? ' <span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="Converted from a quote — the crew has never hung this house, so its photos print on the crew sheet">New hang</span>' : '';
+}
 function buildAddressRowHtml(item){
   const d = item.data;
   const diff = d.difficulty || 'Unrated';
@@ -57076,7 +57082,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+newHangChip(r.item)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -72356,6 +72362,17 @@ function isNewMemberHouse(h){
   return !!closedQuoteFor(h);
 }
 function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
+/* ⭐ [[SCH-108]] THE SAME RULE, FOR ANY CUSTOMER RECORD. Dax: "make it so anyone thats a new hang has a
+   tab that says new hang so i can see it". All Customers lives outside this widget and cannot see
+   isNewMemberHouse, so the widget hands it over rather than the main app keeping a second copy — two
+   definitions of "new hang" in one page is the fault this file has already had twice (SCH-81/SCH-84).
+   A customer record is asked as the house the plan would build from it (cust-<id>), so the answer is
+   exactly the one the Schedule badge gives. */
+window.customerIsNewHang=function(item){
+  if(!item||!item.data) return false;
+  try{ return isNewMemberHouse({id:'cust-'+item.id, name:item.data.name, phone:item.data.phone, cu:item.data.customerNumber}); }
+  catch(err){ return false; /* quotes not loaded yet — the tag appears on the next draw */ }
+};
 function routedFixes(){return allHouses().filter(h=>h.isFix);}
 /* ---------- area ---------- */
 function cityOf(h){return (h.city||'').trim();}
@@ -74293,7 +74310,7 @@ function stopHTML(h,n,dayId){
     catch(err){ /* a reason is not worth a thrown stop — the stop still draws without it */ }
   }
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
-    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW HANG</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }

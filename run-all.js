@@ -22962,7 +22962,9 @@ suite('Suite 69. A customer as a row of the master sheet');
          is the exact shape of a bug that shipped earlier today — the message was correct
          and a later assignment threw it away. */
       check('S69', 'the chips are drawn on the customer row',
-        /\+custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
+        /* REPOINTED, NOT WEAKENED ([[SCH-108]], 2026-10-01): the New hang pill sits between the number
+           and the bins now; the sheet chips are still drawn on the same row. */
+        /\+custNumChip\(r\.d\)\+(newHangChip\(r\.item\)\+)?binBadge\+custSheetChips\(r\.d\)/.test(admin),
         'a chip nothing renders is a chip nobody sees');
       check('S69', 'prepaid and text-bill show on the row',
         /PREPAID/.test(sb.f({prepaid: true})) &&
@@ -65806,4 +65808,41 @@ suite('366. New hangs are found by their own record, and printed with their pict
   /* The everyday convert path records which customer the quote became. */
   check('S366', 'converting a quote records the customer it became',
     /convertedToCustomerId:\s*newAddrRef\.id/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 367. EVERY NEW HANG WEARS A "NEW HANG" TAG ([[SCH-108]], 2026-10-01).
+ * Dax: "make it so anyone thats a new hang has a tab that says new hang so i can see it".
+ * One rule: All Customers asks the Schedule's own isNewMemberHouse through
+ * window.customerIsNewHang, so the pill and the stop badge cannot disagree.
+ * --------------------------------------------------------------------------- */
+suite('367. Every new hang wears a New hang tag, on All Customers and on the Schedule');
+{
+  const at = admin.indexOf('window.customerIsNewHang=function(item){');
+  const end = at < 0 ? -1 : admin.indexOf('};', at);
+  const hook = at < 0 || end < 0 ? '' : admin.slice(at, end + 2);
+  check('S367', 'the Schedule hands its new-hang rule to the rest of the page', !!hook);
+  const run = (quotes, custs) => new Function('quotes', 'custs',
+    'const window = {};' +
+    'const quotesCache = quotes;' +
+    'const custById = new Map(custs.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return custById.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hook +
+    extractFn(admin, 'newHangChip') +
+    'return {tag: window.customerIsNewHang, chip: function(item){ return newHangChip(item); },' +
+    '  house: isNewMemberHouse};')(quotes, custs);
+  const nu = {id: 'nu', data: {name: 'Nu', phone: '8015550000', address: '1 A St'}};
+  const old = {id: 'old', data: {name: 'Old', phone: '8015550001', address: '2 B St'}};
+  const r = run([{data: {status: 'closed', convertedToCustomerId: 'nu'}}], [nu, old]);
+  check('S367', 'a customer converted from a quote is a new hang', r.tag(nu) === true);
+  check('S367', 'a returning customer is not', r.tag(old) === false);
+  check('S367', 'and the answer is exactly the Schedule badge\'s',
+    r.tag(nu) === r.house({id: 'cust-nu', phone: nu.data.phone}) && r.tag(old) === r.house({id: 'cust-old', phone: old.data.phone}));
+  check('S367', 'All Customers draws "New hang" beside them', /New hang/.test(r.chip(nu)));
+  check('S367', 'and nothing beside anybody else', r.chip(old) === '');
+  const none = new Function(extractFn(admin, 'newHangChip') + 'return newHangChip({id:"x", data:{}});')();
+  check('S367', 'before the Schedule has loaded, nobody is guessed at', none === '');
+  check('S367', 'the tag is on the All Customers row', /custNumChip\(r\.d\)\+newHangChip\(r\.item\)/.test(admin));
+  check('S367', 'and the Schedule stop says NEW HANG in words', /<span class="newbadge">NEW HANG<\/span>/.test(admin));
 }
