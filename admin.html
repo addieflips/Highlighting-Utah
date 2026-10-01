@@ -49321,7 +49321,7 @@ function houseCardIsRed(d, inv){
    window.customerIsNewHang (see there). Nothing until the Schedule has loaded, never a guess. */
 function newHangChip(item){
   const isNew = (typeof window !== 'undefined' && typeof window.customerIsNewHang === 'function') ? window.customerIsNewHang(item) : false;
-  return isNew ? ' <span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="Converted from a quote — the crew has never hung this house, so its photos print on the crew sheet">New hang</span>' : '';
+  return isNew ? ' <span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="A new customer — the set-up fee box is ticked, or they were converted from a quote. The crew has never hung this house, so its photos print on the crew sheet">New hang</span>' : '';
 }
 function buildAddressRowHtml(item){
   const d = item.data;
@@ -72401,8 +72401,17 @@ function closedQuoteFor(h){
    this to the set-up fee box as well; that was the only change to who reads as a new hang
    today, so it is the one taken back. The box still bills the fee — this is the badge,
    the New members count and the crew sheet's NEW/INSTALL label, nothing to do with money. */
+/* ⭐ [[SCH-111]] AND THE $30 BOX COUNTS AGAIN (2026-10-01) — this SUPERSEDES [[SCH-84]] by Dax's newer answer
+   (R-024): "anyone with the $30 set up fee should be considered a new customer". SCH-84 took the box off this
+   badge because it was thought to be what put "everyone" first; the box has always been what ranks a new hang
+   in houseInstallPriority, so this changes who is LABELLED a new hang (the badge, the All Customers tag, the
+   crew sheet's NEW, the photos and the build hold) and not who goes first. The guard rail SCH-81 rested on is
+   still true and still asserted: Start New Season clears chargeNewMemberFee, so the box cannot carry a past
+   season's customers forward. */
 function isNewMemberHouse(h){
   if(!h || h.isFix || h.isTakedown) return false;
+  const c = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+  if(c && c.data && c.data.chargeNewMemberFee === true) return true;
   return !!closedQuoteFor(h);
 }
 function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
@@ -72422,7 +72431,11 @@ window.customerIsNewHangData=function(d){
     newHangItemIndex = new Map(); list.forEach(function(it){ if(it && it.data) newHangItemIndex.set(it.data, it); });
     newHangItemIndexFor = list;
   }
-  const item = newHangItemIndex.get(d);
+  let item = newHangItemIndex.get(d);
+  /* A record replaced since the index was built (a snapshot swaps item.data in place) is not "not new" — rebuild once and ask again. */
+  if(!item){ newHangItemIndex = null; newHangItemIndexFor = null;
+    const hit = list.find(function(it){ return it && it.data === d; });
+    if(hit) item = hit; }
   return item ? window.customerIsNewHang(item) : false;
 };
 window.customerIsNewHang=function(item){

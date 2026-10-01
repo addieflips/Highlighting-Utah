@@ -1108,9 +1108,14 @@ const isNewMemberHouseSrc = extractFn(admin, 'isNewMemberHouse');
 const closedQuoteForSrc = extractFn(admin, 'closedQuoteFor');
 check('logic', 'the Schedule tab has a live isNewMemberHouse lookup',
   typeof isNewMemberHouseSrc === 'string' && typeof closedQuoteForSrc === 'string');
-check('logic', 'the Schedule tab\'s "new member" reads a Closed quote, not the new-member-fee checkbox',
-  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) && !/chargeNewMemberFee/.test(stripComments(isNewMemberHouseSrc + closedQuoteForSrc)),
-  'SCH-84 put this back: only a closed quote makes a house a new hang on the Schedule tab');
+/* REPOINTED, NOT WEAKENED ([[SCH-111]], 2026-10-01): Dax superseded SCH-84 — "anyone with the $30 set up fee
+   should be considered a new customer". The check asserts BOTH halves now: the fee box counts, and a closed
+   quote still counts without it. The Start New Season clear below is what keeps the box from carrying a past season. */
+check('logic', 'the Schedule tab\'s "new member" is the set-up fee box OR a Closed quote',
+  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) &&
+  /chargeNewMemberFee === true/.test(stripComments(isNewMemberHouseSrc)) &&
+  /closedQuoteFor\(h\)/.test(stripComments(isNewMemberHouseSrc)),
+  'SCH-111: the fee box makes a new hang, and so does a quote converted into them');
 check('logic', 'Start New Season still clears the set-up fee flag',
   /chargeNewMemberFee:\s*false/.test(stripComments(admin)),
   'without it the $30 join-fee box stays ticked into next season and the nightly run charges the fee again');
@@ -45488,10 +45493,14 @@ suite('252. The NEW badge is this house, not just this phone number');
 
     /* ⛔ The SCH-81 fee-box checks lived here and were removed with it on 2026-09-18
        ([[SCH-84]]). One stays, reversed: a ticked fee box alone is NOT a new hang. */
+    /* REPOINTED ([[SCH-111]], 2026-10-01): reversed by Dax's newer answer — "anyone with the $30 set up fee
+       should be considered a new customer". The box alone IS a new hang now; no box and no quote is not. */
     const feeOnly = build([], { c1: { chargeNewMemberFee: true } });
-    check('S252', 'a ticked set-up fee box alone is not a new hang',
-      feeOnly.isNewMemberHouse(childHouse) === false,
-      'SCH-84: only a closed quote makes a house a new hang on the Schedule tab');
+    check('S252', 'a ticked set-up fee box alone is a new hang (SCH-111)',
+      feeOnly.isNewMemberHouse(childHouse) === true,
+      'SCH-111: anyone with the set-up fee is a new customer');
+    const neither = build([], { c1: { chargeNewMemberFee: false } });
+    check('S252', 'and no box and no closed quote is not', neither.isNewMemberHouse(childHouse) === false);
   }
 }
 
@@ -65786,7 +65795,8 @@ suite('366. New hangs are found by their own record, and printed with their pict
   delete kim.data.lightsChangedAt;
 
   /* A returning customer's colour change is still not a new hang (S104's rule, unchanged). */
-  const ret = {id: 'ret', data: {name: 'Ret', address: '9 Ret Ln', lightsChangedAt: '2026-09-01', chargeNewMemberFee: true,
+  /* [[SCH-111]]: a returning customer carries no fee box (Start New Season clears it) — with one, they ARE new. */
+  const ret = {id: 'ret', data: {name: 'Ret', address: '9 Ret Ln', lightsChangedAt: '2026-09-01',
                housePhotos: [{url: 'r'}]}};
   const b = make({quotes: [], custs: [ret], houses: [{id: 'cust-ret', phone: ''}]});
   check('S366', 'a returning customer\'s colour change is still not a new hang',
@@ -65947,4 +65957,32 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
   check('S369', 'somebody who said No keeps the No badge', s1.badge({rsvpStatus: 'no', chargeNewMemberFee: true, needsLightBuild: true}) === 'no');
   check('S369', 'All Customers can show and filter on Being built',
     /badgeKey === 'building'/.test(admin) && /<option value="building">/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 370. THE SET-UP FEE BOX MAKES A NEW CUSTOMER, EVERYWHERE ([[SCH-111]], 2026-10-01).
+ * Dax: "anyone with the $30 set up fee should be considered a new customer".
+ * --------------------------------------------------------------------------- */
+suite('370. The set-up fee box makes a new customer, everywhere');
+{
+  const at = admin.indexOf('let newHangItemIndex = null');
+  const end = admin.indexOf('window.customerIsNewHang=function(item){', at);
+  const tail = admin.indexOf('};', end);
+  const hooks = (at < 0 || end < 0 || tail < 0) ? '' : admin.slice(at, tail + 2);
+  check('S370', 'both new-hang hooks are findable', !!hooks);
+  const mk = (list, quotes) => new Function('list', 'quotes',
+    'const window = {}; let jobAddresses = list; const quotesCache = quotes;' +
+    'const byId = () => new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return byId().get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hooks +
+    'return {byData: window.customerIsNewHangData, set: function(l){ jobAddresses = l; }};')(list, quotes);
+  const fee = {id: 'f', data: {name: 'Fee', street: '1 A', city: 'X', chargeNewMemberFee: true}};
+  const plain = {id: 'p', data: {name: 'Plain', street: '2 B', city: 'X'}};
+  const list = [fee, plain];
+  const t = mk(list, []);
+  check('S370', 'a customer with the fee box ticked is a new customer, with no quote at all', t.byData(fee.data) === true);
+  check('S370', 'a customer with neither is not', t.byData(plain.data) === false);
+  /* a snapshot replaces the record object in place: the answer must not quietly become "no" */
+  fee.data = Object.assign({}, fee.data);
+  check('S370', 'a record replaced since the lookup was indexed is still found', t.byData(fee.data) === true);
 }
