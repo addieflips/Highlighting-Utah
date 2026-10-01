@@ -49296,6 +49296,12 @@ function houseCardIsRed(d, inv){
   if(!feeDay) return false;
   return Date.now() >= feeDay.getTime();
 }
+/* ⭐ [[SCH-108]] "New hang" beside the name on All Customers — the Schedule's own rule, asked through
+   window.customerIsNewHang (see there). Nothing until the Schedule has loaded, never a guess. */
+function newHangChip(item){
+  const isNew = (typeof window !== 'undefined' && typeof window.customerIsNewHang === 'function') ? window.customerIsNewHang(item) : false;
+  return isNew ? ' <span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="Converted from a quote — the crew has never hung this house, so its photos print on the crew sheet">New hang</span>' : '';
+}
 function buildAddressRowHtml(item){
   const d = item.data;
   const diff = d.difficulty || 'Unrated';
@@ -57076,7 +57082,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+newHangChip(r.item)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -72356,6 +72362,17 @@ function isNewMemberHouse(h){
   return !!closedQuoteFor(h);
 }
 function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
+/* ⭐ [[SCH-108]] THE SAME RULE, FOR ANY CUSTOMER RECORD. Dax: "make it so anyone thats a new hang has a
+   tab that says new hang so i can see it". All Customers lives outside this widget and cannot see
+   isNewMemberHouse, so the widget hands it over rather than the main app keeping a second copy — two
+   definitions of "new hang" in one page is the fault this file has already had twice (SCH-81/SCH-84).
+   A customer record is asked as the house the plan would build from it (cust-<id>), so the answer is
+   exactly the one the Schedule badge gives. */
+window.customerIsNewHang=function(item){
+  if(!item||!item.data) return false;
+  try{ return isNewMemberHouse({id:'cust-'+item.id, name:item.data.name, phone:item.data.phone, cu:item.data.customerNumber}); }
+  catch(err){ return false; /* quotes not loaded yet — the tag appears on the next draw */ }
+};
 function routedFixes(){return allHouses().filter(h=>h.isFix);}
 /* ---------- area ---------- */
 function cityOf(h){return (h.city||'').trim();}
@@ -74293,7 +74310,7 @@ function stopHTML(h,n,dayId){
     catch(err){ /* a reason is not worth a thrown stop — the stop still draws without it */ }
   }
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
-    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
+    '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW HANG</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
     '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
@@ -79536,9 +79553,48 @@ function printWarehouseDayList(day){
     return {number: d.customerNumber || h.cu || '', name: d.name || h.name || ''};
   });
 }
+/* ⭐ [[SCH-109]] WHICH PHOTO IS WHICH HOUSE. Dax: "when we print a new hang it should color coordinate
+   what house goes to which customer somehow so on the schedule you can tell what customer has what
+   house". Every new hang with a photo gets a LETTER and a COLOUR, the same on their row and on their
+   photos. The letter is what makes it work on a black-and-white printer; the colour is what makes it
+   quick on a colour one.
+   ⚠ KEYED PER DAY, NOT PER CREW: crew one's houses come first, then crew two's, so a house keeps its
+   letter on its crew's sheet, on the whole-day sheet and on Print Whole Plan — never two "A"s on one
+   page. Only new hangs that HAVE a photo get one; a key with nothing to match is noise. */
+const PRINT_PHOTO_KEY_COLOURS = ['#1F6FB2', '#D9730D', '#2E8540', '#7B3FA0', '#C0392B', '#138D90', '#8A5A2B', '#C2185B'];
+function printNewHangKeys(day){
+  const keys = new Map();
+  if(!day) return keys;
+  const crews = (typeof crewIndexes === 'function') ? crewIndexes()
+              : ((typeof CREWS !== 'undefined' && CREWS) ? CREWS.map(function(c, i){ return i; }) : [0, 1]);
+  let n = 0;
+  crews.forEach(function(i){
+    const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+    mine.forEach(function(h){
+      const id = String(h && h.id);
+      if(keys.has(id)) return;
+      const d = printCustData(h);
+      if(!printIsNewHang(d, h)) return;
+      const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+        .filter(function(p){ return p && p.url; });
+      if(!photos.length) return;
+      let letter = '', k = n;
+      do { letter = String.fromCharCode(65 + (k % 26)) + letter; k = Math.floor(k / 26) - 1; } while(k >= 0);
+      keys.set(id, {letter: letter, color: PRINT_PHOTO_KEY_COLOURS[n % PRINT_PHOTO_KEY_COLOURS.length]});
+      n++;
+    });
+  });
+  return keys;
+}
 function printCrewDayList(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
-  return mine.map(function(h){ return printCrewRow(h); });
+  const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
+  return mine.map(function(h){
+    const r = printCrewRow(h);
+    const k = keys.get(String(h && h.id));
+    if(k){ r.photoKey = k.letter; r.photoColor = k.color; }
+    return r;
+  });
 }
 /* ---------- the paper ---------- */
 
@@ -79548,7 +79604,12 @@ function printTableHtml(rows, columns){
     columns.map(function(c){ return '<th>' + esc(c.label) + '</th>'; }).join('') +
     '<th class="blank"></th></tr>';
   const body = rows.map(function(r, n){
-    return '<tr><td class="num">' + (n + 1) + '</td>' +
+    /* [[SCH-109]] a new hang's row carries the letter and colour of its photos. */
+    const keyCell = r.photoKey
+      ? '<td class="num pkeycell" style="background:' + esc(r.photoColor || '#333') + ';color:#fff;">' + (n + 1) +
+        ' <b class="pkey">' + esc(r.photoKey) + '</b></td>'
+      : '<td class="num">' + (n + 1) + '</td>';
+    return '<tr>' + keyCell +
       columns.map(function(c){
         const v = r[c.k];
         return '<td>' + esc(v === 0 ? '0' : (v || '')) + '</td>';
@@ -79575,6 +79636,7 @@ function printTableHtml(rows, columns){
    house with identical captions is a puzzle rather than a help. */
 function printCrewPhotos(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
   const out = [];
   mine.forEach(function(h){
     const d = printCustData(h);
@@ -79584,9 +79646,11 @@ function printCrewPhotos(day, i){
     if(!photos.length) return;
     const who = d.name || h.name || '';
     const num = d.customerNumber || h.cu || '';
+    const key = keys.get(String(h && h.id)) || null;
     photos.forEach(function(p, k){
       out.push({url: p.url, number: num, name: who,
-                of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : ''});
+                of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : '',
+                key: key ? key.letter : '', color: key ? key.color : ''});
     });
   });
   return out;
@@ -79697,7 +79761,14 @@ const PRINT_PHOTO_CSS =
      That is her word for it — "cropped to be about an inch and a half long". */
   '.photos img{display:block;width:2.5in;height:1.5in;object-fit:cover;' +
   '  border:1px solid #999;background:#f2f2f2;}' +
-  '.photos figcaption{font-size:10px;margin-top:3px;width:2.5in;}';
+  '.photos figcaption{font-size:10px;margin-top:3px;width:2.5in;}' +
+  /* [[SCH-109]] the photo key. print-color-adjust or a browser drops the colour to save ink and
+     only the letter is left — which still matches, by design. */
+  '.pkey{display:inline-block;min-width:14px;padding:0 4px;border-radius:3px;color:#fff;font-weight:700;' +
+  '  text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+  'td.pkeycell{font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+  'td.pkeycell .pkey{background:rgba(255,255,255,.25);}' +
+  '.photos figure.pkeyed{border:4px solid;padding:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}';
 const PRINT_SHEET_CSS =
   'body{font-family:Arial,Helvetica,sans-serif;margin:16px;color:#111;}' +
   'h1{font-size:17px;margin:0 0 2px;}' +
@@ -79867,8 +79938,12 @@ function printPhotosHtml(photos, heading){
   if(!photos || !photos.length) return '';
   return '<div class="photos"><h2>' + esc(heading || 'New hangs on this sheet') + '</h2>' +
     photos.map(function(p){
-      return '<figure><img src="' + esc(p.url) + '" alt="">' +
-        '<figcaption>' + esc((p.number ? '#' + p.number + ' ' : '') + p.name +
+      /* [[SCH-109]] the same letter and colour as the house's row on the sheet above. */
+      const keyed = !!p.key;
+      return '<figure' + (keyed ? ' class="pkeyed" style="border-color:' + esc(p.color || '#333') + ';"' : '') + '>' +
+        '<img src="' + esc(p.url) + '" alt="">' +
+        '<figcaption>' + (keyed ? '<b class="pkey" style="background:' + esc(p.color || '#333') + ';">' + esc(p.key) + '</b> ' : '') +
+          esc((p.number ? '#' + p.number + ' ' : '') + p.name +
           (p.of ? ' \u00b7 ' + p.of : '')) +
         '</figcaption></figure>';
     }).join('') + '</div>';

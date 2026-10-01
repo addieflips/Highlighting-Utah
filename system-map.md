@@ -2982,6 +2982,10 @@ purpose, and the priority and colour-change cases.
 
 **Which record the sheet reads** (`printCustData`): the house's own customer id (`planCustomerFor`), like the rest of the Schedule — never the customer number first. A new hang is the customer most likely to have no number yet, a number given after they were placed, or a phone shared with a parent's house, and the number-first lookup printed the wrong house's photos or none.
 
+**Which photo is which house** ([[SCH-109]]): every new hang with a photo gets a letter (A, B, C…) and a colour for the day. The # cell of their row is filled in that colour with the letter, and each of their photos is framed in the same colour with the same letter in the caption. The letter works on a black-and-white printer; `print-color-adjust:exact` keeps the colour on a colour one. Keyed per day across both crews (`printNewHangKeys`), so letters never repeat on the whole-day sheet or Print Whole Plan.
+
+**Where you can see it** ([[SCH-108]]): a blue **New hang** pill beside the name on All Customers, and **NEW HANG** on their Schedule stop. Both ask the Schedule's one rule (`isNewMemberHouse`, handed to the main app as `window.customerIsNewHang`), so they always agree; the pill appears once the Schedule has loaded.
+
 **What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
 
 ### Three things that move somebody up a season
