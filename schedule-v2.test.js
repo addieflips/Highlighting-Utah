@@ -897,6 +897,18 @@ suite('LIVE-2 Customers already on days who go onto the colour-change list come 
     eight.map(function(b){ return b.data.name + '@' + (dayOfCust(b.id) || '-'); }).join(', '));
   check('and leaves no Confirmed customer off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
 }
+suite('LIVE-4 Kept days and new days never share an id (SCH-112)');
+{
+  const book = makeBook(160, 4404);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.press(); H.press();
+  const ids = H.season().map(function(d){ return String(d.id); });
+  check('after Recalculate keeps the printed days, every day still has its own id', new Set(ids).size === ids.length,
+    ids.filter(function(x, i){ return ids.indexOf(x) !== i; }).join(','));
+}
 suite('LIVE-3 The lock is the next two SCHEDULED days, not a clock (SCH-106)');
 {
   const book = makeBook(160, 4403);

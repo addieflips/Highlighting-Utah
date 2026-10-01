@@ -13717,7 +13717,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          a bare ReferenceError inside the rebuild and takes the whole suite down — which
          is the exact failure sandboxDeps exists to name. */
       fn('crewIndexes') +
-      fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+      /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') + fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
       '.sort(function(a,b){return a.base-b.base;}),towns:crewTownsFor};};';
@@ -17625,7 +17625,7 @@ suite('Suite 48. Days within two working days are set');
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
       seasonRuleSrc() + fn('isOutForSeason') + dayLimitSrc() +
-      fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      fn('uniqueDayIds') + fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -56307,7 +56307,7 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
         'const MAX_TOWNS_PER_CREW=' + ((admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] || 2) + ';' +
         fn('townsAreNeighbours') + dayLimitSrc() +
-        fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+        /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') + fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
         '\nthis.run=function(seed,forecast){FORECAST=forecast||{};SEASON=seed;' +
         'SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
         'var r=rebuildSeasonDays();return {r:r,seed:seed,' +
@@ -57588,7 +57588,7 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
                    'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                    'scheduleHoldMillis', 'scheduleHoldEndsMillis',
                    'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
-                   'customersMissingFromSeason', 'houseFromCustomer', 'rebuildSeasonDays',
+                   'customersMissingFromSeason', 'houseFromCustomer', 'uniqueDayIds', 'rebuildSeasonDays',
                    'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
     const gone = lifts.filter(f => !extractFn(admin, f));
     check('S306', 'the whole rebuild lifts cleanly', gone.length === 0 && planStart !== -1,
@@ -63680,7 +63680,7 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
                  'scheduleHoldMillis', 'scheduleHoldEndsMillis',
                  'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
                  'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
-                 'houseFromCustomer', 'rebuildSeasonDays',
+                 'houseFromCustomer', 'uniqueDayIds', 'rebuildSeasonDays',
                  'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
   const gone = lifts.filter(f => !extractFn(admin, f));
   check('S346', 'the whole rebuild and its safety net lift cleanly', gone.length === 0 && planStart !== -1,
@@ -65985,4 +65985,27 @@ suite('370. The set-up fee box makes a new customer, everywhere');
   /* a snapshot replaces the record object in place: the answer must not quietly become "no" */
   fee.data = Object.assign({}, fee.data);
   check('S370', 'a record replaced since the lookup was indexed is still found', t.byData(fee.data) === true);
+}
+
+/* ---------------------------------------------------------------------------
+ * 371. EVERY SCHEDULE DAY HAS ITS OWN ID ([[SCH-112]], 2026-10-01).
+ * Dax: "oct 1 and oct 2 are like connected in some way so when i click oct 1 it highlights oct 1 and
+ * oct 2 and shows me oct 2". The day list selects by id; two days sharing one are one day to it.
+ * --------------------------------------------------------------------------- */
+suite('371. Every Schedule day has its own id');
+{
+  const src = extractFn(admin, 'uniqueDayIds');
+  check('S371', 'the id repair is findable', !!src);
+  const u = new Function(src + 'return uniqueDayIds;')();
+  const days = [{id: 'rb1'}, {id: 'rb1'}, {id: 'rb2'}, {id: null}, {id: 'rb2'}];
+  u(days);
+  const ids = days.map(d => d.id);
+  check('S371', 'two days sharing an id come out with different ids', new Set(ids).size === ids.length, ids.join(','));
+  check('S371', 'and the first holder keeps its id', ids[0] === 'rb1' && ids[2] === 'rb2');
+  const taken = u([{id: 'rb0'}, {id: 'rb1'}]);
+  check('S371', 'it hands back the ids it has seen, for new days to avoid', taken.has('rb0') && taken.has('rb1'));
+  const rb = stripComments(extractFn(admin, 'rebuildSeasonDays') || '');
+  check('S371', 'the rebuild names new days around the kept ones', /uniqueDayIds\(keep\)/.test(rb) && /id:freshDayId\(\)/.test(rb) && !/id:'rb'\+i\b/.test(rb));
+  check('S371', 'and a plan saved with duplicates is repaired the moment it loads',
+    /uniqueDayIds\(SEASON\)/.test(stripComments(extractFn(admin, 'hydrate') || '')));
 }

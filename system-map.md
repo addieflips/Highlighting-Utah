@@ -2913,6 +2913,7 @@ new customer, a corrected town or a re-learnt town map re-split a printed sheet 
 involved at all. A printed day's split and order are now frozen on the day (`frozenIds`,
 `frozenCrews`, saved with the plan) and `dayCrewHouses` / `dayCrewTowns` read that first; a house
 added or removed by hand breaks the match and it is worked out again.
+⚠ **EVERY DAY HAS ITS OWN ID** ([[SCH-112]]): the day list selects by id, and Recalculate used to name new days rb0, rb1… from zero while the kept printed days still carried those names from the press before — so two days answered to one click. New days skip every id a kept day holds, and `hydrate` repairs a saved plan with duplicates on load.
 **⚙ Recalculate including the next two days** (`recalcAllBtn`) is the only reset: it asks
 first, runs the ordinary press with the lock lifted for that one press, and freezes the new next
 two days afterwards. It is also how a colour-change customer ([[SCH-105]]) already on one of those
