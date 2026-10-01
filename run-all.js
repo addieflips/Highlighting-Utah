@@ -65897,3 +65897,54 @@ suite('368. A new hang\'s photos and its row carry the same letter and colour');
     pics.indexOf('border-color:' + rows0[0].photoColor) !== -1 && /<b class="pkey" style="background:#[0-9A-Fa-f]{6};">A<\/b>/.test(pics));
   check('S368', 'the colour survives printing (print-color-adjust)', /print-color-adjust:exact/.test(admin));
 }
+
+/* ---------------------------------------------------------------------------
+ * 369. NEW HANGS ARE FOUND WHATEVER THEY CAME IN WITH, AND WAIT FOR THEIR BUILD ([[SCH-110]], 2026-10-01).
+ * Dax: "we should not schedule new hangs until they are built and then also its failing to detect who
+ * the new hangs are". The fixtures are shaped like the three live records read that day.
+ * --------------------------------------------------------------------------- */
+suite('369. New hangs are found by house, email or phone, and are not scheduled until built');
+{
+  const cq = (quotes, custs) => new Function('quotes', 'custs',
+    'const quotesCache = quotes;' +
+    'const byId = new Map(custs.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return byId.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    extractFn(admin, 'closedQuoteFor') + 'return closedQuoteFor;')(quotes, custs);
+  const bill = {id: 'bill', data: {street: '9943 n 6180 w', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '', email: 'billtitera@gmail.com'}};
+  const marina = {id: 'mar', data: {street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs, UT 84045', phone: '3852331077', email: ''}};
+  const parent = {id: 'par', data: {street: '1 Old St', city: 'Lehi', address: '1 Old St, Lehi, UT 84043', phone: '3852331077', email: 'billtitera@gmail.com'}};
+  const quotes = [
+    {data: {status: 'closed', street: '9943 n 6180 w', city: 'Highland ', address: '9943 n 6180 w, Highland  84003', phone: '', email: 'billtitera@gmail.com'}},
+    {data: {status: 'closed', street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs 84045', phone: '3852331077', email: ''}}];
+  const f = cq(quotes, [bill, marina, parent]);
+  check('S369', 'an email-only new hang (no phone anywhere) is found', !!f({id: 'cust-bill', phone: ''}));
+  check('S369', 'a new hang whose quote address lacks ", UT" is found', !!f({id: 'cust-mar', phone: '3852331077'}));
+  check('S369', 'a parent sharing that phone AND that email at a different house is not', f({id: 'cust-par', phone: '3852331077'}) === null);
+  const byEmailOnly = cq([{data: {status: 'closed', street: '', city: '', address: '', phone: '', email: 'billtitera@gmail.com'}}], [bill]);
+  check('S369', 'a quote with no address is found by email', !!byEmailOnly({id: 'cust-bill', phone: ''}));
+  /* Found by the HOUSE alone: their email and phone both changed after the quote was converted. */
+  const moved = {id: 'mv', data: {street: '9943 N 6180 W', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '8015550099', email: 'new@example.com'}};
+  check('S369', 'a new hang whose email and phone both changed is found by their house', !!cq(quotes, [moved])({id: 'cust-mv', phone: '8015550099'}));
+
+  /* The hold, through the badge. */
+  const sb = new Function('win',
+    'const window = win;' + seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+    extractFn(admin, 'isWaitingOnColorChange') + extractFn(admin, 'isWaitingOnBuild') +
+    extractFn(admin, 'isOffTheSchedule') + extractFn(admin, 'seasonBadgeKey') +
+    'return {badge: seasonBadgeKey, off: isOffTheSchedule};');
+  const y = {rsvpStatus: 'yes', rsvpRespondedAt: 1};
+  const s1 = sb({});
+  check('S369', 'a new hang whose lights are not built reads Being built, not Confirmed',
+    s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === 'building');
+  check('S369', 'and is off the schedule', s1.off(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === true);
+  check('S369', 'the moment the bundle is built they are Confirmed again',
+    s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: false}, y)) === 'confirmed');
+  check('S369', 'a returning customer whose set is being rebuilt is NOT held',
+    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'confirmed');
+  const s2 = sb({customerIsNewHangData: function(){ return true; }});
+  check('S369', 'a new hang found by their quote (box unticked) is held too',
+    s2.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
+  check('S369', 'somebody who said No keeps the No badge', s1.badge({rsvpStatus: 'no', chargeNewMemberFee: true, needsLightBuild: true}) === 'no');
+  check('S369', 'All Customers can show and filter on Being built',
+    /badgeKey === 'building'/.test(admin) && /<option value="building">/.test(admin));
+}

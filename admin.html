@@ -2424,7 +2424,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="colorchange">Colour change &mdash; waiting on the warehouse</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="colorchange">Colour change &mdash; waiting on the warehouse</option><option value="building">Being built &mdash; new hang waiting on the warehouse</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -40195,7 +40195,9 @@ function seasonBadgeKey(d){
      changes rather than a gate being added inside the schedule, which is the headline rule's own instruction
      ([[SCH-85]]): a Confirmed customer is never left off a day; somebody who genuinely should not be
      scheduled stops being Confirmed. */
-  return (typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) ? 'colorchange' : 'confirmed';
+  if(typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) return 'colorchange';
+  /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild. */
+  return (typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(d)) ? 'building' : 'confirmed';
 }
 /* ⭐⭐ [[SCH-105]] THE COLOUR-CHANGE LIST HOLDS A CUSTOMER OFF THE SCHEDULE (2026-09-30). Owner: "anyone on the
    color change list cant be scheduled and waits for them to not be in color changes for any reason but the
@@ -40209,7 +40211,26 @@ function seasonBadgeKey(d){
    asks isOffTheSchedule instead. Somebody who said No or Back Next Year keeps that badge: the list only ever
    stands between a would-be Confirmed customer and a day. */
 function isWaitingOnColorChange(d){ return !!(d && d.needsColorChange === true); }
-function isOffTheSchedule(d){ return isOutForSeason(d) || isWaitingOnColorChange(d); }
+/* ⭐⭐ [[SCH-110]] A NEW HANG IS NOT SCHEDULED UNTIL THEIR LIGHTS ARE BUILT (2026-10-01). Dax: "we should not
+   schedule new hangs until they are built". Found live the same day: Bill Titera, a new hang whose bundle was
+   still in the warehouse queue, was on that morning's crew sheet.
+   ⚠ "BUILT" IS needsLightBuild GOING FALSE — the warehouse's own Mark Done is what clears it — so the moment
+   the bundle is made they are Confirmed again and the next sync or Recalculate places them.
+   ⚠ "NEW HANG" IS THE OFFICE'S FEE BOX OR THE SCHEDULE'S OWN RULE (a quote converted into them). The box is
+   read here because it is on the record itself and needs nothing loaded — a hold that waited for the quotes
+   to arrive would let a Recalculate pressed in that second put an unbuilt house on a day. The quote rule
+   catches a new hang whose box was left unticked. This is a hold, not a priority: [[SCH-84]] (who outranks
+   whom) is untouched.
+   ⚠ THROUGH THE BADGE, LIKE [[SCH-105]] — never a gate inside the schedule: they read "Being built", not
+   Confirmed, so the headline rule (every Confirmed customer is on a day) still holds. A returning customer
+   whose set is being rebuilt is NOT held: the crew has hung that house before. */
+function isWaitingOnBuild(d){
+  if(!d || d.needsLightBuild !== true) return false;
+  if(d.chargeNewMemberFee === true) return true;
+  return (typeof window !== 'undefined' && window && typeof window.customerIsNewHangData === 'function')
+    ? !!window.customerIsNewHangData(d) : false;
+}
+function isOffTheSchedule(d){ return isOutForSeason(d) || isWaitingOnColorChange(d) || isWaitingOnBuild(d); }
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -57071,6 +57092,8 @@ function renderAllCustomersTable(){
       ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:700;" title="They answered No, so they are out for this season until they say otherwise">No</span>'+unpaidPill
       : badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">' + esc(backNextYearLabel(r.d)) + '</span>'+unpaidPill
+      : badgeKey === 'building'
+      ? '<span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="A new hang whose lights are still in the warehouse queue — not scheduled until the bundle is marked done, then placed on the next Recalculate">Being built</span>'+unpaidPill
       : badgeKey === 'colorchange'
       ? '<span class="status-pill" style="background:#F3ECF8; color:#5B3A86; font-weight:700;" title="On the warehouse colour-change list — not scheduled until the new set is marked done, then placed on the next Recalculate">Colour change</span>'+unpaidPill
       : badgeKey === 'pending'
@@ -72339,17 +72362,38 @@ function closedQuoteFor(h){
     });
     if(named) return named;
   }
+  /* ⭐ [[SCH-110]] THEN THE HOUSE ITSELF — street and town — THEN EMAIL, AND ONLY THEN THE PHONE. Read
+     off the live book on 2026-10-01: Bill Titera and Susan Siddoway came in by EMAIL, so their quotes and
+     records carry no phone at all and the phone-only match could never find them; and Marina Tueller,
+     who has one, was rejected anyway because this compared whole addresses — the quote stores
+     "503 W Tea Rose Ct, Saratoga Springs 84045" and the customer "…, Saratoga Springs, UT 84045", so the
+     ", UT" alone made them "different houses". Street and town are copied across on conversion, so they
+     are the honest key; the whole-address comparison is gone from here.
+     ⚠ A SHARED EMAIL OR PHONE IS NOT THE SAME HOUSE: either match is refused when both houses are known
+     and differ — the parent-and-child rule this function was written around. */
+  const cd = (own && own.data) || null;
+  const keyOf = function(street, address, city){
+    const n = function(x){ return String(x == null ? '' : x).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim(); };
+    const st = n(street || String(address || '').split(',')[0]);
+    return st ? st + '|' + n(city) : '';
+  };
+  const mineKey = cd ? keyOf(cd.street, cd.address, cd.city) : '';
+  const closed = (typeof quotesCache !== 'undefined' ? quotesCache : []).filter(q => q.data && q.data.status === 'closed');
+  const qKey = q => keyOf(q.data.street, q.data.address, q.data.city);
+  const sameHouse = q => !mineKey || !qKey(q) || qKey(q) === mineKey;
+  if(mineKey){
+    const here = closed.find(q => qKey(q) === mineKey);
+    if(here) return here;
+  }
+  const emails = cd ? [cd.email, cd.email2].map(e => String(e || '').trim().toLowerCase()).filter(Boolean) : [];
+  if(emails.length){
+    const byEmail = closed.find(q => emails.indexOf(String(q.data.email || '').trim().toLowerCase()) !== -1 && sameHouse(q));
+    if(byEmail) return byEmail;
+  }
   const digits = (''+(h.phone||'')).replace(/\D/g,'');
   if(!digits) return null;
-  const sameNumber = quotesCache.filter(q => q.data && q.data.status === 'closed' && (''+(q.data.phone||'')).replace(/\D/g,'') === digits);
-  if(!sameNumber.length) return null;
-  const norm = (typeof quoteMatchAddress === 'function') ? quoteMatchAddress : null;
-  const cust = norm ? hlxResolvePlanHouse(h) : null;
-  const mine = (cust && cust.data) ? norm(cust.data.address) : '';
-  if(!mine) return sameNumber[0];
-  const exact = sameNumber.find(q => norm(q.data.address) === mine);
-  if(exact) return exact;
-  return sameNumber.every(q => !!norm(q.data.address)) ? null : sameNumber[0];
+  const sameNumber = closed.filter(q => (''+(q.data.phone||'')).replace(/\D/g,'') === digits);
+  return sameNumber.find(sameHouse) || null;
 }
 /* ⛔ PUT BACK TO THE CLOSED QUOTE ALONE (2026-09-18, [[SCH-84]]). Dax: "just figure out how
    we had it and put it back like that", after "everyone should not be prioritzed only the
@@ -72368,6 +72412,19 @@ function newHouses(){return allHouses().filter(h=>isNewMemberHouse(h));}
    definitions of "new hang" in one page is the fault this file has already had twice (SCH-81/SCH-84).
    A customer record is asked as the house the plan would build from it (cust-<id>), so the answer is
    exactly the one the Schedule badge gives. */
+/* [[SCH-110]] the same answer for a bare record — seasonBadgeKey and isOffTheSchedule are handed the
+   data alone. Found by identity in the live book, indexed once per list. */
+let newHangItemIndex = null, newHangItemIndexFor = null;
+window.customerIsNewHangData=function(d){
+  if(!d) return false;
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  if(newHangItemIndexFor !== list || !newHangItemIndex || newHangItemIndex.size !== list.length){
+    newHangItemIndex = new Map(); list.forEach(function(it){ if(it && it.data) newHangItemIndex.set(it.data, it); });
+    newHangItemIndexFor = list;
+  }
+  const item = newHangItemIndex.get(d);
+  return item ? window.customerIsNewHang(item) : false;
+};
 window.customerIsNewHang=function(item){
   if(!item||!item.data) return false;
   try{ return isNewMemberHouse({id:'cust-'+item.id, name:item.data.name, phone:item.data.phone, cu:item.data.customerNumber}); }
