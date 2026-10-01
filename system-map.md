@@ -2898,12 +2898,26 @@ only the records that differ, and writes nothing at all while the plan has not l
 still run by their suites, but nothing on the page calls them. Do not re-enable the sweep
 without taking its customer writes out — it reads the very field the mirror writes.
 
-**One lock, for every mover.** A day is printed paper if it starts within 48 hours **or** is
-one of the next two working days (`routeDayIsLocked`). Recalculate always used both; the
-five-minute sync, the away sweep, the Confirmed safety net and the pin placer used only the
-48 hours, so on a Friday they could still move Monday's printed sheet. Now none can. A day
-that did not exist before a press cannot have been printed, so Recalculate still puts brand-new
-days inside the window into driving order.
+**One lock, for every mover — the next two SCHEDULED days ([[SCH-106]], changed the same
+evening).** Dax: *"you dont need to have a 48 hour timer just make it so the next two scheduled
+days dont get reset."* Locked: today and before, the next two days that have work on the
+Schedule (fix routes do not count), and any later day already frozen as printed.
+`refreshLockedDates` works this out once at the start of every press and every five-minute
+sync — never live, because a rebuild adds and removes days and "the next two" must not move
+under it — and `routeDayIsLocked` then answers from it. Before the plan has loaded it still
+falls back to the old 48 hours / two working days, so nothing is ever unlocked by default.
+⚠ **TWO LEAKS WERE FOUND AND CLOSED WITH IT.** The timing sweep (`enforceInstallTiming`) was the
+one mover that took a house OFF a printed day — its destination was guarded, its source was not.
+And the crew split is worked out every time it is drawn (towns, neighbours, pins, levelling), so a
+new customer, a corrected town or a re-learnt town map re-split a printed sheet with no mover
+involved at all. A printed day's split and order are now frozen on the day (`frozenIds`,
+`frozenCrews`, saved with the plan) and `dayCrewHouses` / `dayCrewTowns` read that first; a house
+added or removed by hand breaks the match and it is worked out again.
+**⚙ Recalculate including the next two days** (`recalcAllBtn`) is the only reset: it asks
+first, runs the ordinary press with the lock lifted for that one press, and freezes the new next
+two days afterwards. It is also how a colour-change customer ([[SCH-105]]) already on one of those
+days comes off it. A day that did not exist before a press cannot have been printed, so
+Recalculate still puts brand-new days inside the window into driving order.
 
 **One answer to "may this house go on this day"** — `houseMayGoOn`: a working day, not before
 their earliest day (`houseEarliestDay` — month, named day, office date, wanted-from and the
@@ -3175,7 +3189,7 @@ Ruling **SCH-100**.
 - `placeStuckHouses` is what actually puts them on the day, at the end of Recalculate everything
   and **after** the Confirmed safety net: the net guarantees everybody has *a* day, this moves
   the pinned few onto the *exact* day.
-- **A pin onto a day inside the next two working days is refused**, because that sheet is already
+- **A pin onto a locked day (the next two scheduled days, [[SCH-106]]) is refused**, because that sheet is already
   printed, and the press names whose pin it was so you can re-print or pick another day.
 - **Start New Season clears it**, like the Soonest/Latest takedown choice. A day agreed for last
   Christmas is not a day agreed for next.

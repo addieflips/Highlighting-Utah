@@ -563,14 +563,25 @@ suite('6.1 / 6.2 Incremental changes, and Recalculate as the full recovery');
   check('and nobody else changes day', book.every(function(b){ return dayOfCust(b.id) === before[b.id]; }));
   check('the newcomer lands on a legal day', H.api.validateSeasonPlan({}).length === 0, JSON.stringify(H.api.validateSeasonPlan({}).slice(0, 2)));
   /* A customer switching October -> November is moved by the timing sweep, only them. */
-  const oct = book.filter(function(b){ return b.data.installPreference === 'October'; })[0];
-  oct.data.installPreference = 'November';
-  H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(h.id === 'cust-' + oct.id) h.pref = 'November'; }); });
+  /* REPOINTED, NOT WEAKENED ([[SCH-106]], 2026-09-30): this used to take the FIRST October customer,
+     who sits on 1 October — a printed day — and asserted the sweep moved them. That was the leak: the
+     timing sweep was the one mover that emptied a printed day. The claim now picks a customer on an
+     unprinted day, and a second check holds the printed one where they are. */
+  const octs = book.filter(function(b){ return b.data.installPreference === 'October'; });
+  const oct = octs.filter(function(b){ const ds = dayOfCust(b.id); return ds && !H.api.routeDayIsLocked(ds); })[0];
+  const octPrinted = octs.filter(function(b){ const ds = dayOfCust(b.id); return ds && H.api.routeDayIsLocked(ds); })[0];
+  [oct, octPrinted].forEach(function(c){
+    if(!c) return;
+    c.data.installPreference = 'November';
+    H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(h.id === 'cust-' + c.id) h.pref = 'November'; }); });
+  });
   H.sync();
-  check('October → November moves them into November', dayOfCust(oct.id) >= '2026-11-01', dayOfCust(oct.id));
+  check('October → November moves them into November', !!oct && dayOfCust(oct.id) >= '2026-11-01', oct && dayOfCust(oct.id));
+  check('but somebody on a printed day stays on it until the override is pressed', !!octPrinted && dayOfCust(octPrinted.id) === before[octPrinted.id],
+    octPrinted && (before[octPrinted.id] + ' → ' + dayOfCust(octPrinted.id)));
   check('and no other house changes day', book.filter(function(b){ return b !== oct; }).every(function(b){ return dayOfCust(b.id) === before[b.id]; }));
   /* Full recalculation: repeatable, and nobody lost. */
-  oct.data.installPreference = 'October';
+  oct.data.installPreference = 'October'; if(octPrinted) octPrinted.data.installPreference = 'October';
   run(book);
   const f1 = fingerprint(); run(book); const f2 = fingerprint();
   check('Recalculate twice gives the same season', f1 === f2 && f1 === fp);
@@ -794,6 +805,119 @@ suite('SCH-105 The colour-change list holds a customer off the schedule, and onl
   check('off the list: badge reads Confirmed again', H.api.seasonBadgeKey(cc.data) === 'confirmed');
   const said = Object.assign({}, cc.data, {rsvpStatus: 'no', needsColorChange: true});
   check('somebody who said No keeps the No badge — the list never promotes anybody', H.api.seasonBadgeKey(said) === 'no');
+}
+
+/* ======================================================================================= */
+/* ⚠ REPRODUCTIONS OF TWO LIVE FAULTS (2026-09-30, the evening the season was about to start).
+   Both suites above built every season from an EMPTY plan, which is why neither fault showed:
+   the live plan was saved days earlier, so the colour-change customers were ALREADY on days and
+   1 and 2 October were already printed. These start from a saved season, press the button exactly
+   as runRecalculateEverything does (H.press), run the five-minute sync exactly as
+   scheduleSyncFromCustomers does (H.tick), and press again. */
+const EVENING = new Date(2026, 8, 30, 19, 0);   // Wednesday 30 September, 7pm — 1 and 2 October are printed
+function lockedPrint(){
+  const out = {};
+  daysOf().forEach(function(d){ if(d.ds && H.api.routeDayIsLocked(d.ds) && d.ds >= '2026-09-30') out[d.ds] = d.crews.map(function(c){ return c.join(','); }).join('|'); });
+  return out;
+}
+function lockedDiff(b, a){
+  const out = [];
+  Object.keys(b).forEach(function(ds){
+    const cb = b[ds].split("|"), ca = (a[ds] || "").split("|");
+    const hb = cb.join(",").split(",").filter(Boolean), ha = ca.join(",").split(",").filter(Boolean);
+    const gone = hb.filter(function(x){ return ha.indexOf(x) === -1; }), came = ha.filter(function(x){ return hb.indexOf(x) === -1; });
+    const crewMoved = cb.some(function(c, i){ return c.split(",").sort().join() !== (ca[i] || "").split(",").sort().join(); });
+    const orderMoved = cb.some(function(c, i){ return c !== (ca[i] || ""); });
+    out.push(ds + ": gone " + gone.length + " [" + gone.slice(0,3) + "] came " + came.length + " [" + came.slice(0,3) + "] crew-split changed " + crewMoved + " order changed " + orderMoved);
+  });
+  return out.join(" ;; ");
+}
+suite('LIVE-1 The next two days are never touched by Recalculate or by the sync');
+function liveLockScenario(label, mutate){
+  const book = makeBook(160, 4401);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});        // laid out on Monday, nothing locked yet
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  const before = lockedPrint();
+  const onLocked = [];
+  H.api.installDays().forEach(function(d){
+    const ds = H.api.isoOf(H.api.dayDate(d));
+    if(before[ds] !== undefined) (d.houses || []).forEach(function(h){ onLocked.push(h.id.replace(/^cust-/, '')); });
+  });
+  const byId = {}; book.forEach(function(b){ byId[b.id] = b; });
+  mutate(book, onLocked, byId);
+  H.load(book, {season: season});
+  H.press(); const a1 = lockedPrint();
+  check(label + ': Recalculate everything leaves both printed days exactly as they were', Object.keys(before).length >= 2 && JSON.stringify(a1) === JSON.stringify(before), lockedDiff(before, a1));
+  H.tick(); const a2 = lockedPrint();
+  check(label + ': and so does the five-minute sync', JSON.stringify(a2) === JSON.stringify(before), lockedDiff(before, a2));
+  H.press(); const a3 = lockedPrint();
+  check(label + ': and so does a second press', JSON.stringify(a3) === JSON.stringify(before), lockedDiff(before, a3));
+}
+liveLockScenario('nothing changed', function(){});
+liveLockScenario('new customers in the printed days\' towns',function(book, onLocked, byId){
+  const towns = {}; onLocked.forEach(function(id){ if(byId[id]) towns[byId[id].data.city] = 1; });
+  Object.keys(towns).slice(0, 4).forEach(function(t, k){
+    book.push({id: 'late' + k, data: Object.assign({name: 'Late ' + k, customerNumber: String(7000 + k), city: t,
+      address: (900 + k) + ' New Rd', phone: '80155590' + k, lat: TOWNS[t][0], lng: TOWNS[t][1], installPreference: 'October'}, YES)});
+  });
+});
+liveLockScenario('priority customers', function(book, onLocked){
+  book.filter(function(b){ return onLocked.indexOf(b.id) === -1; }).slice(0, 6).forEach(function(b){ b.data.rushInstall = true; });
+});
+liveLockScenario('a printed customer switches to November', function(book, onLocked, byId){ byId[onLocked[0]].data.installPreference = 'November'; });
+liveLockScenario('a printed customer goes onto the colour-change list', function(book, onLocked, byId){ byId[onLocked[2]].data.needsColorChange = true; });
+liveLockScenario('a printed customer says no', function(book, onLocked, byId){ byId[onLocked[3]].data.rsvpStatus = 'no'; });
+/* The crew split is worked out from towns every time it is drawn, so a corrected town used to re-split a printed sheet. */
+liveLockScenario('a printed customer\'s town is corrected', function(book, onLocked, byId){ const b = byId[onLocked[1]]; b.data.city = Object.keys(TOWNS).filter(function(t){ return t !== b.data.city; })[0]; });
+liveLockScenario('a new customer arrives in another town (the town map is re-learnt)', function(book){ book.push({id: 'other0', data: Object.assign({name: 'Other 0', customerNumber: '7100', city: 'Provo', address: '1 Other Rd', phone: '8015559100', lat: TOWNS.Provo[0], lng: TOWNS.Provo[1], installPreference: 'Normal Schedule'}, YES)}); });
+
+
+suite('LIVE-2 Customers already on days who go onto the colour-change list come off every day');
+{
+  const book = makeBook(160, 4402);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  /* Eight customers spread across the season, the way the live list was. */
+  const placed = book.filter(function(b){ return !!dayOfCust(b.id); });
+  const step = Math.max(1, Math.floor(placed.length / 8));
+  const eight = []; for(let k = 0; k < 8 && k * step < placed.length; k++) eight.push(placed[k * step]);
+  eight.forEach(function(b){ b.data.needsColorChange = true; });
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.press(); H.tick(); H.press();
+  const where = eight.map(function(b){ return b.data.name + '@' + (dayOfCust(b.id) || '-'); });
+  const onUnprinted = eight.filter(function(b){ const ds = dayOfCust(b.id); return ds && !H.api.routeDayIsLocked(ds); });
+  check('none of them is on an unprinted day', onUnprinted.length === 0, where.join(', '));
+  const onPrinted = eight.filter(function(b){ return !!dayOfCust(b.id); });
+  check('the scenario has some of them on the printed days, as the live plan did', onPrinted.length > 0, where.join(', '));
+  H.press(true);
+  check('Recalculate including the next two days takes every one of them off', eight.every(function(b){ return !dayOfCust(b.id); }),
+    eight.map(function(b){ return b.data.name + '@' + (dayOfCust(b.id) || '-'); }).join(', '));
+  check('and leaves no Confirmed customer off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
+}
+suite('LIVE-3 The lock is the next two SCHEDULED days, not a clock (SCH-106)');
+{
+  const book = makeBook(160, 4403);
+  run(book, {now: new Date(2026, 8, 21, 7, 0)});
+  const season = H.season();
+  H.setNow(new Date(2026, 8, 24, 7, 0));   // a week before the season: nothing is within 48 hours
+  H.load(book, {season: season});
+  const first = daysOf().map(function(d){ return d.ds; }).filter(Boolean).sort();
+  const fp = function(){ const o = {}; daysOf().forEach(function(d){ if(d.ds === first[0] || d.ds === first[1]) o[d.ds] = d.crews.map(function(c){ return c.join(','); }).join('|'); }); return JSON.stringify(o); };
+  const before = fp();
+  book.slice(0, 10).forEach(function(b){ b.data.rushInstall = true; });
+  book[20].data.installPreference = 'November';
+  H.load(book, {season: season});
+  H.press();
+  check('the first two scheduled days are locked even a week out', H.api.routeDayIsLocked(first[0]) && H.api.routeDayIsLocked(first[1]), first.slice(0, 3).join(','));
+  check('the third scheduled day is not', !H.api.routeDayIsLocked(first[2]));
+  check('and a press leaves the first two exactly as they were', fp() === before);
+  H.tick();
+  check('and so does the sync', fp() === before);
+  H.press(true);
+  check('the override press is allowed to re-lay them, and the lock is back on afterwards', H.api.routeDayIsLocked(daysOf().map(function(d){ return d.ds; }).filter(Boolean).sort()[0]));
 }
 
 /* ======================================================================================= */

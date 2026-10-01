@@ -66,7 +66,10 @@ touching scheduling must know before editing anything:
   them — ⛔ **do not re-enable the sweep**: it reads `d.scheduled`, which the mirror now writes.
 - **`syncInstallStampsFromSchedule` is the only writer of `scheduled` / `scheduledDate` / `assignedCrew`**,
   copying the Schedule plan onto the record after every plan save and on Recalculate.
-- **`routeDayIsLocked` is 48 hours OR the next two working days** — one lock for every mover.
+- **The lock is the next two SCHEDULED days** ([[SCH-106]]) — today, the next two days with work on them, and any day
+  already frozen as printed; worked out once per press and per sync (`refreshLockedDates`), then `routeDayIsLocked` answers
+  from it. No mover may put a house on, take one off, or reorder a locked day, and a locked day's crew split is frozen
+  (`frozenCrewSplit`). Only **⚙ Recalculate including the next two days** resets them.
 - **`houseMayGoOn` is the one legality check** (working day, `houseEarliestDay`, `houseDeadline`, away,
   pin). **`validateSeasonPlan`** proves twelve invariants on every Recalculate.
 - **A new scheduling rule that should keep somebody OFF the schedule changes their badge**
