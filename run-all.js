@@ -65846,3 +65846,54 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
   check('S367', 'the tag is on the All Customers row', /custNumChip\(r\.d\)\+newHangChip\(r\.item\)/.test(admin));
   check('S367', 'and the Schedule stop says NEW HANG in words', /<span class="newbadge">NEW HANG<\/span>/.test(admin));
 }
+
+/* ---------------------------------------------------------------------------
+ * 368. A NEW HANG'S PHOTO AND ROW CARRY THE SAME LETTER AND COLOUR ([[SCH-109]], 2026-10-01).
+ * Dax: "when we print a new hang it should color coordinate what house goes to which customer
+ * somehow so on the schedule you can tell what customer has what house".
+ * RUN against the lifted functions: the claim is that the two halves of the paper agree.
+ * --------------------------------------------------------------------------- */
+suite('368. A new hang\'s photos and its row carry the same letter and colour');
+{
+  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const src = names.map(n => extractFn(admin, n));
+  const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
+  check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
+  const sb = (crews, custs) => new Function('crews', 'custs',
+    'const esc = function(x){ return String(x == null ? "" : x); };' +
+    'function printDensityClass(){ return ""; }' +
+    'function crewIndexes(){ return crews.map(function(c, i){ return i; }); }' +
+    'function crewHousesFor(i){ return crews[i] || []; }' +
+    'function planCustomerFor(h){ return custs[h.id] ? {data: custs[h.id]} : null; }' +
+    'function customerPhotoList(d){ return (d && d.housePhotos) || []; }' +
+    'function printCrewRow(h){ const d = printCustData(h); return {number: d.customerNumber || "", name: d.name || ""}; }' +
+    pal + src.join('\n') +
+    'return {keys: printNewHangKeys, rows: printCrewDayList, photos: printCrewPhotos, pHtml: printPhotosHtml, tHtml: printTableHtml};')(crews, custs);
+  const custs = {
+    a: {name: 'Ann', customerNumber: '1', chargeNewMemberFee: true, housePhotos: [{url: 'a1'}, {url: 'a2'}]},
+    b: {name: 'Bob', customerNumber: '2'},                                                    // returning
+    c: {name: 'Cat', customerNumber: '3', chargeNewMemberFee: true, housePhotos: []},          // new, no photo
+    d: {name: 'Dan', customerNumber: '4', chargeNewMemberFee: true, housePhotos: [{url: 'd1'}]}
+  };
+  const day = {};
+  const t = sb([[{id: 'a'}, {id: 'b'}, {id: 'c'}], [{id: 'd'}]], custs);
+  const k = t.keys(day);
+  check('S368', 'each new hang with a photo gets a letter, in order across the whole day',
+    k.get('a') && k.get('a').letter === 'A' && k.get('d') && k.get('d').letter === 'B', JSON.stringify(Array.from(k)));
+  check('S368', 'a returning house and a new hang with no photo get none', !k.has('b') && !k.has('c'));
+  check('S368', 'two new hangs never share a colour (within the palette)', k.get('a').color !== k.get('d').color);
+  const rows0 = t.rows(day, 0), rows1 = t.rows(day, 1);
+  const ph0 = t.photos(day, 0), ph1 = t.photos(day, 1);
+  check('S368', 'the row and every one of its photos carry the same letter and colour',
+    rows0[0].photoKey === 'A' && ph0.length === 2 && ph0.every(p => p.key === 'A' && p.color === rows0[0].photoColor));
+  check('S368', 'crew two keeps its letter from the whole day — no second A',
+    rows1[0].photoKey === 'B' && ph1[0].key === 'B');
+  check('S368', 'rows that are not new hangs stay plain', !rows0[1].photoKey && !rows0[2].photoKey);
+  const table = t.tHtml(rows0, [{k: 'name', label: 'Name'}]);
+  check('S368', 'the printed row shows the letter in its colour',
+    /class="num pkeycell" style="background:#[0-9A-Fa-f]{6};color:#fff;">1 <b class="pkey">A<\/b>/.test(table), table.slice(0, 300));
+  const pics = t.pHtml(ph0);
+  check('S368', 'and the photo shows the same letter in the same colour',
+    pics.indexOf('border-color:' + rows0[0].photoColor) !== -1 && /<b class="pkey" style="background:#[0-9A-Fa-f]{6};">A<\/b>/.test(pics));
+  check('S368', 'the colour survives printing (print-color-adjust)', /print-color-adjust:exact/.test(admin));
+}
