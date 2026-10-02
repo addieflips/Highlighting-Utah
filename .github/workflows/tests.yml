@@ -203,6 +203,15 @@ jobs:
       # different thing to go and look at than a line inside the big suite.
       - name: Last season's unpaid bill (carried, and holding the season)
         run: npm run test:arrears
+      # ⭐ A NEW MEMBER ACTUALLY GETS A BILL. Named separately because the failure it
+      # guards was INVISIBLE from every screen: runInvoiceBatch read an identifier that
+      # does not exist in its scope, so the throw was swallowed by the per-payer catch and
+      # every new member was skipped — before the invoice document was written, so there
+      # was nothing anywhere to notice. Returning customers billed perfectly throughout.
+      # A red line reading "new member" is a sentence somebody can act on; the same
+      # failure inside npm test is one line of a 2.4MB log.
+      - name: A new member actually gets a bill
+        run: npm run test:newmember
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,
