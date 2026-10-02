@@ -2881,6 +2881,119 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### Schedule V2 — one authority, and the rules it now proves (2026-09-30)
+
+Rulings [[SCH-102]] to [[SCH-105]]. Everything below is built ON the scheduler described in the
+rest of this section; the day builder, the priority ladder and the crew split are unchanged.
+
+**The Schedule tab is the only place a hang day comes from.** The fifteen-minute crew-routes
+sweep no longer runs, an install route can no longer be saved from the Routes tab (fix and
+removal routes still can), and adding a customer no longer drops them onto a crew-routes day.
+Instead, after every save of the plan and on every Recalculate, a mirror
+(`syncInstallStampsFromSchedule`) copies each customer's Schedule day onto their record —
+`scheduled`, `scheduledDate`, `assignedCrew` — and clears it for anybody the Schedule does not
+hold. So **the day a customer sees in their portal is the day the office prints.** It writes
+only the records that differ, and writes nothing at all while the plan has not loaded.
+⚠ `reconcileUpcomingRoutes` and `clearStaleInstallBookingsRun` are still in admin.html and
+still run by their suites, but nothing on the page calls them. Do not re-enable the sweep
+without taking its customer writes out — it reads the very field the mirror writes.
+
+**One lock, for every mover — the next two SCHEDULED days ([[SCH-106]], changed the same
+evening).** Dax: *"you dont need to have a 48 hour timer just make it so the next two scheduled
+days dont get reset."* Locked: today and before, the next two days that have work on the
+Schedule (fix routes do not count), and any later day already frozen as printed.
+`refreshLockedDates` works this out once at the start of every press and every five-minute
+sync — never live, because a rebuild adds and removes days and "the next two" must not move
+under it — and `routeDayIsLocked` then answers from it. Before the plan has loaded it still
+falls back to the old 48 hours / two working days, so nothing is ever unlocked by default.
+⚠ **TWO LEAKS WERE FOUND AND CLOSED WITH IT.** The timing sweep (`enforceInstallTiming`) was the
+one mover that took a house OFF a printed day — its destination was guarded, its source was not.
+And the crew split is worked out every time it is drawn (towns, neighbours, pins, levelling), so a
+new customer, a corrected town or a re-learnt town map re-split a printed sheet with no mover
+involved at all. A printed day's split and order are now frozen on the day (`frozenIds`,
+`frozenCrews`, saved with the plan) and `dayCrewHouses` / `dayCrewTowns` read that first; a house
+added or removed by hand breaks the match and it is worked out again.
+⭐ **THE ONE EXCEPTION TO THE LOCK** ([[SCH-113]]): a new hang whose lights are not built yet comes off even a printed day — on Recalculate and on the five-minute sync, today or later, never a worked day. Removal only: nothing is added or reordered, and it comes off the frozen crew split too, so the rest of the sheet is exactly as printed. The button names who came off which day, and an Inbox note (A Route Sheet Is Out Of Date) says to tell the crew. Found because Rachel Oslund had been placed before the build hold existed.
+⚠ **EVERY DAY HAS ITS OWN ID** ([[SCH-112]]): the day list selects by id, and Recalculate used to name new days rb0, rb1… from zero while the kept printed days still carried those names from the press before — so two days answered to one click. New days skip every id a kept day holds, and `hydrate` repairs a saved plan with duplicates on load.
+**⚙ Recalculate including the next two days** (`recalcAllBtn`) is the only reset: it asks
+first, runs the ordinary press with the lock lifted for that one press, and freezes the new next
+two days afterwards. It is also how a colour-change customer ([[SCH-105]]) already on one of those
+days comes off it. A day that did not exist before a press cannot have been printed, so
+Recalculate still puts brand-new days inside the window into driving order.
+
+**One answer to "may this house go on this day"** — `houseMayGoOn`: a working day, not before
+their earliest day (`houseEarliestDay` — month, named day, office date, wanted-from and the
+72-hour warehouse hold, whichever is latest), not after their last day (`houseDeadline`), not on
+a day they are away, and on their pinned day if they have one. The five-minute sync's placer
+now uses the same earliest day, so it can no longer put a house on a day inside its hold.
+
+**Customer calendar ([[SCH-104]]).** On Add and Edit Customer: **Don't hang before**,
+**Don't hang after**, and **Don't hang between** (one or more ranges). They are the old
+wanted-from / wanted-until / away fields renamed — no data moved. **"Don't hang after" is now
+firm**: after the season is laid out, `pullBackPastDeadline` moves anybody past their last
+allowed day onto an earlier legal day with room, and the button names anybody it could not.
+
+**Priority customers ([[SCH-103]]).** ⭐ Priority on Edit Customer, or **⭐ Add priority /
+Remove priority** on their Schedule stop — the same `rushInstall` field either way. A priority
+customer goes on the **earliest day a crew is already working within 3 miles of them**
+(`PRIORITY_REACH_MILES`) that has room and is legal for them — on its own within minutes, and
+again on Recalculate. Only that house moves; the two days it touched are re-ordered. It never
+beats a hard rule and never creates a trip just for them: an isolated priority customer keeps
+their day until a crew is nearby. Removing priority moves nobody. The stop shows **⭐ PRIORITY**.
+
+**The colour-change list ([[SCH-105]]).** Anybody on the warehouse's Color Change queue
+(`needsColorChange`) is not scheduled: their badge reads **Colour change** instead of Confirmed,
+they come off any unprinted day, and their record's hang date is cleared. When they come off the
+list (Mark Done, or anything else), they are Confirmed again and placed on the next sync or
+Recalculate. They stay in the season for everything else — the warehouse still builds their set.
+
+**New customers are placed without a rebuild.** A customer who becomes Confirmed is put on the
+nearest legal day with room by the five-minute sync (`placeJoinedHouses`); nobody else moves.
+Recalculate still lays the whole season out from scratch, and its safety net still guarantees
+every Confirmed customer a day ([[SCH-85]]).
+
+**Weather, per house.** The freeze veto (31°F) used to judge a whole map block by its main
+town, so a warm block could carry houses from a frozen town and the neighbour top-up borrowed
+from frozen towns. Now a house whose own town is frozen that day is not put on it — by the
+builder, the neighbour loan, the tail packer, the stray gatherer or the crew evener — unless
+the veto was lifted because nowhere warmer had any work.
+
+**Why this day.** Every stop has a folded **Why this day** line: their class (New hang,
+October, Priority customer…), their allowed window, the warehouse hold, how near the other
+houses are, and the forecast. It is read off the same rules that placed them.
+
+**The plan checks itself.** Every Recalculate runs `validateSeasonPlan` over twelve
+invariants — nobody on two days or two sheets, nobody unconfirmed on a day, nobody outside
+their window or on an away day, every Confirmed customer on a day, every house with a customer
+record and a working date, and **no printed day changed** (measured against a snapshot taken
+before the press). Anything it finds is named on the button; it never repairs silently. A
+printed day is still judged, with "ring them" on the line, because it cannot be moved.
+
+*Where it's proved*: `schedule-v2.test.js` runs the real Recalculate offline
+(`schedule-v2.harness.js` lifts ~300 real functions out of admin.html) over seeded seasons of
+20, 100 and 952 houses on real Utah towns, an adversarial season, every invariant broken on
+purpose, and the priority and colour-change cases.
+
+### New hangs on the printed sheets — found by their own record, printed with every photo (2026-10-01)
+
+[[SCH-107]]. Dax: *"we also need to ensure that we can detect new hangs, and that when new hangs are printed it prints them with their house picture/s"*.
+
+**Who is a new hang on paper** (`printIsNewHang`): a house whose quote was converted into this customer, asked FIRST — so a new member who then picked or changed colours in the portal is still one; otherwise not if their colours were changed (a returning customer's colour change is never a new hang); otherwise the $30 new-member box or an applied re-quote.
+
+**Who is a new hang** ([[SCH-111]], superseding [[SCH-84]]): anybody with the set-up fee box ticked, OR anybody a quote was converted into (`isNewMemberHouse`). One rule for the NEW HANG badge, the All Customers tag, the crew sheet, the photos and the build hold. Safe only because Start New Season clears the box.
+
+**How the quote is found** (`closedQuoteFor`, [[SCH-110]]): the closed quote that NAMES this customer (`convertedToCustomerId` / `existingCustomerId`) wins; then the closed quote at the same STREET AND TOWN (whole addresses are never compared — the quote has no ", UT" and the customer does); then the same email; then the same phone. A shared email or phone never matches a different house. Found live: email-only new hangs (no phone anywhere) and a phone new hang rejected over ", UT" were all being missed.
+
+**Not scheduled until built** ([[SCH-110]]): a new hang (the $30 box, or a converted quote) whose `needsLightBuild` is still true reads **Being built** on All Customers instead of Confirmed, and `isOffTheSchedule` keeps them off every day. When the warehouse marks the bundle done the flag clears, they are Confirmed again, and the next sync or Recalculate places them. A returning customer whose set is being rebuilt is NOT held — the crew has hung that house before. A house already on one of the next two scheduled days stays until the override.
+
+**Which record the sheet reads** (`printCustData`): the house's own customer id (`planCustomerFor`), like the rest of the Schedule — never the customer number first. A new hang is the customer most likely to have no number yet, a number given after they were placed, or a phone shared with a parent's house, and the number-first lookup printed the wrong house's photos or none.
+
+**Which photo is which house** ([[SCH-109]]): every new hang with a photo gets a letter (A, B, C…) and a colour for the day. The # cell of their row is filled in that colour with the letter, and each of their photos is framed in the same colour with the same letter in the caption. The letter works on a black-and-white printer; `print-color-adjust:exact` keeps the colour on a colour one. Keyed per day across both crews (`printNewHangKeys`), so letters never repeat on the whole-day sheet or Print Whole Plan.
+
+**Where you can see it** ([[SCH-108]]): a blue **New hang** pill beside the name on All Customers, and **NEW HANG** on their Schedule stop. Both ask the Schedule's one rule (`isNewMemberHouse`, handed to the main app as `window.customerIsNewHang`), so they always agree; the pill appears once the Schedule has loaded.
+
+**What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
+
 ### Three things that move somebody up a season
 
 Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:
@@ -3098,7 +3211,7 @@ Ruling **SCH-100**.
 - `placeStuckHouses` is what actually puts them on the day, at the end of Recalculate everything
   and **after** the Confirmed safety net: the net guarantees everybody has *a* day, this moves
   the pinned few onto the *exact* day.
-- **A pin onto a day inside the next two working days is refused**, because that sheet is already
+- **A pin onto a locked day (the next two scheduled days, [[SCH-106]]) is refused**, because that sheet is already
   printed, and the press names whose pin it was so you can re-print or pick another day.
 - **Start New Season clears it**, like the Soonest/Latest takedown choice. A day agreed for last
   Christmas is not a day agreed for next.

@@ -1108,9 +1108,14 @@ const isNewMemberHouseSrc = extractFn(admin, 'isNewMemberHouse');
 const closedQuoteForSrc = extractFn(admin, 'closedQuoteFor');
 check('logic', 'the Schedule tab has a live isNewMemberHouse lookup',
   typeof isNewMemberHouseSrc === 'string' && typeof closedQuoteForSrc === 'string');
-check('logic', 'the Schedule tab\'s "new member" reads a Closed quote, not the new-member-fee checkbox',
-  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) && !/chargeNewMemberFee/.test(stripComments(isNewMemberHouseSrc + closedQuoteForSrc)),
-  'SCH-84 put this back: only a closed quote makes a house a new hang on the Schedule tab');
+/* REPOINTED, NOT WEAKENED ([[SCH-111]], 2026-10-01): Dax superseded SCH-84 — "anyone with the $30 set up fee
+   should be considered a new customer". The check asserts BOTH halves now: the fee box counts, and a closed
+   quote still counts without it. The Start New Season clear below is what keeps the box from carrying a past season. */
+check('logic', 'the Schedule tab\'s "new member" is the set-up fee box OR a Closed quote',
+  closedQuoteForSrc && /status === 'closed'/.test(closedQuoteForSrc) &&
+  /chargeNewMemberFee === true/.test(stripComments(isNewMemberHouseSrc)) &&
+  /closedQuoteFor\(h\)/.test(stripComments(isNewMemberHouseSrc)),
+  'SCH-111: the fee box makes a new hang, and so does a quote converted into them');
 check('logic', 'Start New Season still clears the set-up fee flag',
   /chargeNewMemberFee:\s*false/.test(stripComments(admin)),
   'without it the $30 join-fee box stays ticked into next season and the nightly run charges the fee again');
@@ -10163,8 +10168,12 @@ suite('17. A new customer lands on the next day in their city');
       const cache = {};
       cache[dstr(-20)] = [{id:'past', date:dstr(-20), type:'install', crew:'1',
         stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]}];
-      cache[dstr(3)] = [
-        {id:'soonLehi', date:dstr(3), type:'install', crew:'1', stops:[
+      /* ⚠ A WEEK OUT, NOT THREE DAYS (Schedule V2, [[SCH-102]]). The lock became "48 hours OR
+         the next two working days", and three calendar days from a Wednesday is inside it — so
+         this fixture's "upcoming" day read as printed on some weekdays and not others, which is
+         a flaky check. Seven days out is past the lock whatever day the suite runs. */
+      cache[dstr(7)] = [
+        {id:'soonLehi', date:dstr(7), type:'install', crew:'1', stops:[
           {id:'ok',    name:'Fine House',  address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
            phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''},
           {id:'said',  name:'Said No',     address:'2 No St',   lat:40.4, lng:-111.8},
@@ -10173,9 +10182,9 @@ suite('17. A new customer lands on the next day in their city');
           {id:'dupe',  name:'Twice Booked',address:'4 Two Way', lat:40.4, lng:-111.8},
           {id:'late',  name:'Later Please',address:'5 Wait Ln', lat:40.4, lng:-111.8}
         ]},
-        {id:'fixday', date:dstr(3), type:'fix', crew:'1',
+        {id:'fixday', date:dstr(7), type:'fix', crew:'1',
           stops:[{id:'said', name:'Said No', address:'2 No St', lat:40.4, lng:-111.8}]},
-        {id:'remday', date:dstr(3), type:'removal', crew:'1',
+        {id:'remday', date:dstr(7), type:'removal', crew:'1',
           stops:[{id:'done', name:'All Done', address:'8 Done Dr', lat:40.4, lng:-111.8}]}
       ];
       cache[dstr(14)] = [{id:'lateLehi', date:dstr(14), type:'install', crew:'1',
@@ -10238,7 +10247,7 @@ suite('17. A new customer lands on the next day in their city');
         'taking it off without rebooking it is just losing the customer more slowly');
 
       check('reconcile', 'a house stranded on a day that has been and gone is rescued',
-        (custWrite('strand') || {payload:{}}).payload.scheduledDate === dstr(3),
+        (custWrite('strand') || {payload:{}}).payload.scheduledDate === dstr(7),
         'route generation only looks at UNSCHEDULED houses, so these are invisible to every tool');
       check('reconcile', 'a completed house is never dragged back onto a route',
         !custWrite('done') || custWrite('done').payload.scheduled !== true);
@@ -10297,10 +10306,10 @@ suite('17. A new customer lands on the next day in their city');
       const clean = {
         houses: [{id:'ok', data:{name:'Fine House', city:'Lehi', address:'1 Fine St',
                                  lat:40.4, lng:-111.8, rsvpStatus:'yes',
-                                 scheduled:true, scheduledDate:dstr(3), assignedCrew:'1'}}],
+                                 scheduled:true, scheduledDate:dstr(7), assignedCrew:'1'}}],
         cache: {}
       };
-      clean.cache[dstr(3)] = [{id:'cleanDay', date:dstr(3), type:'install', crew:'1', stops:[
+      clean.cache[dstr(7)] = [{id:'cleanDay', date:dstr(7), type:'install', crew:'1', stops:[
         {id:'ok', name:'Fine House', address:'1 Fine St', lat:40.4, lng:-111.8, difficulty:'Unrated',
          phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'', customerNumber:''}
       ]}];
@@ -10318,7 +10327,7 @@ suite('17. A new customer lands on the next day in their city');
         specificOutletNotes:'', customerNumber:''});
       const oneDay = (houses, extra) => {
         const cache = {};
-        cache[dstr(3)] = [Object.assign({id:'d1', date:dstr(3), type:'install', crew:'1',
+        cache[dstr(7)] = [Object.assign({id:'d1', date:dstr(7), type:'install', crew:'1',
           autoBuilt:true, stops: houses.map(h => stopFor(h.id, h.data.name))}, extra || {})];
         return cache;
       };
@@ -10335,11 +10344,11 @@ suite('17. A new customer lands on the next day in their city');
 
       // a town corrected by hand — the case the 374 will produce
       let r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
-        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}},
+          scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay2', data:{name:'Stays Too', city:'Lehi', address:'3 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}}]);
+          scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'a customer whose town is corrected comes off the wrong town\'s day',
         r.stops.indexOf('moved') === -1 && r.stops.indexOf('stay') !== -1,
         'nothing re-checked this, so a town fixed by hand left them on the old ' +
@@ -10358,9 +10367,9 @@ suite('17. A new customer lands on the next day in their city');
 
       // ...but a day somebody built BY HAND is left alone
       r = await stillOn([{id:'moved', data:{name:'Moved Town', city:'Orem',
-        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(3)}},
+        address:'1 St', lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}},
         {id:'stay', data:{name:'Stays', city:'Lehi', address:'2 St', lat:40.4, lng:-111.8,
-          scheduled:true, scheduledDate:dstr(3)}}], {autoBuilt:false});
+          scheduled:true, scheduledDate:dstr(7)}}], {autoBuilt:false});
       check('reconcile', 'a hand-built day may carry a house from the next town over',
         r.stops.indexOf('moved') !== -1,
         'a favour, or a detour that makes sense on the ground — evicting it ' +
@@ -10368,7 +10377,7 @@ suite('17. A new customer lands on the next day in their city');
 
       // a timing preference corrected from shorthand to something real
       r = await stillOn([{id:'thx', data:{name:'Was THX', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(3)}}]);
+        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'a preference corrected to November comes off an October day',
         r.dropped.some(w => /cannot be installed until/.test(w)),
         'the 1 customer reading THX and the 190 reading NOV will be tidied up by ' +
@@ -10376,7 +10385,7 @@ suite('17. A new customer lands on the next day in their city');
 
       // and the everyday one: sitting somebody out
       r = await stillOn([{id:'out', data:{name:'Sitting Out', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, maybeNextYear:true, scheduled:true, scheduledDate:dstr(3)}}]);
+        lat:40.4, lng:-111.8, maybeNextYear:true, scheduled:true, scheduledDate:dstr(7)}}]);
       check('reconcile', 'Maybe Next Year comes off the day it was on',
         r.stops.indexOf('out') === -1 && r.dropped.some(w => /sitting out/.test(w)));
 
@@ -10403,7 +10412,7 @@ suite('17. A new customer lands on the next day in their city');
        call isOutForSeason would pass on code that still loops, because the
        loop is about two rules AGREEING, not about either one existing. */
     {
-      const soon = dstr(4);
+      const soon = dstr(8);
       const past = dstr(-9);
       const sweepFor = houses => {
         const cache = {};
@@ -12550,8 +12559,18 @@ check('build', 'the setting is loaded BEFORE the sweep starts',
   admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
   'building a season on the default two while one is saved means building it ' +
   'and then taking it apart again');
+/* ⚠ REPOINTED (Schedule V2, [[SCH-102]]): the crew-routes sweep no longer runs, so "re-spread
+   straight away" now means telling the office to press Recalculate everything — the one
+   thing that lays the season out — and NOT quietly kicking the retired second planner. */
 check('build', 'changing it re-spreads straight away rather than in fifteen minutes',
-  /crewsPerDay[\s\S]{0,900}runReconcileAuto\(\);/.test(admin.replace(/\r/g, '')),
+  (() => {
+    const s = admin.replace(/\r/g, '');
+    const i = s.indexOf("logActivity('Crews per day set to '");
+    const j = s.indexOf('} catch(err){', i);
+    const k = s.lastIndexOf("setDoc(doc(db,'settings','scheduling'), {crewsPerDay: want}", i);
+    return i > 0 && k > 0 && s.slice(k, j).indexOf('Recalculate everything') !== -1 &&
+      s.slice(k, j).indexOf('runReconcileAuto') === -1;
+  })(),
   'the office has just changed the shape of the season and expects to see it');
 check('build', 'days the scheduler builds are stamped so they can be told apart',
   /autoBuilt: true/.test(admin) && /if\(r\.autoBuilt\)\{ retire\.push\(r\); over--; \}/.test(admin),
@@ -13440,7 +13459,9 @@ suite('Suite 26. Schedule picks up a corrected town');
       press.indexOf('syncHousesFromCustomers()') < press.indexOf('rebuildSeasonDays()'),
       'rebuilding first lays the whole season out from the towns somebody just corrected');
     check('S26', 'and generates the routes after the days exist',
-      press.indexOf('rebuildSeasonDays()') < press.indexOf('generateAllRoutes()'),
+      /* Schedule V2: the call carries the press's lock snapshot now — generateAllRoutes({lockedBefore…}). The
+         ORDER is the claim and is unchanged. */
+      press.indexOf('rebuildSeasonDays()') > -1 && press.indexOf('rebuildSeasonDays()') < press.indexOf('generateAllRoutes('),
       'ordering days that are about to be rebuilt orders the wrong days');
     check('S26', 'one press is still one undo',
       /preRebuild=before/.test(press) && press.indexOf('const before=JSON.stringify(serialize())') <
@@ -13643,7 +13664,18 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       Draper: [40.524, -111.863], Orem: [40.297, -111.695]
     };
     const ctx = {};
+    /* ⚠ A FIXED CLOCK (2026-09-30). This suite lays out a 2026 season starting 1 October
+       and read the REAL clock for "today" — so at 00:00 UTC on 1 October (6 pm Mountain
+       the day before) 1 October became today, was kept as a worked day, and four checks
+       went red on main and on every PR at once, with nothing in the code having changed.
+       A check that passes or fails by the calendar is the flaky test §9.7 says is fixed,
+       not retried. "Now" is pinned to 15 September 2026, before the season it builds;
+       a Date called with arguments is the real one, so every fixture date is unchanged. */
     const src =
+      'var Date=(function(R){var FIX=R.UTC(2026,8,15,18);' +
+      'function D(){if(!(this instanceof D))return new R(FIX).toString();' +
+      'return arguments.length?new (Function.prototype.bind.apply(R,[null].concat([].slice.call(arguments))))():new R(FIX);}' +
+      'D.now=function(){return FIX;};D.UTC=R.UTC;D.parse=R.parse;D.prototype=R.prototype;return D;})(globalThis.Date);' +
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
@@ -13660,7 +13692,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function isWorkingDay(d){return !isWeekend(d);}' +
       'function dayDate(d){return d._date;}' +
@@ -13695,7 +13727,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          a bare ReferenceError inside the rebuild and takes the whole suite down — which
          is the exact failure sandboxDeps exists to name. */
       fn('crewIndexes') +
-      fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+      /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') + fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
       '.sort(function(a,b){return a.base-b.base;}),towns:crewTownsFor};};';
@@ -16750,7 +16782,7 @@ suite('Suite 44. The plan keeps up with the customer list');
     'a customer appearing on Tuesday with no explanation is how the office stops ' +
     'trusting the plan');
   check('S44', 'and the day they landed on is re-ordered for driving',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(admin),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(admin),
     'a house dropped on the END of a day leaves that day out of driving order');
 }
 
@@ -16987,7 +17019,14 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
-      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
+      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map',
+      /* ⚠ DELIBERATELY NOT SUPPLIED (Schedule V2, [[SCH-102]]), the routeDayIsLocked reasoning below:
+         nextInstallDayFor now floors a house on houseEarliestDay — the warehouse hold as well as
+         the month — and finds the customer through planCustomerFor. Both calls are typeof-guarded,
+         and this sandbox has no customer book to find anybody in, so here it falls back to
+         houseAllowedFrom exactly as it always did. The hold half is RUN, with real customers,
+         by schedule-v2.test.js (suites 2.1 and 9.4). */
+      'houseEarliestDay', 'planCustomerFor'];
     /* ⭐ THEIR OWN CALENDAR ([[SCH-98]], 2026-09-28). LIFTED, NEVER STUBBED. This sweep is
        what moves a house off a day its family is away on, and it runs on the five-minute
        customer sync — long after Recalculate everything. A stubbed houseAwayOn answering
@@ -17514,8 +17553,11 @@ suite('Suite 48. Days within two working days are set');
     /const setSoon = dt && dt >= today/.test(admin),
     'a past day belongs to the worked branch, which is what puts the houses nobody got to back in the pool');
 
+  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01): the set day is still kept and returned before the
+     pool — the only thing allowed off it is an unbuilt new hang, and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
-    /if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin),
+    (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
     'the return is the important part: without it the houses fall through into the pool and get a second day');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',
@@ -17567,7 +17609,7 @@ suite('Suite 48. Days within two working days are set');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
       /* ⚠ ITS OWN BOOK, DECLARED HERE (2026-09-01). The orphan rule below is gated on
          the customer book having loaded, and this sandbox had no jobAddresses of its
          own — so it read whichever one an earlier suite had left in the global scope and
@@ -17596,7 +17638,7 @@ suite('Suite 48. Days within two working days are set');
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
       seasonRuleSrc() + fn('isOutForSeason') + dayLimitSrc() +
-      fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      fn('uniqueDayIds') + fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -22938,7 +22980,9 @@ suite('Suite 69. A customer as a row of the master sheet');
          is the exact shape of a bug that shipped earlier today — the message was correct
          and a later assignment threw it away. */
       check('S69', 'the chips are drawn on the customer row',
-        /\+custNumChip\(r\.d\)\+binBadge\+custSheetChips\(r\.d\)/.test(admin),
+        /* REPOINTED, NOT WEAKENED ([[SCH-108]], 2026-10-01): the New hang pill sits between the number
+           and the bins now; the sheet chips are still drawn on the same row. */
+        /\+custNumChip\(r\.d\)\+(newHangChip\(r\.item\)\+)?binBadge\+custSheetChips\(r\.d\)/.test(admin),
         'a chip nothing renders is a chip nobody sees');
       check('S69', 'prepaid and text-bill show on the row',
         /PREPAID/.test(sb.f({prepaid: true})) &&
@@ -26415,6 +26459,8 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
       extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
+      extractFn(admin, 'printCrewPhotoGaps') + extractFn(admin, 'printPhotoGapsHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
       extractFn(admin, 'printDayLabel') +
       admin.slice(admin.indexOf('const PRINT_COLUMNS = {'),
@@ -30782,6 +30828,8 @@ suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
   const box = {};
   new Function('const ROUTE_LOCK_HOURS = 48;' +
     extractFn(admin, 'mtnNowParts') + extractFn(admin, 'hoursUntilDayStarts') +
+    (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] +
+    extractFn(admin, 'lockThanksgivingUtc') + extractFn(admin, 'workingDaysUntil') +
     extractFn(admin, 'routeDayIsLocked') +
     'this.now = mtnNowParts; this.hours = hoursUntilDayStarts; this.locked = routeDayIsLocked;'
   ).call(box);
@@ -30798,23 +30846,33 @@ suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
   check('S92', 'the day after tomorrow is locked at noon',
     box.locked('2026-10-17', NOON) === true,
     'it starts in 36 hours, which is inside the window');
+  /* ⚠ REPOINTED (Schedule V2, [[SCH-102]]): THE LOCK IS "48 HOURS OR THE NEXT TWO WORKING
+     DAYS" NOW — the rule Recalculate everything always used and the rest of the movers did
+     not. From a Thursday that locks Friday and Monday, so the first day with "still time to
+     move somebody" is Tuesday. The old dates here (Sat 17th, Sun 18th) are not working days
+     and are locked by the count, which costs nothing: no crew-day is ever on one. */
   check('S92', 'and the day after THAT is not',
-    box.locked('2026-10-18', NOON) === false,
-    'it starts in 60 hours, so there is still time to move somebody');
+    box.locked('2026-10-19', NOON) === true && box.locked('2026-10-20', NOON) === false,
+    'Monday is the second working day out and is printed; Tuesday is the third and is not');
 
   /* ⚠ THE BOUNDARY MOVES WITH THE CLOCK, which is the whole point of measuring
      hours rather than counting dates. */
   check('S92', 'late at night, the third day out is still open',
-    box.locked('2026-10-18', at('2026-10-15', 23, 0)) === false,
-    'at 11pm it starts 49 hours away');
+    box.locked('2026-10-20', at('2026-10-15', 23, 0)) === false,
+    'the third working day out is open whatever the hour');
   /* ⚠ THE BOUNDARY IS AT THE DAY-AFTER-TOMORROW, and it is worth being exact:
      that day starts exactly 48 hours from midnight, so it is open only in the
      first instant of today and locked from then on. My first go at this test
      asserted a flip on the THIRD day out, which never happens — it is 71 hours
      away at 1am and 60 at noon. The test was wrong, not the rule. */
-  check('S92', 'the day after tomorrow is open at the stroke of midnight',
-    box.locked('2026-10-17', at('2026-10-15', 0, 0)) === false,
-    'exactly 48 hours away is not INSIDE 48 hours');
+  /* ⚠ REPOINTED: on a weekday the day after tomorrow is always one of the next two working
+     days, so it is locked at the stroke of midnight too — the 48-hour edge this used to pin
+     is now inside the working-day lock. The hours are still measured, and the check below
+     still proves they are counted to the START of the day. */
+  check('S92', 'at the stroke of midnight the lock reaches exactly two working days out',
+    box.locked('2026-10-16', at('2026-10-14', 0, 0)) === true &&
+    box.locked('2026-10-19', at('2026-10-14', 0, 0)) === false,
+    'Wed midnight: Friday is the second working day (locked), Monday the third (open)');
   check('S92', 'and locked half an hour later',
     box.locked('2026-10-17', at('2026-10-15', 0, 30)) === true,
     'this is what measuring hours buys over counting dates');
@@ -34524,10 +34582,17 @@ suite('77. Schedule route generator');
 
     /* The clock itself: Mountain time, measured to the START of the day, because
        the truck is loaded the night before. */
+    /* ⚠ REPOINTED, NOT WEAKENED (Schedule V2, [[SCH-102]]). This used to assert that a
+       Thursday reads OPEN at midnight on the Tuesday — true while the lock was the 48 hours
+       alone. The lock is now "48 hours OR the next two working days", the rule Recalculate
+       everything always used, so that Thursday is printed paper and must read locked. The
+       half this check exists for — hours measured to the START of the day — is still held,
+       and the first working day past the lock still reads open. */
     check('S77', 'the lock is measured to the start of the day, not the end',
       Math.round(gen.hours('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 })) === 48 &&
       gen.locked('2026-11-05', { date: '2026-11-03', hour: 1, minute: 0 }) === true &&
-      gen.locked('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 }) === false,
+      gen.locked('2026-11-05', { date: '2026-11-03', hour: 0, minute: 0 }) === true &&
+      gen.locked('2026-11-06', { date: '2026-11-03', hour: 0, minute: 0 }) === false,
       'the crew loads the truck the night before, so the useful moment is when the day starts');
     check('S77', 'a nonsense date never reads as locked',
       gen.locked('') === false && gen.hours('not-a-date', { date: '2026-11-03', hour: 0, minute: 0 }) === Infinity,
@@ -34599,7 +34664,7 @@ suite('77. Schedule route generator');
      pushed onto the END of that day, so it is no longer in driving order — exactly
      the case this trigger exists for. A changed phone number still is not. */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
@@ -34646,6 +34711,8 @@ suite('77. Schedule route generator');
       (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
       extractFn(admin, 'mtnNowParts') + '\n' +
       extractFn(admin, 'hoursUntilDayStarts') + '\n' +
+      (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'lockThanksgivingUtc') + '\n' + extractFn(admin, 'workingDaysUntil') + '\n' +
       extractFn(admin, 'routeDayIsLocked') + '\n' +
       /* The marked-date list, lifted rather than stubbed — see dayLimitSrc. Empty,
          so the control draws its "Normal" state and the groupings below are the
@@ -35469,7 +35536,7 @@ suite('121. A Utah address is already a map reference');
     check('S121', 'the day builder clusters on the same answer',
       /stop:\(typeof houseGeoPoint==='function'/.test(rb),
       'without this a house is not merely last in the order — it lands on the wrong day');
-    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+    const ga = sectionFrom(admin, admin.indexOf('function generateAllRoutes('));
     check('S121', 'the grids are relearned at the start of a run, not cached',
       /if\(typeof refreshTownGrids==='function'\) refreshTownGrids\(\);/.test(ga),
       'a grid learned an hour ago places houses from a book that has moved');
@@ -45448,10 +45515,14 @@ suite('252. The NEW badge is this house, not just this phone number');
 
     /* ⛔ The SCH-81 fee-box checks lived here and were removed with it on 2026-09-18
        ([[SCH-84]]). One stays, reversed: a ticked fee box alone is NOT a new hang. */
+    /* REPOINTED ([[SCH-111]], 2026-10-01): reversed by Dax's newer answer — "anyone with the $30 set up fee
+       should be considered a new customer". The box alone IS a new hang now; no box and no quote is not. */
     const feeOnly = build([], { c1: { chargeNewMemberFee: true } });
-    check('S252', 'a ticked set-up fee box alone is not a new hang',
-      feeOnly.isNewMemberHouse(childHouse) === false,
-      'SCH-84: only a closed quote makes a house a new hang on the Schedule tab');
+    check('S252', 'a ticked set-up fee box alone is a new hang (SCH-111)',
+      feeOnly.isNewMemberHouse(childHouse) === true,
+      'SCH-111: anyone with the set-up fee is a new customer');
+    const neither = build([], { c1: { chargeNewMemberFee: false } });
+    check('S252', 'and no box and no closed quote is not', neither.isNewMemberHouse(childHouse) === false);
   }
 }
 
@@ -51469,13 +51540,17 @@ suite('286. A record stops claiming a day it no longer has');
        `if(false)` left the call sitting there in plain text and this passed — the
        trap this file records four times over. Slicing from the guard means the check
        fails when the guard is what changed. */
-    const guarded = (recalc.split("if(typeof clearStaleInstallBookings === 'function'){")[1] || '').split('}')[0];
+    /* ⚠ REPOINTED (Schedule V2, [[SCH-102]]). The press no longer clears stamps against the
+       crew-routes calendar — that planner does not run, and asked here it would have cleared
+       every correct day. It MIRRORS the Schedule onto the records instead, which both sets and
+       clears. Same two guarantees: the press runs it, and does not sit waiting on the writes. */
+    const guarded = (recalc.split("if(typeof syncInstallStampsFromSchedule !== 'function') return;")[1] || '').split('}, 0);')[0];
     check('S286', 'the Recalculate button is the thing that runs it',
-      /clearStaleInstallBookings\(\)/.test(guarded),
+      /syncInstallStampsFromSchedule\(\)/.test(guarded),
       'a sweep nothing calls is a green suite and a row still promising a crew');
     check('S286', 'and it does not block the press waiting for the writes',
-      /clearStaleInstallBookings\(\)\.then\(/.test(guarded) &&
-      !/await clearStaleInstallBookings/.test(recalc),
+      /syncInstallStampsFromSchedule\(\)\.then\(/.test(guarded) &&
+      !/await syncInstallStampsFromSchedule/.test(recalc),
       'it is a round trip per stale record; awaited, the button sits there looking hung');
   }
   if (sweepSrc) {
@@ -56229,7 +56304,7 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
          the earliest day the builder may use. Both carry typeof guards, so in here they
          fall back to the stub above and to "no hold", which is exactly the behaviour these
          suites have always measured. */
-      fn('planCustomerFor') + fn('houseHoldFrom') +
+      fn('planCustomerFor') + fn('houseHoldFrom') + fn('houseEarliestDay') +
         'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
         'function isWorkingDay(d){return !isWeekend(d);}' +
         'function dayDate(d){return d._date;}' +
@@ -56254,7 +56329,7 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
         'const MAX_TOWNS_PER_CREW=' + ((admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] || 2) + ';' +
         fn('townsAreNeighbours') + dayLimitSrc() +
-        fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+        /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') + fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
         '\nthis.run=function(seed,forecast){FORECAST=forecast||{};SEASON=seed;' +
         'SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
         'var r=rebuildSeasonDays();return {r:r,seed:seed,' +
@@ -57499,12 +57574,19 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
 
   /* ---- and the rebuild both feeds it in and reports what it found ---- */
   const rb = extractFn(admin, 'rebuildSeasonDays');
+  /* ⚠ REPOINTED, NOT WEAKENED (Schedule V2, [[SCH-102]]). "The later of the preference and
+     the hold" moved out of the rebuild into `houseEarliestDay`, the ONE place every mover now
+     asks — the Confirmed safety net used to work it out a second time. Both halves are still
+     asserted: the rebuild feeds the builder from that function, and that function reads the
+     hold and keeps the later of the two. */
+  const earliestSrc = extractFn(admin, 'houseEarliestDay') || '';
   check('S306', 'the rebuild turns a hold into the earliest day rather than a removal',
-    /houseHoldFrom\(d\)/.test(rb) && /from:\(function\(\)/.test(rb),
+    /from:\(typeof houseEarliestDay==='function'\)\?houseEarliestDay\(h,d,startStr\)/.test(rb) &&
+    /houseHoldFrom\(custData/.test(earliestSrc),
     'the builder already understands "not before this" — a second way to keep ' +
     'somebody off a day is how the two start disagreeing');
   check('S306', 'and the later of the preference and the hold is the one that wins',
-    /hold > pref/.test(rb),
+    /hold > pref/.test(earliestSrc),
     'a November customer inside a warehouse hold is held by whichever runs out last');
   check('S306', 'the rebuild checks the promise on the season it just built',
     /confirmedNotOnAnyDay\(\)/.test(rb) &&
@@ -57527,8 +57609,8 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
                    'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                    'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                    'scheduleHoldMillis', 'scheduleHoldEndsMillis',
-                   'houseHoldFrom', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
-                   'customersMissingFromSeason', 'houseFromCustomer', 'rebuildSeasonDays',
+                   'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'planCustomerFor', 'seasonCustomerIds',
+                   'customersMissingFromSeason', 'houseFromCustomer', 'uniqueDayIds', 'rebuildSeasonDays',
                    'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
     const gone = lifts.filter(f => !extractFn(admin, f));
     check('S306', 'the whole rebuild lifts cleanly', gone.length === 0 && planStart !== -1,
@@ -59435,6 +59517,9 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
      page. assertSandbox named all three the first time this ran, which is what that
      gate is for. */
   const need314 = ['bestCrewTowns', 'dayCrewTowns', 'dayCrewHouses', 'dayCrewCount',
+                   /* [[SCH-106]] both read a printed day's frozen split first — lifted, never stubbed;
+                      these fixtures carry no freeze, so the split is worked out exactly as before. */
+                   'frozenCrewSplit',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
                    'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
@@ -60451,7 +60536,8 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
        aimed at anything. These are the checks that fail instead. */
     {
       const gen = sectionFrom(admin, admin.indexOf('function generateDayRoutes(day'));
-      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes()'));
+      /* SCH-102: generateAllRoutes now takes opts ({lockedBefore}), so anchor on the name, not on an empty parameter list. */
+      const all = sectionFrom(admin, admin.indexOf('function generateAllRoutes('));
       const genC = stripComments(gen), allC = stripComments(all);
       check('S317', 'the day generator hands its aim to every crew',
         /* counted on the argument, not on a bracket walk: one of the three call sites
@@ -63614,9 +63700,9 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
                  'seasonStartDate', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                  'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                  'scheduleHoldMillis', 'scheduleHoldEndsMillis',
-                 'houseHoldFrom', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
+                 'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
                  'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
-                 'houseFromCustomer', 'rebuildSeasonDays',
+                 'houseFromCustomer', 'uniqueDayIds', 'rebuildSeasonDays',
                  'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
   const gone = lifts.filter(f => !extractFn(admin, f));
   check('S346', 'the whole rebuild and its safety net lift cleanly', gone.length === 0 && planStart !== -1,
@@ -63831,13 +63917,20 @@ suite('Suite 347. HEADLINE: All Customers shows the Schedule\'s day, every time 
             first === '2026-10-02' && nextDraw === '2026-11-03',
             'first ' + first + ', same draw ' + sameDraw + ', next draw ' + nextDraw +
             ' — a memo that outlives one draw is the page "not updating"');
-          /* The fallback, unchanged: with no plan to ask, a stamp is still checked against
-             the crew routes exactly as SCH-73 built it. */
+          /* ⚠ REPOINTED BY A RULING, NOT WEAKENED — [[SCH-102]] (2026-09-30) supersedes the
+             stamp-fallback half of [[SCH-73]]. That fallback checked a stamp against the crew
+             routes because the crew routes WROTE the stamp. Since SCH-102 the only writer is the
+             Schedule mirror and the crew-routes sweep does not run, so asking it would call
+             every correct stamp an orphan — the "279 of 298 rows read not on the schedule"
+             failure SCH-86 was written about, arriving by the back door. While the plan cannot
+             answer, the stamp is the Schedule's own last answer: it is DRAWN, and never
+             accused. The half of SCH-73 that matters — a row never keeps promising a day the
+             Schedule does not hold — is held by the mirror clearing it (schedule-v2.test.js). */
           global.window = { schedulePlanBookings: function(){ return null; } };
           return Promise.resolve().then(function(){}).then(function(){
-            check('S347', 'while the plan cannot answer, an orphaned crew-routes stamp is still flagged',
-              /not on the schedule/.test(api.chip(STAMP, 'c1')),
-              'SCH-73 still stands for the stamp fallback');
+            check('S347', 'while the plan cannot answer, the stamp is drawn and never accused (SCH-102 over SCH-73)',
+              /Oct 16/.test(api.chip(STAMP, 'c1')) && !/not on the schedule/.test(api.chip(STAMP, 'c1')),
+              'SCH-102: the stamp is the Schedule\'s own last answer, drawn and not accused, while the plan loads');
             global.window = saved.w; global.scheduledRoutesLoaded = saved.l;
             global.scheduledRoutesCache = saved.c; global.esc = saved.e;
           });
@@ -64420,7 +64513,7 @@ suite('351. Takedown days are built from the customers, busiest town first');
   const recalc = strippedA.indexOf('function runRecalculateEverything(');
   const body = recalc === -1 ? '' : strippedA.slice(recalc, strippedA.indexOf('\n  }', recalc));
   check('S351', 'Recalculate everything rebuilds the takedowns before it generates the routes',
-    body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes()'),
+    body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes('),
     'without this the builder exists and nothing ever calls it');
   check('S351', 'the press names who was left off for saying No',
     /td\.saidNo\)\s*parts\.push/.test(body), 'a hung house with no takedown is lights left on a roof');
@@ -65670,4 +65763,271 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
     check('S365', 'and the builder hands it on to the stray gatherer',
       /home: o\.home \|\| null/.test(plan));
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 366. NEW HANGS ARE FOUND, AND PRINTED WITH THEIR PICTURES ([[SCH-107]], 2026-10-01).
+ * Dax: "we also need to ensure that we can detect new hangs, and that when new hangs are
+ * printed it prints them with their house picture/s".
+ * Every claim here is RUN against the lifted functions — never matched as text — except
+ * the one write that only exists inside a 36,000-character save handler.
+ * --------------------------------------------------------------------------- */
+suite('366. New hangs are found by their own record, and printed with their pictures');
+{
+  const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
+                  'printCrewPhotos', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+    .map(n => extractFn(admin, n));
+  check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
+  const make = (opts) => new Function('o',
+    'const quotesCache = o.quotes || [];' +
+    'const jobAddresses = o.custs || [];' +
+    'const custById = new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ const id = String(h.id || "").replace(/^cust-/, ""); return custById.get(id) || null; }' +
+    'function planCustomerFor(h){ return hlxResolvePlanHouse(h); }' +
+    /* customerForHouse answers WRONGLY on purpose — the number lookup a stale `cu` would make. */
+    'function customerForHouse(h){ return o.wrong || null; }' +
+    'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
+    'function customerPhotoList(d){ return (d && d.housePhotos) || []; }' +
+    'function crewHousesFor(){ return o.houses || []; }' +
+    'const esc = function(x){ return String(x == null ? "" : x); };' +
+    lifted.join('\n') +
+    'return {cq: closedQuoteFor, isNew: isNewMemberHouse, data: printCustData, printNew: printIsNewHang,' +
+    '  photos: printCrewPhotos, gaps: printCrewPhotoGaps, gapsHtml: printPhotoGapsHtml};')(opts);
+
+  /* A converted quote that names its customer, with NO phone on the house at all. */
+  const kim = {id: 'kim', data: {name: 'Kim New', customerNumber: '', address: '5 New Rd',
+               housePhotos: [{url: 'front'}, {url: 'side'}]}};
+  const parent = {id: 'par', data: {name: 'Parent Old', customerNumber: '12', address: '1 Old St',
+                  housePhotos: [{url: 'parent-house'}]}};
+  const quotes = [{data: {status: 'closed', convertedToCustomerId: 'kim', phone: '', address: '5 New Rd'}}];
+  const h = {id: 'cust-kim', name: 'Kim New', cu: '12', phone: ''};
+  const a = make({quotes: quotes, custs: [kim, parent], wrong: parent, houses: [h]});
+  check('S366', 'a converted quote finds its customer by id, with no phone to match on',
+    !!a.cq(h) && a.isNew(h) === true);
+  check('S366', 'the printed sheet reads the house\'s own record, not the one its stale number points at',
+    a.data(h).name === 'Kim New', a.data(h).name);
+  const shots = a.photos({}, 0);
+  check('S366', 'and prints that house\'s own pictures — all of them',
+    shots.length === 2 && shots[0].url === 'front' && shots[1].url === 'side', JSON.stringify(shots));
+
+  /* A new hang who picked colours in the portal (lightsChangedAt) is still a new hang. */
+  kim.data.lightsChangedAt = '2026-09-20';
+  check('S366', 'a new hang who changed colours is still printed as a new hang',
+    a.printNew(a.data(h), h) === true && a.photos({}, 0).length === 2);
+  delete kim.data.lightsChangedAt;
+
+  /* A returning customer's colour change is still not a new hang (S104's rule, unchanged). */
+  /* [[SCH-111]]: a returning customer carries no fee box (Start New Season clears it) — with one, they ARE new. */
+  const ret = {id: 'ret', data: {name: 'Ret', address: '9 Ret Ln', lightsChangedAt: '2026-09-01',
+               housePhotos: [{url: 'r'}]}};
+  const b = make({quotes: [], custs: [ret], houses: [{id: 'cust-ret', phone: ''}]});
+  check('S366', 'a returning customer\'s colour change is still not a new hang',
+    b.printNew(b.data({id: 'cust-ret'}), {id: 'cust-ret', phone: ''}) === false && b.photos({}, 0).length === 0);
+
+  /* A new hang with no photo is named under the photos, not dropped in silence. */
+  kim.data.housePhotos = [];
+  kim.data.customerNumber = '977';
+  check('S366', 'a new hang with no photo is not given an empty frame', a.photos({}, 0).length === 0);
+  const gaps = a.gaps({}, 0);
+  check('S366', 'but is named on the sheet as having no photo on file',
+    gaps.length === 1 && /#977 Kim New/.test(gaps[0]) && /no photo on file/.test(a.gapsHtml(gaps)), JSON.stringify(gaps));
+  check('S366', 'and a sheet with no gaps says nothing at all', a.gapsHtml([]) === '');
+
+  /* Both printers carry the line. */
+  ['printCrewSheetPage', 'printDaySheet'].forEach(function(n){
+    check('S366', n + ' prints the no-photo line', /printPhotoGapsHtml\(printCrewPhotoGaps\(/.test(stripComments(extractFn(admin, n) || '')));
+  });
+  /* The everyday convert path records which customer the quote became. */
+  check('S366', 'converting a quote records the customer it became',
+    /convertedToCustomerId:\s*newAddrRef\.id/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 367. EVERY NEW HANG WEARS A "NEW HANG" TAG ([[SCH-108]], 2026-10-01).
+ * Dax: "make it so anyone thats a new hang has a tab that says new hang so i can see it".
+ * One rule: All Customers asks the Schedule's own isNewMemberHouse through
+ * window.customerIsNewHang, so the pill and the stop badge cannot disagree.
+ * --------------------------------------------------------------------------- */
+suite('367. Every new hang wears a New hang tag, on All Customers and on the Schedule');
+{
+  const at = admin.indexOf('window.customerIsNewHang=function(item){');
+  const end = at < 0 ? -1 : admin.indexOf('};', at);
+  const hook = at < 0 || end < 0 ? '' : admin.slice(at, end + 2);
+  check('S367', 'the Schedule hands its new-hang rule to the rest of the page', !!hook);
+  const run = (quotes, custs) => new Function('quotes', 'custs',
+    'const window = {};' +
+    'const quotesCache = quotes;' +
+    'const custById = new Map(custs.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return custById.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hook +
+    extractFn(admin, 'newHangChip') +
+    'return {tag: window.customerIsNewHang, chip: function(item){ return newHangChip(item); },' +
+    '  house: isNewMemberHouse};')(quotes, custs);
+  const nu = {id: 'nu', data: {name: 'Nu', phone: '8015550000', address: '1 A St'}};
+  const old = {id: 'old', data: {name: 'Old', phone: '8015550001', address: '2 B St'}};
+  const r = run([{data: {status: 'closed', convertedToCustomerId: 'nu'}}], [nu, old]);
+  check('S367', 'a customer converted from a quote is a new hang', r.tag(nu) === true);
+  check('S367', 'a returning customer is not', r.tag(old) === false);
+  check('S367', 'and the answer is exactly the Schedule badge\'s',
+    r.tag(nu) === r.house({id: 'cust-nu', phone: nu.data.phone}) && r.tag(old) === r.house({id: 'cust-old', phone: old.data.phone}));
+  check('S367', 'All Customers draws "New hang" beside them', /New hang/.test(r.chip(nu)));
+  check('S367', 'and nothing beside anybody else', r.chip(old) === '');
+  const none = new Function(extractFn(admin, 'newHangChip') + 'return newHangChip({id:"x", data:{}});')();
+  check('S367', 'before the Schedule has loaded, nobody is guessed at', none === '');
+  check('S367', 'the tag is on the All Customers row', /custNumChip\(r\.d\)\+newHangChip\(r\.item\)/.test(admin));
+  check('S367', 'and the Schedule stop says NEW HANG in words', /<span class="newbadge">NEW HANG<\/span>/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 368. A NEW HANG'S PHOTO AND ROW CARRY THE SAME LETTER AND COLOUR ([[SCH-109]], 2026-10-01).
+ * Dax: "when we print a new hang it should color coordinate what house goes to which customer
+ * somehow so on the schedule you can tell what customer has what house".
+ * RUN against the lifted functions: the claim is that the two halves of the paper agree.
+ * --------------------------------------------------------------------------- */
+suite('368. A new hang\'s photos and its row carry the same letter and colour');
+{
+  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const src = names.map(n => extractFn(admin, n));
+  const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
+  check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
+  const sb = (crews, custs) => new Function('crews', 'custs',
+    'const esc = function(x){ return String(x == null ? "" : x); };' +
+    'function printDensityClass(){ return ""; }' +
+    'function crewIndexes(){ return crews.map(function(c, i){ return i; }); }' +
+    'function crewHousesFor(i){ return crews[i] || []; }' +
+    'function planCustomerFor(h){ return custs[h.id] ? {data: custs[h.id]} : null; }' +
+    'function customerPhotoList(d){ return (d && d.housePhotos) || []; }' +
+    'function printCrewRow(h){ const d = printCustData(h); return {number: d.customerNumber || "", name: d.name || ""}; }' +
+    pal + src.join('\n') +
+    'return {keys: printNewHangKeys, rows: printCrewDayList, photos: printCrewPhotos, pHtml: printPhotosHtml, tHtml: printTableHtml};')(crews, custs);
+  const custs = {
+    a: {name: 'Ann', customerNumber: '1', chargeNewMemberFee: true, housePhotos: [{url: 'a1'}, {url: 'a2'}]},
+    b: {name: 'Bob', customerNumber: '2'},                                                    // returning
+    c: {name: 'Cat', customerNumber: '3', chargeNewMemberFee: true, housePhotos: []},          // new, no photo
+    d: {name: 'Dan', customerNumber: '4', chargeNewMemberFee: true, housePhotos: [{url: 'd1'}]}
+  };
+  const day = {};
+  const t = sb([[{id: 'a'}, {id: 'b'}, {id: 'c'}], [{id: 'd'}]], custs);
+  const k = t.keys(day);
+  check('S368', 'each new hang with a photo gets a letter, in order across the whole day',
+    k.get('a') && k.get('a').letter === 'A' && k.get('d') && k.get('d').letter === 'B', JSON.stringify(Array.from(k)));
+  check('S368', 'a returning house and a new hang with no photo get none', !k.has('b') && !k.has('c'));
+  check('S368', 'two new hangs never share a colour (within the palette)', k.get('a').color !== k.get('d').color);
+  const rows0 = t.rows(day, 0), rows1 = t.rows(day, 1);
+  const ph0 = t.photos(day, 0), ph1 = t.photos(day, 1);
+  check('S368', 'the row and every one of its photos carry the same letter and colour',
+    rows0[0].photoKey === 'A' && ph0.length === 2 && ph0.every(p => p.key === 'A' && p.color === rows0[0].photoColor));
+  check('S368', 'crew two keeps its letter from the whole day — no second A',
+    rows1[0].photoKey === 'B' && ph1[0].key === 'B');
+  check('S368', 'rows that are not new hangs stay plain', !rows0[1].photoKey && !rows0[2].photoKey);
+  const table = t.tHtml(rows0, [{k: 'name', label: 'Name'}]);
+  check('S368', 'the printed row shows the letter in its colour',
+    /class="num pkeycell" style="background:#[0-9A-Fa-f]{6};color:#fff;">1 <b class="pkey">A<\/b>/.test(table), table.slice(0, 300));
+  const pics = t.pHtml(ph0);
+  check('S368', 'and the photo shows the same letter in the same colour',
+    pics.indexOf('border-color:' + rows0[0].photoColor) !== -1 && /<b class="pkey" style="background:#[0-9A-Fa-f]{6};">A<\/b>/.test(pics));
+  check('S368', 'the colour survives printing (print-color-adjust)', /print-color-adjust:exact/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 369. NEW HANGS ARE FOUND WHATEVER THEY CAME IN WITH, AND WAIT FOR THEIR BUILD ([[SCH-110]], 2026-10-01).
+ * Dax: "we should not schedule new hangs until they are built and then also its failing to detect who
+ * the new hangs are". The fixtures are shaped like the three live records read that day.
+ * --------------------------------------------------------------------------- */
+suite('369. New hangs are found by house, email or phone, and are not scheduled until built');
+{
+  const cq = (quotes, custs) => new Function('quotes', 'custs',
+    'const quotesCache = quotes;' +
+    'const byId = new Map(custs.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return byId.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    extractFn(admin, 'closedQuoteFor') + 'return closedQuoteFor;')(quotes, custs);
+  const bill = {id: 'bill', data: {street: '9943 n 6180 w', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '', email: 'billtitera@gmail.com'}};
+  const marina = {id: 'mar', data: {street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs, UT 84045', phone: '3852331077', email: ''}};
+  const parent = {id: 'par', data: {street: '1 Old St', city: 'Lehi', address: '1 Old St, Lehi, UT 84043', phone: '3852331077', email: 'billtitera@gmail.com'}};
+  const quotes = [
+    {data: {status: 'closed', street: '9943 n 6180 w', city: 'Highland ', address: '9943 n 6180 w, Highland  84003', phone: '', email: 'billtitera@gmail.com'}},
+    {data: {status: 'closed', street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs 84045', phone: '3852331077', email: ''}}];
+  const f = cq(quotes, [bill, marina, parent]);
+  check('S369', 'an email-only new hang (no phone anywhere) is found', !!f({id: 'cust-bill', phone: ''}));
+  check('S369', 'a new hang whose quote address lacks ", UT" is found', !!f({id: 'cust-mar', phone: '3852331077'}));
+  check('S369', 'a parent sharing that phone AND that email at a different house is not', f({id: 'cust-par', phone: '3852331077'}) === null);
+  const byEmailOnly = cq([{data: {status: 'closed', street: '', city: '', address: '', phone: '', email: 'billtitera@gmail.com'}}], [bill]);
+  check('S369', 'a quote with no address is found by email', !!byEmailOnly({id: 'cust-bill', phone: ''}));
+  /* Found by the HOUSE alone: their email and phone both changed after the quote was converted. */
+  const moved = {id: 'mv', data: {street: '9943 N 6180 W', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '8015550099', email: 'new@example.com'}};
+  check('S369', 'a new hang whose email and phone both changed is found by their house', !!cq(quotes, [moved])({id: 'cust-mv', phone: '8015550099'}));
+
+  /* The hold, through the badge. */
+  const sb = new Function('win',
+    'const window = win;' + seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
+    extractFn(admin, 'isWaitingOnColorChange') + extractFn(admin, 'isWaitingOnBuild') +
+    extractFn(admin, 'isOffTheSchedule') + extractFn(admin, 'seasonBadgeKey') +
+    'return {badge: seasonBadgeKey, off: isOffTheSchedule};');
+  const y = {rsvpStatus: 'yes', rsvpRespondedAt: 1};
+  const s1 = sb({});
+  check('S369', 'a new hang whose lights are not built reads Being built, not Confirmed',
+    s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === 'building');
+  check('S369', 'and is off the schedule', s1.off(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === true);
+  check('S369', 'the moment the bundle is built they are Confirmed again',
+    s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: false}, y)) === 'confirmed');
+  check('S369', 'a returning customer whose set is being rebuilt is NOT held',
+    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'confirmed');
+  const s2 = sb({customerIsNewHangData: function(){ return true; }});
+  check('S369', 'a new hang found by their quote (box unticked) is held too',
+    s2.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
+  check('S369', 'somebody who said No keeps the No badge', s1.badge({rsvpStatus: 'no', chargeNewMemberFee: true, needsLightBuild: true}) === 'no');
+  check('S369', 'All Customers can show and filter on Being built',
+    /badgeKey === 'building'/.test(admin) && /<option value="building">/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 370. THE SET-UP FEE BOX MAKES A NEW CUSTOMER, EVERYWHERE ([[SCH-111]], 2026-10-01).
+ * Dax: "anyone with the $30 set up fee should be considered a new customer".
+ * --------------------------------------------------------------------------- */
+suite('370. The set-up fee box makes a new customer, everywhere');
+{
+  const at = admin.indexOf('let newHangItemIndex = null');
+  const end = admin.indexOf('window.customerIsNewHang=function(item){', at);
+  const tail = admin.indexOf('};', end);
+  const hooks = (at < 0 || end < 0 || tail < 0) ? '' : admin.slice(at, tail + 2);
+  check('S370', 'both new-hang hooks are findable', !!hooks);
+  const mk = (list, quotes) => new Function('list', 'quotes',
+    'const window = {}; let jobAddresses = list; const quotesCache = quotes;' +
+    'const byId = () => new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
+    'function hlxResolvePlanHouse(h){ return byId().get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hooks +
+    'return {byData: window.customerIsNewHangData, set: function(l){ jobAddresses = l; }};')(list, quotes);
+  const fee = {id: 'f', data: {name: 'Fee', street: '1 A', city: 'X', chargeNewMemberFee: true}};
+  const plain = {id: 'p', data: {name: 'Plain', street: '2 B', city: 'X'}};
+  const list = [fee, plain];
+  const t = mk(list, []);
+  check('S370', 'a customer with the fee box ticked is a new customer, with no quote at all', t.byData(fee.data) === true);
+  check('S370', 'a customer with neither is not', t.byData(plain.data) === false);
+  /* a snapshot replaces the record object in place: the answer must not quietly become "no" */
+  fee.data = Object.assign({}, fee.data);
+  check('S370', 'a record replaced since the lookup was indexed is still found', t.byData(fee.data) === true);
+}
+
+/* ---------------------------------------------------------------------------
+ * 371. EVERY SCHEDULE DAY HAS ITS OWN ID ([[SCH-112]], 2026-10-01).
+ * Dax: "oct 1 and oct 2 are like connected in some way so when i click oct 1 it highlights oct 1 and
+ * oct 2 and shows me oct 2". The day list selects by id; two days sharing one are one day to it.
+ * --------------------------------------------------------------------------- */
+suite('371. Every Schedule day has its own id');
+{
+  const src = extractFn(admin, 'uniqueDayIds');
+  check('S371', 'the id repair is findable', !!src);
+  const u = new Function(src + 'return uniqueDayIds;')();
+  const days = [{id: 'rb1'}, {id: 'rb1'}, {id: 'rb2'}, {id: null}, {id: 'rb2'}];
+  u(days);
+  const ids = days.map(d => d.id);
+  check('S371', 'two days sharing an id come out with different ids', new Set(ids).size === ids.length, ids.join(','));
+  check('S371', 'and the first holder keeps its id', ids[0] === 'rb1' && ids[2] === 'rb2');
+  const taken = u([{id: 'rb0'}, {id: 'rb1'}]);
+  check('S371', 'it hands back the ids it has seen, for new days to avoid', taken.has('rb0') && taken.has('rb1'));
+  const rb = stripComments(extractFn(admin, 'rebuildSeasonDays') || '');
+  check('S371', 'the rebuild names new days around the kept ones', /uniqueDayIds\(keep\)/.test(rb) && /id:freshDayId\(\)/.test(rb) && !/id:'rb'\+i\b/.test(rb));
+  check('S371', 'and a plan saved with duplicates is repaired the moment it loads',
+    /uniqueDayIds\(SEASON\)/.test(stripComments(extractFn(admin, 'hydrate') || '')));
 }
