@@ -1446,6 +1446,169 @@ function houseBillingRow(id, d) {
  *
  * Mirrored by houseIsOnTheBill in admin.html. Change one, change the other, in the
  * same push — money-parity runs the two side by side. */
+/* ⭐ WHOSE BILL IT IS, AND IT IS ONE RULE NOW (extracted 2026-09-28).
+ *
+ * When several houses answer to one phone — four Anderson houses share 8013721805
+ * in the live book — THE LOWEST CUSTOMER NUMBER WINS: the longest-standing account,
+ * and so the likeliest bill payer. Mirrors `payerHouseOf` in admin.html, because
+ * this decides the name the CUSTOMER reads on their invoice email and that one
+ * decides the name the OFFICE reads on screen; the two disagreeing about the same
+ * four houses is a bug this repo has already shipped once.
+ *
+ * ⚠ IT WAS INLINE IN runInvoiceBatch AND HAD TO COME OUT. The held-bill report
+ * below needs the same answer — a tag landing on a different house than the bill's
+ * own name is that same disagreement in a new place — and a second copy of a rule
+ * about who gets billed is the copy that falls behind. Lifted verbatim, so every
+ * group answers exactly as it did before.
+ *
+ * ⚠ AND IT FALLS BACK TO THE GROUP, unlike admin's copy, which answers null. That
+ * difference is deliberate and predates this: the office can bill three houses to a
+ * phone that is nobody's own record, and the nightly run still has to address an
+ * email to somebody. Sorted the same way rather than taken in arrival order, so the
+ * greeting cannot change from one night to the next.
+ *
+ * ⚠ NOT A `.find()`, WHICH IS WHAT IT USED TO BE. The bill went to whichever house
+ * came back first, so editing any sibling silently changed the name on the invoice. */
+function payerHouseOfServer(invoiceKey, active) {
+  const houses = Array.isArray(active) ? active : [];
+  const payerSort = function (a, b) {
+    const na = Number(a.data.customerNumber) || Infinity;
+    const nb = Number(b.data.customerNumber) || Infinity;
+    if (na !== nb) return na - nb;
+    /* Neither has a number: fall back on the id, so it is still the same answer
+       every time rather than whatever order Firestore handed them over in. */
+    return String(a.id).localeCompare(String(b.id));
+  };
+  const payerOwn = houses.filter(function (h) {
+    return !digitsOnly(h.data.billToPhone) && invoiceKeyFor(h.data) === invoiceKey;
+  });
+  return (payerOwn.length ? payerOwn : houses).slice().sort(payerSort)[0];
+}
+/* ⭐ A BILL HELD BY AN UNFINISHED HOUSE IS NAMED, NOT JUST COUNTED (2026-09-28).
+ *
+ * The nightly run holds a whole bill until every house on it is finished, which is
+ * Addie's own rule — "After the last persons house is done if there are multiple
+ * people on one bill is when they will be charged" — and it is right. What was wrong
+ * is that a held bill was a bare `skippedNotDone++` / `skippedNeedsFix++`: a number
+ * in the nightly text, naming nobody, flagging nothing, raising no note. So one house
+ * that never gets marked done, or one fix flag nobody clears, quietly stops that
+ * payer being billed for the whole season — and the only trace is a figure that looks
+ * the same every night.
+ *
+ * ⚠ THIS IS THE SHAPE THE NO-EMAIL CASE ALREADY FIXED, and its note is the argument:
+ * counting them stopped the run reporting "0 sent, 0 errors" over unbilled work, and
+ * it still did not make the work findable. So this mirrors that one exactly — a flag
+ * on the payer's record, a System note once, a filter in All Customers and a Health
+ * Check row — rather than inventing a second way of reporting the same kind of thing.
+ *
+ * ⛔ AND IT IS TWO SPEEDS, BECAUSE MOST HELD BILLS ARE CORRECT. Between the crew
+ * doing the Andersons' first house and their fourth, that bill is held every night
+ * and nothing is wrong. Naming it in the run log immediately is free and honest;
+ * putting a tag on the record and a note in the Inbox has to wait until the hold has
+ * outlived any ordinary schedule, or the office learns to click past both.
+ *   named in the run log  — as soon as any house on the bill is completed
+ *   flagged and noted     — once that completion is BILL_HELD_DAYS old
+ *
+ * ⚠ THE CLOCK IS `completedAt` ON THE EARLIEST FINISHED HOUSE, and it is measured
+ * from that rather than from "how long the hold has run" on purpose: a counter would
+ * have to be stored and would climb every night the run fires, so re-running the
+ * batch twice in one evening would age the hold by two days. `completedAt` is written
+ * once by `hlxMarkJobDone` and cannot drift.
+ *
+ * ⚠ AND IT IS DELIBERATELY NOT BUILT ON `scheduled` / `scheduledDate`. "Is a crew
+ * still coming for the blocking house" is the question this would most like to ask,
+ * and those two stamps are the ones [[SCH-73]]/[[SCH-74]] record as outliving the
+ * booking they describe — a customer reading "scheduled for Oct 16" with no Oct 16 on
+ * the schedule. A billing warning inherits that unreliability the moment it reads
+ * them, so it asks a question those fields cannot get wrong instead.
+ */
+const BILL_HELD_DAYS = 10;
+function heldBillReason(o) {
+  const fix = (o.blockedByFix || []).map(function (h) {
+    return (h.data.address || h.data.name || 'a house') + ' still needs a fix';
+  });
+  const notDone = (o.notDoneYet || []).map(function (h) {
+    return (h.data.address || h.data.name || 'a house') + ' is not marked done';
+  });
+  /* ⚠ THE HOUSES ARE NAMED, NOT COUNTED. "1 house is holding this bill" sends
+     somebody back to the screen to work out which; the address is the whole of what
+     they need to go and act on it. Capped so a payer with a dozen houses cannot
+     write a paragraph into a note that is itself size-capped. */
+  const all = fix.concat(notDone);
+  if (!all.length) return '';
+  return all.slice(0, 4).join('; ') + (all.length > 4 ? '; and ' + (all.length - 4) + ' more' : '');
+}
+/* The oldest completion on this bill, in millis, or 0 when nothing is finished yet. */
+function heldBillWorkDoneAt(active) {
+  let oldest = 0;
+  (active || []).forEach(function (h) {
+    if (h.data.completed !== true) return;
+    const ms = toMillis(h.data.completedAt);
+    if (!ms) return;
+    if (!oldest || ms < oldest) oldest = ms;
+  });
+  return oldest;
+}
+async function reportHeldBill(o) {
+  const payer = o.payer;
+  if (!payer) return;
+  const why = heldBillReason(o);
+  const doneAt = heldBillWorkDoneAt(o.active);
+  /* Nothing on this bill has been finished, so nothing has been earned and there is
+     nothing to report — the crew simply has not been yet. Any flag already standing
+     is cleared, because the bill is no longer holding money. */
+  if (!doneAt) { await clearHeldBill(payer); return; }
+
+  if (o.heldNames.length < 20) {
+    o.heldNames.push((payer.data.name || payer.data.address || payer.id) + ' — ' + why);
+  }
+
+  const heldDays = Math.floor((Date.now() - doneAt) / 86400000);
+  if (heldDays < BILL_HELD_DAYS) {
+    /* Still inside the window where a held bill is ordinary. Clear any flag from an
+       earlier season or an earlier hold rather than leaving a stale tag standing. */
+    await clearHeldBill(payer);
+    return;
+  }
+
+  /* ⚠ THE NOTE GOES UP ONCE, not nightly — guarded on the flag not already being
+     set, exactly as the no-email note is. A note every night about the same house is
+     how somebody learns to ignore the folder. The `why` is re-written every run
+     though, because the blocking house can change while the hold stands. */
+  const first = !payer.data.billHeld;
+  await tryFirestore('held-bill flag', () =>
+    db.collection('jobAddresses').doc(payer.id).update({
+      billHeld: true,
+      billHeldAt: admin.firestore.FieldValue.serverTimestamp(),
+      billHeldWhy: why
+    }));
+  if (first) {
+    await tryFirestore('held-bill note', () =>
+      db.collection('messages').add({
+        topic: 'Bill Held', folder: 'System',
+        name: payer.data.name || '', phone: payer.data.phone || '',
+        email: payer.data.email || '', contactMethod: '',
+        message: (payer.data.name || 'A customer') + ' has had work done — the oldest ' +
+                 'finished house on their bill was completed ' + heldDays + ' days ago — but ' +
+                 'their invoice is being held because ' + why + '. Nothing has been billed ' +
+                 'and nothing will be until every house on that bill is finished, which is ' +
+                 'the rule. They are in All Customers under the "Bill Held" filter. Marking ' +
+                 'the last house done, or clearing the fix, releases the bill on the next ' +
+                 'nightly run by itself.',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      }));
+  }
+}
+async function clearHeldBill(payer) {
+  /* Written only when it is actually set, so an ordinary night writes nothing extra
+     to ~960 records — the same economy the no-email clear makes. */
+  if (!payer || !payer.data.billHeld) return;
+  await tryFirestore('held-bill flag clear', () =>
+    db.collection('jobAddresses').doc(payer.id).update({
+      billHeld: false, billHeldAt: null, billHeldWhy: ''
+    }));
+}
 function houseIsOnTheBillServer(d) {
   if (!d) return false;
   /* ⭐ HUNG IS HUNG (2026-08-26, Q-013). Addie: "Any house hung no matter what should
@@ -3429,6 +3592,66 @@ exports.portalSetGateCode = onCall({ cors: true }, async (request) => {
   });
 
   return { ok: true, gateCode: gateCode };
+});
+
+/* --- portalVenmoOpened ----------------------------------------------------
+ * Input: { token }
+ *
+ * ⭐ SOMEBODY OPENED VENMO TO PAY, AND THAT IS ALL THIS RECORDS (2026-09-29).
+ * Addie, asked how a Venmo payment should reach the app: *"We can't even login to
+ * venmo we just see it if it comes to email so I think it will be easiest if this
+ * was manual"*, and on recording the press: *"We can do this one so people are
+ * marked as venmo and we can just check on venmo."*
+ *
+ * ⛔ IT IS AN INTENTION, NEVER A PAYMENT, and every line of this is that sentence.
+ * Venmo is a deep link — `venmo.com/HighLightingUtah?txn=pay&amount=…` — with no
+ * webhook, no callback and no receipt coming back to us. So nothing here may touch
+ * the invoice: no `deposit`, no `status`, no `lastPaymentAt`. It writes one field on
+ * one customer record and returns.
+ *
+ * ⚠ THE WHOLE REASON IT EXISTS IS THAT A VENMO PAYMENT WAS INVISIBLE. PayPal records
+ * itself through `paypalWebhook`; Venmo records nothing, so a customer who paid by
+ * Venmo stayed Unpaid on every screen, went on the 1 February text list and would
+ * have collected an April late fee. The office now has a list of who to go looking
+ * for in their Venmo email, which is the half a machine can do.
+ *
+ * ⛔ AND IT STORES NO AMOUNT, DELIBERATELY. Addie's worry, in her own words: *"you
+ * can change the amount so if someone changes the amount it can be problamatic"* —
+ * and she is right, the `amount` in that link is a PRE-FILL the payer confirms and
+ * can edit in the Venmo app. So a number recorded here could only ever be what we
+ * ASKED for, which is already on the bill, live and correct, and derived by one rule
+ * in four places on this server. A snapshot of it here would be a fifth copy and a
+ * second opinion about a balance, and the gap she is worried about is visible
+ * without it: she types in what the Venmo email actually says, the invoice comes out
+ * Partial Payment, and they stay on the chase list with the shortfall showing.
+ *
+ * ⚠ AND NOTHING CLEARS IT. Opening Venmo is a historical fact about that customer.
+ * The office-side reader (`custWaitingOnVenmo` in admin.html) asks whether they are
+ * still unsettled, so the mark disappears by itself the moment the payment is
+ * recorded — stored fact, derived display, the same shape as `derivedDoneFor`. A
+ * clearing path would be a second writer and one more thing to get wrong.
+ *
+ * ⚠ IT IS NOT IN `PORTAL_READ_FIELDS`, on purpose. This is an office to-do, not
+ * something to tell the customer: "we have not seen your payment" is a thing we
+ * cannot honestly say when nobody has checked yet, and saying it to somebody who
+ * has genuinely paid is worse than saying nothing.
+ * ------------------------------------------------------------------------- */
+exports.portalVenmoOpened = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+
+  /* The token IS the credential, the same trust model as every other portal
+     callable — and nothing here reads anything the caller sent beyond it. */
+  const match = await findByToken(token);
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  await db.collection('jobAddresses').doc(match.id).update({
+    venmoOpenedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return { ok: true };
 });
 
 /* --- portalChangeAddress --------------------------------------------------
@@ -5416,8 +5639,16 @@ async function logNightlyInvoiceRun(data) {
      ⚠ BEST-EFFORT, LIKE THE TEXT IT REPLACES. A note that fails must never break the
      billing run it is reporting on. */
   try {
+    /* ⭐ A HELD BILL WITH WORK ALREADY DONE COUNTS AS NEEDING SOMEBODY (added
+       2026-09-28), and `heldNames` rather than `skippedNotDone` is what asks the
+       question. That count is most of October and almost always correct — the crew has
+       not been yet — so gating on it would put this note up nightly for the whole
+       season, which is the trained-to-ignore failure the paragraph above describes.
+       `heldNames` only holds payers who have had a house finished and are still not
+       billed, so every entry is money sitting still. */
+    const heldSomeMoney = Array.isArray(data.heldNames) && data.heldNames.length > 0;
     const needsSomebody = (data.errorCount || 0) > 0 || (data.skippedNoEmail || 0) > 0 ||
-      (data.skippedNeedsFix || 0) > 0;
+      (data.skippedNeedsFix || 0) > 0 || heldSomeMoney;
     if (needsSomebody) {
       const parts = [(data.sentCount || 0) + ' sent'];
       if (data.skippedNeedsFix) parts.push(data.skippedNeedsFix + ' need fix');
@@ -5438,6 +5669,12 @@ async function logNightlyInvoiceRun(data) {
       if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
         body += ' Send by hand: ' + data.noEmailNames.slice(0, 3).join(', ') +
           (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
+      }
+      /* ⚠ NAMED, NOT COUNTED — the whole point of this half. "2 skipped" sends nobody
+         anywhere; a name and the house holding the bill is something to act on. */
+      if (heldSomeMoney) {
+        body += ' Work done but the bill is held: ' + data.heldNames.slice(0, 3).join(', ') +
+          (data.heldNames.length > 3 ? ' +' + (data.heldNames.length - 3) + ' more' : '') + '.';
       }
       if (data.errorCount && data.errors && data.errors.length) {
         body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
@@ -5592,6 +5829,17 @@ async function runInvoiceBatch(triggeredBy) {
   // rather than silently passed over.
   let skippedNoEmail = 0;
   const noEmailNames = [];
+  /* ⭐ WHOSE BILL IS BEING HELD, BY NAME (added 2026-09-28). `skippedNeedsFix` and
+     `skippedNotDone` were counts and nothing else — and a number in a nightly summary
+     is the same number every night, so it reads as background noise while a payer who
+     HAS had work done goes unbilled all season. The no-email case learned this a month
+     earlier and its own note says so: counting them fixed the "0 sent, 0 errors" lie
+     and did not make the work findable.
+     ⚠ ONLY THE ONES WITH WORK ALREADY DONE ARE NAMED. A payer whose houses are simply
+     not built yet is the ordinary state of most of October, and listing all of them
+     would bury the handful where money is genuinely sitting still — the cries-wolf
+     failure this file names in four other places. */
+  const heldNames = [];
   const errors = [];
 
   try {
@@ -5601,7 +5849,7 @@ async function runInvoiceBatch(triggeredBy) {
     if (!serviceId || !templateId || !privateKey) {
       const result = {
         dateStr: todayStr, sentCount: 0, skippedNeedsFix: 0, skippedNotDone: 0,
-        skippedNoEmail: 0, noEmailNames: [],
+        skippedNoEmail: 0, noEmailNames: [], heldNames: [],
         errorCount: 1, errors: ['EmailJS not fully set up yet \u2014 need Service ID, Template ID, and Private Key under Automation > EmailJS Setup.'],
         triggeredBy
       };
@@ -5686,36 +5934,29 @@ async function runInvoiceBatch(triggeredBy) {
         const unbilled = active.filter(function (h) { return !h.data.invoiceEmailSent; });
         if (!unbilled.length) continue;      // this payer was billed on an earlier run
 
+        /* Whose bill this is — see payerHouseOfServer. Resolved BEFORE the hold
+           below, because a held bill has to be reported against the same house the
+           bill would have been addressed to. */
+        const payer = payerHouseOfServer(invoiceKey, active);
+
         // HOLD until every active house is finished. A house still needing a
         // fix counts as unfinished - the whole bill waits for the fix.
-        if (active.some(function (h) { return h.data.completed === true && h.data.needsFix; })) {
-          skippedNeedsFix++; continue;
+        const blockedByFix = active.filter(function (h) { return h.data.completed === true && h.data.needsFix; });
+        const notDoneYet = active.filter(function (h) { return h.data.completed !== true; });
+        if (blockedByFix.length || notDoneYet.length) {
+          if (blockedByFix.length) skippedNeedsFix++; else skippedNotDone++;
+          await reportHeldBill({
+            payer: payer, active: active,
+            blockedByFix: blockedByFix, notDoneYet: notDoneYet,
+            heldNames: heldNames
+          });
+          continue;
         }
-        if (active.some(function (h) { return h.data.completed !== true; })) {
-          skippedNotDone++; continue;
-        }
-
-        /* The payer is the house the invoice key actually belongs to, and when
-           several of them are (four Anderson houses share one phone) THE LOWEST
-           CUSTOMER NUMBER WINS -- the longest-standing account, and so the likeliest
-           bill payer. Matches payerHouseOf in admin.html; the two must agree, because
-           this writes the name the customer reads on their invoice email and that one
-           writes the name the office reads on the screen.
-
-           This was a bare .find(), so the bill was addressed to whichever house came
-           back first and the greeting on a customer's invoice could change from one
-           night to the next. A group made only of bill-to houses still falls back to
-           the group, sorted the same way rather than taken in arrival order. */
-        const payerSort = function (a, b) {
-          const na = Number(a.data.customerNumber) || Infinity;
-          const nb = Number(b.data.customerNumber) || Infinity;
-          if (na !== nb) return na - nb;
-          return String(a.id).localeCompare(String(b.id));
-        };
-        const payerOwn = active.filter(function (h) {
-          return !digitsOnly(h.data.billToPhone) && invoiceKeyFor(h.data) === invoiceKey;
-        });
-        const payer = (payerOwn.length ? payerOwn : active).slice().sort(payerSort)[0];
+        /* ⚠ AND THE SAME RUN CLEARS IT, for the reason the no-email flag clear a few
+           lines below spells out: a flag with only one way in is the sticky bug this
+           file has already been bitten by. Reached only once nothing is holding the
+           bill, so the tag goes the night the last house is finished. */
+        await clearHeldBill(payer);
 
         const withEmail = active.find(function (h) { return !!h.data.email; });
         const email = payer.data.email || (withEmail ? withEmail.data.email : '');
@@ -5764,8 +6005,28 @@ async function runInvoiceBatch(triggeredBy) {
              straight into `install` rather than listed like the change fee.
              ⚠ Start New Season sets the flag back to false, so this is stamped afresh
              each season and answers "when were they charged it THIS year", which is the
-             question asked when a customer queries their bill. */
-          inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.fromMillis(nowMs);
+             question asked when a customer queries their bill.
+
+             ⛔ AND IT USED TO SAY `Timestamp.fromMillis(nowMs)`, WHICH BILLED NOBODY
+             (fixed 2026-09-28). There is no `nowMs` in this function and never was — the
+             only declarations of that name are a `const` inside portalSave's lights branch
+             and a parameter of runLateFeeBatch, neither of them in scope here. Reading an
+             undeclared identifier throws, the throw landed in the per-payer catch a few
+             hundred lines below, and the payer was counted as an error and skipped — BEFORE
+             `invRef.set`, so no invoice document was written at all, `invoiceEmailSent` was
+             never set, and the same failure repeated every night for ever.
+             ⚠ SO IT WAS EXACTLY THE NEW MEMBERS WHO WENT UNBILLED, and only them: this
+             branch is the only place it appeared, so a returning customer billed normally
+             while anybody with the Installation Fee box ticked did not. One fixture, one
+             field changed, proves it both ways — see nightly-invoice.test.js.
+             ⚠ AND EVERY CHECK ON THIS FUNCTION PASSED THROUGHOUT, because every one of
+             them read the source as TEXT and the source looks right. That is the same
+             lesson Suite 10 learned on syncPayerInvoice and the reason the new gate RUNS
+             this function against a fake Firestore rather than matching it.
+             ⚠ `Timestamp.now()`, the same call `invoicedAt` makes eleven lines below — a
+             real Timestamp rather than a server sentinel, because the {{due_date}} maths
+             further down reads this invoice back within the same run. */
+          inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.now();
         }
         if (inv.install == null) inv.install = groupSum;
 
@@ -6118,7 +6379,7 @@ async function runInvoiceBatch(triggeredBy) {
 
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
-      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20),
+      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
       errorCount, errors: errors.slice(0, 10), triggeredBy
     };
     await logNightlyInvoiceRun(result);
@@ -6126,7 +6387,7 @@ async function runInvoiceBatch(triggeredBy) {
   } catch (err) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
-      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20),
+      skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
       errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
       triggeredBy
     };

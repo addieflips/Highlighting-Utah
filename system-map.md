@@ -7454,6 +7454,161 @@ as S82 and S129: pinned to where a string sat rather than to what must be true, 
 on correct code the moment the copy had to change. What must be true is that the alert
 **names** them.
 
+### Every new member went unbilled for ten days, and no screen said so
+
+⛔ **A ONE-WORD CRASH IN THE NIGHTLY RUN, live from 18 to 28 September 2026.** The
+new-member branch of `runInvoiceBatch` stamped the date the installation fee was charged
+with `Timestamp.fromMillis(nowMs)` — and there is no `nowMs` in that function. The only two
+declarations of that name in the whole file are a `const` inside `portalSave`'s lights
+branch and a parameter of `runLateFeeBatch`, neither of them in scope. Reading an undeclared
+identifier throws.
+
+**What that cost, exactly:**
+
+- the throw landed in the per-payer `catch`, so the payer was counted as an error and skipped;
+- it happened **before** `invRef.set`, so **no invoice document was written at all** — nothing
+  in their member portal, no record anywhere of what was owed;
+- `invoiceEmailSent` was never set, so it retried every night and failed identically, for ever.
+
+⚠ **It was exactly the new members, and only them.** `chargeNewMemberFee === true` is the
+one thing that reaches that branch — the Add Customer box, and the set-up fee carried across
+from a quote. A returning customer billed perfectly throughout, which is why nothing looked
+wrong from any screen.
+
+⛔ **AND NINE CHECKS OVER THAT SAME FUNCTION PASSED THE WHOLE TIME.** `run-all.js` reads
+`runInvoiceBatch` with `sectionFrom` and regexes in nine places, and the source *looks*
+right, because it is right apart from one identifier that does not exist. **A text check
+cannot see scope.** This is the lesson Suite 10 wrote down for `syncPayerInvoice` — *"a regex
+cannot catch an undefined variable and a text-only check is exactly what let the `forTotal`
+crash ship for a day"* — arriving a second time in the same family of code, and nothing had
+ever RUN the nightly run.
+
+⭐ **So `nightly-invoice.test.js` runs it**, against a fake Firestore, and the check that
+earns the file is a **pair**: the same fixture with `chargeNewMemberFee` flipped. Either row
+alone proves nothing, because the whole failure was that one branch threw while the other
+worked. 11 of 11 sabotages red-checked on the server, 7 of 7 on the screen.
+
+⚠ **Checklist row 114 could not reach it either, and was version-bumped to say so.** Its
+step 2 asked for an ordinary test customer, which takes the working branch — so a clean pass
+of the one manual row about the 7 PM run said nothing about the people who were not being
+billed. It now says to tick the Installation Fee box.
+
+⚠ **The fix is `Timestamp.now()`**, the same call `invoicedAt` makes eleven lines below: a
+real Timestamp rather than a server sentinel, because the `{{due_date}}` maths further down
+reads this invoice back inside the same run.
+
+### A Venmo payment used to be invisible, and now somebody is told to look
+
+⛔ **Venmo tells us nothing.** It is a deep link — `venmo.com/HighLightingUtah?txn=pay&amount=…`
+— with no webhook, no callback and no receipt coming back to us. PayPal records itself
+through `paypalWebhook`; Venmo records *nothing*. So a customer who paid that way stayed
+**Unpaid on every screen**: they went onto the 1 February text list, and would have
+collected an April late fee for money they had already sent.
+
+⭐ **The amount on that link is a PRE-FILL, and that is the whole design constraint.**
+Addie, asked to fix this: *"you can change the amount so if someone changes the amount it
+can be problamatic."* She is right — the payer confirms in the Venmo app and can edit the
+figure there. So nothing in this reads that number as a payment, and nothing stores it.
+
+**How it works now:**
+
+| | |
+|---|---|
+| **Pressing Pay with Venmo** in the portal | stamps `venmoOpenedAt` on the customer, and **nothing else** |
+| **The office sees** | a **Check Venmo** chip, and a **Waiting on Venmo** filter in All Customers |
+| **The money is recorded** | by hand, from the Venmo notification email, so the figure entered is the one that actually arrived |
+| **The mark goes away** | by itself, the moment that payment settles them |
+
+⛔ **The entry is manual because the data cannot be reached any other way.** Addie: *"We
+can't even login to venmo we just see it if it comes to email so I think it will be easiest
+if this was manual."* A statement importer was offered and turned down on those facts, not
+on effort — the existing payment importer would take the amount from a file, which is safe
+by construction, but there is no login to get a file from. **Do not re-propose it** unless
+the Venmo access changes.
+
+⛔ **No amount is stored, deliberately.** The only number that could be recorded at the
+press is what we *asked* for, which is already on the bill and derived by one rule — a
+snapshot would be a second opinion about a balance, sitting next to real money. And the
+shortfall she is worried about is visible without it: she enters what the email says, the
+bill comes out **Partial Payment**, and they stay on the chase list with the gap showing.
+
+⚠ **The mark is derived, so nothing has to clear it.** Opening Venmo is a historical fact;
+what changes is whether they still owe. `custWaitingOnVenmo` asks the bill, so the chip
+disappears the instant the payment is entered — stored fact, derived display, the same shape
+as `derivedDoneFor`. **A part payment leaves the mark standing**, which is exactly the
+short-payment case.
+
+⚠ **It is not in `PORTAL_READ_FIELDS`.** *"We have not seen your payment"* is a thing we
+cannot honestly say when nobody has checked yet, and saying it to somebody who really did
+pay is worse than saying nothing.
+
+⚠ **And it does not promote Venmo.** Her 2026-09-01 ruling — *"I want venmo under other
+payments not showing at all cause I want venmo to be a last resort"* — is untouched: the
+button stays inside a `<details>` that is shut on every render. Recording a press must not
+make it a more visible option.
+
+⚠ **The ledger's `venmo` method finally has a writer.** `PAYMENT_METHOD_LABEL` has carried
+that label since the ledger was built and nothing ever wrote it. The method is derived from
+the mark and the note says so, rather than costing a second prompt on every payment — a
+customer who opened Venmo and then paid by cheque is filed as Venmo, which is a wrong line
+in an audit trail and not a wrong balance.
+
+⚠ **What this does NOT catch, said plainly: a click in an EMAIL.** The Venmo button is also
+in the nightly invoice, the payment receipt and the late-fee email, and a click there is a
+plain link in a mail client — there is nothing to record it with. So the list is *"who
+pressed it in their portal"*, not *"everybody paying by Venmo"*. The ordinary Unpaid and
+Partial filters are still what covers the rest.
+
+### A bill held by an unfinished house is named now, not just counted
+
+A payer's bill covers every house they pay for, and the nightly run holds it until all of
+them are finished. That is Addie's own rule (**MON-12**: *"After the last persons house is
+done if there are multiple people on one bill is when they will be charged"*) and **it has
+not changed**. What changed is the silence around it.
+
+⚠ **A held bill used to be a bare number.** `skippedNotDone++` and `skippedNeedsFix++`, two
+counts in the nightly text, naming nobody, flagging nothing, raising no note. So one house
+nobody ever marks done — or one fix flag nobody clears — quietly stopped that payer being
+billed for the whole season, and the only trace was a figure that looks the same every
+night. Compare `skippedNoEmail`, which names the people, flags the record *and* raises a
+note; its own entry above is the argument, because it learned this a month earlier.
+
+⭐ **It is two speeds, because most held bills are correct.** Between the crew doing the
+Andersons' first house and their fourth, that bill is held every night and nothing is wrong.
+
+| | When | Where it shows |
+|---|---|---|
+| **named** | as soon as any house on the bill is finished | the nightly run log, and the *Nightly Billing Needs You* note |
+| **flagged** | once that finish is **10 days** old (`BILL_HELD_DAYS`) | `billHeld` on the payer, a *Bill Held* note, the **Bill Held** filter in All Customers, a chip on the row, and a Health Check row |
+
+⚠ **Flagging the ordinary case is the cries-wolf failure** this file names in four other
+places — it would tag most of the book in October and teach the office to click past both
+the tag and the note.
+
+⚠ **A payer with nothing finished is not named at all.** Nothing has been earned; the crew
+simply has not been yet. They are still *counted*, so the run log adds up.
+
+⚠ **The clock is `completedAt` on the earliest finished house on the bill** — never a stored
+counter, which would age the hold by a day every time the batch re-ran, and **never
+`scheduled`/`scheduledDate`**, which are the two stamps *"Why a row said scheduled for a day
+that is not on the schedule"* records as outliving the booking they describe. A billing
+warning inherits that unreliability the moment it reads them.
+
+⚠ **The flag lands on the payer**, picked by `payerHouseOfServer` — the same rule that
+decides the name on the invoice email. That rule was inline in `runInvoiceBatch` and had to
+come out, because a tag landing on a different house than the bill's own name is the
+disagreement this app already shipped once, on these very four Anderson houses.
+
+⚠ **The note goes up once, not nightly**, guarded on the flag not already being set — but
+the *reason* is rewritten every run, because the blocking house can change while the hold
+stands.
+
+⚠ **And the same run clears it.** A flag with only one way in is the sticky bug
+`functions/index.js` has already been bitten by (`maybeNextYear`), so the writer that sets it
+is the only thing that decides it is over. The office screen additionally drops the tag the
+moment `invoiceEmailSent` goes true, which covers the hours between the bill going out and
+the next 7 PM.
+
 ### How the takedown days are made
 
 Addie, 2026-09-23 ([[SCH-88]] to [[SCH-91]]): *"Jan 4 is fine, first hung first down, but

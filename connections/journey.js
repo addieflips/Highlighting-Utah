@@ -303,7 +303,8 @@ const STEPS = [
     next: [
       { to: 'invoiced', label: 'the 7pm run bills them that night' },
       { to: 'fixraised', label: 'something is wrong with them' },
-      { to: 'noemail', label: 'there is no email anywhere on the bill' }
+      { to: 'noemail', label: 'there is no email anywhere on the bill' },
+      { to: 'billheld', label: 'another house on the same bill is not finished' }
     ] },
 
   /* ⚠ WORK DONE, MATERIALS OUT, AND NO BILL CAN BE SENT. The nightly run flags a house it
@@ -316,6 +317,24 @@ const STEPS = [
       'and they are billed on the next run.',
     records: ['cannotBillNoEmailAt'],
     next: [{ to: 'invoiced', label: 'somebody adds an address and the next run bills them' }] },
+
+  /* ⚠ WORK DONE AND THE BILL DELIBERATELY WAITING — the other way a finished house goes
+   * unbilled, and the one that looks like nothing at all. A payer's bill covers every
+   * house they pay for, and the run holds it until all of them are finished: Addie's own
+   * rule, and right, because a customer with four houses should get one bill. What it
+   * cost was silence — one house nobody marks done stops that payer being billed for the
+   * season, and until 2026-09-28 the only trace was a number in the nightly summary.
+   * ⚠ IT IS NOT A DEAD END LIKE `noemail`. Nothing is wrong with the record and nothing
+   * has to be typed in; the bill is simply waiting, and finishing the last house releases
+   * it by itself. The flag is only raised once the wait has outlived any ordinary
+   * schedule, so a stage drawn here means the waiting has gone on too long. */
+  { id: 'billheld', title: 'Work done, but the bill is waiting on another house',
+    plain: 'Their lights are up. Their bill covers more than this house, and one of the ' +
+      'others is not marked done — or is done and still flagged for a fix — so the whole ' +
+      'bill waits. Marking the last house done, or clearing its fix, bills them on the ' +
+      'next run without anybody typing anything.',
+    records: ['billHeldAt'],
+    next: [{ to: 'invoiced', label: 'the last house is finished and the next run bills them' }] },
 
   { id: 'fixraised', title: 'Fault reported',
     plain: 'A strand out, a fallen run. They go on a fixer route.',
@@ -343,8 +362,32 @@ const STEPS = [
     next: [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },
+      { to: 'venmoopen', label: 'they open Venmo to pay' },
       { to: 'unmatched', label: 'their card is charged but the bill cannot be found' },
       { to: 'chase1',    label: '1 February comes and nothing has come in' }
+    ] },
+
+  /* ⛔ THE ONE STAGE ON THIS PICTURE THAT IS NOT A FACT ABOUT MONEY. Pressing Pay with
+   * Venmo in the portal stamps `venmoOpenedAt` and touches nothing else — no deposit, no
+   * status, no balance. Venmo is a deep link with no webhook, no callback and no receipt
+   * coming back to us, so opening it is the LAST thing this app knows about that payment.
+   * ⚠ WHICH IS WHY IT IS DRAWN AT ALL. Before this, a Venmo payment was invisible: the
+   * customer stayed Unpaid on every screen, joined the 1 February text list and would have
+   * collected an April late fee for money they had already sent. The stage is the office's
+   * cue to go and look in the Venmo email.
+   * ⚠ IT LEADS BOTH WAYS ON PURPOSE. Somebody can open Venmo and send nothing, or send
+   * less than the bill — the amount in that link is a pre-fill the payer can edit — so the
+   * honest next steps are paid, part paid, and still being chased. */
+  { id: 'venmoopen', title: 'Opened Venmo to pay',
+    plain: 'They pressed Pay with Venmo in their portal. That is all we know — Venmo sends ' +
+      'nothing back, so nobody can tell from here whether the money arrived, or how much of ' +
+      'it. The office checks the Venmo email and types in what actually came. Until then ' +
+      'they are still unpaid, and they show as Check Venmo in All Customers.',
+    records: ['venmoOpenedAt'],
+    next: [
+      { to: 'paid',     label: 'the full amount arrived and was entered' },
+      { to: 'partpaid', label: 'less than the bill arrived' },
+      { to: 'chase1',   label: 'nothing arrived and February comes' }
     ] },
 
   /* ⚠ PART PAID IS NOT PAID AND NOT UNPAID, and the difference reaches the money: the
