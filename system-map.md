@@ -1486,6 +1486,47 @@ charged, and until that exists every change to this number leaves a tail behind 
 
 **The two, in detail:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
+
+  ⛔ **AND FOR A FORTNIGHT IT BILLED NOBODY AT ALL — the new members, and only them**
+  (live 2026-09-18 to 2026-10-02, fixed 2026-10-02). ⚠ **READ THIS BEFORE CHANGING ANYTHING
+  IN `runInvoiceBatch`.** The branch that folds the fee in ended with
+  `inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.fromMillis(nowMs)`, and **there is
+  no `nowMs` in that function.** The only two declarations of that name in
+  `functions/index.js` are a `const` inside `portalSave`'s lights branch and a parameter of
+  `runLateFeeBatch` — neither of them in scope. Reading an identifier that was never
+  declared throws.
+
+  ⛔ **THE ORDER IS WHAT MADE IT EXPENSIVE, not the throw.** It landed in the per-payer
+  `catch`, so the payer was counted as an error and skipped — **before `invRef.set`**. So
+  there was no invoice document at all: nothing in that customer's member portal, no record
+  anywhere of what they owed, no email, and `invoiceEmailSent` never set, so the identical
+  failure repeated every night. **A re-send cannot fix this; a RUN has to build the bills.**
+  That is why the fix is followed by somebody pressing **Send Invoices Now**.
+
+  ⚠ **AND IT WAS INVISIBLE FROM EVERY SCREEN.** `chargeNewMemberFee === true` is the one
+  thing that reaches that branch, so every returning customer billed perfectly throughout
+  and nothing looked wrong anywhere. The only trace was a row in *Last 10 nightly runs*
+  counting an error — which reads exactly like a customer with no email on file.
+
+  ⚠ **EVERY CHECK ON THAT FUNCTION PASSED THE WHOLE TIME.** `run-all.js` reads
+  `runInvoiceBatch` with `sectionFrom` and regexes in nine places and the source *looks*
+  right, because it is right apart from one name that does not exist. **A regex cannot see
+  scope.** That is the lesson Suite 10 already wrote down for `syncPayerInvoice` — *"a regex
+  cannot catch an undefined variable and a text-only check is exactly what let the `forTotal`
+  crash ship for a day"* — arriving a second time in the same family of code.
+
+  ⭐ **SO THERE IS A GATE THAT RUNS IT NOW.** `new-member-billed.test.js`
+  (`npm run test:newmember`, its own named CI step) executes the shipped `runInvoiceBatch`
+  against a fake Firestore. **The pair of checks is the whole file:** one fixture, with
+  `chargeNewMemberFee` flipped. Either row alone proves nothing — a suite that only ever
+  billed a returning customer is what passed through the fortnight. It lifts
+  `houseIsOnTheBillServer`, `computeInvoiceStatusServer`, `invoiceKeyFor` and the invoice
+  calendar rather than stubbing any of them, and fakes only the genuinely external edges
+  (EmailJS, the template lookup, the token mint, Firestore). 6 of 6 sabotages red-checked.
+
+  ⚠ **AND CHECKLIST ROW 114 HAD ONLY EVER TESTED A RETURNING CUSTOMER**, which is how the
+  one manual test of the nightly run could pass through this too. It is v3 now and says to
+  tick the Installation Fee box, with a no-fee customer beside it as the control.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.
 
 ⭐ **THE × TAKES A LINE OFF THE BILL THE CUSTOMER IS ACTUALLY ON** (fixed 2026-09-07, MON-64).

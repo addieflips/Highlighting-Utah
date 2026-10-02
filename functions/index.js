@@ -5764,8 +5764,34 @@ async function runInvoiceBatch(triggeredBy) {
              straight into `install` rather than listed like the change fee.
              ⚠ Start New Season sets the flag back to false, so this is stamped afresh
              each season and answers "when were they charged it THIS year", which is the
-             question asked when a customer queries their bill. */
-          inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.fromMillis(nowMs);
+             question asked when a customer queries their bill.
+
+             ⛔ AND IT USED TO SAY `Timestamp.fromMillis(nowMs)`, WHICH BILLED NOBODY
+             (live 2026-09-18 to 2026-10-02). There is no `nowMs` in this function and
+             never was — the only declarations of that name in the file are a `const`
+             inside portalSave's lights branch and a parameter of runLateFeeBatch, neither
+             of them in scope here. Reading an undeclared identifier throws.
+             ⚠ WHAT THAT COST, and the order is the whole of it: the throw landed in the
+             per-payer catch a few hundred lines below, so the payer was counted as an
+             error and skipped — BEFORE `invRef.set`. So no invoice document was written at
+             all, nothing reached their member portal, no record existed anywhere of what
+             was owed, `invoiceEmailSent` was never set, and the same failure repeated
+             every night for a fortnight.
+             ⚠ SO IT WAS EXACTLY THE NEW MEMBERS, AND ONLY THEM. `chargeNewMemberFee ===
+             true` is the one thing that reaches this branch, so a returning customer
+             billed perfectly throughout and nothing looked wrong on any screen. One
+             fixture with that single field flipped proves it both ways — see
+             new-member-billed.test.js.
+             ⚠ AND EVERY CHECK ON THIS FUNCTION PASSED THE WHOLE TIME, because they all
+             read the source as TEXT and the source looks right. A regex cannot see scope.
+             That is the lesson Suite 10 wrote down for syncPayerInvoice — "a regex cannot
+             catch an undefined variable" — arriving a second time in the same family of
+             code, and the reason the new gate RUNS this function against a fake Firestore
+             rather than matching it.
+             ⚠ `Timestamp.now()`, the same call `invoicedAt` makes eleven lines below — a
+             real Timestamp rather than a server sentinel, because the {{due_date}} maths
+             further down reads this invoice back inside the same run. */
+          inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.now();
         }
         if (inv.install == null) inv.install = groupSum;
 
