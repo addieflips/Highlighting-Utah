@@ -55150,9 +55150,11 @@ function whBuildSheetPages(){
    ⚠ IN ORDER, NEVER RE-SORTED. Groups are packed greedily as they come, so the stack reads
    in the same order as the tab; a group that would overflow the page starts the next one,
    and a big group fills a page (or more) by itself as before.
-   Budget: a landscape page holds about 26 rows at this size; a group's heading, summary and
-   column header cost about 3 rows. */
-const WH_SHEET_ROW_BUDGET = 26;
+   Budget: MEASURED, not guessed (2026-10-05). 26 printed every shared page with a few rows spilling
+   onto a second sheet, because addresses and colour names wrap each row to two lines. Re-packing that
+   day's real sheet (37 groups) and printing each page: 20 fit, 21 spilled — 18 keeps a margin for a
+   day with longer notes. A group's heading, summary and column header cost about 3 rows. */
+const WH_SHEET_ROW_BUDGET = 18;
 const WH_SHEET_GROUP_COST = 3;
 function whPackBuildSheets(groups){
   const sheets = [];
