@@ -440,7 +440,7 @@ if (Array.isArray(pages)) {
     packed.length === 1 && packed[0].parts.length === 2,
     'got ' + JSON.stringify(packed.map(s => s.parts.map(p => p.title))));
   check('and each keeps its own heading, in tab order',
-    packed[0] && packed[0].parts[0].title === pages[0].title && packed[0].parts[1].title === pages[1].title);
+    packed.length === 1 && packed[0].parts.length === 2 && packed[0].parts[0].title === pages[0].title && packed[0].parts[1].title === pages[1].title);
   const grp = (t, n) => ({title: t, summary: '', rows: Array.from({length: n}, () => ({}))});
   const big = pack([grp('A', 1), grp('B', 2), grp('Big', 30), grp('C', 1), grp('D', 1)]);
   check('a big group still gets a page of its own, and order is kept',
