@@ -55137,12 +55137,38 @@ function whBuildSheetPages(){
     if(houses) bits.push(houses + ' house' + (houses === 1 ? '' : 's'));
     if(bundles) bits.push(bundles + ' bundle' + (bundles === 1 ? '' : 's'));
     if(timers) bits.push(timers + ' timer' + (timers === 1 ? '' : 's'));
-    /* ⚠ "SHEET X OF Y" IS THE POINT OF SPLITTING. Once the stack is handed out, the one
-       thing nobody can tell from a single page is whether they are holding all of them,
-       and a build that quietly lost a page is a house nobody makes. */
-    bits.push('sheet ' + (i + 1) + ' of ' + order.length);
+    /* "Sheet X of Y" is added by whPackBuildSheets, which knows how many pieces of paper
+       there really are once the small groups share one. */
     return {title: g, summary: bits.join(' \u00b7 '), rows: rows, columns: sheet.columns};
   });
+}
+/* ⭐ SMALL COLOUR GROUPS SHARE A PAGE (2026-10-05). Dax: "some colors only have like one
+   house on it for those we want to mush multiple colors onto one page." One page per group
+   ([[WH-24]]-era, Addie) printed a whole sheet of paper for a single row.
+   ⚠ EACH GROUP KEEPS ITS OWN HEADING AND TABLE on the shared page — the pile is still the
+   unit somebody builds from, it just no longer costs a sheet of paper on its own.
+   ⚠ IN ORDER, NEVER RE-SORTED. Groups are packed greedily as they come, so the stack reads
+   in the same order as the tab; a group that would overflow the page starts the next one,
+   and a big group fills a page (or more) by itself as before.
+   Budget: a landscape page holds about 26 rows at this size; a group's heading, summary and
+   column header cost about 3 rows. */
+const WH_SHEET_ROW_BUDGET = 26;
+const WH_SHEET_GROUP_COST = 3;
+function whPackBuildSheets(groups){
+  const sheets = [];
+  let cur = null, used = 0;
+  (groups || []).forEach(function(g){
+    const cost = (g.rows ? g.rows.length : 0) + WH_SHEET_GROUP_COST;
+    if(!cur || used + cost > WH_SHEET_ROW_BUDGET){
+      cur = {parts: []}; used = 0; sheets.push(cur);
+    }
+    cur.parts.push(g); used += cost;
+  });
+  /* ⚠ "SHEET X OF Y" IS STILL THE POINT. Once the stack is handed out, the one thing nobody
+     can tell from a single page is whether they are holding all of them, and a build that
+     quietly lost a page is a house nobody makes. Counted in PAPER, after packing. */
+  sheets.forEach(function(s, i){ s.sheetLabel = 'sheet ' + (i + 1) + ' of ' + sheets.length; });
+  return sheets;
 }
 function whSheetRowsForRecycle(){
   const built = whRecycleGroups();
@@ -55245,7 +55271,13 @@ function whSheetTable(rows, columns){
    to take a single table; the build sheet is one page per colour group now, and the
    recycle sheet passes an array of one rather than keeping a second code path alive. */
 function whOpenPrintWindow(title, sections, emptyNote){
-  const live = (sections || []).filter(function(x){ return x && x.tableHtml; });
+  /* A section is one page: either one table ({title, summary, tableHtml}) or several groups
+     sharing it ({parts: [...], sheetLabel}) — see whPackBuildSheets. */
+  const live = (sections || []).map(function(x){
+    if(!x || !x.parts) return x;
+    const parts = x.parts.filter(function(p){ return p && p.tableHtml; });
+    return parts.length ? Object.assign({}, x, {parts: parts}) : null;
+  }).filter(function(x){ return x && (x.tableHtml || x.parts); });
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
     'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
@@ -55261,12 +55293,20 @@ function whOpenPrintWindow(title, sections, emptyNote){
     // no column names on it is a page nobody can read.
     'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px; color:#555;}'+
+    '.part + .part{margin-top:18px;}'+
     /* The break is what makes a page a page. Not on the last one, or every print
        ends with a blank sheet. */
     '.sheet{page-break-after:always;} .sheet:last-child{page-break-after:auto;}'+
     '@page{size:landscape; margin:10mm;}'+
     '</style></head><body>'+
     (live.length ? live.map(function(p){
+      if(p.parts){
+        return '<div class="sheet">'+p.parts.map(function(q){
+          return '<div class="part"><h1>'+esc(q.title || title)+'</h1>'+
+            '<div class="sub">'+esc(today)+(q.summary ? ' &middot; '+esc(q.summary) : '')+
+            (p.sheetLabel ? ' &middot; '+esc(p.sheetLabel) : '')+'</div>'+q.tableHtml+'</div>';
+        }).join('')+'</div>';
+      }
       return '<div class="sheet"><h1>'+esc(p.title || title)+'</h1>'+
         '<div class="sub">'+esc(today)+(p.summary ? ' &middot; '+esc(p.summary) : '')+'</div>'+
         p.tableHtml+'</div>';
@@ -55615,10 +55655,12 @@ function whPrintBuildSheet(){
   /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
      whole-sheet totals that used to sit here have moved onto each page, because a page
      handed to somebody building one pile needs THEIR numbers, not the morning's. */
-  const pages = whBuildSheetPages();
+  const sheets = whPackBuildSheets(whBuildSheetPages());
   whOpenPrintWindow('Warehouse \u2014 Build Sheet',
-    pages.map(function(p){
-      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    sheets.map(function(s){
+      return {sheetLabel: s.sheetLabel, parts: s.parts.map(function(p){
+        return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+      })};
     }),
     'Nothing needs to be built right now.');
 }

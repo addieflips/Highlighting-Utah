@@ -429,9 +429,31 @@ if (Array.isArray(pages)) {
     'a house on two pages gets built twice; got ' + JSON.stringify(pages.map(p => p.rows.length)));
   /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
      thing nobody can tell from a single page is whether they hold all of them. */
-  check('and every page says which of how many it is',
-    pages.every((p, i) => p.summary.indexOf('sheet ' + (i + 1) + ' of 2') !== -1),
-    'got ' + JSON.stringify(pages.map(p => p.summary)));
+  /* ⭐ SMALL GROUPS SHARE A PAGE (2026-10-05). Dax: "some colors only have like one house on
+     it for those we want to mush multiple colors onto one page." Run against the real packer. */
+  const pack = new Function(
+    (admin.match(/const WH_SHEET_ROW_BUDGET = \d+;/) || [''])[0] +
+    (admin.match(/const WH_SHEET_GROUP_COST = \d+;/) || [''])[0] +
+    fn('whPackBuildSheets') + 'return whPackBuildSheets;')();
+  const packed = pack(pages);
+  check('two small colour groups share one sheet of paper',
+    packed.length === 1 && packed[0].parts.length === 2,
+    'got ' + JSON.stringify(packed.map(s => s.parts.map(p => p.title))));
+  check('and each keeps its own heading, in tab order',
+    packed[0] && packed[0].parts[0].title === pages[0].title && packed[0].parts[1].title === pages[1].title);
+  const grp = (t, n) => ({title: t, summary: '', rows: Array.from({length: n}, () => ({}))});
+  const big = pack([grp('A', 1), grp('B', 2), grp('Big', 30), grp('C', 1), grp('D', 1)]);
+  check('a big group still gets a page of its own, and order is kept',
+    JSON.stringify(big.map(s => s.parts.map(p => p.title))) === '[["A","B"],["Big"],["C","D"]]',
+    'got ' + JSON.stringify(big.map(s => s.parts.map(p => p.title))));
+  check('nobody is lost or doubled by packing',
+    big.reduce((n, s) => n + s.parts.reduce((m, p) => m + p.rows.length, 0), 0) === 35);
+  /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+     thing nobody can tell from a single page is whether they hold all of them. Counted in
+     paper, after packing. */
+  check('and every sheet of paper says which of how many it is',
+    big.every((s, i) => s.sheetLabel === 'sheet ' + (i + 1) + ' of 3'),
+    'got ' + JSON.stringify(big.map(s => s.sheetLabel)));
   /* ⚠ AND EACH PAGE COUNTS ITSELF, not the morning. A page handed to somebody building
      one pile needs THEIR numbers. */
   check('and each page counts only its own houses',
@@ -466,8 +488,8 @@ if (Array.isArray(pages)) {
 }
 /* ⚠ AND BOTH THE BUILD BUTTON AND THE RECYCLE ONE GO THROUGH THE SECTIONS API, or one
    of them throws the moment somebody presses it. */
-check('the build button prints the pages',
-  /whBuildSheetPages\(\)/.test(fn('whPrintBuildSheet')),
+check('the build button prints the pages, packed',
+  /whPackBuildSheets\(whBuildSheetPages\(\)\)/.test(fn('whPrintBuildSheet')),
   'the pager exists and nothing calls it is the most expensive kind of green');
 check('and the recycle sheet passes an array of one',
   /whOpenPrintWindow\([\s\S]{0,80}\[\{/.test(fn('whPrintRecycleSheet')),
