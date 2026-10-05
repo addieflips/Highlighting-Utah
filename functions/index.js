@@ -1730,8 +1730,22 @@ function warehouseRebuildFields(oldData, newData) {
     if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
     return raw;
   };
+  /* SAME RULE AS admin.html.  ⭐⭐ FILLING IN A BLANK IS NOT A CHANGE (2026-10-05). Dax: "i dont think we actually need to
+     rebuild the ones that say rebuild so if there is nothing that makes it seem like its supposed
+     to be a rebuild then just delete it from the build list." The activity log showed where
+     they came from: from 2026-09-01 the office and the portal filled in returning customers'
+     blank colours and wire, and every blank-to-value counted as a change here — 81 houses on the
+     build list with nothing behind them. A record learning what a house already has is not the
+     house getting different lights.
+     ⚠ EXCEPT once this season's bundle is made (lightsMarkedBuiltAt): a set built while the
+     wire read "Check lights" really does have to be remade once the wire is known.
+     ⚠ outletTimer is not touched — a timer has its own routing (timer-only / removal). */
   return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
     if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    /* ⚠ A BLANK WIRE BECOMING A NON-WHITE ONE STILL COUNTS (S133): the bundle was made on the
+       default white wire, so Green is a real change. Blank → White is the record catching up. */
+    if (f !== 'outletTimer' && norm(f, o) === '' && !o.lightsMarkedBuiltAt &&
+        (f !== 'wireColor' || norm(f, n) === 'white')) return false;
     return norm(f, n) !== norm(f, o);
   });
 }
