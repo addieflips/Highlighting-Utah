@@ -59,7 +59,7 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                    landed: the extraction-list trap, arriving from somebody else's branch. */
                 'whWireLabel',
                 /* Lifted for the same reason: Added ft / Total bundles on both sheets (2026-10-05). */
-                'whBuildSizeCells',
+                'whBuildSizeCells', 'whBuildTodo', 'whOnlyCheckLights',
                 'whWhoLabel', 'isOutForSeason'];
 const src = {};
 const missing = [];
@@ -211,7 +211,7 @@ const needSrc = 'function houseBundleNeed(d){ return {bundles: 1, estimated: fal
 const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
   'WH_BUILD_COLUMNS', 'isOutForSeason',
   binsSrc + needSrc + src.whWireLabel + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
-  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells +
+  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.whOnlyCheckLights +
   (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] +
   src.whBuildReasonKey + src.whBuildReasonLabel + src.whBuildQueueGroups + src.whSheetRowsForBuild +
   'return whSheetRowsForBuild();');
@@ -224,7 +224,7 @@ check('the warehouse tab builds a row for that house', !!whRow,
 /* The printing tab's sheet. */
 const prRows = new Function('jobAddresses', 'isOutForSeason', 'whBinsForHouse', 'whPutIntoLabel',
   'houseBundleNeed', 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
-  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.printNeedsBuildList +
+  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.whOnlyCheckLights + src.printNeedsBuildList +
   'return printNeedsBuildList();');
 const prOut = prRows([{id: 'a1', data: CUST}], () => false,
   new Function('d', binsSrc + src.whBinsForHouse + 'return whBinsForHouse(d);'),
@@ -344,8 +344,23 @@ if (whRow && prRow) {
   check('both build sheets print the same Total bundles', whRow.totalBundles === prRow.totalBundles,
     JSON.stringify([whRow.totalBundles, prRow.totalBundles]));
 }
-check('the warehouse sheet has Added ft and Total bundles columns',
-  /label:'Added ft'/.test(whCols) && /label:'Total ft'/.test(whCols) && /label:'Total bundles'/.test(whCols));
+/* ⭐ ON PAPER IT IS ONE SENTENCE NOW (2026-10-05) — the feet and bundles above still ride on
+   every row; what the worker reads is whBuildTodo. */
+/* ⭐ WHAT THE WORKER READS (2026-10-05). Run against the real sentence builder. */
+const todo = new Function('whBuildReasonKey', 'whPutIntoLabel', src.whBuildTodo + 'return whBuildTodo;');
+const T = (key, bin) => todo(() => key, () => bin || '');
+check('a new hang says NEW HANG with its feet and bundles',
+  T('new')({}, {feet: 232, bundles: 6, estimated: false, unknown: false, topUp: false}) ===
+    'NEW HANG — build the whole house: 232 ft, 6 bundles.');
+check('an extension says we already have the house, and only the extra',
+  T('rebuild', 'Ashley Wray #909')({}, {feet: 80, bundles: 2, estimated: false, unknown: false, topUp: true}) ===
+    'EXTENSION — we already have their house. Build only the extra 80 ft (2 bundles) and put it in their bin: Ashley Wray #909.');
+check('a timer is told in words, on the end',
+  /Add a timer\.$/.test(T('')({outletTimer: 'Yes'}, {feet: 100, bundles: 3, estimated: true, unknown: false, topUp: false})));
+check('a returning customer\'s whole new set is a REBUILD, not a new hang',
+  /^REBUILD/.test(T('portal')({}, {feet: 100, bundles: 3, estimated: false, unknown: false, topUp: false})));
+check('the warehouse sheet prints a What to do column, not the number columns',
+  /label:'What to do'/.test(whCols) && !/label:'Added ft'/.test(whCols));
 
 console.log('\n=======================================================');
 console.log('Warehouse note — ' + pass + ' passed, ' + fail + ' failed');

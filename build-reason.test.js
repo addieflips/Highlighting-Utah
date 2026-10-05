@@ -228,17 +228,20 @@ check('and the warehouse row actually calls whHouseFactsHtml',
    because there is no customer behind it to make a claim about. */
 const whCols = admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = ['),
                            admin.indexOf('const WH_RECYCLE_COLUMNS = ['));
-check('the warehouse tab’s build sheet has a Why column',
-  /key:'reason'/.test(whCols) && /label:'Why'/.test(whCols),
+/* ⭐ THE BADGE NOW RIDES IN THE SENTENCE (2026-10-05). Dax picked one plain "What to do"
+   instruction per row over a column per fact, so the paper says NEW HANG / EXTENSION /
+   REBUILD / ADD A TIMER in words (whBuildTodo) instead of a Why column. The row objects
+   still carry `reason`, which the checks below keep asserting. */
+check('the warehouse tab’s build sheet has a What to do column',
+  /key:'todo'/.test(whCols) && /label:'What to do'/.test(whCols),
   'this is the sheet the warehouse prints and builds off');
-check('and it sits beside Type, not after Notes',
-  whCols.indexOf("key:'reason'") > whCols.indexOf("key:'type'") &&
-  whCols.indexOf("key:'reason'") < whCols.indexOf("key:'notes'"),
+check('and it sits before Notes',
+  whCols.indexOf("key:'todo'") !== -1 && whCols.indexOf("key:'todo'") < whCols.indexOf("key:'notes'"),
   'Notes is the wide free-text column and anything after it is lost against writing');
 const printCols = admin.slice(admin.indexOf("  build:     [{k: 'number'"),
                               admin.indexOf("  warehouse: [{k: 'number'"));
 check('and the Printing tab’s build sheet has one too',
-  /k: 'reason'/.test(printCols) && /label: 'Why'/.test(printCols),
+  /k: 'todo'/.test(printCols) && /label: 'What to do'/.test(printCols),
   'there are two build sheets and the other one is the one with thinner cover');
 /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11 when [[WH-34]] put
    the two timer jobs on paper, then 5 → 4 on 2026-09-18 when [[WH-41]] retired the blocked
@@ -265,7 +268,7 @@ const sheet = fn('whSheetRowsForBuild');
 check('a house row keeps its badge',
   /type: need\.topUp \? 'ADD-ON' : 'House',[\s\S]{0,420}reason: whBuildReasonLabel/.test(sheet),
   'the rows most likely to need chasing are the ones that lost it');
-check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,400}reason: ''/.test(sheet),
+check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,700}reason: ''/.test(sheet),
   'a badge on a row nobody asked for is a claim about somebody who does not exist');
 
 // ---------------------------------------------------------------------------
@@ -334,7 +337,7 @@ check('a re-quote with no stated kind writes nothing',
    Do not "tidy" this by merging the two sheets — that reverses her own decision. */
 const printFilter = fn('printNeedsBuildList');
 check('the printed build list asks the same one flag the tab does',
-  /return d\.needsLightBuild;/.test(printFilter),
+  /return d\.needsLightBuild && !\(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights\(d\)\);/.test(printFilter),
   'stamps never clear, so a stamped house never leaves the printed sheet');
 /* ⚠ COMMENTS STRIPPED. The reason those two fields are NOT used is written down right
    there in the code, so a plain search finds the explanation and calls it a violation —
@@ -396,7 +399,7 @@ const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'hou
      this gate still green — which is the whole reason it is one function. The sandbox
      died with a bare "whNotesCell is not defined" the moment it was added, which is the
      extraction-list trap working as intended. */
-  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') +
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') + fn('whBuildTodo') + fn('whOnlyCheckLights') +
   fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   /* ⚠ LIFTED, NEVER STUBBED, for the reason above one more time ([[WH-41]]). This decides
      the heading a house with no colours on file is built under; a stub here would let that
@@ -470,7 +473,7 @@ if (Array.isArray(pages)) {
      ⚠ THE WORDS ON THE HEADING ARE PROVED IN warehouse-colours.test.js against the REAL
      whWireLabel. This sandbox stubs it, so what is asserted here is the SPLIT. */
   const withUnknown = P([H('h1','Ashley','Warm White','white'),
-                         {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}]);
+                         {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true, chargeNewMemberFee: true}}]);
   check('a house with no colours on file gets a page of its own',
     withUnknown.length === 2 &&
     withUnknown.every(pg => pg.rows.length === 1) &&
@@ -483,6 +486,18 @@ if (Array.isArray(pages)) {
   check('and it does not swallow the colour group beside it',
     withUnknown[1] && withUnknown[1].rows.length === 1,
     'got ' + JSON.stringify(withUnknown.map(p => p.rows.length)));
+  /* ⭐ AND A RETURNING HOUSE WITH ONLY 'CHECK LIGHTS' LEFT IS NOT ON IT (2026-10-05). Dax: 'if the only
+     thing for them to do is check the lights we did that over the summer so they can be removed from
+     the build list.' Same colourless record as Zoe above, minus the new-hang box. */
+  const checkOnly = P([H('h1','Ashley','Warm White','white'),
+                       {id:'h8', data:{name:'Returning No Colours', needsLightBuild: true}}]);
+  check('a returning house with only check lights left prints no page',
+    checkOnly.length === 1 && checkOnly[0].rows.length === 1 && /Ashley/.test(checkOnly[0].rows[0].what),
+    'got ' + JSON.stringify(checkOnly.map(p => p.rows.map(r => r.what))));
+  const checkOnlyTimer = P([{id:'h7', data:{name:'Wants A Timer', needsLightBuild: true, outletTimer: 'Yes'}}]);
+  check('but if they want a timer it still prints, as ADD A TIMER',
+    checkOnlyTimer.length === 1 && checkOnlyTimer[0].rows.length === 1 && /^ADD A TIMER/.test(checkOnlyTimer[0].rows[0].todo),
+    'got ' + JSON.stringify(checkOnlyTimer.map(p => p.rows.map(r => r.todo))));
   check('and nothing to build prints no pages at all', P([]).length === 0,
     'an empty stack is what the Nothing needs building note is for');
 }
