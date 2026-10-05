@@ -59,7 +59,7 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                    landed: the extraction-list trap, arriving from somebody else's branch. */
                 'whWireLabel',
                 /* Lifted for the same reason: Added ft / Total bundles on both sheets (2026-10-05). */
-                'whBuildSizeCells', 'whBuildTodo', 'whOnlyCheckLights',
+                'whBuildSizeCells', 'whBuildTodo',
                 'whWhoLabel', 'isOutForSeason'];
 const src = {};
 const missing = [];
@@ -211,7 +211,7 @@ const needSrc = 'function houseBundleNeed(d){ return {bundles: 1, estimated: fal
 const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
   'WH_BUILD_COLUMNS', 'isOutForSeason',
   binsSrc + needSrc + src.whWireLabel + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
-  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.whOnlyCheckLights +
+  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo +
   (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] +
   src.whBuildReasonKey + src.whBuildReasonLabel + src.whBuildQueueGroups + src.whSheetRowsForBuild +
   'return whSheetRowsForBuild();');
@@ -224,7 +224,7 @@ check('the warehouse tab builds a row for that house', !!whRow,
 /* The printing tab's sheet. */
 const prRows = new Function('jobAddresses', 'isOutForSeason', 'whBinsForHouse', 'whPutIntoLabel',
   'houseBundleNeed', 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
-  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.whOnlyCheckLights + src.printNeedsBuildList +
+  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.printNeedsBuildList +
   'return printNeedsBuildList();');
 const prOut = prRows([{id: 'a1', data: CUST}], () => false,
   new Function('d', binsSrc + src.whBinsForHouse + 'return whBinsForHouse(d);'),
@@ -346,6 +346,29 @@ if (whRow && prRow) {
 }
 /* ⭐ ON PAPER IT IS ONE SENTENCE NOW (2026-10-05) — the feet and bundles above still ride on
    every row; what the worker reads is whBuildTodo. */
+/* ⭐ FILLING IN A BLANK DOES NOT QUEUE A REBUILD (2026-10-05). Dax: "if there is nothing that
+   makes it seem like its supposed to be a rebuild then just delete it from the build list."
+   81 houses were on the list only because a blank colour or wire was filled in. Run against
+   the real rule, and the server's copy must carry the same line. */
+{
+  const fieldsSrc = (admin.match(/const WAREHOUSE_BUILD_FIELDS = \[[^\]]*\];/) || [''])[0];
+  const wrf = new Function(fieldsSrc + lift('warehouseRebuildFields') + 'return warehouseRebuildFields;')();
+  check('filling in blank colours is not a change',
+    wrf({}, {lightsDescription: 'Red, Warm White'}).length === 0);
+  check('filling in a blank wire is not a change',
+    wrf({wireColor: ''}, {wireColor: 'White'}).length === 0);
+  check('a real colour change still is',
+    wrf({lightsDescription: 'Red'}, {lightsDescription: 'Blue'}).join() === 'lightsDescription');
+  check('and once this season\'s set is built, a newly known wire still rebuilds it',
+    wrf({lightsMarkedBuiltAt: 1}, {wireColor: 'Green'}).join() === 'wireColor');
+  check('a timer switched on still counts (it has its own routing)',
+    wrf({}, {outletTimer: 'Yes'}).join() === 'outletTimer');
+  const server = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+  check('the server applies the same rule',
+    server.indexOf("(f !== 'wireColor' || norm(f, n) === 'white')) return false;") !== -1);
+  check('but a blank wire becoming Green still rebuilds (made on the default white)',
+    wrf({}, {wireColor: 'Green'}).join() === 'wireColor');
+}
 /* ⭐ WHAT THE WORKER READS (2026-10-05). Run against the real sentence builder. */
 const todo = new Function('whBuildReasonKey', 'whPutIntoLabel', src.whBuildTodo + 'return whBuildTodo;');
 const T = (key, bin) => todo(() => key, () => bin || '');

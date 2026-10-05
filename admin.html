@@ -53595,8 +53595,22 @@ function warehouseRebuildFields(oldData, newData) {
     if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
     return raw;
   };
+  /* ⭐⭐ FILLING IN A BLANK IS NOT A CHANGE (2026-10-05). Dax: "i dont think we actually need to
+     rebuild the ones that say rebuild so if there is nothing that makes it seem like its supposed
+     to be a rebuild then just delete it from the build list." The activity log showed where
+     they came from: from 2026-09-01 the office and the portal filled in returning customers'
+     blank colours and wire, and every blank-to-value counted as a change here — 81 houses on the
+     build list with nothing behind them. A record learning what a house already has is not the
+     house getting different lights.
+     ⚠ EXCEPT once this season's bundle is made (lightsMarkedBuiltAt): a set built while the
+     wire read "Check lights" really does have to be remade once the wire is known.
+     ⚠ outletTimer is not touched — a timer has its own routing (timer-only / removal). */
   return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
     if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    /* ⚠ A BLANK WIRE BECOMING A NON-WHITE ONE STILL COUNTS (S133): the bundle was made on the
+       default white wire, so Green is a real change. Blank → White is the record catching up. */
+    if (f !== 'outletTimer' && norm(f, o) === '' && !o.lightsMarkedBuiltAt &&
+        (f !== 'wireColor' || norm(f, n) === 'white')) return false;
     return norm(f, n) !== norm(f, o);
   });
 }
@@ -53879,8 +53893,6 @@ function whBuildQueueGroups(){
        group, and heading it “Check lights” would send somebody to look up colours nobody
        ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
-    /* Only "check lights" left to do — see whOnlyCheckLights. */
-    if(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d)) return;
     /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
        whCheckLightsKey: the house is built like any other and the heading says to go and
        look at the bundle, which is the job somebody actually does. */
@@ -55012,9 +55024,7 @@ function whSheetRowsForBuild(){
   });
   (built.timerHouses || []).forEach(function(item){
     const d = item.data;
-    /* A "check lights only" house that wants a timer is a timer job now — see whOnlyCheckLights. */
-    const checkOnly = typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d);
-    if(!checkOnly && (d.needsLightBuild || !d.needsTimerOnly)) return;
+    if(d.needsLightBuild || !d.needsTimerOnly) return;
     rows.push({
       group: 'Timer only',
       todo: 'ADD A TIMER \u2014 nothing to build.',
@@ -55481,21 +55491,6 @@ function whBuildSizeCells(need){
    ⚠ ONE FUNCTION, BOTH SHEETS — the same rule as whNotesCell, for the same reason.
    ⚠ "NEW HANG" IS whBuildReasonKey's answer, which follows the Schedule's own new-hang rule;
    anything else that is a whole set (a colour change, a move) is a REBUILD. */
-/* ⭐ "CHECK LIGHTS" AND NOTHING ELSE IS NOT A BUILD (2026-10-05). Dax: "if the only thing for
-   them to do is check the lights we did that over the summer so they can be removed from the
-   build list." A house with no colours on file, that is not a new hang, not an extension, and
-   has no re-quote or colour change behind it (whBuildReasonKey blank) is a returning customer the
-   master-sheet sync flagged on import — their set already exists and was checked over the summer.
-   ⚠ THE FLAG IS LEFT ALONE. This only keeps them off the build list and both build sheets; a new
-   hang with no colours still prints, because that one really does have to be made.
-   ⚠ A TIMER STILL REACHES THEM: they stay in whBuildQueueGroups' timerHouses (pushed before the
-   return), and whSheetRowsForBuild prints them as ADD A TIMER. */
-function whOnlyCheckLights(d){
-  if(!d || !d.needsLightBuild) return false;
-  if(typeof houseLightsText === 'function' && houseLightsText(d)) return false;
-  if(typeof houseBundleNeed === 'function' && houseBundleNeed(d).topUp) return false;
-  return (typeof whBuildReasonKey === 'function') ? whBuildReasonKey(d) === '' : false;
-}
 function whBuildTodo(d, need){
   if(!need) return '';
   const est = need.estimated ? ' (estimated)' : '';
@@ -79720,8 +79715,7 @@ function printNeedsBuildList(){
          COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
          here and have a column of their own on the tab — but they must not disagree about
          WHO is on them. */
-      /* And the same "check lights only" exclusion as the warehouse tab — see whOnlyCheckLights. */
-      return d.needsLightBuild && !(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d));
+      return d.needsLightBuild;
     })
     .map(function(a){
       const d = a.data || {};

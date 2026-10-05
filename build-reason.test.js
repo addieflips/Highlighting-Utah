@@ -337,7 +337,7 @@ check('a re-quote with no stated kind writes nothing',
    Do not "tidy" this by merging the two sheets — that reverses her own decision. */
 const printFilter = fn('printNeedsBuildList');
 check('the printed build list asks the same one flag the tab does',
-  /return d\.needsLightBuild && !\(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights\(d\)\);/.test(printFilter),
+  /return d\.needsLightBuild;/.test(printFilter),
   'stamps never clear, so a stamped house never leaves the printed sheet');
 /* ⚠ COMMENTS STRIPPED. The reason those two fields are NOT used is written down right
    there in the code, so a plain search finds the explanation and calls it a violation —
@@ -399,7 +399,7 @@ const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'hou
      this gate still green — which is the whole reason it is one function. The sandbox
      died with a bare "whNotesCell is not defined" the moment it was added, which is the
      extraction-list trap working as intended. */
-  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') + fn('whBuildTodo') + fn('whOnlyCheckLights') +
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') + fn('whBuildTodo') +
   fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   /* ⚠ LIFTED, NEVER STUBBED, for the reason above one more time ([[WH-41]]). This decides
      the heading a house with no colours on file is built under; a stub here would let that
@@ -486,18 +486,6 @@ if (Array.isArray(pages)) {
   check('and it does not swallow the colour group beside it',
     withUnknown[1] && withUnknown[1].rows.length === 1,
     'got ' + JSON.stringify(withUnknown.map(p => p.rows.length)));
-  /* ⭐ AND A RETURNING HOUSE WITH ONLY 'CHECK LIGHTS' LEFT IS NOT ON IT (2026-10-05). Dax: 'if the only
-     thing for them to do is check the lights we did that over the summer so they can be removed from
-     the build list.' Same colourless record as Zoe above, minus the new-hang box. */
-  const checkOnly = P([H('h1','Ashley','Warm White','white'),
-                       {id:'h8', data:{name:'Returning No Colours', needsLightBuild: true}}]);
-  check('a returning house with only check lights left prints no page',
-    checkOnly.length === 1 && checkOnly[0].rows.length === 1 && /Ashley/.test(checkOnly[0].rows[0].what),
-    'got ' + JSON.stringify(checkOnly.map(p => p.rows.map(r => r.what))));
-  const checkOnlyTimer = P([{id:'h7', data:{name:'Wants A Timer', needsLightBuild: true, outletTimer: 'Yes'}}]);
-  check('but if they want a timer it still prints, as ADD A TIMER',
-    checkOnlyTimer.length === 1 && checkOnlyTimer[0].rows.length === 1 && /^ADD A TIMER/.test(checkOnlyTimer[0].rows[0].todo),
-    'got ' + JSON.stringify(checkOnlyTimer.map(p => p.rows.map(r => r.todo))));
   check('and nothing to build prints no pages at all', P([]).length === 0,
     'an empty stack is what the Nothing needs building note is for');
 }
