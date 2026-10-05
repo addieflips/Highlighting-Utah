@@ -58,6 +58,8 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                    The sandbox died with a bare "whWireLabel is not defined" the moment main
                    landed: the extraction-list trap, arriving from somebody else's branch. */
                 'whWireLabel',
+                /* Lifted for the same reason: Added ft / Total bundles on both sheets (2026-10-05). */
+                'whBuildSizeCells',
                 'whWhoLabel', 'isOutForSeason'];
 const src = {};
 const missing = [];
@@ -209,7 +211,7 @@ const needSrc = 'function houseBundleNeed(d){ return {bundles: 1, estimated: fal
 const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
   'WH_BUILD_COLUMNS', 'isOutForSeason',
   binsSrc + needSrc + src.whWireLabel + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
-  src.whPutIntoLabel + src.whNoteText + src.whNotesCell +
+  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells +
   (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] +
   src.whBuildReasonKey + src.whBuildReasonLabel + src.whBuildQueueGroups + src.whSheetRowsForBuild +
   'return whSheetRowsForBuild();');
@@ -222,7 +224,7 @@ check('the warehouse tab builds a row for that house', !!whRow,
 /* The printing tab's sheet. */
 const prRows = new Function('jobAddresses', 'isOutForSeason', 'whBinsForHouse', 'whPutIntoLabel',
   'houseBundleNeed', 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
-  src.whWireLabel + src.whNoteText + src.whNotesCell + src.printNeedsBuildList +
+  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.printNeedsBuildList +
   'return printNeedsBuildList();');
 const prOut = prRows([{id: 'a1', data: CUST}], () => false,
   new Function('d', binsSrc + src.whBinsForHouse + 'return whBinsForHouse(d);'),
@@ -317,6 +319,29 @@ check('and it is deliberately NOT in the customer option registry',
   options.indexOf('warehouseNote') === -1 && options.indexOf('warehouseOneTimeNote') === -1,
   'this is an internal note between the office and the warehouse, not something a ' +
   'customer is asked');
+
+/* ⭐ ADDED FT AND TOTAL BUNDLES (2026-10-05). Dax: "it should print total bundles and added
+   feet". Run against the real helper, and both sheets must carry the same two cells. */
+const size = new Function(src.whBuildSizeCells + 'return whBuildSizeCells;')();
+const plain = size({feet: 205, bundles: 6, estimated: true, unknown: false, topUp: false});
+check('a whole house prints its feet as Added ft', plain.addedFeet === '205 est', JSON.stringify(plain));
+check('a whole house prints its bundle count as Total bundles', plain.totalBundles === '6 est', JSON.stringify(plain));
+const addOn = size({feet: 80, bundles: 3, estimated: false, unknown: false, topUp: true, total: 280, totalBundles: 8});
+check('an add-on prints only the extra feet, marked +', addOn.addedFeet === '+80', JSON.stringify(addOn));
+check('an add-on prints the whole bin\'s bundles as Total bundles', addOn.totalBundles === '8', JSON.stringify(addOn));
+const none = size({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
+check('no footage is a blank Added ft, never 0', none.addedFeet === '', JSON.stringify(none));
+check('and houseBundleNeed hands an add-on its whole-house count',
+  /topUp: true[\s\S]{0,200}totalBundles: Math\.ceil\(feet \/ FEET_PER_BUNDLE\)/.test(lift('houseBundleNeed')),
+  'whBuildSizeCells reads need.totalBundles on an add-on');
+if (whRow && prRow) {
+  check('both build sheets print the same Added ft', whRow.addedFeet === prRow.addedFeet,
+    JSON.stringify([whRow.addedFeet, prRow.addedFeet]));
+  check('both build sheets print the same Total bundles', whRow.totalBundles === prRow.totalBundles,
+    JSON.stringify([whRow.totalBundles, prRow.totalBundles]));
+}
+check('the warehouse sheet has Added ft and Total bundles columns',
+  /label:'Added ft'/.test(whCols) && /label:'Total bundles'/.test(whCols));
 
 console.log('\n=======================================================');
 console.log('Warehouse note — ' + pass + ' passed, ' + fail + ' failed');

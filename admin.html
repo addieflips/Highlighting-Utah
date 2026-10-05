@@ -25720,7 +25720,9 @@ function houseBundleNeed(d){
   if(have > 0 && feet > have){
     const extra = feet - have;
     return withTyped({feet: extra, bundles: Math.ceil(extra / FEET_PER_BUNDLE), estimated: estimated,
-            unknown: false, topUp: true, have: have, total: feet});
+            unknown: false, topUp: true, have: have, total: feet,
+            /* The whole house's count once the add-on is in — see whBuildSizeCells. */
+            totalBundles: Math.ceil(feet / FEET_PER_BUNDLE)});
   }
   if(!feet) return withTyped({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
   return withTyped({feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated,
@@ -53738,7 +53740,7 @@ function whToggleGroup(listId){
    assigned one of her four on a coin toss. A wrong provenance printed beside a name is
    worse than an honest "we do not know", and it fills itself in from here on. */
 const WH_BUILD_REASONS = {
-  'new':      {label: 'NEW',           bg: '#E4F0E6', color: '#2C6135'},
+  'new':      {label: 'NEW HANG',      bg: '#E4F0E6', color: '#2C6135'},
   'rebuild':  {label: 'OLD-REBUILD',   bg: '#E5EAF7', color: '#31447E'},
   'portal':   {label: 'MEMBER PORTAL', bg: '#F3E8F6', color: '#6B3F7A'},
   'request':  {label: 'REQUEST',       bg: '#FBF0DF', color: '#8A5A12'},
@@ -53750,6 +53752,14 @@ function whBuildReasonKey(d){
      stays set on somebody who joined in a previous season, so the flag alone would badge
      half the book NEW. */
   if(c.chargeNewMemberFee === true && !c.requoteAppliedAt) return 'new';
+  /* ⭐ AND EVERY OTHER NEW HANG (2026-10-05). Dax: "if they are a new hang it should say
+     somewhere that they are a new hang." The fee box is only one way in — a quote converted
+     into a customer is a new hang the Schedule already knows about ([[SCH-108]]), and those
+     rows printed with no badge at all. Asked through the Schedule's own rule rather than a
+     copy of it; false until the Schedule has loaded, never a guess. Same re-quote exclusion
+     as the line above. */
+  if(!c.requoteAppliedAt && typeof window !== 'undefined' && window &&
+     typeof window.customerIsNewHangData === 'function' && window.customerIsNewHangData(d)) return 'new';
   /* A re-quote that was actually applied. ⚠ 'price' is deliberately not here — a
      price-only re-quote changes no glass, queues no build, and would never reach this
      list; badging it a rebuild would describe work nobody is doing. */
@@ -55052,6 +55062,8 @@ function whSheetRowsForBuild(){
            bundles for a house that needs four. ⚠ Type still says House/ADD-ON
            exactly, because the summary counts houses by matching that string. */
         bundles: (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''),
+        addedFeet: whBuildSizeCells(need).addedFeet,
+        totalBundles: whBuildSizeCells(need).totalBundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
         /* Said in words as well as in the Type column, because Notes is what gets read
@@ -55125,12 +55137,38 @@ function whBuildSheetPages(){
     if(houses) bits.push(houses + ' house' + (houses === 1 ? '' : 's'));
     if(bundles) bits.push(bundles + ' bundle' + (bundles === 1 ? '' : 's'));
     if(timers) bits.push(timers + ' timer' + (timers === 1 ? '' : 's'));
-    /* ⚠ "SHEET X OF Y" IS THE POINT OF SPLITTING. Once the stack is handed out, the one
-       thing nobody can tell from a single page is whether they are holding all of them,
-       and a build that quietly lost a page is a house nobody makes. */
-    bits.push('sheet ' + (i + 1) + ' of ' + order.length);
+    /* "Sheet X of Y" is added by whPackBuildSheets, which knows how many pieces of paper
+       there really are once the small groups share one. */
     return {title: g, summary: bits.join(' \u00b7 '), rows: rows, columns: sheet.columns};
   });
+}
+/* ⭐ SMALL COLOUR GROUPS SHARE A PAGE (2026-10-05). Dax: "some colors only have like one
+   house on it for those we want to mush multiple colors onto one page." One page per group
+   ([[WH-24]]-era, Addie) printed a whole sheet of paper for a single row.
+   ⚠ EACH GROUP KEEPS ITS OWN HEADING AND TABLE on the shared page — the pile is still the
+   unit somebody builds from, it just no longer costs a sheet of paper on its own.
+   ⚠ IN ORDER, NEVER RE-SORTED. Groups are packed greedily as they come, so the stack reads
+   in the same order as the tab; a group that would overflow the page starts the next one,
+   and a big group fills a page (or more) by itself as before.
+   Budget: a landscape page holds about 26 rows at this size; a group's heading, summary and
+   column header cost about 3 rows. */
+const WH_SHEET_ROW_BUDGET = 26;
+const WH_SHEET_GROUP_COST = 3;
+function whPackBuildSheets(groups){
+  const sheets = [];
+  let cur = null, used = 0;
+  (groups || []).forEach(function(g){
+    const cost = (g.rows ? g.rows.length : 0) + WH_SHEET_GROUP_COST;
+    if(!cur || used + cost > WH_SHEET_ROW_BUDGET){
+      cur = {parts: []}; used = 0; sheets.push(cur);
+    }
+    cur.parts.push(g); used += cost;
+  });
+  /* ⚠ "SHEET X OF Y" IS STILL THE POINT. Once the stack is handed out, the one thing nobody
+     can tell from a single page is whether they are holding all of them, and a build that
+     quietly lost a page is a house nobody makes. Counted in PAPER, after packing. */
+  sheets.forEach(function(s, i){ s.sheetLabel = 'sheet ' + (i + 1) + ' of ' + sheets.length; });
+  return sheets;
 }
 function whSheetRowsForRecycle(){
   const built = whRecycleGroups();
@@ -55233,7 +55271,13 @@ function whSheetTable(rows, columns){
    to take a single table; the build sheet is one page per colour group now, and the
    recycle sheet passes an array of one rather than keeping a second code path alive. */
 function whOpenPrintWindow(title, sections, emptyNote){
-  const live = (sections || []).filter(function(x){ return x && x.tableHtml; });
+  /* A section is one page: either one table ({title, summary, tableHtml}) or several groups
+     sharing it ({parts: [...], sheetLabel}) — see whPackBuildSheets. */
+  const live = (sections || []).map(function(x){
+    if(!x || !x.parts) return x;
+    const parts = x.parts.filter(function(p){ return p && p.tableHtml; });
+    return parts.length ? Object.assign({}, x, {parts: parts}) : null;
+  }).filter(function(x){ return x && (x.tableHtml || x.parts); });
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
     'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
@@ -55249,12 +55293,20 @@ function whOpenPrintWindow(title, sections, emptyNote){
     // no column names on it is a page nobody can read.
     'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px; color:#555;}'+
+    '.part + .part{margin-top:18px;}'+
     /* The break is what makes a page a page. Not on the last one, or every print
        ends with a blank sheet. */
     '.sheet{page-break-after:always;} .sheet:last-child{page-break-after:auto;}'+
     '@page{size:landscape; margin:10mm;}'+
     '</style></head><body>'+
     (live.length ? live.map(function(p){
+      if(p.parts){
+        return '<div class="sheet">'+p.parts.map(function(q){
+          return '<div class="part"><h1>'+esc(q.title || title)+'</h1>'+
+            '<div class="sub">'+esc(today)+(q.summary ? ' &middot; '+esc(q.summary) : '')+
+            (p.sheetLabel ? ' &middot; '+esc(p.sheetLabel) : '')+'</div>'+q.tableHtml+'</div>';
+        }).join('')+'</div>';
+      }
       return '<div class="sheet"><h1>'+esc(p.title || title)+'</h1>'+
         '<div class="sub">'+esc(today)+(p.summary ? ' &middot; '+esc(p.summary) : '')+'</div>'+
         p.tableHtml+'</div>';
@@ -55383,6 +55435,25 @@ function whBuiltUpdates(){
           buildBundleOverride: null,
           lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
 }
+/* ⭐ FEET BACK ON THE PAPER (2026-10-05). Dax: "in the warehouse on builds it says what to
+   build but not how many feet ... we need to make sure the feet are printed as well", and
+   then, settled: "it should print total bundles and added feet". This reverses the owner's
+   2026-08-21 "bundles is fine for warehouse" — the newer answer wins (R-024).
+   Added ft is the footage being built today: the whole house, or on an add-on only the extra
+   (marked +). Total bundles is the whole house once it is done, so on an add-on it is the
+   bin's count after this goes in. Bundles stays as its own column — it is what to make now,
+   and the per-page totals add it up.
+   " est" travels with both when the footage was worked back from the price. Blank, never 0,
+   when there is no footage — a 0 reads as a measurement. */
+function whBuildSizeCells(need){
+  if(!need) return {addedFeet: '', totalBundles: ''};
+  const est = need.estimated ? ' est' : '';
+  const total = need.topUp ? (need.totalBundles || '') : need.bundles;
+  return {
+    addedFeet: (need.unknown || !need.feet) ? '' : ((need.topUp ? '+' : '') + need.feet + est),
+    totalBundles: total ? (total + est) : ''
+  };
+}
 function whNotesCell(d, isTopUp){
   const t = whNoteText(d);
   if(isTopUp) return 'GOES INTO THE BIN THEY ALREADY HAVE' + (t ? ' \u2014 ' + t : '');
@@ -55418,6 +55489,9 @@ const WH_BUILD_COLUMNS = [
      off a shelf. Bundles is derived from feet, so printing both asked the warehouse
      to check a sum that was never theirs to check. */
   {key:'bundles', label:'Bundles', num:true},
+  /* See whBuildSizeCells. */
+  {key:'addedFeet', label:'Added ft', num:true},
+  {key:'totalBundles', label:'Total bundles', num:true},
   {key:'timer', label:'Timer'},
   /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
      "when built put into Ashley Wray #909" in the blank column on the right, and then:
@@ -55581,10 +55655,12 @@ function whPrintBuildSheet(){
   /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
      whole-sheet totals that used to sit here have moved onto each page, because a page
      handed to somebody building one pile needs THEIR numbers, not the morning's. */
-  const pages = whBuildSheetPages();
+  const sheets = whPackBuildSheets(whBuildSheetPages());
   whOpenPrintWindow('Warehouse \u2014 Build Sheet',
-    pages.map(function(p){
-      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    sheets.map(function(s){
+      return {sheetLabel: s.sheetLabel, parts: s.parts.map(function(p){
+        return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+      })};
     }),
     'Nothing needs to be built right now.');
 }
@@ -79541,6 +79617,8 @@ const PRINT_COLUMNS = {
                  being asked to do. A top-up shows the ADD-ON's bundles, not the whole
                  house's — that is the number they are making today. */
               {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
+              /* Feet back on, 2026-10-05 — see whBuildSizeCells. */
+              {k: 'addedFeet', label: 'Added ft'}, {k: 'totalBundles', label: 'Total bundles'},
               {k: 'putInto', label: 'When built, put into'},
               /* ⚠ THIS REVERSES PART OF HER OWN 2026-08-24 TRIM OF THIS SHEET, and the
                  older reasoning is kept a few lines up because it is still right about
@@ -79691,6 +79769,11 @@ function printNeedsBuildList(){
               bundles: need
                 ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
                 : '',
+              addedFeet: whBuildSizeCells(need).addedFeet,
+              totalBundles: whBuildSizeCells(need).totalBundles,
+              /* ⚠ THE WHY COLUMN WAS NEVER FILLED on this sheet — the heading printed and
+                 every cell under it was blank, so a new hang looked like any other row. */
+              reason: (typeof whBuildReasonLabel === 'function') ? whBuildReasonLabel(d) : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */
