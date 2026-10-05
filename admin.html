@@ -55063,6 +55063,7 @@ function whSheetRowsForBuild(){
            exactly, because the summary counts houses by matching that string. */
         bundles: (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''),
         addedFeet: whBuildSizeCells(need).addedFeet,
+        totalFeet: whBuildSizeCells(need).totalFeet,
         totalBundles: whBuildSizeCells(need).totalBundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
@@ -55152,9 +55153,9 @@ function whBuildSheetPages(){
    and a big group fills a page (or more) by itself as before.
    Budget: MEASURED, not guessed (2026-10-05). 26 printed every shared page with a few rows spilling
    onto a second sheet, because addresses and colour names wrap each row to two lines. Re-packing that
-   day's real sheet (37 groups) and printing each page: 20 fit, 21 spilled — 18 keeps a margin for a
-   day with longer notes. A group's heading, summary and column header cost about 3 rows. */
-const WH_SHEET_ROW_BUDGET = 18;
+   day's real sheet (37 groups) and printing each page: with Total ft added as well, 17 fit and 18
+   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows. */
+const WH_SHEET_ROW_BUDGET = 16;
 const WH_SHEET_GROUP_COST = 3;
 function whPackBuildSheets(groups){
   const sheets = [];
@@ -55447,12 +55448,17 @@ function whBuiltUpdates(){
    and the per-page totals add it up.
    " est" travels with both when the footage was worked back from the price. Blank, never 0,
    when there is no footage — a 0 reads as a measurement. */
+/* ⭐ AND TOTAL FT (2026-10-05, same day). Dax, holding the printed page: "for builds it needs
+   to give the details like total feet and added feet". Total ft is the whole house once the
+   build is in — on an add-on, the bin's footage after the extra joins it. */
 function whBuildSizeCells(need){
-  if(!need) return {addedFeet: '', totalBundles: ''};
+  if(!need) return {addedFeet: '', totalFeet: '', totalBundles: ''};
   const est = need.estimated ? ' est' : '';
   const total = need.topUp ? (need.totalBundles || '') : need.bundles;
+  const known = !(need.unknown || !need.feet);
   return {
-    addedFeet: (need.unknown || !need.feet) ? '' : ((need.topUp ? '+' : '') + need.feet + est),
+    addedFeet: known ? ((need.topUp ? '+' : '') + need.feet + est) : '',
+    totalFeet: known ? ((need.topUp ? need.total : need.feet) + est) : '',
     totalBundles: total ? (total + est) : ''
   };
 }
@@ -55493,6 +55499,7 @@ const WH_BUILD_COLUMNS = [
   {key:'bundles', label:'Bundles', num:true},
   /* See whBuildSizeCells. */
   {key:'addedFeet', label:'Added ft', num:true},
+  {key:'totalFeet', label:'Total ft', num:true},
   {key:'totalBundles', label:'Total bundles', num:true},
   {key:'timer', label:'Timer'},
   /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
@@ -79620,7 +79627,8 @@ const PRINT_COLUMNS = {
                  house's — that is the number they are making today. */
               {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
               /* Feet back on, 2026-10-05 — see whBuildSizeCells. */
-              {k: 'addedFeet', label: 'Added ft'}, {k: 'totalBundles', label: 'Total bundles'},
+              {k: 'addedFeet', label: 'Added ft'}, {k: 'totalFeet', label: 'Total ft'},
+              {k: 'totalBundles', label: 'Total bundles'},
               {k: 'putInto', label: 'When built, put into'},
               /* ⚠ THIS REVERSES PART OF HER OWN 2026-08-24 TRIM OF THIS SHEET, and the
                  older reasoning is kept a few lines up because it is still right about
@@ -79772,6 +79780,7 @@ function printNeedsBuildList(){
                 ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
                 : '',
               addedFeet: whBuildSizeCells(need).addedFeet,
+              totalFeet: whBuildSizeCells(need).totalFeet,
               totalBundles: whBuildSizeCells(need).totalBundles,
               /* ⚠ THE WHY COLUMN WAS NEVER FILLED on this sheet — the heading printed and
                  every cell under it was blank, so a new hang looked like any other row. */

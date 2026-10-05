@@ -25919,7 +25919,7 @@ suite('Suite 104. The Printing tab');
        every crew sheet. Asserted as the WHOLE list in order, not as "contains notes",
        because the position is the half that matters. */
     check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
-      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,addedFeet,totalBundles,putInto,notes',
+      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,addedFeet,totalFeet,totalBundles,putInto,notes',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
