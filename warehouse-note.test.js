@@ -326,9 +326,11 @@ const size = new Function(src.whBuildSizeCells + 'return whBuildSizeCells;')();
 const plain = size({feet: 205, bundles: 6, estimated: true, unknown: false, topUp: false});
 check('a whole house prints its feet as Added ft', plain.addedFeet === '205 est', JSON.stringify(plain));
 check('a whole house prints its bundle count as Total bundles', plain.totalBundles === '6 est', JSON.stringify(plain));
+check('a whole house prints its feet as Total ft too', plain.totalFeet === '205 est', JSON.stringify(plain));
 const addOn = size({feet: 80, bundles: 3, estimated: false, unknown: false, topUp: true, total: 280, totalBundles: 8});
 check('an add-on prints only the extra feet, marked +', addOn.addedFeet === '+80', JSON.stringify(addOn));
 check('an add-on prints the whole bin\'s bundles as Total bundles', addOn.totalBundles === '8', JSON.stringify(addOn));
+check('an add-on prints the whole bin\'s feet as Total ft', addOn.totalFeet === '280', JSON.stringify(addOn));
 const none = size({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
 check('no footage is a blank Added ft, never 0', none.addedFeet === '', JSON.stringify(none));
 check('and houseBundleNeed hands an add-on its whole-house count',
@@ -337,11 +339,13 @@ check('and houseBundleNeed hands an add-on its whole-house count',
 if (whRow && prRow) {
   check('both build sheets print the same Added ft', whRow.addedFeet === prRow.addedFeet,
     JSON.stringify([whRow.addedFeet, prRow.addedFeet]));
+  check('both build sheets print the same Total ft', whRow.totalFeet === prRow.totalFeet,
+    JSON.stringify([whRow.totalFeet, prRow.totalFeet]));
   check('both build sheets print the same Total bundles', whRow.totalBundles === prRow.totalBundles,
     JSON.stringify([whRow.totalBundles, prRow.totalBundles]));
 }
 check('the warehouse sheet has Added ft and Total bundles columns',
-  /label:'Added ft'/.test(whCols) && /label:'Total bundles'/.test(whCols));
+  /label:'Added ft'/.test(whCols) && /label:'Total ft'/.test(whCols) && /label:'Total bundles'/.test(whCols));
 
 console.log('\n=======================================================');
 console.log('Warehouse note — ' + pass + ' passed, ' + fail + ' failed');
