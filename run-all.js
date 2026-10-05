@@ -2563,7 +2563,7 @@ check('flow', 'every newly added house is flagged for the warehouse',
    Check lights key and are built like anybody else. The claim is unchanged — flagging a
    house with no colours is only safe because it still reaches a list somebody works. */
 {
-  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups');
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildQueueGroups');
   check('flow', 'and a house with none still reaches a pile somebody actually works',
     /isOutForSeason\(d\)\)\) return;/.test(q) &&
       q.indexOf('whCheckLightsKey(d.wireColor)') > q.indexOf('isOutForSeason(d))) return;'),
@@ -25899,9 +25899,12 @@ suite('Suite 104. The Printing tab');
     check('S104', 'the build list carries everything the warehouse makes up',
       keys('build').indexOf('number,name,bins,reason,lights,wire,timer,bundles') === 0,
       'got ' + keys('build'));
-    check('S104', 'and the build list does NOT carry feet',
-      keys('build').indexOf('feet') === -1,
-      'feet is the office number - it prices the job and sizes the bins');
+    /* ⭐ FEET ARE BACK, AS ADDED FT (2026-10-05). Dax: "it should print total bundles and
+       added feet." The raw office footage still stays off (no bare 'feet' key) — Added ft
+       is the footage being built today, Total bundles the whole house. */
+    check('S104', 'and the build list does NOT carry the raw office feet',
+      keys('build').split(',').indexOf('feet') === -1,
+      'Added ft (addedFeet) is the build footage; the bare office number stays off');
     /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
        is already on the shelf, and a finished bundle nobody can place is the thing that
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
@@ -25916,7 +25919,7 @@ suite('Suite 104. The Printing tab');
        every crew sheet. Asserted as the WHOLE list in order, not as "contains notes",
        because the position is the half that matters. */
     check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
-      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto,notes',
+      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,addedFeet,totalBundles,putInto,notes',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -27932,7 +27935,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -28016,7 +28019,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whWireLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
@@ -29138,7 +29141,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -29576,7 +29579,7 @@ suite('Suite 112. The number on the bin');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
@@ -29650,7 +29653,7 @@ suite('Suite 112. The number on the bin');
            blank cell — and this sandbox died with a bare ReferenceError until the real one
            was given to it. The extraction-list trap, for the ninth time in this file; a stub
            would keep the suite green through a change to what the warehouse is told. */
-        extractFn(admin, 'whWireLabel') +
+        extractFn(admin, 'whWireLabel') + extractFn(admin, 'whBuildSizeCells') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',

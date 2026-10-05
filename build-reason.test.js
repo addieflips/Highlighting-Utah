@@ -85,6 +85,20 @@ const sb = new Function(reasonsSrc + fn('esc') + fn('whBuildReasonKey') +
   'return {WH_BUILD_REASONS, key: whBuildReasonKey, chip: whBuildReasonChip, label: whBuildReasonLabel};')();
 const { WH_BUILD_REASONS } = sb;
 
+/* ⭐ A NEW HANG THE FEE BOX DOES NOT KNOW ABOUT (2026-10-05). Dax: "if they are a new hang
+   it should say somewhere that they are a new hang." A quote converted into a customer is a
+   new hang by the Schedule's rule (window.customerIsNewHangData) without the fee box ticked. */
+{
+  const prev = global.window;
+  global.window = { customerIsNewHangData: () => true };
+  try {
+    check('a new hang by the Schedule\'s rule badges NEW HANG without the fee box',
+      sb.key({ lightsChangedAt: 1 }) === 'new');
+    check('a re-quoted member is still not a new hang',
+      sb.key({ requoteAppliedAt: 1, requoteKind: 'address' }) === 'rebuild');
+  } finally { if (prev === undefined) delete global.window; else global.window = prev; }
+}
+
 // ---------------------------------------------------------------------------
 // THE TABLE. One row per thing that can bring a house to the warehouse.
 // ---------------------------------------------------------------------------
@@ -130,8 +144,9 @@ CASES.forEach(([name, rec, want]) => {
 // ---------------------------------------------------------------------------
 /* ⭐ HER FOUR WORDS, SPELLED THE WAY SHE ASKED FOR THEM. A badge is read at a glance off
    a shelf; "Rebuild" and "Old-Rebuild" are not the same word to somebody scanning for
-   one of four. Renaming one is her call, not a tidy-up. */
-[['new', 'NEW'], ['rebuild', 'OLD-REBUILD'], ['portal', 'MEMBER PORTAL'],
+   one of four. Renaming one is her call, not a tidy-up.
+   ⭐ NEW became NEW HANG on 2026-10-05, asked for: "it should say somewhere that they are a new hang". */
+[['new', 'NEW HANG'], ['rebuild', 'OLD-REBUILD'], ['portal', 'MEMBER PORTAL'],
  ['request', 'REQUEST']].forEach(([key, label]) => {
   check('the ' + key + ' badge still reads "' + label + '"',
     WH_BUILD_REASONS[key] && WH_BUILD_REASONS[key].label === label,
@@ -381,7 +396,7 @@ const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'hou
      this gate still green — which is the whole reason it is one function. The sandbox
      died with a bare "whNotesCell is not defined" the moment it was added, which is the
      extraction-list trap working as intended. */
-  reasonsSrc + fn('whNoteText') + fn('whNotesCell') +
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') +
   fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   /* ⚠ LIFTED, NEVER STUBBED, for the reason above one more time ([[WH-41]]). This decides
      the heading a house with no colours on file is built under; a stub here would let that
