@@ -53879,6 +53879,8 @@ function whBuildQueueGroups(){
        group, and heading it “Check lights” would send somebody to look up colours nobody
        ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
+    /* Only "check lights" left to do — see whOnlyCheckLights. */
+    if(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d)) return;
     /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
        whCheckLightsKey: the house is built like any other and the heading says to go and
        look at the bundle, which is the job somebody actually does. */
@@ -54992,6 +54994,7 @@ function whSheetRowsForBuild(){
     const d = item.data;
     rows.push({
       group: 'Remove timer',
+      todo: 'TAKE THE TIMER OUT of their bin \u2014 they do not want one.',
       wire: '',
       type: 'REMOVE TIMER',
       reason: whBuildReasonLabel(d),
@@ -55003,16 +55006,18 @@ function whSheetRowsForBuild(){
          instruction — printing YES here is how one comes back out of the van. */
       timer: 'TAKE OUT',
       putInto: whPutIntoLabel(d),
-      notes: 'THEY DO NOT WANT A TIMER ' + String.fromCharCode(8212) + ' take it out of their bin' +
-             (d.needsLightBuild ? ' (they are also having a set built)' : '') +
-             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+      notes: (d.needsLightBuild ? 'They are also having a set built.' : '') +
+             (d.notes ? (d.needsLightBuild ? ' ' : '') + String(d.notes).trim() : '')
     });
   });
   (built.timerHouses || []).forEach(function(item){
     const d = item.data;
-    if(d.needsLightBuild || !d.needsTimerOnly) return;
+    /* A "check lights only" house that wants a timer is a timer job now — see whOnlyCheckLights. */
+    const checkOnly = typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d);
+    if(!checkOnly && (d.needsLightBuild || !d.needsTimerOnly)) return;
     rows.push({
       group: 'Timer only',
+      todo: 'ADD A TIMER \u2014 nothing to build.',
       wire: '',
       type: 'TIMER ONLY',
       reason: whBuildReasonLabel(d),
@@ -55022,8 +55027,7 @@ function whSheetRowsForBuild(){
       bundles: '',
       timer: 'YES',
       putInto: whPutIntoLabel(d),
-      notes: 'TIMER ONLY ' + String.fromCharCode(8212) + ' nothing to build, just a timer in their bin' +
-             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+      notes: d.notes ? String(d.notes).trim() : ''
     });
   });
   built.keys.forEach(function(key){
@@ -55044,6 +55048,7 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
+        todo: whBuildTodo(d, need),
         /* ⚠ A BLOCKED OR ADD-ON ROW STILL HAS A REASON. Type and Why answer two different
            questions and neither substitutes for the other: an add-on for somebody who extended
            their house is an ADD-ON that is an OLD-REBUILD. */
@@ -55078,6 +55083,8 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
+        todo: isTimer ? 'Spare timer' + ((Number(e.data.quantity) || 1) > 1 ? 's \u00d7 ' + (Number(e.data.quantity) || 1) : '')
+                      : 'Spare stock \u2014 ' + (Number(e.data.quantity) || 1) + ' bundle' + ((Number(e.data.quantity) || 1) === 1 ? '' : 's'),
         /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
            never one of the five — a badge on a row nobody asked for is a claim about somebody
            who does not exist. */
@@ -55462,54 +55469,64 @@ function whBuildSizeCells(need){
     totalBundles: total ? (total + est) : ''
   };
 }
+/* ⭐⭐ ONE PLAIN INSTRUCTION PER ROW (2026-10-05). Dax: "honestly it should just be set up the
+   easiest way for the workers, if its a add a timer then dont give them info they dont need just
+   tell them to add a timer if its extend a house, say we already have the house we just have an
+   extension, if its a build from scratch say its a new hang". He picked this layout from a mockup.
+   This REPLACES the column-per-fact sheet — Group, Wire, Type, Why, Bundles, Added ft, Total ft,
+   Total bundles, Timer and "When built, put into" were each right on their own and together made
+   a page a worker had to decode. Every fact a job needs is in its one sentence; nothing a job
+   does not need is on its row. The row objects still carry every field (the per-page totals and
+   the screen read them), only the PAPER changed.
+   ⚠ ONE FUNCTION, BOTH SHEETS — the same rule as whNotesCell, for the same reason.
+   ⚠ "NEW HANG" IS whBuildReasonKey's answer, which follows the Schedule's own new-hang rule;
+   anything else that is a whole set (a colour change, a move) is a REBUILD. */
+/* ⭐ "CHECK LIGHTS" AND NOTHING ELSE IS NOT A BUILD (2026-10-05). Dax: "if the only thing for
+   them to do is check the lights we did that over the summer so they can be removed from the
+   build list." A house with no colours on file, that is not a new hang, not an extension, and
+   has no re-quote or colour change behind it (whBuildReasonKey blank) is a returning customer the
+   master-sheet sync flagged on import — their set already exists and was checked over the summer.
+   ⚠ THE FLAG IS LEFT ALONE. This only keeps them off the build list and both build sheets; a new
+   hang with no colours still prints, because that one really does have to be made.
+   ⚠ A TIMER STILL REACHES THEM: they stay in whBuildQueueGroups' timerHouses (pushed before the
+   return), and whSheetRowsForBuild prints them as ADD A TIMER. */
+function whOnlyCheckLights(d){
+  if(!d || !d.needsLightBuild) return false;
+  if(typeof houseLightsText === 'function' && houseLightsText(d)) return false;
+  if(typeof houseBundleNeed === 'function' && houseBundleNeed(d).topUp) return false;
+  return (typeof whBuildReasonKey === 'function') ? whBuildReasonKey(d) === '' : false;
+}
+function whBuildTodo(d, need){
+  if(!need) return '';
+  const est = need.estimated ? ' (estimated)' : '';
+  const b = function(n){ return n + ' bundle' + (Number(n) === 1 ? '' : 's'); };
+  const timer = String((d && d.outletTimer) || '').trim() === 'Yes' ? ' Add a timer.' : '';
+  if(need.topUp){
+    const bin = (typeof whPutIntoLabel === 'function') ? whPutIntoLabel(d) : '';
+    return 'EXTENSION — we already have their house. Build only the extra ' + need.feet + ' ft' + est +
+      ' (' + b(need.bundles) + ') and put it in their bin' + (bin ? ': ' + bin : '') + '.' + timer;
+  }
+  const size = (need.unknown || !need.feet)
+    ? b(need.bundles) + ' — no footage on file, check before building'
+    : need.feet + ' ft' + est + ', ' + b(need.bundles);
+  const isNew = (typeof whBuildReasonKey === 'function') && whBuildReasonKey(d) === 'new';
+  return (isNew ? 'NEW HANG — build the whole house: ' : 'REBUILD — existing customer, new set: ') +
+    size + '.' + timer;
+}
 function whNotesCell(d, isTopUp){
   const t = whNoteText(d);
   if(isTopUp) return 'GOES INTO THE BIN THEY ALREADY HAVE' + (t ? ' \u2014 ' + t : '');
   return t;
 }
+/* ⭐ WHAT THE WAREHOUSE PRINTS (2026-10-05) — see whBuildTodo for why it is this short.
+   Colour and wire are the page heading (one page per pile), so they are not repeated per row.
+   Bins stays: Addie, 2026-08-25, "Everyone needs to know how many bins there are for each
+   house". Notes stays last, where a wide free-text column cannot push a short one off the edge. */
 const WH_BUILD_COLUMNS = [
-  {key:'group', label:'Group'},
-  {key:'wire', label:'Wire'},
-  {key:'type', label:'Type'},
-  /* ⭐ WHY THIS BUNDLE IS BEING BUILT, ON PAPER (added 2026-08-24). Addie: "I need paper
-     to carry badge too." It sits beside Type deliberately: Type says WHAT the row is (a
-     house, an add-on, a blocked one) and Why says where it came from, and an eye scanning
-     one column picks up the other. Notes is the wide free-text column and anything put
-     after it is lost against a wall of writing — the same argument that fixes the Timer
-     column's position on every crew sheet. Blank on buffer stock, which has no customer
-     behind it and so no provenance to claim. */
-  {key:'reason', label:'Why'},
-  {key:'what', label:'Customer / Item'},
+  {key:'what', label:'Customer'},
   {key:'address', label:'Address'},
-  /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
-     bins were making for them but costumer # should also show next to costumers
-     name." This column held the CUSTOMER number under a header that said Bin # —
-     true in the sense that the bin gets that number painted on it, and useless for
-     the question the warehouse is actually asking, which is how many bins to put
-     this house's lights into. The customer number moved into the Customer column
-     beside the name, where it reads as an identifier instead of a quantity.
-     ⚠ NOT the same column as WH_RECYCLE_COLUMNS' "Bin # to find". That one IS the
-     painted number, because finding a bin on a shelf is exactly what it is for. */
+  {key:'todo', label:'What to do'},
   {key:'bins', label:'Bins', num:true},
-  /* ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles.
-     I think how many bundles is fine for warehouse." Feet is the office's number —
-     it prices the job and sizes the bins — and bundles is the one somebody counts
-     off a shelf. Bundles is derived from feet, so printing both asked the warehouse
-     to check a sum that was never theirs to check. */
-  {key:'bundles', label:'Bundles', num:true},
-  /* See whBuildSizeCells. */
-  {key:'addedFeet', label:'Added ft', num:true},
-  {key:'totalFeet', label:'Total ft', num:true},
-  {key:'totalBundles', label:'Total bundles', num:true},
-  {key:'timer', label:'Timer'},
-  /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
-     "when built put into Ashley Wray #909" in the blank column on the right, and then:
-     "or I dont know if you have a better idea for this because its a tricky situation."
-     The blank column is where the warehouse ticks a row off, so an instruction printed
-     there takes away the place to mark it done. A column of its own lines up down the
-     page, is empty on every ordinary row so the ones that need it stand out, and
-     survives the paste into Excel this sheet is built for. */
-  {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
 ];
 /* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
@@ -79600,42 +79617,12 @@ const PRINT_COLUMNS = {
      bin on a top-up — a bundle that joins a bin already on the shelf. It is a column
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
+  /* ⭐ THE SAME PLAIN INSTRUCTION AS THE WAREHOUSE TAB'S SHEET (2026-10-05) — see whBuildTodo.
+     This list is not split by colour, so the colour and wire stay as columns here. Bins stays
+     (Addie, 2026-08-25: "Everyone needs to know how many bins there are for each house"). */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
-              /* ⭐ HOW MANY BINS, ON EVERY SHEET (2026-08-25). Addie: "Everyone needs to
-                 know how many bins there are for each house so bin # and costumer #
-                 does matter."
-                 ⚠ THIS REVERSES HER OWN TRIMMING OF 2026-08-24, which is kept in the
-                 note below because the reasoning was sound at the time: "warehouse
-                 people should know 5000 means 2 bins so not necessary to put how many
-                 bins on there", then "just put how many bins will be needed if it is
-                 more than 2 bins." That made the count CONDITIONAL — it appeared only
-                 above two — so a house on a regular number said nothing at all and the
-                 person carrying the paper had to know the 5000 rule to read it.
-                 ⚠ AND THE CONDITIONAL NOTE IS GONE WITH IT. A column and a note saying
-                 the same thing on one row is noise, and the note was only ever there
-                 because there was no column. */
-              {k: 'bins', label: 'Bins'},
-              /* The same badge the warehouse tab shows, in words — see WH_BUILD_COLUMNS. */
-              {k: 'reason', label: 'Why'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
-              /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
-                 and bundles. I think how many bundles is fine for warehouse." Feet is
-                 what the office measures and prices; bundles is what somebody actually
-                 counts off a shelf, and it is derived from the feet anyway
-                 (houseBundleNeed), so printing both put a sum on the sheet nobody was
-                 being asked to do. A top-up shows the ADD-ON's bundles, not the whole
-                 house's — that is the number they are making today. */
-              {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
-              /* Feet back on, 2026-10-05 — see whBuildSizeCells. */
-              {k: 'addedFeet', label: 'Added ft'}, {k: 'totalFeet', label: 'Total ft'},
-              {k: 'totalBundles', label: 'Total bundles'},
-              {k: 'putInto', label: 'When built, put into'},
-              /* ⚠ THIS REVERSES PART OF HER OWN 2026-08-24 TRIM OF THIS SHEET, and the
-                 older reasoning is kept a few lines up because it is still right about
-                 width: she cut this sheet down herself so it would read on landscape
-                 paper. R-024 — the newer answer wins, and it is said out loud rather
-                 than applied quietly. Notes goes LAST, where a wide free-text column
-                 cannot push a scannable one off the edge. */
+              {k: 'todo', label: 'What to do'}, {k: 'bins', label: 'Bins'},
               {k: 'notes', label: 'Notes'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
@@ -79733,7 +79720,8 @@ function printNeedsBuildList(){
          COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
          here and have a column of their own on the tab — but they must not disagree about
          WHO is on them. */
-      return d.needsLightBuild;
+      /* And the same "check lights only" exclusion as the warehouse tab — see whOnlyCheckLights. */
+      return d.needsLightBuild && !(typeof whOnlyCheckLights === 'function' && whOnlyCheckLights(d));
     })
     .map(function(a){
       const d = a.data || {};
@@ -79779,6 +79767,7 @@ function printNeedsBuildList(){
               bundles: need
                 ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
                 : '',
+              todo: need ? whBuildTodo(d, need) : '',
               addedFeet: whBuildSizeCells(need).addedFeet,
               totalFeet: whBuildSizeCells(need).totalFeet,
               totalBundles: whBuildSizeCells(need).totalBundles,
