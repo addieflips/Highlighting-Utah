@@ -53893,6 +53893,13 @@ function whBuildQueueGroups(){
        group, and heading it “Check lights” would send somebody to look up colours nobody
        ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
+    /* ⭐ ON THE COLOR CHANGE LIST IS NOT ALSO A BUILD (2026-10-05). Dax: "if theyre on color change they
+       dont need to be on build." Every door that queues a colour change sets needsColorChange AND
+       needsLightBuild, so ten of eleven colour changes sat on both lists — two pieces of paper for one
+       new set. The Color Change list is that job; its Mark Done clears the build flag as well (see
+       there), so a finished colour change cannot fall back onto this list. A timer they want is
+       still collected above. */
+    if(d.needsColorChange === true) return;
     /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
        whCheckLightsKey: the house is built like any other and the heading says to go and
        look at the bundle, which is the job somebody actually does. */
@@ -54108,12 +54115,19 @@ function renderWarehouseColorChangeQueue(){
       const who = ((item && item.data) || {}).name || 'That house';
       btn.disabled = true;
       try{
-        await updateDoc(doc(db,'jobAddresses', custId), {
-          needsColorChange: false,
-          colorChangeDoneAt: serverTimestamp()
-        });
+        /* ⭐ AND THE BUILD IS DONE TOO (2026-10-05). The colour change IS the new set, so the build flag
+           every colour-change door also sets is cleared here through whBuiltUpdates — the one place that
+           says what "made" means — or the house reappears on the build list the moment it leaves this
+           one and somebody makes a second set. Only when it was flagged: stamping lightsMarkedBuiltAt
+           on a house nobody queued would claim a build that never happened. */
+        const builtToo = !!(item && item.data && item.data.needsLightBuild);
+        const built = builtToo ? whBuiltUpdates() : {};
+        await updateDoc(doc(db,'jobAddresses', custId),
+          Object.assign({needsColorChange: false, colorChangeDoneAt: serverTimestamp()}, built));
         if(item && item.data){
-          Object.assign(item.data, {needsColorChange: false, colorChangeDoneAt: new Date()});
+          /* The mirror takes the same fields, with real dates in place of the server sentinels. */
+          Object.assign(item.data, built, {needsColorChange: false, colorChangeDoneAt: new Date()},
+                        builtToo ? {lightsMarkedBuiltAt: new Date()} : {});
         }
         toast(who + ' \u2014 colour change done');
         logActivity('Marked the colour change done for ' + who, 'customers', custId);
@@ -55093,8 +55107,17 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
-        todo: isTimer ? 'Spare timer' + ((Number(e.data.quantity) || 1) > 1 ? 's \u00d7 ' + (Number(e.data.quantity) || 1) : '')
-                      : 'Spare stock \u2014 ' + (Number(e.data.quantity) || 1) + ' bundle' + ((Number(e.data.quantity) || 1) === 1 ? '' : 's'),
+        /* ⚠ AN EXTRA WITH A CUSTOMER ON IT IS THEIR JOB, NOT SPARE STOCK (2026-10-05). Lori Pugh's
+           and Doug Smith's warehouse requests printed as "Spare stock" — a worker reading that
+           puts them on a shelf instead of in the customer's bin. */
+        todo: (function(){
+          const q = Number(e.data.quantity) || 1;
+          const forCust = !!(e.data.customerId || e.data.customerNumber);
+          if(isTimer) return forCust ? 'ADD A TIMER \u2014 put it in their bin.'
+                                     : 'Spare timer' + (q > 1 ? 's \u00d7 ' + q : '');
+          return forCust ? 'EXTRA FOR THIS CUSTOMER \u2014 build ' + q + ' bundle' + (q === 1 ? '' : 's') + ' and put ' + (q === 1 ? 'it' : 'them') + ' in their bin.'
+                         : 'Spare stock \u2014 ' + q + ' bundle' + (q === 1 ? '' : 's');
+        })(),
         /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
            never one of the five — a badge on a row nobody asked for is a claim about somebody
            who does not exist. */
@@ -55171,8 +55194,11 @@ function whBuildSheetPages(){
    Budget: MEASURED, not guessed (2026-10-05). 26 printed every shared page with a few rows spilling
    onto a second sheet, because addresses and colour names wrap each row to two lines. Re-packing that
    day's real sheet (37 groups) and printing each page: with Total ft added as well, 17 fit and 18
-   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows. */
-const WH_SHEET_ROW_BUDGET = 16;
+   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows.
+   ⭐ RE-MEASURED FOR THE ONE-SENTENCE SHEET (same evening). With What to do replacing the number
+   columns most rows are one line again, and 16 left every page about half empty. Re-packing the
+   live sheet and printing each page: 26 fit, 28 spilled — 24 keeps a margin. */
+const WH_SHEET_ROW_BUDGET = 24;
 const WH_SHEET_GROUP_COST = 3;
 function whPackBuildSheets(groups){
   const sheets = [];
@@ -55501,8 +55527,14 @@ function whBuildTodo(d, need){
     return 'EXTENSION — we already have their house. Build only the extra ' + need.feet + ' ft' + est +
       ' (' + b(need.bundles) + ') and put it in their bin' + (bin ? ': ' + bin : '') + '.' + timer;
   }
+  /* ⚠ A COUNT THE OFFICE TYPED IS THE JOB (2026-10-05). Elaine Hadfield's 20 ft bay-window
+     change printed as "new set: 100 ft (estimated), 1 bundle" — the house's footage beside a
+     one-bundle job. The typed count wins on its own; the note says what it is for. */
+  if(need.typedBundles){
+    return 'BUILD ' + b(need.typedBundles) + ' (set by the office \u2014 see notes).' + timer;
+  }
   const size = (need.unknown || !need.feet)
-    ? b(need.bundles) + ' — no footage on file, check before building'
+    ? b(need.bundles) + ' \u2014 no footage on file, check before building'
     : need.feet + ' ft' + est + ', ' + b(need.bundles);
   const isNew = (typeof whBuildReasonKey === 'function') && whBuildReasonKey(d) === 'new';
   return (isNew ? 'NEW HANG — build the whole house: ' : 'REBUILD — existing customer, new set: ') +
@@ -79715,7 +79747,8 @@ function printNeedsBuildList(){
          COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
          here and have a column of their own on the tab — but they must not disagree about
          WHO is on them. */
-      return d.needsLightBuild;
+      /* Same rule as the warehouse tab: a colour change is built from the Color Change list. */
+      return d.needsLightBuild && d.needsColorChange !== true;
     })
     .map(function(a){
       const d = a.data || {};
