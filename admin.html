@@ -74964,6 +74964,16 @@ function renderPanelInto(elId,day){
         ? '<button class="mini" data-printcrew="'+day.id+'" data-crew="'+i+'">Print '+esc(crewName(i))+'</button>'
         : '';
     }).join('')+
+    /* ⭐ THE SAME DAY'S PHONE NUMBERS, FOR A BULK TEXT (2026-10-05). Dax: "i need a way to bulk text everyone
+       on a given day, have it formatted for full day, crew 1 or crew 2, and then i can go to google voice
+       and bulk text it to them." Same three splits as the print buttons, and offered on the same rule —
+       only for a crew that has houses that day. See dayPhoneList. */
+    (n?'<button class="mini" data-phones="'+day.id+'" data-crew="all" title="Copy every phone number on this day for a bulk text">📱 Numbers: whole day</button>':'')+
+    CREWS.map(function(c,i){
+      return crewHousesFor(i,day).length
+        ? '<button class="mini" data-phones="'+day.id+'" data-crew="'+i+'" title="Copy '+esc(crewName(i))+'\'s phone numbers for a bulk text">📱 Numbers: '+esc(crewName(i))+'</button>'
+        : '';
+    }).join('')+
     (fr?'<button class="mini warn" data-disband="'+day.id+'">Disband route</button>':'')+'</div>';
   if(fr){h+='<div class="daycontrols" style="padding:10px 16px"><span class="lbl">Route date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'"><span class="read">the fixer’s route — can run the same day as installs'+(isWeekend(dt)?' · weekend':'')+'</span></div>';}
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
@@ -79101,6 +79111,8 @@ RT.addEventListener('click',e=>{const t=e.target;
                 ' crew'+(CREWS.length-1===1?'':'s')+' the next time you press Recalculate everything.')) return;
     setCrewCount(CREWS.length-1);return;
   }
+  const phonesEl=t.dataset.phones?t:t.closest('[data-phones]');
+  if(phonesEl){showDayPhones(phonesEl.dataset.phones,phonesEl.dataset.crew,phonesEl);return;}
   const printCrewEl=t.dataset.printcrew?t:t.closest('[data-printcrew]');
   if(printCrewEl){printCrewSheet(printCrewEl.dataset.printcrew,printCrewEl.dataset.crew);return;}
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');
@@ -79634,6 +79646,62 @@ function printCustData(h){
   const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h)
           : ((typeof customerForHouse === 'function') ? customerForHouse(h) : null);
   return (c && c.data) || {};
+}
+/* ⭐ WHO TO TEXT ON A DAY (2026-10-05) — see the 📱 buttons on the day panel. The numbers come off the
+   CUSTOMER record (printCustData, the same answer the crew sheets print), formatted (801) 555-1234 so
+   Google Voice's To box reads them. ⚠ TWO HOUSES ON ONE PHONE ARE ONE TEXT — a parent paying for a
+   child's house, or two houses of one household — so a number is listed once. ⚠ STOP IS HONOURED:
+   somebody who texted STOP (smsOptedOut) is left out and NAMED, never silently dropped. ⚠ AND A HOUSE
+   WITH NO USABLE NUMBER IS NAMED TOO, so the office knows who still has to be called or emailed. */
+function dayPhoneList(houses){
+  const seen=new Set(), numbers=[], noPhone=[], optedOut=[];
+  (houses||[]).forEach(function(h){
+    const d=printCustData(h)||{};
+    const name=d.name||h.name||'(no name)';
+    if(d.smsOptedOut){optedOut.push(name);return;}
+    let digits=String(d.phone||h.phone||'').replace(/\D/g,'');
+    if(digits.length===11&&digits.charAt(0)==='1')digits=digits.slice(1);
+    if(digits.length!==10){noPhone.push(name);return;}
+    if(seen.has(digits))return;
+    seen.add(digits);
+    numbers.push('('+digits.slice(0,3)+') '+digits.slice(3,6)+'-'+digits.slice(6));
+  });
+  return {numbers:numbers,noPhone:noPhone,optedOut:optedOut};
+}
+/* Draws the list under the day's buttons and copies it. ⚠ GOOGLE VOICE HAS NO SEND-SEPARATELY: numbers
+   pasted together in one To box become ONE GROUP TEXT (everyone sees everyone, replies go to all, and
+   it caps at about eight people). The box says so in words, because the obvious use of a list of forty
+   numbers is the one that leaks them. */
+function showDayPhones(dayId,crew,anchor){
+  const day=getDay(dayId); if(!day) return;
+  const all=crew==='all';
+  const houses=all?day.houses:crewHousesFor(Number(crew),day);
+  const r=dayPhoneList(houses);
+  const who=all?'the whole day':crewName(Number(crew));
+  const text=r.numbers.join(', ');
+  const host=(anchor&&anchor.closest('.daycontrols'))||null;
+  const old=host&&host.parentNode&&host.parentNode.querySelector('.phonebox');
+  if(old) old.remove();
+  const box=document.createElement('div');
+  box.className='phonebox';
+  box.style.cssText='padding:12px 16px;border-top:1px solid var(--line);background:#fbfdfc;font-size:13px';
+  box.innerHTML='<div style="font-weight:750;color:var(--green);margin-bottom:6px">'+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+esc(who)+' — '+esc(printDayLabel(day))+'</div>'+
+    '<textarea readonly rows="4" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><button class="mini" data-phonecopy="1">Copy again</button><button class="mini" data-phoneclose="1">Close</button>'+
+    '<span style="color:var(--muted);font-size:12px">Paste into Google Voice’s To box. ⚠ Numbers in one message become a group text — everyone sees each other’s number and replies go to all, and Voice caps a group at about 8. Send in small batches or one at a time.</span></div>'+
+    (r.noPhone.length?'<div style="margin-top:6px;color:#9a5b16">No number on file ('+r.noPhone.length+'): '+esc(r.noPhone.join(', '))+'</div>':'')+
+    (r.optedOut.length?'<div style="margin-top:4px;color:var(--red)">Texted STOP, left out ('+r.optedOut.length+'): '+esc(r.optedOut.join(', '))+'</div>':'');
+  if(host&&host.parentNode) host.parentNode.insertBefore(box,host.nextSibling);
+  const copy=function(){
+    const ta=box.querySelector('textarea');
+    const done=function(){ toast('Copied '+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+who); };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done,function(){ ta.focus(); ta.select(); toast('Select-all is done — press Ctrl+C to copy'); });
+    } else { ta.focus(); ta.select(); toast('Select-all is done — press Ctrl+C to copy'); }
+  };
+  box.querySelector('[data-phonecopy]').addEventListener('click',function(e){ e.stopPropagation(); copy(); });
+  box.querySelector('[data-phoneclose]').addEventListener('click',function(e){ e.stopPropagation(); box.remove(); });
+  if(r.numbers.length) copy(); else toast('No phone numbers for '+who);
 }
 /* ---------- the lists ---------- */
 const PRINT_COLUMNS = {
