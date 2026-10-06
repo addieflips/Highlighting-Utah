@@ -79653,8 +79653,12 @@ function printCustData(h){
    child's house, or two houses of one household — so a number is listed once. ⚠ STOP IS HONOURED:
    somebody who texted STOP (smsOptedOut) is left out and NAMED, never silently dropped. ⚠ AND A HOUSE
    WITH NO USABLE NUMBER IS NAMED TOO, so the office knows who still has to be called or emailed. */
+/* ⭐ ONE PERSON PER LINE, "NUMBER, NAME" (2026-10-05). Dax pasted the format his bulk-text tool asks for —
+   "(123) 456-7890, John Smith", one per line — so that is what the button copies (`lines`). The name is
+   the FIRST customer on that number this day; a shared phone is still one line. `numbers` stays for
+   anything that wants the bare list. */
 function dayPhoneList(houses){
-  const seen=new Set(), numbers=[], noPhone=[], optedOut=[];
+  const seen=new Set(), numbers=[], lines=[], noPhone=[], optedOut=[];
   (houses||[]).forEach(function(h){
     const d=printCustData(h)||{};
     const name=d.name||h.name||'(no name)';
@@ -79664,9 +79668,11 @@ function dayPhoneList(houses){
     if(digits.length!==10){noPhone.push(name);return;}
     if(seen.has(digits))return;
     seen.add(digits);
-    numbers.push('('+digits.slice(0,3)+') '+digits.slice(3,6)+'-'+digits.slice(6));
+    const formatted='('+digits.slice(0,3)+') '+digits.slice(3,6)+'-'+digits.slice(6);
+    numbers.push(formatted);
+    lines.push(formatted+', '+String(name).replace(/[\r\n,]+/g,' ').trim());
   });
-  return {numbers:numbers,noPhone:noPhone,optedOut:optedOut};
+  return {numbers:numbers,lines:lines,noPhone:noPhone,optedOut:optedOut};
 }
 /* Draws the list under the day's buttons and copies it. ⚠ GOOGLE VOICE HAS NO SEND-SEPARATELY: numbers
    pasted together in one To box become ONE GROUP TEXT (everyone sees everyone, replies go to all, and
@@ -79699,7 +79705,7 @@ function showDayPhones(dayId,crew,anchor){
   const houses=all?day.houses:crewHousesFor(Number(crew),day);
   const r=dayPhoneList(houses);
   const who=all?'the whole day':crewName(Number(crew));
-  const text=r.numbers.join(', ');
+  const text=r.lines.join('\n');
   const host=(anchor&&anchor.closest('.daycontrols'))||null;
   const old=host&&host.parentNode&&host.parentNode.querySelector('.phonebox');
   if(old) old.remove();
@@ -79708,7 +79714,7 @@ function showDayPhones(dayId,crew,anchor){
   box.className='phonebox';
   box.style.cssText='padding:12px 16px;border-top:1px solid var(--line);background:#fbfdfc;font-size:13px';
   box.innerHTML='<div style="font-weight:750;color:var(--green);margin-bottom:6px">'+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+esc(who)+' — '+esc(printDayLabel(day))+'</div>'+
-    '<textarea readonly rows="3" data-phonenums="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
+    '<textarea readonly rows="8" data-phonenums="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
     '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 10px;flex-wrap:wrap"><button class="mini" data-phonecopy="1">Copy numbers</button><button class="mini" data-phoneclose="1">Close</button></div>'+
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><b style="font-size:12.5px">Message</b>'+
     '<select data-phonewhen="1" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px">'+
@@ -79716,7 +79722,7 @@ function showDayPhones(dayId,crew,anchor){
     '<option value="morning"'+(when0==='morning'?' selected':'')+'>Sending this morning — says “today”</option></select>'+
     '<button class="mini" data-phonemsgcopy="1">Copy message</button></div>'+
     '<textarea rows="3" data-phonemsg="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(dayTextMessage(day,when0))+'</textarea>'+
-    '<div style="color:var(--muted);font-size:12px;margin-top:6px">Paste the numbers into Google Voice’s To box and the message under it. You can edit the message before copying. ⚠ Numbers in one message become a group text — everyone sees each other’s number and replies go to all, and Voice caps a group at about 8. Send in small batches or one at a time.</div>'+
+    '<div style="color:var(--muted);font-size:12px;margin-top:6px">The numbers are one per line as <b>number, name</b> — the format the bulk-text tool takes. Paste them there, and the message into its message box; you can edit the message before copying. ⚠ Do not paste them all into one ordinary Google Voice message: that becomes a group text where everyone sees each other’s number.</div>'+
     (r.noPhone.length?'<div style="margin-top:6px;color:#9a5b16">No number on file ('+r.noPhone.length+'): '+esc(r.noPhone.join(', '))+'</div>':'')+
     (r.optedOut.length?'<div style="margin-top:4px;color:var(--red)">Texted STOP, left out ('+r.optedOut.length+'): '+esc(r.optedOut.join(', '))+'</div>':'');
   if(host&&host.parentNode) host.parentNode.insertBefore(box,host.nextSibling);

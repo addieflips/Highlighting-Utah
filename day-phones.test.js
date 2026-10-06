@@ -50,6 +50,10 @@ if (src) {
   check('somebody who texted STOP is left out', r.numbers.indexOf('(801) 555-4321') === -1);
   check('and named, never dropped silently', r.optedOut.join() === 'Eve', JSON.stringify(r.optedOut));
   check('no usable number is named, words or blank', r.noPhone.join() === 'Dee,Fay', JSON.stringify(r.noPhone));
+  check('the copy is one person per line, "number, name" — the bulk-text tool\'s format',
+    r.lines.join('|') === '(801) 555-1234, Ann|(801) 555-9876, Cal', JSON.stringify(r.lines));
+  check('a comma in a name cannot split the line',
+    run([{id: 'q'}], {q: {name: 'Smith, Jo', phone: '8015550001'}}).lines[0] === '(801) 555-0001, Smith Jo');
   check('a plan house with no customer behind it falls back to its own phone',
     run([{id: 'z', name: 'Zed', phone: '801-555-0000'}], {}).numbers.join() === '(801) 555-0000');
   check('nothing on the day is an empty list, not a crash',
