@@ -337,7 +337,7 @@ check('a re-quote with no stated kind writes nothing',
    Do not "tidy" this by merging the two sheets — that reverses her own decision. */
 const printFilter = fn('printNeedsBuildList');
 check('the printed build list asks the same one flag the tab does',
-  /return d\.needsLightBuild;/.test(printFilter),
+  /return d\.needsLightBuild && d\.needsColorChange !== true;/.test(printFilter),
   'stamps never clear, so a stamped house never leaves the printed sheet');
 /* ⚠ COMMENTS STRIPPED. The reason those two fields are NOT used is written down right
    there in the code, so a plain search finds the explanation and calls it a violation —
@@ -488,6 +488,19 @@ if (Array.isArray(pages)) {
     'got ' + JSON.stringify(withUnknown.map(p => p.rows.length)));
   check('and nothing to build prints no pages at all', P([]).length === 0,
     'an empty stack is what the Nothing needs building note is for');
+  /* ⭐ A COLOUR CHANGE IS BUILT FROM THE COLOR CHANGE LIST, NOT HERE TOO (2026-10-05). Dax: "if theyre
+     on color change they dont need to be on build." Same house, with and without the flag. */
+  const cc = Object.assign(H('h5','Angie','Warm White','white'), {});
+  cc.data.needsColorChange = true;
+  const withCc = P([H('h1','Ashley','Warm White','white'), cc]);
+  check('a house on the Color Change list is not also on the build sheet',
+    withCc.reduce((n, p) => n + p.rows.length, 0) === 1 && /Ashley/.test(withCc[0].rows[0].what),
+    'got ' + JSON.stringify(withCc.map(p => p.rows.map(r => r.what))));
+  /* And finishing the colour change finishes the build, or the house falls straight back onto it. */
+  const ccDoneSrc = (function(){ const i = admin.indexOf("btn.dataset.whccdone"); return i < 0 ? '' : admin.slice(i, admin.indexOf('renderWarehouseColorChangeQueue();', i)); })();
+  check('Mark Done on the Color Change list also marks the build done',
+    /builtToo \? whBuiltUpdates\(\) : \{\}/.test(ccDoneSrc) && /needsColorChange: false/.test(ccDoneSrc),
+    'without it a finished colour change reappears on the build list and gets a second set');
 }
 /* ⚠ AND BOTH THE BUILD BUTTON AND THE RECYCLE ONE GO THROUGH THE SECTIONS API, or one
    of them throws the moment somebody presses it. */

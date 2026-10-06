@@ -53893,6 +53893,13 @@ function whBuildQueueGroups(){
        group, and heading it “Check lights” would send somebody to look up colours nobody
        ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
+    /* ⭐ ON THE COLOR CHANGE LIST IS NOT ALSO A BUILD (2026-10-05). Dax: "if theyre on color change they
+       dont need to be on build." Every door that queues a colour change sets needsColorChange AND
+       needsLightBuild, so ten of eleven colour changes sat on both lists — two pieces of paper for one
+       new set. The Color Change list is that job; its Mark Done clears the build flag as well (see
+       there), so a finished colour change cannot fall back onto this list. A timer they want is
+       still collected above. */
+    if(d.needsColorChange === true) return;
     /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
        whCheckLightsKey: the house is built like any other and the heading says to go and
        look at the bundle, which is the job somebody actually does. */
@@ -54108,12 +54115,19 @@ function renderWarehouseColorChangeQueue(){
       const who = ((item && item.data) || {}).name || 'That house';
       btn.disabled = true;
       try{
-        await updateDoc(doc(db,'jobAddresses', custId), {
-          needsColorChange: false,
-          colorChangeDoneAt: serverTimestamp()
-        });
+        /* ⭐ AND THE BUILD IS DONE TOO (2026-10-05). The colour change IS the new set, so the build flag
+           every colour-change door also sets is cleared here through whBuiltUpdates — the one place that
+           says what "made" means — or the house reappears on the build list the moment it leaves this
+           one and somebody makes a second set. Only when it was flagged: stamping lightsMarkedBuiltAt
+           on a house nobody queued would claim a build that never happened. */
+        const builtToo = !!(item && item.data && item.data.needsLightBuild);
+        const built = builtToo ? whBuiltUpdates() : {};
+        await updateDoc(doc(db,'jobAddresses', custId),
+          Object.assign({needsColorChange: false, colorChangeDoneAt: serverTimestamp()}, built));
         if(item && item.data){
-          Object.assign(item.data, {needsColorChange: false, colorChangeDoneAt: new Date()});
+          /* The mirror takes the same fields, with real dates in place of the server sentinels. */
+          Object.assign(item.data, built, {needsColorChange: false, colorChangeDoneAt: new Date()},
+                        builtToo ? {lightsMarkedBuiltAt: new Date()} : {});
         }
         toast(who + ' \u2014 colour change done');
         logActivity('Marked the colour change done for ' + who, 'customers', custId);
@@ -79733,7 +79747,8 @@ function printNeedsBuildList(){
          COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
          here and have a column of their own on the tab — but they must not disagree about
          WHO is on them. */
-      return d.needsLightBuild;
+      /* Same rule as the warehouse tab: a colour change is built from the Color Change list. */
+      return d.needsLightBuild && d.needsColorChange !== true;
     })
     .map(function(a){
       const d = a.data || {};
