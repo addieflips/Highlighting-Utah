@@ -43,7 +43,7 @@ Which colours, and the order if they alternate.
 
 - **Asked at:** the quote form and the member portal
 - **Sets the price:** No
-- **Has to reach:** Quote · Confirmation · Customer record · Warehouse pull list
+- **Has to reach:** Quote · Confirmation · Customer record · Warehouse pull list · Crew sheet
 
 ### Wire colour
 

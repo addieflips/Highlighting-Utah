@@ -26451,6 +26451,11 @@ suite('Suite 104. The Printing tab');
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
       extractFn(admin, 'printFixPhotos') +
+      /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
+         not only a flagged one, so this is lifted unconditionally rather than beside
+         the fix-only helpers above. A stub would prove the column renders and nothing
+         about whether a crew sent back to a house is told the colour actually on it. */
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'houseLightsText') +
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
@@ -64518,7 +64523,11 @@ suite('351. Takedown days are built from the customers, busiest town first');
     !!setFn && /updateDoc\(doc\(db,\s*'jobAddresses',\s*cust\.id\),\s*\{takedownTiming:/.test(setFn));
   check('S351', 'the customer sync reschedules takedowns when somebody will not be hung',
     /tdGone=takedownsNoLongerOwed\(\);\s*if\(tdGone\.length\)\{\s*rebuildTakedownDays\(\)/.test(strippedA) &&
-    /&& !tdGone\.length\) return 0;/.test(strippedA),
+    /* ⚠ [[FIX-07]], 2026-10-06 — WIDENED, NOT WEAKENED. A sibling clause,
+       `!fixesPlaced.length`, now sits between `!tdGone.length` and the close of the
+       guard it belongs to; the claim here is still that tdGone's own term survives
+       in that guard, wherever a later addition lands relative to it. */
+    /&& !tdGone\.length(?: && !\w+\.length)*\) return 0;/.test(strippedA),
     'without this a No or a deletion only reaches the takedown days when somebody presses Recalculate');
 }
 suite('352. Fixes and Takedowns have a name search too');
