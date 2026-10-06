@@ -55093,8 +55093,17 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
-        todo: isTimer ? 'Spare timer' + ((Number(e.data.quantity) || 1) > 1 ? 's \u00d7 ' + (Number(e.data.quantity) || 1) : '')
-                      : 'Spare stock \u2014 ' + (Number(e.data.quantity) || 1) + ' bundle' + ((Number(e.data.quantity) || 1) === 1 ? '' : 's'),
+        /* ⚠ AN EXTRA WITH A CUSTOMER ON IT IS THEIR JOB, NOT SPARE STOCK (2026-10-05). Lori Pugh's
+           and Doug Smith's warehouse requests printed as "Spare stock" — a worker reading that
+           puts them on a shelf instead of in the customer's bin. */
+        todo: (function(){
+          const q = Number(e.data.quantity) || 1;
+          const forCust = !!(e.data.customerId || e.data.customerNumber);
+          if(isTimer) return forCust ? 'ADD A TIMER \u2014 put it in their bin.'
+                                     : 'Spare timer' + (q > 1 ? 's \u00d7 ' + q : '');
+          return forCust ? 'EXTRA FOR THIS CUSTOMER \u2014 build ' + q + ' bundle' + (q === 1 ? '' : 's') + ' and put ' + (q === 1 ? 'it' : 'them') + ' in their bin.'
+                         : 'Spare stock \u2014 ' + q + ' bundle' + (q === 1 ? '' : 's');
+        })(),
         /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
            never one of the five — a badge on a row nobody asked for is a claim about somebody
            who does not exist. */
@@ -55171,8 +55180,11 @@ function whBuildSheetPages(){
    Budget: MEASURED, not guessed (2026-10-05). 26 printed every shared page with a few rows spilling
    onto a second sheet, because addresses and colour names wrap each row to two lines. Re-packing that
    day's real sheet (37 groups) and printing each page: with Total ft added as well, 17 fit and 18
-   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows. */
-const WH_SHEET_ROW_BUDGET = 16;
+   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows.
+   ⭐ RE-MEASURED FOR THE ONE-SENTENCE SHEET (same evening). With What to do replacing the number
+   columns most rows are one line again, and 16 left every page about half empty. Re-packing the
+   live sheet and printing each page: 26 fit, 28 spilled — 24 keeps a margin. */
+const WH_SHEET_ROW_BUDGET = 24;
 const WH_SHEET_GROUP_COST = 3;
 function whPackBuildSheets(groups){
   const sheets = [];
@@ -55501,8 +55513,14 @@ function whBuildTodo(d, need){
     return 'EXTENSION — we already have their house. Build only the extra ' + need.feet + ' ft' + est +
       ' (' + b(need.bundles) + ') and put it in their bin' + (bin ? ': ' + bin : '') + '.' + timer;
   }
+  /* ⚠ A COUNT THE OFFICE TYPED IS THE JOB (2026-10-05). Elaine Hadfield's 20 ft bay-window
+     change printed as "new set: 100 ft (estimated), 1 bundle" — the house's footage beside a
+     one-bundle job. The typed count wins on its own; the note says what it is for. */
+  if(need.typedBundles){
+    return 'BUILD ' + b(need.typedBundles) + ' (set by the office \u2014 see notes).' + timer;
+  }
   const size = (need.unknown || !need.feet)
-    ? b(need.bundles) + ' — no footage on file, check before building'
+    ? b(need.bundles) + ' \u2014 no footage on file, check before building'
     : need.feet + ' ft' + est + ', ' + b(need.bundles);
   const isNew = (typeof whBuildReasonKey === 'function') && whBuildReasonKey(d) === 'new';
   return (isNew ? 'NEW HANG — build the whole house: ' : 'REBUILD — existing customer, new set: ') +

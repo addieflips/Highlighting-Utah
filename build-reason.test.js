@@ -268,7 +268,7 @@ const sheet = fn('whSheetRowsForBuild');
 check('a house row keeps its badge',
   /type: need\.topUp \? 'ADD-ON' : 'House',[\s\S]{0,420}reason: whBuildReasonLabel/.test(sheet),
   'the rows most likely to need chasing are the ones that lost it');
-check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,700}reason: ''/.test(sheet),
+check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,1600}reason: ''/.test(sheet),
   'a badge on a row nobody asked for is a claim about somebody who does not exist');
 
 // ---------------------------------------------------------------------------

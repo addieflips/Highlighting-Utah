@@ -380,6 +380,9 @@ check('an extension says we already have the house, and only the extra',
     'EXTENSION — we already have their house. Build only the extra 80 ft (2 bundles) and put it in their bin: Ashley Wray #909.');
 check('a timer is told in words, on the end',
   /Add a timer\.$/.test(T('')({outletTimer: 'Yes'}, {feet: 100, bundles: 3, estimated: true, unknown: false, topUp: false})));
+check('a bundle count the office typed is printed as the job, without the house footage',
+  T('')({}, {feet: 100, bundles: 1, typedBundles: 1, estimated: true, unknown: false, topUp: false}) ===
+    'BUILD 1 bundle (set by the office — see notes).');
 check('a returning customer\'s whole new set is a REBUILD, not a new hang',
   /^REBUILD/.test(T('portal')({}, {feet: 100, bundles: 3, estimated: false, unknown: false, topUp: false})));
 check('the warehouse sheet prints a What to do column, not the number columns',
