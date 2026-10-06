@@ -68,5 +68,25 @@ check('the whole-day list is the day\'s houses and a crew list is that crew\'s',
   /all\?day\.houses:crewHousesFor\(Number\(crew\),day\)/.test(show));
 check('the box warns that one message to many is a group text', /group text/.test(show));
 
+/* ⭐ THE MESSAGE SAYS TOMORROW OR TODAY (2026-10-05). Dax: "have it so you select if your sending it at
+   night or morning so it says like tomorrow or today." Run against the real wording builder. */
+const msgSrc = fn('dayTextMessage'), whenSrc = fn('dayTextDefaultWhen');
+check('the message and default-time rules are in admin.html', !!msgSrc && !!whenSrc);
+if (msgSrc && whenSrc) {
+  const msg = new Function('dayDate', msgSrc + 'return dayTextMessage;')(d => d._date);
+  const when = new Function('dayDate', whenSrc + 'return dayTextDefaultWhen;')(d => d._date);
+  const fri = {_date: new Date(2026, 9, 2)};
+  check('sent at night it says tomorrow, with the date', /hang your Christmas lights tomorrow \(Friday, October 2\)/.test(msg(fri, 'night')), msg(fri, 'night'));
+  check('sent in the morning it says today', / today \(Friday, October 2\)/.test(msg(fri, 'morning')), msg(fri, 'morning'));
+  check('a takedown day says take down', /take down your Christmas lights/.test(msg({_date: fri._date, isTakedown: true}, 'night')));
+  check('a fixer day says fix', /fix your Christmas lights/.test(msg({_date: fri._date, isFixRoute: true}, 'night')));
+  check('it names nobody and promises no time', !/\{\{|\bam\b|\bpm\b/i.test(msg(fri, 'night')));
+  check('a day that is today defaults to the morning wording', when(fri, new Date(2026, 9, 2, 7)) === 'morning');
+  check('any other day defaults to the night-before wording', when(fri, new Date(2026, 9, 1, 19)) === 'night');
+}
+const show2 = fn('showDayPhones');
+check('the box offers the night / morning choice and rewrites the message from it',
+  /data-phonewhen/.test(show2) && /msgTa\.value=dayTextMessage\(day,e\.target\.value\)/.test(show2));
+
 console.log('\nDay phone numbers — ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { failures.forEach(f => console.log('  FAIL  ' + f)); process.exit(1); }

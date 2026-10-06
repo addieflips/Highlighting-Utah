@@ -79672,6 +79672,27 @@ function dayPhoneList(houses){
    pasted together in one To box become ONE GROUP TEXT (everyone sees everyone, replies go to all, and
    it caps at about eight people). The box says so in words, because the obvious use of a list of forty
    numbers is the one that leaks them. */
+/* ⭐ AND THE MESSAGE ITSELF, SAYING "TONIGHT" OR "TODAY" RIGHT (2026-10-05). Dax: "have it so you select
+   if your sending it at night or morning so it says like tomorrow or today." Sent the night before, the
+   crew comes TOMORROW; sent that morning, they come TODAY — the same day, two different words, so the
+   office picks which and the date is printed beside the word so a text read late cannot mislead.
+   ⚠ ONE MESSAGE FOR EVERYBODY, NO NAME IN IT: the list is pasted as numbers, so nothing can fill a name
+   per person. ⚠ AND IT PROMISES NO TIME OF DAY — the plan has no arrival times, so a time in the text
+   would be invented. Takedown and fixer days get their own verb. */
+function dayTextMessage(day,when){
+  const dt=day?dayDate(day):null;
+  const dateTxt=(dt&&typeof dt.toLocaleDateString==='function')?dt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}):'';
+  const word=when==='morning'?'today':'tomorrow';
+  const job=(day&&day.isTakedown)?'take down your Christmas lights':(day&&day.isFixRoute)?'stop by to fix your Christmas lights':'hang your Christmas lights';
+  return 'Hi from Highlighting Utah! Our crew is scheduled to '+job+' '+word+(dateTxt?' ('+dateTxt+')':'')+'. Reply STOP to opt out.';
+}
+/* Which to pre-pick: a day that is today is a morning send, anything else the night before. */
+function dayTextDefaultWhen(day,now){
+  const dt=day?dayDate(day):null; const n=now||new Date();
+  if(!dt||typeof dt.getFullYear!=='function') return 'night';
+  const same=dt.getFullYear()===n.getFullYear()&&dt.getMonth()===n.getMonth()&&dt.getDate()===n.getDate();
+  return same?'morning':'night';
+}
 function showDayPhones(dayId,crew,anchor){
   const day=getDay(dayId); if(!day) return;
   const all=crew==='all';
@@ -79682,26 +79703,38 @@ function showDayPhones(dayId,crew,anchor){
   const host=(anchor&&anchor.closest('.daycontrols'))||null;
   const old=host&&host.parentNode&&host.parentNode.querySelector('.phonebox');
   if(old) old.remove();
+  const when0=dayTextDefaultWhen(day);
   const box=document.createElement('div');
   box.className='phonebox';
   box.style.cssText='padding:12px 16px;border-top:1px solid var(--line);background:#fbfdfc;font-size:13px';
   box.innerHTML='<div style="font-weight:750;color:var(--green);margin-bottom:6px">'+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+esc(who)+' — '+esc(printDayLabel(day))+'</div>'+
-    '<textarea readonly rows="4" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
-    '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><button class="mini" data-phonecopy="1">Copy again</button><button class="mini" data-phoneclose="1">Close</button>'+
-    '<span style="color:var(--muted);font-size:12px">Paste into Google Voice’s To box. ⚠ Numbers in one message become a group text — everyone sees each other’s number and replies go to all, and Voice caps a group at about 8. Send in small batches or one at a time.</span></div>'+
+    '<textarea readonly rows="3" data-phonenums="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 10px;flex-wrap:wrap"><button class="mini" data-phonecopy="1">Copy numbers</button><button class="mini" data-phoneclose="1">Close</button></div>'+
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><b style="font-size:12.5px">Message</b>'+
+    '<select data-phonewhen="1" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px">'+
+    '<option value="night"'+(when0==='night'?' selected':'')+'>Sending tonight — says “tomorrow”</option>'+
+    '<option value="morning"'+(when0==='morning'?' selected':'')+'>Sending this morning — says “today”</option></select>'+
+    '<button class="mini" data-phonemsgcopy="1">Copy message</button></div>'+
+    '<textarea rows="3" data-phonemsg="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(dayTextMessage(day,when0))+'</textarea>'+
+    '<div style="color:var(--muted);font-size:12px;margin-top:6px">Paste the numbers into Google Voice’s To box and the message under it. You can edit the message before copying. ⚠ Numbers in one message become a group text — everyone sees each other’s number and replies go to all, and Voice caps a group at about 8. Send in small batches or one at a time.</div>'+
     (r.noPhone.length?'<div style="margin-top:6px;color:#9a5b16">No number on file ('+r.noPhone.length+'): '+esc(r.noPhone.join(', '))+'</div>':'')+
     (r.optedOut.length?'<div style="margin-top:4px;color:var(--red)">Texted STOP, left out ('+r.optedOut.length+'): '+esc(r.optedOut.join(', '))+'</div>':'');
   if(host&&host.parentNode) host.parentNode.insertBefore(box,host.nextSibling);
-  const copy=function(){
-    const ta=box.querySelector('textarea');
-    const done=function(){ toast('Copied '+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+who); };
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(done,function(){ ta.focus(); ta.select(); toast('Select-all is done — press Ctrl+C to copy'); });
-    } else { ta.focus(); ta.select(); toast('Select-all is done — press Ctrl+C to copy'); }
+  const copyText=function(value,ta,label){
+    const done=function(){ toast(label); };
+    const fallback=function(){ ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); };
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(done,fallback);
+    else fallback();
   };
-  box.querySelector('[data-phonecopy]').addEventListener('click',function(e){ e.stopPropagation(); copy(); });
+  const numsTa=box.querySelector('[data-phonenums]'), msgTa=box.querySelector('[data-phonemsg]');
+  const copyNums=function(){ copyText(text,numsTa,'Copied '+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+who); };
+  box.querySelector('[data-phonecopy]').addEventListener('click',function(e){ e.stopPropagation(); copyNums(); });
   box.querySelector('[data-phoneclose]').addEventListener('click',function(e){ e.stopPropagation(); box.remove(); });
-  if(r.numbers.length) copy(); else toast('No phone numbers for '+who);
+  box.querySelector('[data-phonewhen]').addEventListener('change',function(e){ e.stopPropagation(); msgTa.value=dayTextMessage(day,e.target.value); });
+  box.querySelector('[data-phonewhen]').addEventListener('click',function(e){ e.stopPropagation(); });
+  msgTa.addEventListener('click',function(e){ e.stopPropagation(); });
+  box.querySelector('[data-phonemsgcopy]').addEventListener('click',function(e){ e.stopPropagation(); copyText(msgTa.value,msgTa,'Message copied'); });
+  if(r.numbers.length) copyNums(); else toast('No phone numbers for '+who);
 }
 /* ---------- the lists ---------- */
 const PRINT_COLUMNS = {
