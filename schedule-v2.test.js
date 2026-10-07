@@ -309,9 +309,22 @@ if(D){
   /* The warehouse hold: 72 working hours from when the build was queued. */
   const q = new Date(2026, 9, 2, 15, 0).getTime();   // Friday 3pm
   const held = {lightsQueuedAt: {toMillis: () => q}, needsLightBuild: true};
-  const e = D.earliest({pref: ''}, held, S);
+  /* ⚠ THE CLOCK IS PINNED TO AN HOUR AFTER THE BUILD WAS QUEUED (fixed 2026-10-07).
+     `scheduleHoldEndsMillis` answers `ms > Date.now() ? ms : 0` — an expired hold holds
+     nobody, which is right. So this fixture read the REAL clock, and on the afternoon of
+     Wednesday 7 October 2026 (UTC) its own hold ran out: the app correctly said "no hold",
+     and the check failed on main with no code change at all, blocking every merge. A check
+     about the rule must not depend on what day the suite happens to run. Restored in a
+     finally so nothing after it inherits the frozen clock. */
+  const realNow = Date.now;
+  let e, eNov;
+  try {
+    Date.now = () => q + 3600000;
+    e = D.earliest({pref: ''}, held, S);
+    eNov = D.earliest({pref: 'November'}, held, S);
+  } finally { Date.now = realNow; }
   check('warehouse hold: a Friday-afternoon build is not scheduled before the following Thursday', e >= '2026-10-08', 'earliest = ' + e);
-  check('warehouse hold: the later of hold and month wins (November stays November)', D.earliest({pref: 'November'}, held, S) === '2026-11-01');
+  check('warehouse hold: the later of hold and month wins (November stays November)', eNov === '2026-11-01');
 }
 
 /* ======================================================================================= */
