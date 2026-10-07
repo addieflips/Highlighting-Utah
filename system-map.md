@@ -965,6 +965,8 @@ right; drag down, look down — the way Roblox Studio does it, which is the
 opposite of Google's own left drag. The sky view **grabs the world**, so what is
 under the pointer stays under it, exactly as its own left drag behaves.
 
+⭐ **EVERY STREET VIEW PHOTO OF THE HOUSE, BY SEASON AND YEAR** ([[MR-41]], 2026-10-07). Dax: *"sometimes leaves are in the way and i need a pic from a different season"*, then *"it should show all the options of seasons/years that house was on google maps"*. The Street View pane's head carries a **photo date** dropdown (e.g. *Spring · Apr 2016*, *Summer · Jul 2026*) listing every photo Google has ever taken of that spot, newest first, and a **🍂 Fewest leaves** button that jumps to the barest month on offer (Nov–Mar, then Apr, then Oct). Picking one moves the panorama the way the arrow keys do, so the photo you capture is the season you picked. ⚠ It cannot ask Google for a NEW photo — only the ones its cars already took. The list comes from the Maps library's `time` field, which Google does not document; if it is ever missing the picker simply stays hidden (`rmRefreshPhotoDates`, `rmPhotoDatesFrom`, `rmFewestLeavesPano`).
+
 ⚠ **It turns at exactly the speed of your hand.** That is not the obvious sum:
 spreading the field of view evenly across the width of the picture under-turns
 by about a fifth, because a perspective picture gives the middle of the frame
