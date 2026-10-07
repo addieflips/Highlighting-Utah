@@ -66055,3 +66055,39 @@ suite('371. Every Schedule day has its own id');
   check('S371', 'and a plan saved with duplicates is repaired the moment it loads',
     /uniqueDayIds\(SEASON\)/.test(stripComments(extractFn(admin, 'hydrate') || '')));
 }
+
+/* ---------------------------------------------------------------------------
+ * 372. THE NIGHTLY INVOICE SENDS THE TEMPLATE PICKED BESIDE ITS SWITCH ([[EM-25]], 2026-10-07).
+ * "Is there a way in nightly automation that I can pick what template sends with the invoice
+ * as well?" — "Yeah lets build that". Blank = the standard name, so nothing changes until a
+ * pick is made; a pick that cannot be found drops to the standard one, then the built-in body.
+ * --------------------------------------------------------------------------- */
+suite('372. The nightly invoice sends the picked template');
+{
+  const srv = extractFn(fnsSrc, 'nightlyInvoiceTemplateNameServer');
+  check('S372', 'the server rule is findable', !!srv);
+  const constOf = (src, name) => { const m = src.match(new RegExp('const ' + name + " = '([^']*)'")); return m ? m[1] : null; };
+  const sU = constOf(fnsSrc, 'NIGHTLY_UNPAID_TEMPLATE'), sP = constOf(fnsSrc, 'NIGHTLY_PAID_TEMPLATE');
+  const aU = constOf(admin, 'NIGHTLY_UNPAID_TEMPLATE'), aP = constOf(admin, 'NIGHTLY_PAID_TEMPLATE');
+  check('S372', 'both files spell the standard names the same way', !!sU && !!sP && sU === aU && sP === aP, [sU, aU, sP, aP].join(' | '));
+  const pick = new Function("const NIGHTLY_UNPAID_TEMPLATE = 'U'; const NIGHTLY_PAID_TEMPLATE = 'P';" + srv + 'return nightlyInvoiceTemplateNameServer;')();
+  check('S372', 'nothing picked: the standard names, exactly as before', pick({}, false) === 'U' && pick({}, true) === 'P' && pick(null, false) === 'U');
+  check('S372', 'a blank or spaces-only pick is the standard name', pick({unpaidTemplateName: '   '}, false) === 'U');
+  check('S372', 'a pick is used for its own kind of bill only', pick({unpaidTemplateName: 'Mine'}, false) === 'Mine' && pick({unpaidTemplateName: 'Mine'}, true) === 'P');
+  check('S372', 'and the paid pick for paid bills', pick({paidTemplateName: 'Thanks'}, true) === 'Thanks' && pick({paidTemplateName: 'Thanks'}, false) === 'U');
+  /* the office copy must give the same answer */
+  const adm = extractFn(admin, 'nightlyInvoiceTemplateName');
+  check('S372', 'the office rule is findable', !!adm);
+  const admPick = (names, paid) => new Function('n', "const NIGHTLY_UNPAID_TEMPLATE = 'U'; const NIGHTLY_PAID_TEMPLATE = 'P'; const nightlyTemplateNames = n;" + adm + 'return nightlyInvoiceTemplateName(' + paid + ');')(names);
+  const cases = [[{unpaid: '', paid: ''}, {}], [{unpaid: 'Mine', paid: ''}, {unpaidTemplateName: 'Mine'}], [{unpaid: '', paid: 'Thanks'}, {paidTemplateName: 'Thanks'}], [{unpaid: ' ', paid: ' '}, {unpaidTemplateName: ' ', paidTemplateName: ' '}]];
+  check('S372', 'the office and the server agree on every case', cases.every(c => admPick(c[0], false) === pick(c[1], false) && admPick(c[0], true) === pick(c[1], true)));
+  const batch = stripComments(extractFn(fnsSrc, 'runInvoiceBatch') || '');
+  check('S372', 'the run reads the picks from the nightly settings', /doc\('nightlyInvoiceAutomation'\)/.test(batch) && /nightlyInvoiceTemplateNameServer\(nightlyTplSettings/.test(batch));
+  check('S372', 'a missing pick drops to the standard template before the built-in wording', /tplSnap\.empty && templateName !== standardName/.test(batch) && /templateName = standardName/.test(batch));
+  check('S372', 'the run no longer hard-codes which template a bill gets', !/const templateName = status === 'Paid in Full'/.test(batch));
+  const ui = stripComments(admin);
+  check('S372', 'both pickers are on the nightly panel', /id="nightlyUnpaidTemplate"/.test(admin) && /id="nightlyPaidTemplate"/.test(admin));
+  check('S372', 'they save to the fields the run reads', /'paidTemplateName' : 'unpaidTemplateName'/.test(ui));
+  check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
+  check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
+}
