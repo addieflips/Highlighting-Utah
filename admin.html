@@ -59242,6 +59242,20 @@ function showAddFixPopup(id, opts){
          it on every edit of an already-open fix would make a fault raised three
          weeks ago look brand new every time the note is touched, and would re-post
          a notice she may have already read. */
+      /* ⚠ THE NOTE, PHOTO AND DATE ARE WRITTEN BEFORE THE FLAG IS RAISED (2026-10-07).
+         The other way round, the customer snapshot that the flag fires ran the
+         Schedule's placeFixesFromCustomers BEFORE the note existed, so the fix went
+         onto its Fixer Route with an empty note. Written first, the house is placed
+         already carrying them — and so is the Inbox notice hlxMarkJobDone raises. */
+      await updateDoc(doc(db, 'jobAddresses', id), {
+        fixNote: noteVal, fixPhotoUrl: currentPhotoUrl, fixScheduleDate: dateVal
+      });
+      const fresh = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === id; }) : null;
+      if (fresh && fresh.data) {
+        fresh.data.fixNote = noteVal;
+        fresh.data.fixPhotoUrl = currentPhotoUrl;
+        fresh.data.fixScheduleDate = dateVal;
+      }
       if (!d.needsFix) {
         const res = await hlxMarkJobDone(id, 'fix', false, {});
         if (!res.ok) {
@@ -59250,16 +59264,7 @@ function showAddFixPopup(id, opts){
           return;
         }
       }
-      await updateDoc(doc(db, 'jobAddresses', id), {
-        fixNote: noteVal, fixPhotoUrl: currentPhotoUrl, fixScheduleDate: dateVal
-      });
-      const fresh = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === id; }) : null;
-      if (fresh && fresh.data) {
-        fresh.data.needsFix = true;
-        fresh.data.fixNote = noteVal;
-        fresh.data.fixPhotoUrl = currentPhotoUrl;
-        fresh.data.fixScheduleDate = dateVal;
-      }
+      if (fresh && fresh.data) fresh.data.needsFix = true;
       toast('Fix saved — it will go on the schedule for ' + dateVal);
       if (typeof o.onSaved === 'function') o.onSaved();
       close();
@@ -74792,7 +74797,7 @@ function renderFixTray(){
   if(!total){el.innerHTML='<h3 class="fix">🔧 Fixes</h3><div class="traynote">Fix requests will show here. When the crew will be near a fix within '+FIX_LOOKAHEAD+' days it rides along; otherwise it waits on the fix list to become the fixer’s own route.</div>';return;}
   let body='';
   const rowFor=h=>{const f=findHouse(h.id);return '<div class="newrow"><div><div class="who">'+esc(personName(h.name,h))+'<span class="fixbadge">FIX</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+'</div></div>'+
-    '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+esc(h.issue||'')+'</div></div>'+
+    '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+fixDetailHTML(h,140)+'</div></div>'+
     '<div class="acts"><select class="moveday" data-move="'+h.id+'">'+dayOptions(f?f.day.id:null,'fix')+'</select><button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button></div></div>';};
   const rideAlong=routed.filter(h=>{const f=findHouse(h.id);return f&&!f.day.isFixRoute;});
   const onFixer=routed.filter(h=>{const f=findHouse(h.id);return f&&f.day.isFixRoute;});
@@ -74830,6 +74835,14 @@ function stopFlagBadges(h){
     out+='<span class="stuckbadge" title="Stuck on '+esc(stuckOn)+' — nothing moves them off it">📌 STUCK</span>';
   }
   return out;
+}
+/* A fix's note and photo, read live (fixLiveDetails). "?" when nobody said, never blank —
+   the same word the printed fix sheet uses, so a fix with no note still reads as one. */
+function fixDetailHTML(h,w){
+  const fx=fixLiveDetails(h);
+  const src=fx.photo?((typeof cloudThumb==='function')?cloudThumb(fx.photo,w*2):fx.photo):'';
+  return '<div class="sdetail">FIX: '+esc(fx.note||'?')+'</div>'+
+    (src?'<a href="'+esc(fx.photo)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" alt="Photo of the fault" loading="lazy" decoding="async" style="max-width:'+w+'px;border-radius:8px;margin-top:6px;display:block"></a>':'');
 }
 function stopHTML(h,n,dayId){
   const maps='https://maps.google.com/?q='+encodeURIComponent((h.address||'')+' '+(h.city||'')+' UT '+(h.zip||''));
@@ -74883,7 +74896,7 @@ function stopHTML(h,n,dayId){
   }
   return '<div class="'+cls+'"><div class="chk"><input type="checkbox" data-id="'+h.id+'"'+(h.done?' checked':'')+'></div><div class="seq">'+n+'</div>'+
     '<div class="sbody"><div class="snm">'+esc(personName(h.name,h))+(isNewMemberHouse(h)?'<span class="newbadge">NEW HANG</span>':'')+(h.isFix?'<span class="fixbadge">FIX</span>':'')+stopFlagBadges(h)+(h.cu?' <span style="font-weight:600;color:var(--muted);font-size:12.5px">#'+esc(h.cu)+'</span>':'')+'</div>'+
-    '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':'')+extra+'</div>'+
+    '<div class="saddr"><a href="'+maps+'" target="_blank" rel="noopener">'+esc(h.address)+'</a></div>'+(line?'<div class="sline">'+line+'</div>':'')+(h.isFix?fixDetailHTML(h,220):(h.details?'<div class="sdetail">'+esc(h.details)+'</div>':''))+extra+'</div>'+
     '<div class="sprice">'+(typeof h.price==='number'&&h.price?'$'+h.price:'')+'</div></div>';
 }
 /* ⭐ THE DAY'S ROUTES, DRAWN (added 2026-08-21).
@@ -79040,6 +79053,46 @@ function fixedHouseCustomerIds(){
   });
   return have;
 }
+/* ⭐ THE NOTE AND PHOTO ON A FIX COME FROM THE CUSTOMER, EVERY TIME (2026-10-07).
+   Addie: notes and pictures stopped showing on fixes in Schedule.
+   ⛔ placeFixesFromCustomers COPIED THE NOTE ONCE, AT PLACEMENT, AND THE COPY WAS EMPTY.
+   showAddFixPopup raises the flag through hlxMarkJobDone FIRST and writes fixNote /
+   fixPhotoUrl in a SECOND write — and the customer snapshot between the two runs this
+   sweep, so the house went onto the Fixer Route with `issue: ''`. After that it was
+   "already placed" and nothing ever looked at the note again; an Edit Note made later
+   never reached the plan either. And the photo was never drawn on this screen at all.
+   So both are READ LIVE off the record (planCustomerFor, the same resolver the ticks
+   use), and the stored copy is only a fallback for an imported FIXLIST row with no
+   customer behind it. refreshFixHouseNotes also brings the stored copy into line so
+   the CSV and a reload agree with the screen. */
+function fixLiveDetails(h){
+  const out = {note: ('' + ((h && h.issue) || '')).trim(), photo: ''};
+  if(!h || !h.isFix) return out;
+  const cust = planCustomerFor(h);
+  const d = (cust && cust.data) || null;
+  if(!d) return out;
+  out.note = ('' + (d.fixNote || '')).trim() || out.note;
+  out.photo = ('' + (d.fixPhotoUrl || '')).trim();
+  return out;
+}
+function refreshFixHouseNotes(){
+  const changed = [];
+  if(typeof SEASON === 'undefined') return changed;
+  SEASON.forEach(function(day){
+    (day.houses || []).forEach(function(h){
+      if(!h || !h.isFix) return;
+      const cust = planCustomerFor(h);
+      const d = (cust && cust.data) || null;
+      if(!d || !d.needsFix) return;
+      const note = ('' + (d.fixNote || '')).trim();
+      if(!note || note === ('' + (h.issue || '')).trim()) return;
+      h.issue = note;
+      h.details = 'FIX: ' + note;
+      changed.push(h.name || '(no name)');
+    });
+  });
+  return changed;
+}
 function placeFixesFromCustomers(){
   const placed = [];
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return placed;
@@ -80936,6 +80989,9 @@ function exportCSV(){
        reach the schedule. */
     let fixesPlaced=[];
     try{ fixesPlaced=placeFixesFromCustomers(); }catch(err){ console.error('Fix placement failed:',err); }
+    /* A note typed after the fix was placed (or landing a write behind the flag) reaches the plan. Silent. */
+    let fixNotes=[];
+    try{ fixNotes=refreshFixHouseNotes(); }catch(err){ console.error('Fix note refresh failed:',err); }
     /* ⭐ AND THEN HOLD THE TIMING. Pulling a changed month across is only half
        the job — the house is still sitting on the old day. Runs even when the
        sync itself found nothing, because a plan saved earlier can already be
@@ -80996,7 +81052,7 @@ function exportCSV(){
        && !leftSeason.dropped.length && !leftSeason.locked.length && !(leftSeason.unbuiltOff||[]).length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
        && !goneDays.moved.length && !goneDays.stuck.length
-       && !tdGone.length && !fixesPlaced.length) return 0;
+       && !tdGone.length && !fixesPlaced.length && !fixNotes.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
        town can hand it to the other crew — either way the driving order the day
