@@ -356,6 +356,11 @@ jobs:
   browser-tests:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest
+    # ⚠ A CEILING, ADDED 2026-10-07. With none, GitHub's default is SIX HOURS: PR #541 sat on
+    # "Install Chromium" for over four hours on a download that had simply hung, never reaching a
+    # single spec, while the required check blocked the merge the whole time. A real run takes a
+    # few minutes; 45 is generous and still turns a hang into a red that can be re-run.
+    timeout-minutes: 45
     steps:
       - name: Get the code
         # ⚠ FULL HISTORY, NOT THE DEFAULT SHALLOW CLONE. docs-current.test.js asks git
@@ -377,8 +382,18 @@ jobs:
 
       # --with-deps also installs the system libraries headless Chromium needs
       # on a bare Ubuntu runner. Without it the browser installs but won't launch.
+      # ⚠ RETRIED, AND EACH TRY IS TIMED. The download is the one step that depends on somebody
+      # else's servers, and on 2026-10-07 it hung rather than failing — so a plain retry would never
+      # have fired. `timeout 300` turns a hang into a failure, and the loop tries again; three
+      # strikes is a genuine outage and the step goes red with the reason in the log.
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install --with-deps chromium && exit 0
+            echo "Chromium install attempt $i hung or failed — retrying"
+          done
+          exit 1
 
       - name: Run the browser specs
         run: npm run test:browser
