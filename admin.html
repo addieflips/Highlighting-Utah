@@ -3647,12 +3647,21 @@
           <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
             <h3>Nightly Invoice Automation</h3>
             <div id="nightlyStaleWarn" style="display:none; background:#FDECEA; color:#9A2A1F; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin:0 0 10px; font-weight:600; font-size:13px;"></div>
-            <p style="font-size:13px;">Every night at 7:00 PM, this checks for any house marked Done that hasn't been billed yet — no matter which day it was actually completed, so a house finished late (after 7pm, or the next morning) still gets caught on the very next run instead of getting missed. It automatically emails an invoice — the "Nightly Auto-Invoice — Unpaid" template if they still owe money, or the "Nightly Auto-Invoice — Paid Receipt" template if they're already paid in full. Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Each house is only ever billed once, so there's no risk of a repeat send. Edit either template's wording anytime under Templates &gt; Billing.</p>
+            <p style="font-size:13px;">Every night at 7:00 PM, this checks for any house marked Done that hasn't been billed yet — no matter which day it was actually completed, so a house finished late (after 7pm, or the next morning) still gets caught on the very next run instead of getting missed. It automatically emails an invoice — the template picked below for anyone who still owes money, or the one picked for anyone already paid in full (left on Standard, those are "Nightly Auto-Invoice — Unpaid" and "Nightly Auto-Invoice — Paid Receipt"). Houses flagged for a fix, or marked "Didn't Get To" by the crew, are skipped and never billed. Each house is only ever billed once, so there's no risk of a repeat send. Edit either template's wording anytime under Templates &gt; Billing.</p>
             <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
               <input type="checkbox" id="nightlyInvoiceEnabled" style="width:18px; height:18px;">
               Send nightly invoice emails automatically
             </label>
             <span id="nightlyInvoiceStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <!-- ⭐ WHICH TEMPLATE GOES WITH THE INVOICE (added 2026-10-07, EM-25). Saved by
+                 name on settings/nightlyInvoiceAutomation; read by runInvoiceBatch in
+                 functions/index.js (nightlyInvoiceTemplateNameServer) and by the test
+                 send under Invoices. Standard = the name the run has always used. -->
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-top:12px;">
+              <div class="form-row"><label for="nightlyUnpaidTemplate">Template for bills still owing</label><select id="nightlyUnpaidTemplate"></select></div>
+              <div class="form-row"><label for="nightlyPaidTemplate">Template for bills already paid in full</label><select id="nightlyPaidTemplate"></select></div>
+            </div>
+            <span id="nightlyTemplateStatus" style="font-size:13px; color:var(--slate); display:block;">Put {{pay_button}} in the "still owing" template to give them a button to their own payment page.</span>
             <!-- ⭐ THE 1 APRIL LATE-FEE SEND (added 2026-09-11). Addie: "if they don't
                  respond by end of March than they will get a fee email at beginning of
                  April", and 2026-08-29: "The last email with a fee should automatically
@@ -11130,6 +11139,10 @@ async function loadNightlyInvoiceSettings(){
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
+    const nd = snap.exists() ? (snap.data() || {}) : {};
+    nightlyTemplateNames.unpaid = String(nd.unpaidTemplateName || '');
+    nightlyTemplateNames.paid = String(nd.paidTemplateName || '');
+    renderNightlyTemplatePickers();
   } catch(err){ /* not saved yet, fine */ }
   /* ⚠ ITS OWN READ, ITS OWN try. The late-fee switch lives in a different settings
      document, and sharing the block above would mean a failed read of one leaving
@@ -11144,6 +11157,60 @@ async function loadNightlyInvoiceSettings(){
     if(st){ st.textContent = lateFeeSay(on); st.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
   } catch(err){ /* never saved, so off — which is the shipped state anyway */ }
 }
+/* ⭐ THE TEMPLATE PICKERS BESIDE THE NIGHTLY SWITCH (added 2026-10-07, EM-25).
+   Blank = Standard, the name the run has always used, so a customer's invoice is
+   unchanged until somebody picks a different one. ⚠ The STANDARD names are spelled
+   here and in functions/index.js (NIGHTLY_UNPAID_TEMPLATE / NIGHTLY_PAID_TEMPLATE);
+   run-all.js compares the two spellings. ⚠ Refilled from loadEmailTemplates, the same
+   as renderQuoteTemplatePickers, so a rename or a deletion reaches it. */
+const NIGHTLY_UNPAID_TEMPLATE = 'Nightly Auto-Invoice \u2014 Unpaid';
+const NIGHTLY_PAID_TEMPLATE = 'Nightly Auto-Invoice \u2014 Paid Receipt';
+const nightlyTemplateNames = {unpaid:'', paid:''};
+function nightlyInvoiceTemplateName(paidInFull){
+  const picked = String((paidInFull ? nightlyTemplateNames.paid : nightlyTemplateNames.unpaid) || '').trim();
+  return picked || (paidInFull ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE);
+}
+function renderNightlyTemplatePickers(){
+  [['nightlyUnpaidTemplate','unpaid',NIGHTLY_UNPAID_TEMPLATE],['nightlyPaidTemplate','paid',NIGHTLY_PAID_TEMPLATE]].forEach(function(row){
+    const sel = document.getElementById(row[0]);
+    if(!sel) return;
+    const chosen = nightlyTemplateNames[row[1]] || '';
+    let html = '<option value="">Standard \u2014 '+esc(row[2])+'</option>';
+    emailTemplates.slice().sort(function(a,b){ return String(a.data.name||'').localeCompare(String(b.data.name||'')); }).forEach(function(t){
+      const n = t.data.name || '';
+      if(!n) return;
+      html += '<option value="'+esc(n)+'"'+(n === chosen ? ' selected' : '')+'>'+esc(n)+'</option>';
+    });
+    /* A pick that has since been deleted or renamed stays visible and says so, rather
+       than the box quietly showing Standard while the setting still names it. */
+    if(chosen && !emailTemplates.some(function(t){ return t.data.name === chosen; })){
+      const found = findTemplateByName(chosen);
+      html += '<option value="'+esc(chosen)+'" selected>'+esc(chosen)+(found ? '' : ' (not found \u2014 the standard one will send)')+'</option>';
+    }
+    sel.innerHTML = html;
+  });
+}
+['nightlyUnpaidTemplate','nightlyPaidTemplate'].forEach(function(id){
+  document.getElementById(id)?.addEventListener('change', async function(){
+    const statusEl = document.getElementById('nightlyTemplateStatus');
+    const field = id === 'nightlyPaidTemplate' ? 'paidTemplateName' : 'unpaidTemplateName';
+    const key = id === 'nightlyPaidTemplate' ? 'paid' : 'unpaid';
+    const before = nightlyTemplateNames[key];
+    const value = this.value || '';
+    try{
+      await setDoc(doc(db,'settings','nightlyInvoiceAutomation'), {[field]: value}, {merge:true});
+      nightlyTemplateNames[key] = value;
+      if(statusEl){
+        statusEl.textContent = '\u2713 Saved \u2014 '+(key === 'paid' ? 'paid-in-full' : 'still-owing')+' invoices will use \u201c'+(value || (key === 'paid' ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE))+'\u201d';
+        statusEl.style.color = 'var(--emerald)';
+      }
+    } catch(err){
+      if(statusEl){ statusEl.textContent = '\u2717 Couldn\'t save \u2014 try again'; statusEl.style.color = 'var(--ember)'; }
+      nightlyTemplateNames[key] = before;
+      renderNightlyTemplatePickers();
+    }
+  });
+});
 document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', async function(){
   const statusEl = document.getElementById('nightlyInvoiceStatus');
   try{
@@ -19469,6 +19536,8 @@ function loadEmailTemplates(){
     /* The quote-email pickers list real templates, so they have to refill
        whenever the template list itself changes. */
     if(typeof renderQuoteTemplatePickers === 'function') renderQuoteTemplatePickers();
+    /* ⚠ AND THE NIGHTLY INVOICE PICKERS (EM-25), for the same reason. */
+    if(typeof renderNightlyTemplatePickers === 'function') renderNightlyTemplatePickers();
     /* ⚠ AND THIS ONE, for the same reason — it lists real templates, so a rename,
        a deletion or one made by the button on that card has to reach it. Left out, the
        card goes on naming a template that is no longer there. */
@@ -22784,10 +22853,14 @@ async function invTestSend(){
   const deposit = Number(inv.deposit)||0;
   const amountDue = Math.max(0, total - credits - deposit);
   const status = computeInvoiceStatus(inv.install, inv.removal, inv.deposit, inv.credits, inv.changeFees);
-  const tplName = status === 'Paid in Full'
-    ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
-    : 'Nightly Auto-Invoice \u2014 Unpaid';
-  const tpl = findTemplateByName(tplName);
+  /* The test send uses the template picked beside the nightly switch (EM-25), so what
+     it shows is what the 7 PM run will send — falling back the same way the run does. */
+  let tplName = nightlyInvoiceTemplateName(status === 'Paid in Full');
+  let tpl = findTemplateByName(tplName);
+  if(!tpl){
+    const standard = status === 'Paid in Full' ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE;
+    if(tplName !== standard){ tplName = standard; tpl = findTemplateByName(tplName); }
+  }
   if(!tpl) return say('No template matching "'+tplName+'" could be found. The templates it can see are: '+billingTemplateNames()+'. Either rename one to match, or create it under Templates > Billing.', true);
   if(!window.emailjs) return say('The email service did not load - check your internet connection.', true);
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
