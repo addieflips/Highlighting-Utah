@@ -57043,6 +57043,27 @@ document.getElementById('billingGroupExportBtn')?.addEventListener('click', func
   XLSX.utils.book_append_sheet(wb, ws, 'Who Pays for Whom');
   XLSX.writeFile(wb, 'who-pays-for-whom-'+toDateStr(new Date())+'.xlsx');
 });
+/* ⭐ THE FIX ON AN ALL CUSTOMERS ROW ([[FIX-08]]). A house with a fix open says so in
+   words, with the note the crew will read and a thumbnail of the photo, so the office
+   can see what is outstanding without opening anything; the button reads Edit fix then,
+   because the popup opens on the note and photo already saved. ⚠ READS THE FLAG ONLY —
+   raising and editing happen in showAddFixPopup. */
+function allCustFixCell(id, d){
+  d = d || {};
+  const open = !!d.needsFix;
+  let html = '<br><button type="button" class="btn btn-outline btn-sm" data-addfix="'+esc(id)+'" style="margin-top:4px;" title="'+
+    (open ? 'Change the note, photo or day for this fix' : 'Raise a fix with a note, a photo and a day to do it')+'">&#128295; '+
+    (open ? 'Edit fix' : 'Add fix')+'</button>';
+  if(open){
+    const note = String(d.fixNote || '').trim();
+    html += '<div class="allcust-fix" style="margin-top:4px; max-width:200px; white-space:normal; font-size:11.5px; color:#9A2A1F;">'+
+      '<strong>Needs fix</strong>'+(d.fixScheduleDate ? ' &middot; '+esc(d.fixScheduleDate) : '')+
+      (note ? '<br><span style="color:var(--ink,#333);">'+esc(note.length > 120 ? note.slice(0,117)+'…' : note)+'</span>' : '<br><span style="color:var(--slate);">no note yet</span>')+
+      (d.fixPhotoUrl ? '<br><a href="'+esc(d.fixPhotoUrl)+'" target="_blank" rel="noopener"><img src="'+esc(d.fixPhotoUrl)+'" alt="Fix photo" style="max-width:80px; max-height:60px; border-radius:6px; border:1px solid var(--line); margin-top:3px;"></a>' : '')+
+    '</div>';
+  }
+  return html;
+}
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
@@ -57349,12 +57370,24 @@ function renderAllCustomersTable(){
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
       '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
       '<td style="padding:8px 10px;">'+mapCell+'</td>'+
-      '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
+      '<td style="padding:8px 10px; white-space:nowrap;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button>'+allCustFixCell(r.item.id, r.d)+'</td>'+
     '</tr>';
   }).join('');
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
+    });
+  });
+  /* ⭐ ADD A FIX FROM ALL CUSTOMERS ([[FIX-08]], 2026-10-07). Addie: "We also need to be
+     able to add fix to the costumers list with notes and picture there as well."
+     ⚠ IT OPENS THE SAME POPUP EVERY OTHER DOOR OPENS — showAddFixPopup — so Save Fix
+     still goes through hlxMarkJobDone (the dated write and the Inbox notice, FIX-02/05)
+     and the chosen day still reaches a Fixer Route through placeFixesFromCustomers.
+     A second fix form here would be a second set of rules about what raising a fix
+     writes, which is the drift FIX-05 was found by. Nothing on this row writes the flag. */
+  body.querySelectorAll('[data-addfix]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      showAddFixPopup(btn.dataset.addfix, {onSaved: function(){ renderAllCustomersTable(); }});
     });
   });
   /* ⚠ AND THE RULE THAT COMMENT CARRIED STILL STANDS, which is why it is kept rather
