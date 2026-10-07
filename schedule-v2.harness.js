@@ -23,7 +23,7 @@ module.exports = function makeHarness(liftDeep){
     'renderImportedAt paintForecastNote renderFixTray dayMapDraw dayMapPanes routePictureHTML dayMapPaneAt ' +
     'loadSeasonForecast loadSeasonNormals ensureForecastForPanel firebaseConfig app db PLAN_REF ' +
     'stopHTML weekGuideHTML dayCrewLimitControlHTML dayForecastChips refreshTownGrids').split(/\s+/));
-  const L = liftDeep(['rebuildSeasonDays', 'pullBackPastDeadline', 'generateAllRoutes', 'crewHousesFor',
+  const L = liftDeep(['rebuildSeasonDays', 'sweepGoneDaysForward', 'pullBackPastDeadline', 'generateAllRoutes', 'crewHousesFor',
     'installDays', 'dayCrewHouses', 'crewIndexes', 'houseMayGoOn', 'houseDateWindow', 'houseInstallPriority',
     'nextInstallDayFor', 'placeConfirmedLeftOff', 'confirmedNotOnAnyDay', 'enforceInstallTiming',
     'houseFromCustomer', 'planCustomerFor', 'dayDate', 'isoOf', 'computeDates', 'seasonAimPoints',
@@ -97,7 +97,7 @@ module.exports = function makeHarness(liftDeep){
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
     '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
-    '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
+    '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
     '  unbuiltOff: function(){ return PRINTED_UNBUILT_OFF; },',
     '  setSeason: function(s){ SEASON = s; computeDates(); },',
@@ -113,7 +113,8 @@ module.exports = function makeHarness(liftDeep){
     '        validateSeasonPlan: validateSeasonPlan, lockedDaySnapshot: lockedDaySnapshot, placementReasons: placementReasons,',
     '        houseSchedulingProfile: houseSchedulingProfile, bestEarlierDayFor: bestEarlierDayFor, milesFromDay: milesFromDay,',
     '        pullBackPastDeadline: pullBackPastDeadline, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
-    '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs}',
+    '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs,',
+    '        sweepGoneDaysForward: sweepGoneDaysForward}',
     '};'
   ].join('\n');
 

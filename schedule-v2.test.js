@@ -1081,6 +1081,72 @@ suite('13 Individual customer priority');
     check('13.6: priority costs little geography (crew-sheet spread ' + withoutP.toFixed(0) + ' → ' + withP.toFixed(0) + ' mi summed)', withP <= withoutP * 1.10);
   }
 }
+
+/* ======================================================================================= */
+suite('SCH-114 Nobody is scheduled for today or a day that has already gone');
+{
+  /* 14.1 / 14.2: a brand-new day from Recalculate is never built ON today, even though
+     today is a legal working day the calendar would otherwise let the builder use. */
+  const today1 = new Date(2026, 9, 7, 7, 0);               // Wednesday 7 October 2026
+  const resA = run(makeBook(60, 1140), {now: today1});
+  const firstDay = daysOf().map(function(d){ return d.ds; }).filter(Boolean).sort()[0];
+  check('14.1: a brand-new day is never built on today itself', firstDay !== '2026-10-07', 'got ' + firstDay);
+  check('14.2: the first day built is the next working day after today', firstDay === '2026-10-08', 'got ' + firstDay);
+  check('14.3: and the plan is otherwise clean', resA.violations.length === 0, JSON.stringify(resA.violations.slice(0, 2)));
+
+  /* 14.4 - 14.7: a day that has since gone gives up its UNFINISHED houses on the
+     five-minute sync, without waiting for a press of Recalculate everything — and it
+     never lands them on one of the next two SCHEDULED days, which the lock still
+     protects (SCH-106). Built by hand rather than through a full rebuild, so which day
+     is "gone" and which is the one legal target is exact rather than probable. */
+  const mkCust = function(id, city){
+    const c = TOWNS[city];
+    return {id: id, data: Object.assign({name: id, customerNumber: '9' + id, city: city,
+      address: '1 Test Ln', phone: '8015559' + id, lat: c[0], lng: c[1],
+      installPreference: 'Normal Schedule'}, YES)};
+  };
+  const mkHouse = function(id, city, done){
+    return {id: 'cust-' + id, name: id, address: '1 Test Ln', city: city, zip: '', phone: '',
+      email: '', pref: 'Normal Schedule', cu: '', price: '', details: '', done: !!done};
+  };
+  /* Two decoys dated just after "now" soak up the next-two-scheduled-days lock, so the
+     target day — the one legal place for the unfinished house to land — is the third
+     nearest day and genuinely open, not one the lock is protecting from every mover. */
+  const freshFutureDays = function(){
+    return [
+      {id: 'decoy1', base: 20, cascade: 0, pin: null, houses: [mkHouse('d1', 'Lehi', false)]},
+      {id: 'decoy2', base: 21, cascade: 0, pin: null, houses: [mkHouse('d2', 'Lehi', false)]},
+      {id: 'target', base: 40, cascade: 0, pin: null, houses: [mkHouse('tg', 'Lehi', false)]}
+    ];
+  };
+  const d1c = mkCust('d1', 'Lehi'), d2c = mkCust('d2', 'Lehi'), tgc = mkCust('tg', 'Lehi');
+  const g1c = mkCust('g1', 'Lehi'), g2c = mkCust('g2', 'Lehi');
+  const goneDay = {id: 'gone', base: 0, cascade: 0, pin: null,
+    houses: [mkHouse('g1', 'Lehi', true), mkHouse('g2', 'Lehi', false)]};
+  H.setNow(new Date(2026, 9, 20, 7, 0));                   // well after 1 October
+  H.load([g1c, g2c, d1c, d2c, tgc], {season: [goneDay].concat(freshFutureDays())});
+  H.api.computeDates();
+  const out = H.tick();
+  check('14.4: the unfinished house is taken off the day that has already gone',
+    dayOfCust('g2') !== '2026-10-01', 'now on ' + dayOfCust('g2'));
+  check('14.5: and placed on a real open day, never one of the locked next two',
+    dayOfCust('g2') === '2026-11-10', 'got ' + dayOfCust('g2'));
+  check('14.6: the sync reports it by name, the same way a timing move is',
+    out.goneDays.moved.some(function(m){ return m.name === 'g2'; }), JSON.stringify(out.goneDays.moved));
+  check('14.7: a house already done stays on the day — it is the record of what happened, not paper the crew is still holding',
+    dayOfCust('g1') === '2026-10-01');
+
+  /* 14.8: a day that went by with NOTHING finished on it is dropped entirely, the same
+     rule Recalculate already follows — it is not left behind as an empty box. */
+  const g3c = mkCust('g3', 'Lehi');
+  const goneDay2 = {id: 'gone2', base: 0, cascade: 0, pin: null, houses: [mkHouse('g3', 'Lehi', false)]};
+  H.setNow(new Date(2026, 9, 20, 7, 0));
+  H.load([g3c, d1c, d2c, tgc], {season: [goneDay2].concat(freshFutureDays())});
+  H.api.computeDates();
+  H.tick();
+  check('14.8: a gone day left with nothing finished on it is dropped, not kept empty',
+    daysOf().every(function(d){ return d.ds !== '2026-10-01'; }), JSON.stringify(daysOf().map(function(d){ return d.ds; })));
+}
 }
 
 /* ======================================================================================= */
