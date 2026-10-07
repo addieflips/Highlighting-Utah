@@ -8404,8 +8404,9 @@ cost, a fix with no note prints "?" and no photo.
 
 **The fix.** `showAddFixPopup(id, opts)` is one popup — a note, a photo upload and a date
 field, "Schedule this fix for," defaulting to the next Saturday — called from both doors the
-moment `needsFix` is turned ON. Save Fix still goes through `hlxMarkJobDone` (the one dated
-door from the section above) before writing `fixNote`/`fixPhotoUrl`/`fixScheduleDate`, so
+moment `needsFix` is turned ON. Save Fix writes `fixNote`/`fixPhotoUrl`/`fixScheduleDate` FIRST and then raises the flag through
+`hlxMarkJobDone` (the one dated door from the section above) — the other way round shipped on
+2026-10-06 and put every fix on the schedule with an empty note (see below), so
 raising a fix this way carries exactly the same date stamp and Inbox notice as before.
 Cancelling the popup unticks the box it came from rather than leaving it checked over
 nothing written.
@@ -8438,6 +8439,16 @@ sheet was never a declared destination for it. `js/options.js` now adds `crewShe
 `consumers`, and `printCrewColumns` raises a `Light color` column on the SAME gate the
 `What's wrong` column already uses — only when a fix is actually on the sheet, never on the
 ~950 ordinary install rows a season holds.
+
+**Fixed 2026-10-07: notes and photos missing on the Schedule.** The note was COPIED onto the
+fixer-route house once, when `placeFixesFromCustomers` placed it, and the popup raised the flag
+before writing the note — so the snapshot in between placed the house with an empty note, and
+nothing ever looked again. The photo was never drawn on the Schedule screen at all, only on the
+printed sheet. Now `fixLiveDetails` reads the note and photo off the customer record every time
+the stop card or the Fixes tray is drawn (`fixDetailHTML`), `refreshFixHouseNotes` brings the
+stored copy into line on every customer sync (so the CSV and a reload agree), and the popup writes
+the note before the flag. An imported fix-list row with no customer behind it keeps its own note.
+run-all.js Suite 373.
 
 Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
 didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own

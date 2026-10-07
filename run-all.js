@@ -66091,3 +66091,44 @@ suite('372. The nightly invoice sends the picked template');
   check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
   check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
 }
+
+/* ---------------------------------------------------------------------------
+ * 373. A FIX ON THE SCHEDULE SHOWS ITS NOTE AND PHOTO (2026-10-07).
+ * Notes and pictures stopped showing on fixes in Schedule: placeFixesFromCustomers copied
+ * the note ONCE, and the popup raised the flag before writing the note, so the copy was
+ * empty and never refreshed. RUN, not matched — every claim is about what is on screen.
+ * --------------------------------------------------------------------------- */
+suite('373. A fix on the schedule shows its note and photo');
+{
+  const names = ['fixLiveDetails', 'refreshFixHouseNotes', 'fixDetailHTML'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S373', 'the three helpers are findable', srcs.every(Boolean), names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean)) {
+    const cust = {id: 'abc', data: {needsFix: true, fixNote: 'two strands out on the front peak', fixPhotoUrl: 'https://example.com/fault.jpg'}};
+    const make = new Function('SEASON', 'planCustomerFor',
+      "const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;');" +
+      srcs.join('\n') + '; return {fixLiveDetails, refreshFixHouseNotes, fixDetailHTML};');
+    const h = {id: 'cust-abc', isFix: true, name: 'Dana', issue: '', details: 'FIX: '};
+    const season = [{isFixRoute: true, houses: [h]}];
+    const fns = make(season, x => (x && x.id === 'cust-abc') ? cust : null);
+    const html = fns.fixDetailHTML(h, 220);
+    check('S373', 'a fix placed with an empty note shows the note on the customer', html.includes('two strands out on the front peak'), html);
+    check('S373', 'and the fault photo is drawn', /<img[^>]+fault\.jpg/.test(html), html);
+    const changed = fns.refreshFixHouseNotes();
+    check('S373', 'the stored copy is brought into line so a save and the CSV agree', changed.length === 1 && h.issue === cust.data.fixNote && h.details === 'FIX: ' + cust.data.fixNote);
+    check('S373', 'and a second pass finds nothing to change', fns.refreshFixHouseNotes().length === 0);
+    const orphan = {id: 'f9', isFix: true, issue: 'from the old fix list'};
+    const o = fns.fixDetailHTML(orphan, 220);
+    check('S373', 'a fix with no customer behind it keeps its own note and draws no photo', o.includes('from the old fix list') && !/<img/.test(o), o);
+    check('S373', 'a fix nobody described reads "?", never blank', fns.fixDetailHTML({isFix: true}, 220).includes('FIX: ?'));
+  }
+  const stop = stripComments(extractFn(admin, 'stopHTML') || '');
+  check('S373', 'the stop card draws a fix through the live helper', /h\.isFix\?fixDetailHTML\(h,/.test(stop));
+  check('S373', 'and so does the Fixes tray', /fixDetailHTML\(h,/.test(stripComments(extractFn(admin, 'renderFixTray') || '')));
+  const sync = admin.slice(admin.indexOf('window.scheduleSyncFromCustomers=function'));
+  check('S373', 'the customer sync refreshes the notes and saves when only they changed',
+    /fixNotes=refreshFixHouseNotes\(\)/.test(sync) && /!fixesPlaced\.length && !fixNotes\.length\) return 0;/.test(sync));
+  const pop = stripComments(extractFn(admin, 'showAddFixPopup') || '');
+  const iNote = pop.indexOf('fixNote: noteVal'), iRaise = pop.indexOf("hlxMarkJobDone(id, 'fix', false");
+  check('S373', 'the popup writes the note BEFORE it raises the flag', iNote > -1 && iRaise > -1 && iNote < iRaise, iNote + ' / ' + iRaise);
+}
