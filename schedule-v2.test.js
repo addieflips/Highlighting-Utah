@@ -897,7 +897,7 @@ suite('LIVE-2 Customers already on days who go onto the colour-change list come 
     eight.map(function(b){ return b.data.name + '@' + (dayOfCust(b.id) || '-'); }).join(', '));
   check('and leaves no Confirmed customer off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
 }
-suite('LIVE-5 An unbuilt new hang comes off even a printed day, and nothing else does (SCH-113)');
+suite('LIVE-5 Nobody with an unbuilt bundle stays on a printed day, new hang or returning (SCH-113 / SCH-115)');
 function liveUnbuilt(useTick){
   const book = makeBook(160, 4405);
   run(book, {now: new Date(2026, 8, 28, 7, 0)});
@@ -909,20 +909,22 @@ function liveUnbuilt(useTick){
   const onDay = daysOf().filter(function(d){ return d.ds === lockedDs[1]; })[0];
   const ids = onDay ? onDay.ids.map(function(x){ return x.replace(/^cust-/, ''); }) : [];
   const byId = {}; book.forEach(function(b){ byId[b.id] = b; });
-  const rachel = byId[ids[2]], rebuilt = byId[ids[3]];
-  /* The hold arrives after she was placed: a new hang, her bundle still queued. */
+  const rachel = byId[ids[2]], mover = byId[ids[3]];
+  /* The hold arrives after they were placed: a new hang whose bundle is still queued,
+     and a RETURNING customer whose set is being rebuilt — SCH-115 holds both, because
+     either way the crew would arrive to a house with nothing built for it. */
   rachel.data.chargeNewMemberFee = true; rachel.data.needsLightBuild = true;
-  rebuilt.data.needsLightBuild = true;   // a returning customer being rebuilt — the crew has hung them before
+  mover.data.needsLightBuild = true;
   H.load(book, {season: season});
   if(useTick) H.tick(); else H.press();
   const after = lockedPrint();
-  const strip = function(str){ return str.split('|').map(function(c){ return c.split(',').filter(function(x){ return x && x !== 'cust-' + rachel.id; }).join(','); }).join('|'); };
+  const strip = function(str){ return str.split('|').map(function(c){ return c.split(',').filter(function(x){ return x && x !== 'cust-' + rachel.id && x !== 'cust-' + mover.id; }).join(','); }).join('|'); };
   const label = useTick ? 'the five-minute sync' : 'Recalculate everything';
   check(label + ': the unbuilt new hang is taken off the printed day', !dayOfCust(rachel.id), lockedDs[1] + ' → ' + dayOfCust(rachel.id));
+  check(label + ': and so is a returning customer whose rebuild is still queued (SCH-115)', !dayOfCust(mover.id), lockedDs[1] + ' → ' + dayOfCust(mover.id));
   check(label + ': everybody else on that day keeps exactly their crew and order', after[lockedDs[1]] === strip(before[lockedDs[1]]),
     'before ' + strip(before[lockedDs[1]]).slice(0, 120) + ' | after ' + (after[lockedDs[1]] || '').slice(0, 120));
   check(label + ': the other printed day is untouched', after[lockedDs[0]] === before[lockedDs[0]]);
-  check(label + ': a returning customer being rebuilt stays on the printed day', dayOfCust(rebuilt.id) === lockedDs[1]);
   if(!useTick) check(label + ': and the office is told who came off which day', H.unbuiltOff().some(function(x){ return x.date === lockedDs[1]; }), JSON.stringify(H.unbuiltOff()));
 }
 liveUnbuilt(false);
@@ -964,7 +966,7 @@ suite('LIVE-3 The lock is the next two SCHEDULED days, not a clock (SCH-106)');
 }
 
 /* ======================================================================================= */
-suite('SCH-110 A new hang is not scheduled until their lights are built');
+suite('SCH-110 / SCH-115 Nobody with a pending build is scheduled, new hang or returning');
 {
   const book = makeBook(120, 110);
   const nh = book[4];
@@ -982,7 +984,21 @@ suite('SCH-110 A new hang is not scheduled until their lights are built');
   later.data.chargeNewMemberFee = true; later.data.needsLightBuild = true;
   H.setNow(TODAY); H.load(book, {season: season}); H.press();
   check('a new hang already on an unprinted day comes off it when their build is queued', !dayOfCust(later.id));
-  check('a returning customer being rebuilt keeps their day', (function(){ const r = book[9]; const was = dayOfCust(r.id); r.data.needsLightBuild = true; H.load(book, {season: H.season()}); H.press(); return !!was && dayOfCust(r.id) === was; })());
+  /* ⭐ [[SCH-115]] 2026-10-07 — SUPERSEDES the old claim here, which said a returning
+     customer being rebuilt keeps their day because the crew has hung them before. Addie,
+     asked whether a pending build should hold a returning customer too: "anyone that is
+     in warehouse should not be scheduled" — yes, same as a new hang, because a mover's
+     old set is already recycled and a day with nothing built is the same failure either way. */
+  check('and so does a RETURNING customer whose set is being rebuilt (SCH-115)', (function(){
+    const r = book[9]; const was = dayOfCust(r.id); r.data.needsLightBuild = true;
+    H.load(book, {season: H.season()}); H.press();
+    return !!was && !dayOfCust(r.id);
+  })());
+  check('and they are placed again once the warehouse marks their bundle done', (function(){
+    const r = book[9]; r.data.needsLightBuild = false;
+    H.load(book, {season: H.season()}); H.press();
+    return !!dayOfCust(r.id);
+  })());
 }
 
 /* ======================================================================================= */

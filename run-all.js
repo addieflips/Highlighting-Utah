@@ -17554,8 +17554,10 @@ suite('Suite 48. Days within two working days are set');
     /const setSoon = dt && dt >= today/.test(admin),
     'a past day belongs to the worked branch, which is what puts the houses nobody got to back in the pool');
 
-  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01): the set day is still kept and returned before the
-     pool — the only thing allowed off it is an unbuilt new hang, and only through takeOffPrintedDay. */
+  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01; widened by [[SCH-115]], 2026-10-07): the set day is
+     still kept and returned before the pool — the only thing allowed off it is a house whose lights are not
+     built yet (new hang or returning, unbuiltNewHangOnPrintedDay keeps its old name but asks isWaitingOnBuild,
+     which no longer cares which), and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
     (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
      /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
@@ -65979,11 +65981,14 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
   check('S369', 'and is off the schedule', s1.off(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === true);
   check('S369', 'the moment the bundle is built they are Confirmed again',
     s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: false}, y)) === 'confirmed');
-  check('S369', 'a returning customer whose set is being rebuilt is NOT held',
-    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'confirmed');
-  const s2 = sb({customerIsNewHangData: function(){ return true; }});
-  check('S369', 'a new hang found by their quote (box unticked) is held too',
-    s2.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
+  /* ⭐ [[SCH-115]] 2026-10-07 — SUPERSEDES the claim this line used to make, "a returning
+     customer whose set is being rebuilt is NOT held" (the crew had hung them before).
+     Addie, asked whether the hold should reach a returning customer too: "anyone that is
+     in warehouse should not be scheduled" — yes, same as a new hang, because a mover's old
+     set is already recycled and a day with nothing built is the identical failure either
+     way. isWaitingOnBuild no longer asks whether the house is new at all. */
+  check('S369', 'a returning customer whose set is being rebuilt is held too (SCH-115)',
+    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
   check('S369', 'somebody who said No keeps the No badge', s1.badge({rsvpStatus: 'no', chargeNewMemberFee: true, needsLightBuild: true}) === 'no');
   check('S369', 'All Customers can show and filter on Being built',
     /badgeKey === 'building'/.test(admin) && /<option value="building">/.test(admin));
