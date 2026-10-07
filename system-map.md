@@ -8383,7 +8383,54 @@ which prints on the new-hang crew sheets, is never touched.
 kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
 in the same change.
 
-### Everything about the season RSVP is on the RSVP tab
+### Raising a fix opens notes, a photo and a day to put it on — [[FIX-07]], 2026-10-06
+
+Addie asked for an Add Fix action in Customers that "will be added to fixes in schedule for
+every Saturday or whenever I choose to schedule it for," then, mid-build: "everywere I can
+put Needs fix it needs to automatically have a spot to put pictures and notes."
+
+**The gap.** Both places that could turn `needsFix` on — the customer-row status dropdown
+and the Routes-tab stop card's Mark Needs Fix button — wrote the bare flag with nowhere to
+say what was wrong. The note and photo lived in a separate Edit Note panel nobody was sent
+to, or, on the stop card, nowhere at all; `printFixReason`'s own comment already named the
+cost, a fix with no note prints "?" and no photo.
+
+**The fix.** `showAddFixPopup(id, opts)` is one popup — a note, a photo upload and a date
+field, "Schedule this fix for," defaulting to the next Saturday — called from both doors the
+moment `needsFix` is turned ON. Save Fix still goes through `hlxMarkJobDone` (the one dated
+door from the section above) before writing `fixNote`/`fixPhotoUrl`/`fixScheduleDate`, so
+raising a fix this way carries exactly the same date stamp and Inbox notice as before.
+Cancelling the popup unticks the box it came from rather than leaving it checked over
+nothing written.
+
+⚠ **The date is hers, never guessed at.** `fixScheduleDate` is read by a new Schedule-module
+function, `placeFixesFromCustomers`, hooked into the same three triggers as
+`syncHousesFromCustomers` — a customer change, opening the Schedule tab, and the 5-minute
+timer. It builds a fixer-route house through `houseFromCustomer` (the same builder a new
+install uses) and pins it to that date, or to the next Saturday if none was ever saved;
+two fixes asked for the same date land on one fixer-route day together.
+
+⚠ **This is additive, not the Job 4 migration.** `derivedDoneFor`'s own comment has said
+since Job 3 that "today a fix reaches the plan through FIXLIST, which is plan-only; nothing
+in the Schedule module writes `needsFix` to a customer at all" — true until this change.
+`placeFixesFromCustomers` only *adds* a fixer-route house for a flagged customer nothing
+already represents; it never removes, reorders or re-derives one, so a mended fix still
+reads as done through `derivedDoneFor` exactly as before, and the old manual FIXLIST /
+`buildFixRoutes` zip-clustering flow is untouched for anybody who still drags a house onto
+it by hand. It also never touches `seasonCustomerIds`, which already excludes `h.isFix`
+from "already on the plan" — the headline rule's own guard — so a customer who also needs a
+fix is still placed on an install day by `customersMissingFromSeason` exactly as if this
+function did not exist.
+
+**And printing gained a column.** Addie, on what should print for a fix: "Picture and notes
+need to print out along with persons name and address. Along with light colors they have."
+Name, address, the note and the photo already printed (the sections above); light colour
+never had, because `lightsDescription`'s registry entry stopped at the quote, the
+confirmation, the customer record and the two warehouse build sheets — the ordinary crew
+sheet was never a declared destination for it. `js/options.js` now adds `crewSheet` to its
+`consumers`, and `printCrewColumns` raises a `Light color` column on the SAME gate the
+`What's wrong` column already uses — only when a fix is actually on the sheet, never on the
+~950 ordinary install rows a season holds.
 
 Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
 didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own

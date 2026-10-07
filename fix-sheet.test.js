@@ -56,6 +56,8 @@ function fn(name) {
 
 const columnsSrc = (admin.match(/const PRINT_COLUMNS = \{[\s\S]*?\r?\n\};/) || [''])[0];
 const fixColSrc  = (admin.match(/const PRINT_FIX_COLUMN = \{[^\n]*\};/) || [''])[0];
+/* ⭐ [[FIX-07]], 2026-10-06 — the light colour that rides beside the fix column. */
+const lightsColSrc = (admin.match(/const PRINT_LIGHTS_COLUMN = \{[^\n]*\};/) || [''])[0];
 
 const sidesDefSrc = (admin.match(/const HOUSE_SIDES_DEFAULT = \d+;/) || [''])[0];
 /* ⚠ AND THE STORED SIDE NAMES ([[OPT-09]]). printSidesCell puts the list through
@@ -67,10 +69,14 @@ const sideNamesSrc = (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''
 const NEEDED = ['printFixReason', 'printCrewColumns', 'printFixPhotos', 'printCrewRow',
                 'printPhotosHtml', 'printCustData', 'printCrewNotes', 'printGateCode',
                 'printSidesCell', 'houseSidesListFromValue', 'printYesNo', 'printBinCount',
-                'houseSideCount', 'esc'];
+                'houseSideCount', 'esc',
+                /* ⭐ [[FIX-07]] — the light colour printCrewRow fills alongside the fix
+                   reason, and the one answer it is read from. */
+                'printLightColor', 'houseLightsText'];
 const missing = NEEDED.filter(n => !fn(n))
   .concat(columnsSrc ? [] : ['PRINT_COLUMNS'])
   .concat(fixColSrc ? [] : ['PRINT_FIX_COLUMN'])
+  .concat(lightsColSrc ? [] : ['PRINT_LIGHTS_COLUMN'])
   .concat(sidesDefSrc ? [] : ['HOUSE_SIDES_DEFAULT'])
   .concat(sideNamesSrc ? [] : ['HOUSE_SIDE_NAMES']);
 if (missing.length) {
@@ -94,10 +100,14 @@ if (missing.length) {
    CLAUDE.md §3 has the long version: a green run does not prove a suite supplied its
    own dependencies. */
 const sb = new Function(
-  columnsSrc + fixColSrc + sidesDefSrc + sideNamesSrc +
+  columnsSrc + fixColSrc + lightsColSrc + sidesDefSrc + sideNamesSrc +
   fn('esc') + fn('printYesNo') + fn('houseSideCount') +
   fn('printGateCode') + fn('houseSidesListFromValue') + fn('printSidesCell') +
   fn('printBinCount') + fn('printCrewNotes') + fn('printFixReason') +
+  /* ⭐ [[FIX-07]] — LIFTED, NOT STUBBED, same reasoning as every other cell on this
+     row: a stub would prove the column renders and nothing about whether it is
+     filled with the real colour. */
+  fn('printLightColor') + fn('houseLightsText') +
   fn('printCrewColumns') + fn('printCrewRow') + fn('printFixPhotos') +
   fn('printPhotosHtml') +
   'let HOUSES = [], CUST = {};' +
@@ -108,7 +118,7 @@ const sb = new Function(
   'function customerForHouse(h){ return {data: CUST[h.id] || {}}; }' +
   'function printCustData(h){ return (customerForHouse(h) || {}).data || {}; }' +
   'return {' +
-  '  PRINT_COLUMNS, PRINT_FIX_COLUMN,' +
+  '  PRINT_COLUMNS, PRINT_FIX_COLUMN, PRINT_LIGHTS_COLUMN,' +
   '  reason: printFixReason, columns: printCrewColumns, row: printCrewRow,' +
   '  photos: printFixPhotos, photosHtml: printPhotosHtml,' +
   '  load: function(houses, cust){ HOUSES = houses; CUST = cust; }' +
@@ -166,12 +176,22 @@ check('and it sits before Notes, not after it',
   KEYS(sb.columns(flagged)).indexOf('notes'),
   'the owner moved Timer in front of Notes for this reason: "anything put after it ' +
   'gets lost against a wall of writing"');
-check('no other column is lost or reordered by adding it',
-  KEYS(sb.columns(flagged)).filter(k => k !== 'fix').join(',') ===
+/* ⭐ [[FIX-07]], 2026-10-06 — the light colour rides on exactly the same gate as the
+   fix reason, so a sheet with nobody flagged gets no Light color column either. */
+check('no fix on the sheet, no light colour column either',
+  !KEYS(sb.columns(plain)).includes('lights'),
+  'light colour only prints on a fix row — it is not a column on every install');
+check('one fix on the sheet, the light colour column appears too',
+  KEYS(sb.columns(flagged)).includes('lights'));
+check('light colour sits beside the fix reason, before Notes',
+  KEYS(sb.columns(flagged)).indexOf('fix') < KEYS(sb.columns(flagged)).indexOf('lights') &&
+  KEYS(sb.columns(flagged)).indexOf('lights') < KEYS(sb.columns(flagged)).indexOf('notes'));
+check('no other column is lost or reordered by adding them',
+  KEYS(sb.columns(flagged)).filter(k => k !== 'fix' && k !== 'lights').join(',') ===
   KEYS(sb.PRINT_COLUMNS.crew).join(','));
 check('the base crew columns are not mutated by asking',
-  !KEYS(sb.PRINT_COLUMNS.crew).includes('fix'),
-  'splice on the real array would put the column on every sheet printed afterwards');
+  !KEYS(sb.PRINT_COLUMNS.crew).includes('fix') && !KEYS(sb.PRINT_COLUMNS.crew).includes('lights'),
+  'splice on the real array would put the columns on every sheet printed afterwards');
 check('asking twice gives the same answer',
   KEYS(sb.columns(flagged)).join(',') === KEYS(sb.columns(flagged)).join(','));
 check('an empty sheet does not throw', KEYS(sb.columns([])).length > 0);
@@ -190,7 +210,8 @@ check('and printCrewColumns never reads a day at all',
 // ---------------------------------------------------------------------------
 sb.load([{ id: 'h1', cu: '', address: '', city: '' }],
         { h1: { customerNumber: '14', name: 'Broken', street: '9 Elm',
-                needsFix: true, fixNote: 'two strands out on the front peak' } });
+                needsFix: true, fixNote: 'two strands out on the front peak',
+                lightsDescription: 'Warm White, Red' } });
 const built = sb.row({ id: 'h1', cu: '', address: '', city: '' });
 check('the row carries the fix text',
   built.fix === 'two strands out on the front peak',
@@ -198,9 +219,20 @@ check('the row carries the fix text',
 check('and it is not smuggled into Notes instead',
   !/two strands/.test(built.notes || ''),
   'Notes is the wide prose column; the reason for the visit needs its own');
+/* ⭐ [[FIX-07]], 2026-10-06 — Addie: "Along with light colors they have." */
+check('the row carries the light colour too',
+  built.lights === 'Warm White, Red', 'got ' + JSON.stringify(built.lights));
 check('the row still carries everything it carried before',
-  ['number', 'name', 'bins', 'address', 'city', 'gate', 'sides', 'eaves', 'timer', 'notes']
+  ['number', 'name', 'bins', 'address', 'city', 'gate', 'sides', 'eaves', 'timer', 'lights', 'notes']
     .every(k => k in built));
+/* ⚠ THE SAME ANSWER AS THE BUILD SHEET, NOT A SECOND ONE — houseLightsText reads
+   BOTH fields a colour can live in (CLAUDE.md names this exact trap by name), so a
+   fixture carrying only the repeated-colour field still has to come through. */
+sb.load([{ id: 'h2', cu: '', address: '', city: '' }],
+        { h2: { customerNumber: '15', name: 'Alternating', needsFix: true,
+                fixNote: 'bulb out over the garage', lightColors: ['Red', 'Green'] } });
+check('and it reads lightColors when there is no description',
+  sb.row({ id: 'h2', cu: '', address: '', city: '' }).lights === 'Red, Green');
 
 // ---------------------------------------------------------------------------
 // 4. THE PHOTO

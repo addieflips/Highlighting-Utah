@@ -147,7 +147,11 @@ export const OPTIONS = [
     value: (c) => c.lightsDescription || (Array.isArray(c.lightColors) ? c.lightColors.join(', ') : ''),
     palette: ['Warm White', 'Pure White', 'Red', 'Green', 'Blue', 'Purple', 'Orange', 'Pink', 'Multi'],
     affectsPrice: false,
-    consumers: ['quote', 'confirmation', 'customer', 'pullList'],
+    /* ⭐ AND THE CREW SHEET, ONLY WHEN A FIX IS ON IT ([[FIX-07]], 2026-10-06). Addie:
+       "Along with light colors they have" — asked for printing a fix, not every
+       install row, which is why printCrewColumns only raises the Light color column
+       when something fills the What's wrong column beside it. */
+    consumers: ['quote', 'confirmation', 'customer', 'pullList', 'crewSheet'],
   },
   {
     id: 'wireColor',

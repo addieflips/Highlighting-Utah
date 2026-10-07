@@ -49524,7 +49524,8 @@ function attachAddressRowHandlers(container){
        and the field may only be cleared once that has actually happened. */
     btn.addEventListener('click', async function(){
       const id = btn.dataset.id;
-      const needsFix = document.querySelector('.status-check[data-field="needsFix"][data-rowid="'+id+'"]').checked;
+      const needsFixCheckbox = document.querySelector('.status-check[data-field="needsFix"][data-rowid="'+id+'"]');
+      const needsFix = needsFixCheckbox.checked;
       const completed = document.querySelector('.status-check[data-field="completed"][data-rowid="'+id+'"]').checked;
       const removalDone = document.querySelector('.status-check[data-field="removalDone"][data-rowid="'+id+'"]').checked;
       const item = jobAddresses.find(a => a.id === id);
@@ -49542,15 +49543,33 @@ function attachAddressRowHandlers(container){
          not mean takedown is done."
 
          ⚠ THE FIELD SETS COME FROM THE SHARED RULE so this row, the Routes stop and
-         the Schedule tick cannot drift; only the three answers on this dropdown are
-         combined here, because this is the one door that sets all three at once. */
-      const updates = Object.assign({},
+         the Schedule tick cannot drift; only the two non-fix answers on this dropdown
+         are combined here, because this is the one door that sets install and
+         takedown at once. */
+      const otherUpdates = Object.assign({},
         (completed !== wasCompleted)
           ? HLX_DONE_KINDS.install[completed ? 'on' : 'off'](serverTimestamp())
           : {completed: completed},
         (removalDone !== wasRemoved)
           ? HLX_DONE_KINDS.takedown[removalDone ? 'on' : 'off'](serverTimestamp())
-          : {removalDone: removalDone},
+          : {removalDone: removalDone});
+      /* ⭐ RAISING A FIX OPENS THE NOTE, PHOTO AND DATE POPUP ([[FIX-07]], 2026-10-06)
+         INSTEAD OF WRITING A BARE FLAG. The install/takedown half of this dropdown
+         still applies on the spot; the fix half is finished by Save Fix in the
+         popup, which goes through hlxMarkJobDone — the one door that stamps
+         fixRaisedAt and raises the Inbox notice (FIX-02). Cancelling the popup
+         unticks the box here rather than leaving it checked over nothing written. */
+      if(needsFix && !wasNeedsFix){
+        updateDoc(doc(db,'jobAddresses',id), otherUpdates).then(function(){
+          document.getElementById('statusdrop-'+id).classList.remove('open');
+          showAddFixPopup(id, {
+            onCancel: function(){ needsFixCheckbox.checked = false; },
+            onSaved: function(){ renderRouteAddressList(); }
+          });
+        });
+        return;
+      }
+      const updates = Object.assign({}, otherUpdates,
         /* ⚠ THIS WAS `{needsFix: needsFix}` — the one of the three that did NOT go through
            the shared rule, five lines under a comment saying all three do. So raising a
            fault here recorded no `fixRaisedAt` and mending one recorded no `fixDoneAt`,
@@ -59052,6 +59071,116 @@ async function hlxMarkJobDone(target, kind, done, opts) {
   } catch (e) { /* the console line above is the record */ }
   return {ok: true, id: id, fields: fields};
 }
+/* ⭐ EVERY DOOR THAT RAISES A FIX OPENS STRAIGHT INTO NOTES, A PHOTO AND A DATE
+   ([[FIX-07]], 2026-10-06). Addie asked for an Add Fix action in Customers that
+   "will be added to fixes in schedule for every Saturday or whenever I choose to
+   schedule it for", then, while this was being built: "everywere I can put Needs
+   fix it needs to automatically have a spot to put pictures and notes."
+
+   ⚠ TICKING THE BOX USED TO BE THE WHOLE ACTION. The status dropdown's checkbox and
+   the route stop's Mark Needs Fix button both wrote `needsFix:true` with nothing
+   else — the note and photo lived in a SEPARATE "Edit Note" panel nobody was sent
+   to, or, on the route stop card, nowhere at all. printFixReason's own comment
+   already names the cost: a fix raised with no note prints "?" and no photo, and
+   the crew rings the office or guesses at somebody's roofline.
+
+   One popup, called from every place `needsFix` is turned ON, so a door added
+   later gets this for free rather than needing to remember it. It is also where
+   she picks the day — placeFixesFromCustomers in the Schedule module reads
+   fixScheduleDate (or defaults to the next Saturday, a day the crew is not doing
+   ordinary installs) to put the house straight on a Fixer Route. */
+function nextFixSaturdayIso(){
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 1);   // never the same day — there is no same-day fix
+  while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+function showAddFixPopup(id, opts){
+  const o = opts || {};
+  const item = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === id; }) : null;
+  const d = (item && item.data) || {};
+  const overlay = document.createElement('div');
+  overlay.className = 'needsfix-popup-overlay';
+  overlay.innerHTML = '<div class="needsfix-popup" style="max-width:460px;">' +
+    '<h3>&#128295; What needs fixing' + (d.name ? ' &mdash; ' + esc(d.name) : '') + '?</h3>' +
+    '<div class="form-row"><label>Note <span style="font-weight:400; color:var(--slate);">(the crew doing the fix will see this)</span></label>' +
+      '<textarea class="addfix-note" rows="3" placeholder="e.g. two strands out on the front peak, customer said it started last week...">' + esc(d.fixNote || '') + '</textarea>' +
+    '</div>' +
+    '<div class="form-row" style="margin-top:10px;"><label>Photo</label>' +
+      '<input type="file" accept="image/*" class="addfix-photo-input" style="margin-top:4px; display:block;">' +
+      '<div class="addfix-photo-preview" style="margin-top:8px;">' + (d.fixPhotoUrl ? '<img src="' + esc(d.fixPhotoUrl) + '" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block;">' : '') + '</div>' +
+      '<span class="addfix-photo-status" style="font-size:12px; color:var(--slate); display:block; margin-top:4px;"></span>' +
+    '</div>' +
+    '<div class="form-row" style="margin-top:10px;"><label>Schedule this fix for <span style="font-weight:400; color:var(--slate);">(defaults to the next Saturday &mdash; pick any day instead)</span></label>' +
+      '<input type="date" class="addfix-date" value="' + esc(d.fixScheduleDate || nextFixSaturdayIso()) + '">' +
+    '</div>' +
+    '<div style="display:flex; gap:10px; margin-top:16px;">' +
+      '<button type="button" class="btn btn-gold addfix-save" style="flex:1;">Save Fix</button>' +
+      '<button type="button" class="btn btn-outline addfix-cancel">Cancel</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(overlay);
+  let currentPhotoUrl = d.fixPhotoUrl || '';
+  const statusEl = overlay.querySelector('.addfix-photo-status');
+  overlay.querySelector('.addfix-photo-input').addEventListener('change', async function(e){
+    const file = e.target.files[0];
+    if (!file) return;
+    statusEl.textContent = 'Uploading photo…';
+    try {
+      const url = await uploadOneToCloudinary(file);
+      currentPhotoUrl = url;
+      overlay.querySelector('.addfix-photo-preview').innerHTML = '<img src="' + esc(url) + '" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block;">';
+      statusEl.textContent = 'Photo uploaded.';
+    } catch (err) { statusEl.textContent = uploadFailText(err); }
+  });
+  function close(){ overlay.remove(); }
+  function cancelled(){
+    if (typeof o.onCancel === 'function') o.onCancel();
+    close();
+  }
+  overlay.querySelector('.addfix-cancel').addEventListener('click', cancelled);
+  overlay.addEventListener('click', function(e){ if (e.target === overlay) cancelled(); });
+  overlay.querySelector('.addfix-save').addEventListener('click', async function(){
+    const noteVal = overlay.querySelector('.addfix-note').value.trim();
+    const dateVal = overlay.querySelector('.addfix-date').value || nextFixSaturdayIso();
+    const saveBtn = overlay.querySelector('.addfix-save');
+    saveBtn.disabled = true;
+    try {
+      /* Only actually RAISES the flag when it is not already up. hlxMarkJobDone's
+         `off` stamps fixRaisedAt and raises the Inbox notice (FIX-02) — re-running
+         it on every edit of an already-open fix would make a fault raised three
+         weeks ago look brand new every time the note is touched, and would re-post
+         a notice she may have already read. */
+      if (!d.needsFix) {
+        const res = await hlxMarkJobDone(id, 'fix', false, {});
+        if (!res.ok) {
+          toast('Could not raise the fix — ' + res.why);
+          saveBtn.disabled = false;
+          return;
+        }
+      }
+      await updateDoc(doc(db, 'jobAddresses', id), {
+        fixNote: noteVal, fixPhotoUrl: currentPhotoUrl, fixScheduleDate: dateVal
+      });
+      const fresh = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === id; }) : null;
+      if (fresh && fresh.data) {
+        fresh.data.needsFix = true;
+        fresh.data.fixNote = noteVal;
+        fresh.data.fixPhotoUrl = currentPhotoUrl;
+        fresh.data.fixScheduleDate = dateVal;
+      }
+      toast('Fix saved — it will go on the schedule for ' + dateVal);
+      if (typeof o.onSaved === 'function') o.onSaved();
+      close();
+    } catch (err) {
+      console.error('[HU] could not save the fix for ' + id, err);
+      toast('Could not save the fix — try again.');
+      saveBtn.disabled = false;
+    }
+  });
+}
 /* ⭐ NOTHING ABOUT A CUSTOMER IS LOST WITHOUT A COPY BEING KEPT ([[ARCH-01]], 2026-09-23).
    Addie: "any person who gets deleted by the trash bin or delete costumer or say no
    through quotes or RSVP should be archived."
@@ -66401,18 +66530,31 @@ function renderRouteOrderedList(ordered){
        and the field may only be blanked once that has actually happened. */
     btn.addEventListener('click', async function(){
       const current = btn.dataset.current === '1';
+      /* ⭐ RAISING OPENS THE NOTE, PHOTO AND DATE POPUP INSTEAD OF WRITING A BARE FLAG
+         ([[FIX-07]], 2026-10-06). This button used to write `needsFix:true` on its own
+         with nowhere on this card to say what was wrong — the note/photo block above
+         only ever DISPLAYS what is already on file. The popup's Save Fix goes through
+         hlxMarkJobDone, the one door that stamps fixRaisedAt and raises the Inbox
+         notice (FIX-02). */
+      if(!current){
+        showAddFixPopup(btn.dataset.togglefix, {onSaved: function(){ renderRouteOrderedList(currentRouteStops); }});
+        return;
+      }
       /* ⚠ THROUGH THE SHARED RULE, like the customer row and the Schedule tick. Written
          bare as `{needsFix: !current}` this was the second of four doors to a fix that
          recorded no date — and clearing it is a money-releasing write, because the
          nightly run holds that payer's whole group while the flag is up. */
-      const updates = HLX_DONE_KINDS.fix[current ? 'on' : 'off'](serverTimestamp());
-      if(current){
-        updates.fixScheduled = false;
-        updates.fixNote = '';
-        /* Job 4 — destroyed, not just forgotten. See hlxRetireFixPhoto. */
-        const gone = await hlxRetireFixPhoto(hd.fixPhotoUrl);
-        if(gone.cleared) updates.fixPhotoUrl = '';
-      }
+      const updates = HLX_DONE_KINDS.fix.on(serverTimestamp());
+      updates.fixScheduled = false;
+      updates.fixNote = '';
+      /* ⚠ READ FRESH, NOT FROM `hd` — that name belongs to the per-stop closure this
+         handler is no longer inside once the list has rendered, and referencing it
+         here threw a ReferenceError on every house whose fix carried a photo. */
+      const liveItem = jobAddresses.find(function(a){ return a.id === btn.dataset.togglefix; });
+      const livePhotoUrl = (liveItem && liveItem.data) ? liveItem.data.fixPhotoUrl : '';
+      /* Job 4 — destroyed, not just forgotten. See hlxRetireFixPhoto. */
+      const gone = await hlxRetireFixPhoto(livePhotoUrl);
+      if(gone.cleared) updates.fixPhotoUrl = '';
       updateDoc(doc(db,'jobAddresses',btn.dataset.togglefix), updates).then(function(){ renderRouteOrderedList(currentRouteStops); });
     });
   });
@@ -78641,6 +78783,82 @@ function houseFromCustomer(item){
   h.price = isNaN(p) ? '' : p;
   return h;
 }
+/* ⭐ A FIX RAISED IN CUSTOMERS GOES ON A FIXER ROUTE BY ITSELF ([[FIX-07]], 2026-10-06).
+   Addie: "added to fixes in schedule for every Saturday or whenever I choose to
+   schedule it for."
+
+   ⚠ UNTIL NOW A FIX NEVER REACHED SEASON AT ALL except through FIXLIST, and the only
+   way in was a human moving a house onto it by hand (sendFixToList) — raising
+   `needsFix` on a customer did nothing to this widget, silently. derivedDoneFor's own
+   comment has said as much since Job 3: "today a fix reaches the plan through
+   FIXLIST, which is plan-only; nothing in the Schedule module writes needsFix to a
+   customer at all."
+
+   This is additive and narrow on purpose, not the full Job 4 migration that comment
+   describes: it only ADDS a fixer-route house for a flagged customer nothing already
+   represents, through houseFromCustomer — the same builder a new install uses — with
+   isFix/issue set on top of it. Nothing here removes, reorders or re-derives an
+   existing fixer-route day; a mended fix already reads as done through
+   derivedDoneFor (Job 3) without this function's help, and FIXLIST's own manual
+   zip-clustering flow (buildFixRoutes) is untouched for anybody who still uses it.
+
+   ⚠ THE DATE IS HERS, NEVER GUESSED. fixScheduleDate is written by showAddFixPopup;
+   with nothing stored (an older record, or a fix raised before this existed) it
+   defaults to the next Saturday — a day the crew is not doing ordinary installs — so
+   a fix never silently lands on a day already full of them. Two fixes asked for the
+   same date land on the SAME fixer-route day rather than one each.
+
+   ⚠ AND IT NEVER TOUCHES seasonCustomerIds' ANSWER. That function already excludes
+   h.isFix (and h.isTakedown) from "already on the plan" — the headline rule's own
+   guard — so a customer who also needs a fix is still placed on an install day by
+   customersMissingFromSeason exactly as if this function did not exist. */
+function fixedHouseCustomerIds(){
+  const have = new Set();
+  if(typeof SEASON === 'undefined') return have;
+  SEASON.forEach(function(day){
+    if(!day.isFixRoute) return;
+    (day.houses || []).forEach(function(h){
+      const cust = planCustomerFor(h);
+      if(cust && cust.id) have.add(cust.id);
+    });
+  });
+  return have;
+}
+function placeFixesFromCustomers(){
+  const placed = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return placed;
+  if(typeof SEASON === 'undefined') return placed;
+  const have = fixedHouseCustomerIds();
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    if(!d.needsFix) return;
+    if(have.has(item.id)) return;
+    const wantIso = ('' + (d.fixScheduleDate || '')).trim() ||
+      (typeof nextFixSaturdayIso === 'function' ? nextFixSaturdayIso() : isoOf(nextWeekday(addDays(anchorToday(), 1))));
+    let day = SEASON.find(function(dd){
+      return dd.isFixRoute && dd.pin && isoOf(new Date(dd.pin)) === wantIso;
+    });
+    if(!day){
+      const pinDate = new Date(wantIso + 'T00:00:00');
+      day = {id: 'fr' + (fixRouteSeq++), isFixRoute: true,
+             base: daysBetween(pinDate, BASE_START), cascade: 0,
+             pin: pinDate, houses: []};
+      SEASON.push(day);
+    }
+    const h = houseFromCustomer(item);
+    h.isFix = true;
+    h.issue = d.fixNote || '';
+    h.details = 'FIX: ' + (d.fixNote || '');
+    const lab = dlabel(dayDate(day));
+    h.autoDay = lab.wd + ' ' + lab.full;
+    h.autoReason = 'raised in Customers';
+    day.houses.push(h);
+    have.add(item.id);
+    placed.push({name: d.name || '(no name)', date: wantIso});
+  });
+  if(placed.length) computeDates();
+  return placed;
+}
 /* Kept under its old name because the Refresh towns button and the load path
    both call it, and it still answers the same question — what moved. */
 function syncTownsFromCustomers(){
@@ -79549,7 +79767,7 @@ function printCrewRow(h){
           address: d.street || h.address || '', city: h.city || d.city || '',
           gate: printGateCode(d), sides: printSidesCell(d),
           eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
-          fix: printFixReason(d),
+          fix: printFixReason(d), lights: printLightColor(d),
           notes: printCrewNotes(d, h)};
 }
 /* ⭐ WHAT IS ACTUALLY WRONG AT THIS HOUSE (added 2026-08-25).
@@ -79596,12 +79814,23 @@ function printFixReason(d){
    columns sit together, labelled one first — the same order printCrewNotes uses inside
    itself, actionable ahead of standing. */
 const PRINT_FIX_COLUMN = {k: 'fix', label: 'What’s wrong'};
+/* ⭐ AND THE LIGHT COLOUR RIDES BESIDE IT (2026-10-06, [[FIX-07]]). Addie, on what a
+   fix should print: "Picture and notes need to print out along with persons name and
+   address. Along with light colors they have." A crew sent back to mend a strand
+   needs to know what colour it is without unwrapping the whole roofline to check —
+   and the ordinary crew sheet has never carried it at all (lightsDescription's own
+   registry entry stops at the quote, the confirmation and the two build sheets), so a
+   fix row was the one place a crew could be standing in front of the wrong bulb with
+   nothing on the page to check it against.
+   ⚠ SAME GATE AS THE FIX COLUMN, same reason: an empty Light color column on ~950
+   ordinary install rows is width and ink for nothing. */
+const PRINT_LIGHTS_COLUMN = {k: 'lights', label: 'Light color'};
 function printCrewColumns(rows){
   const any = (rows || []).some(function(r){ return r && ('' + (r.fix || '')).trim(); });
   if(!any) return PRINT_COLUMNS.crew;
   const out = PRINT_COLUMNS.crew.slice();
   const at = out.findIndex(function(c){ return c.k === 'notes'; });
-  out.splice(at < 0 ? out.length : at, 0, PRINT_FIX_COLUMN);
+  out.splice(at < 0 ? out.length : at, 0, PRINT_FIX_COLUMN, PRINT_LIGHTS_COLUMN);
   return out;
 }
 /* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
@@ -80459,6 +80688,12 @@ function exportCSV(){
     try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
     let moved=[];
     try{ moved=syncHousesFromCustomers(); }catch(err){ console.error("Schedule sync failed:",err); return 0; }
+    /* ⭐ [[FIX-07]], 2026-10-06 — ANY NEWLY RAISED FIX GOES STRAIGHT ONTO A FIXER ROUTE.
+       Independent of the three install sweeps below, so it runs whatever else did or
+       did not move — a fix raised in Customers should not wait on a town correction to
+       reach the schedule. */
+    let fixesPlaced=[];
+    try{ fixesPlaced=placeFixesFromCustomers(); }catch(err){ console.error('Fix placement failed:',err); }
     /* ⭐ AND THEN HOLD THE TIMING. Pulling a changed month across is only half
        the job — the house is still sitting on the old day. Runs even when the
        sync itself found nothing, because a plan saved earlier can already be
@@ -80519,7 +80754,7 @@ function exportCSV(){
        && !leftSeason.dropped.length && !leftSeason.locked.length && !(leftSeason.unbuiltOff||[]).length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
        && !goneDays.moved.length && !goneDays.stuck.length
-       && !tdGone.length) return 0;
+       && !tdGone.length && !fixesPlaced.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
        town can hand it to the other crew — either way the driving order the day
@@ -80543,6 +80778,10 @@ function exportCSV(){
       if(moved.length) bits.push(moved.length===1
         ? (moved[0].name+"\u2019s "+moved[0].field+" changed")
         : (moved.length+" changes picked up from the customer list"));
+      /* [[FIX-07]], 2026-10-06 -- named, like every other arrival above and below it. */
+      if(fixesPlaced.length) bits.push(fixesPlaced.length===1
+        ? (fixesPlaced[0].name+" \u2014 fix put on a Fixer Route for "+fixesPlaced[0].date)
+        : (fixesPlaced.length+" fixes put on a Fixer Route"));
       if(timing.moved.length) bits.push(timing.moved.length+" moved to a day their timing allows");
       /* ⭐ A DAY THAT WENT BY WITHOUT THEM IS SAID OUT LOUD, THE SAME WAY A TIMING
          MOVE IS. "Scheduled for last Tuesday" with no explanation is exactly the
