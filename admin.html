@@ -40271,7 +40271,9 @@ function seasonBadgeKey(d){
      ([[SCH-85]]): a Confirmed customer is never left off a day; somebody who genuinely should not be
      scheduled stops being Confirmed. */
   if(typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) return 'colorchange';
-  /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild. */
+  /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild.
+     [[SCH-117]] nor is a house waiting on a timer job on the Build tab — see isWaitingOnTimer. */
+  if(typeof isWaitingOnTimer === 'function' && isWaitingOnTimer(d)) return 'building';
   return (typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(d)) ? 'building' : 'confirmed';
 }
 /* ⭐⭐ [[SCH-105]] THE COLOUR-CHANGE LIST HOLDS A CUSTOMER OFF THE SCHEDULE (2026-09-30). Owner: "anyone on the
@@ -40305,7 +40307,21 @@ function isWaitingOnColorChange(d){ return !!(d && d.needsColorChange === true);
    `needsLightBuild === true` holds on its own, which also widens unbuiltNewHangOnPrintedDay (SCH-113) to pull
    a returning mover's house off even a printed day, for the same reason it already does a new hang's. */
 function isWaitingOnBuild(d){ return !!(d && d.needsLightBuild === true); }
-function isOffTheSchedule(d){ return isOutForSeason(d) || isWaitingOnColorChange(d) || isWaitingOnBuild(d); }
+/* ⭐⭐ [[SCH-117]] ANYBODY ON ANY WAREHOUSE LIST IS OFF THE SCHEDULE — A TIMER JOB TOO (2026-10-07). Dax: "make sure no
+   one in the build list can be anywhere on schedule ... no one in warehouse list can be on schedule, as soon as they
+   are outside warehouse they are auto added but they are not added until they are no longer in warehouse".
+   Found live the day before: Kate Johnson #455 and Ogden Mills #566 sat on the Build tab as TIMER ONLY rows and on the
+   Oct 5 / Oct 6 schedule at the same time. The Build tab has three ways onto it — `needsLightBuild`, `needsTimerOnly`
+   ([[WH-27]]) and `needsTimerRemoved` ([[WH-34]]), read as an OR by whBuildQueueGroups — and the hold only knew the
+   first. `isInWarehouse` is the whole list: those three plus the Color Change queue ([[SCH-105]]).
+   ⚠ SAME DOOR AS EVERY OTHER HOLD: the badge stops reading Confirmed (seasonBadgeKey → 'building'), so the headline
+   rule ([[SCH-85]]) still holds, and the moment the warehouse's Mark Done / Timer in the bin / Timer taken out clears
+   the flag they are Confirmed again and the five-minute sync places them — no Recalculate needed.
+   ⚠ NOT isOutForSeason: the warehouse queues themselves ask that, and a house cannot be taken off the list that
+   holds it. Schedule only. */
+function isWaitingOnTimer(d){ return !!(d && (d.needsTimerOnly === true || d.needsTimerRemoved === true)); }
+function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d); }
+function isOffTheSchedule(d){ return isOutForSeason(d) || isInWarehouse(d); }
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -65031,6 +65047,40 @@ function workingDaysUntil(dateStr, nowParts){
   }
   return n;
 }
+/* ⭐⭐ [[SCH-116]] THE CREW'S HANG DAY IS THE SCHEDULE'S "TODAY" WHEN THEY ARE BEHIND (2026-10-07). Dax: "today we
+   are hanging oct 5 but todays oct 7 adjust that so then the system knows not to recalculate the right days".
+   Every scheduling rule that says "today" — which days are history, which are printed, which a sweep may empty —
+   read the wall clock, so with the crews two days behind the Oct 5 and Oct 6 sheets they were still holding counted
+   as gone: the past-day sweep ([[SCH-114]]) pulled their houses forward and the lock covered Oct 7–9 instead.
+   The office now says which day the crew is on (Schedule tab, "Crew is hanging"), and that day stands in for today
+   in every one of those rules. It walks forward one working day per working day that passes, so being two days
+   behind stays two days behind until somebody changes it; once it would reach the real date it simply is the
+   real date again.
+   ⚠ ONLY EVER EARLIER THAN THE CLOCK. A hang day after today is ignored — the crew cannot be ahead of the
+   calendar, and letting it would unlock days that really have gone.
+   ⚠ A CALLER THAT PINS THE CLOCK (`nowParts`) IS ASKING ABOUT THE CLOCK, and gets it — the suites that lift the
+   lock on its own depend on that. */
+function scheduleTodayStr(nowParts){
+  const real = (nowParts || mtnNowParts()).date;
+  if(nowParts) return real;
+  const hang = (typeof window !== 'undefined' && window && typeof window.scheduleHangDay === 'function')
+    ? window.scheduleHangDay(real) : null;
+  return (hang && hang < real) ? hang : real;
+}
+/* The working day after `dateStr` (weekends and Thanksgiving skipped), as a plain YYYY-MM-DD. */
+function nextWorkingDayStr(dateStr){
+  let t = Date.UTC(Number(String(dateStr).slice(0,4)), Number(String(dateStr).slice(5,7)) - 1, Number(String(dateStr).slice(8,10)));
+  if(isNaN(t)) return dateStr;
+  for(let i = 0; i < 14; i++){
+    t += 86400000;
+    const d = new Date(t);
+    const w = d.getUTCDay();
+    if(w === 0 || w === 6) continue;
+    if(t === lockThanksgivingUtc(d.getUTCFullYear())) continue;
+    break;
+  }
+  return new Date(t).toISOString().slice(0, 10);
+}
 function routeDayIsLocked(dateStr, nowParts){
   if(!dateStr) return false;
   /* ⭐ [[SCH-106]] THE NEXT TWO SCHEDULED DAYS, NOT A CLOCK (2026-09-30). Dax: "honestly for the days,
@@ -65043,7 +65093,8 @@ function routeDayIsLocked(dateStr, nowParts){
   const sched = (typeof window !== 'undefined' && window && typeof window.scheduleLockedDates === 'function')
     ? window.scheduleLockedDates() : null;
   if(sched){
-    const today = (nowParts || mtnNowParts()).date;
+    /* [[SCH-116]] the crew's hang day when they are behind — see scheduleTodayStr. */
+    const today = scheduleTodayStr(nowParts);
     if(String(dateStr) <= today) return true;
     return sched.has(String(dateStr));
   }
@@ -72407,7 +72458,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stuckbadge{display:inline-block;background:#e7f0ff;color:#2a4d8f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.qbtn.stuck{border-color:#c5d8f4;background:#eef4fd;color:#25548f}\n.qbtn.prio{border-color:#ecd9a8;background:#fdf7e8;color:#8a6414}.qbtn.prio.on{background:#c99a2e;color:#fff;border-color:#c99a2e}\n.why{margin-top:4px;font-size:11.5px;color:var(--muted)}.why summary{cursor:pointer}.why ul{margin:4px 0 0 16px;padding:0}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\" title=\"Never touches the next two scheduled days\">⚙ Recalculate everything</button><button class=\"mini\" id=\"recalcAllBtn\" title=\"Also re-lays the next two scheduled days — only if they have not been printed\">⚙ Recalculate including the next two days</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <div class=\"fld\" title=\"When the crews are behind, pick the day whose sheet they are hanging today. That day and the next two days with work are locked, and nothing from it on counts as already gone.\"><label for=\"hangDayInput\">Crew is hanging</label><input type=\"date\" id=\"hangDayInput\"></div><button class=\"mini\" id=\"hangDayClear\" style=\"display:none\" title=\"The crews have caught up — go back to today's date\">On today's date</button>\n        <div class=\"read\" id=\"hangDayRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\" title=\"Never touches the next two scheduled days\">⚙ Recalculate everything</button><button class=\"mini\" id=\"recalcAllBtn\" title=\"Also re-lays the next two scheduled days — only if they have not been printed\">⚙ Recalculate including the next two days</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -72479,8 +72530,27 @@ const ROUTE_LOCK_SCHEDULED_DAYS = 2;
 let LOCKED_DATES = null;
 /* Set only for the length of one press of "Recalculate including the next two days". */
 let PRINTED_OVERRIDE = false, PRINTED_OVERRIDE_NEXT = false;
+/* ⭐ [[SCH-116]] WHICH SCHEDULE DAY THE CREW IS ACTUALLY HANGING, when they are behind the calendar. Saved with the
+   plan as {date, setOn}: `date` is the day the office picked, `setOn` the real date they picked it on. Every working
+   day since `setOn` walks it one working day on, so "two days behind" stays two days behind without anybody touching
+   it — and the moment it would reach the real date it stops mattering (scheduleTodayStr only ever takes it when it
+   is EARLIER than the clock). null = the crew is on today's date, which is every season so far. */
+let HANG_DAY = null;
+function hangDayOn(realStr){
+  if(!HANG_DAY || !HANG_DAY.date || !HANG_DAY.setOn) return null;
+  if(String(HANG_DAY.date) >= String(realStr)) return null;
+  const passed = (typeof workingDaysUntil === 'function')
+    ? workingDaysUntil(realStr, {date: String(HANG_DAY.setOn), hour: 0, minute: 0}) : 0;
+  let ds = String(HANG_DAY.date);
+  for(let i = 0; i < passed && ds < realStr; i++) ds = nextWorkingDayStr(ds);
+  return ds < realStr ? ds : null;
+}
+if(typeof window !== 'undefined' && window) window.scheduleHangDay = function(realStr){ return hangDayOn(realStr); };
 function refreshLockedDates(){
-  const today = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
+     the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
   const upcoming = {}, frozen = {};
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
     if(d.isFixRoute || !(d.houses || []).length) return;
@@ -72531,10 +72601,17 @@ function takeOffPrintedDay(day, h){
   if(Array.isArray(day.frozenIds)) day.frozenIds = day.frozenIds.filter(function(x){ return String(x) !== id; });
   if(Array.isArray(day.frozenCrews)) day.frozenCrews = day.frozenCrews.map(function(c){ return (c || []).filter(function(x){ return String(x) !== id; }); });
 }
+/* ⭐ [[SCH-117]] WIDENED 2026-10-07: ANYBODY ON A WAREHOUSE LIST, NOT ONLY AN UNBUILT BUNDLE. Dax: "no one in the build
+   list can be anywhere on schedule". Brooks Bostick #319 sat on the Color Change list AND on the printed Oct 5 sheet,
+   and Kate Johnson / Ogden Mills were timer-only Build rows on Oct 5 / Oct 6 — every one of them on a locked day, which
+   only an unbuilt bundle could leave. The name is kept (the harness, the suites and the Inbox note all reach it by it),
+   the question is `isInWarehouse`. Still REMOVAL ONLY, still today-or-later, still never a day already worked. */
 function unbuiltNewHangOnPrintedDay(h){
   if(!h || h.isFix || h.isTakedown || h.done) return false;
   const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
-  return !!(c && c.data && typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(c.data));
+  if(!(c && c.data)) return false;
+  if(typeof isInWarehouse === 'function') return isInWarehouse(c.data);
+  return !!(typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(c.data));
 }
 function noticeUnbuiltOffPrinted(list){
   if(!list || !list.length) return;
@@ -72542,9 +72619,10 @@ function noticeUnbuiltOffPrinted(list){
   const lines = list.map(function(x){ return x.name + ' — ' + x.date; });
   addDoc(collection(db, 'messages'), {
     topic: 'A Route Sheet Is Out Of Date', folder: 'System',
-    name: list.length === 1 ? list[0].name : (list.length + ' not built yet'), phone: '', email: '', contactMethod: '',
-    message: 'Taken off a printed day because their lights are not built yet — nobody is scheduled with a pending ' +
-      'build until the warehouse marks their bundle done, and then they are placed on the next Recalculate.\n\n' + lines.join('\n') +
+    name: list.length === 1 ? list[0].name : (list.length + ' still in the warehouse'), phone: '', email: '', contactMethod: '',
+    message: 'Taken off a printed day because they are still on a Warehouse list (a build, a timer job or a colour change) — ' +
+      'nobody is scheduled while the warehouse has a job open for them, and the moment it is marked done they are put back ' +
+      'on a day by themselves.\n\n' + lines.join('\n') +
       '\n\nIf that sheet is already with the crew, tell them to skip ' + (list.length === 1 ? 'this house' : 'these houses') +
       '. Nothing else on those days was moved.',
     autoQueuedToWarehouse: false, needsReassign: false,
@@ -72557,7 +72635,9 @@ function freezePrintedDays(){
   /* ⚠ NEVER BEFORE THE CUSTOMERS HAVE LOADED: the split reads their towns and pins, and a split
      frozen from a half-loaded book would be the wrong one, kept for good. */
   if(typeof jobAddresses === 'undefined' || !jobAddresses || !jobAddresses.length) return n;
-  const today = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  /* [[SCH-116]] the hang day the crew is on, not the wall clock — a day they are still holding is not history. */
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
   SEASON.forEach(function(day){
     if(day.isFixRoute) return;
     const dt = dayDate(day);
@@ -72566,6 +72646,8 @@ function freezePrintedDays(){
     if(ds < today) return;
     if(!(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds))) return;
     if(frozenCrewSplit(day)) return;
+    /* [[SCH-119]] the WHOLE split (dayCrewHouses, not crewHousesFor), hidden done houses included — frozen without
+       them, a house unticked later would come back on no crew's sheet at all. */
     const split = dayCrewHouses(day);
     day.frozenIds = day.houses.map(function(h){ return String(h.id); });
     day.frozenCrews = split.map(function(c){ return c.map(function(h){ return String(h.id); }); });
@@ -73319,6 +73401,31 @@ function crewCap(){
   return (typeof MAX_STOPS_PER_ROUTE === 'number' && MAX_STOPS_PER_ROUTE > 0)
     ? MAX_STOPS_PER_ROUTE : 20;
 }
+/* ⭐⭐ [[SCH-119]] A HOUSE TICKED DONE LEAVES THE SCHEDULE ON THE NEXT RECALCULATE — AND NOT BEFORE (2026-10-07). Dax: "by
+   clicking the box next to someones name on schedule that means they were finished, but they arent removed from
+   schedule until the next time recalculate everything is pressed", and, asked whether that meant deleting them: hide
+   them, keep the record. So Recalculate everything stamps `hiddenDone` on every house that is done at that moment
+   (markDoneHousesHidden) and every view of a day's crews — the panel, both crew sheets, Print Today, the route order —
+   comes through here and leaves them out.
+   ⚠ HIDDEN, NEVER REMOVED. `day.houses` still holds them, so the Completed % and revenue (allHouses), All Customers'
+   hang day (schedulePlanBookings), the frozen printed split and the record of what was hung all stay true. Deleting
+   them would also make a hung, Confirmed customer look unscheduled, and the headline net would put them on a new day.
+   ⚠ BOTH HALVES, `done` AND the stamp: a house unticked again (a mistake, or the customer record says not done)
+   comes straight back, and a house ticked since the last press stays visible until the next one — his exact words.
+   ⚠ THE FILTER IS IN crewHousesFor, NOT dayCrewHouses. dayCrewHouses stays the whole split: the printed-day freeze and
+   unassignedHousesFor need every house (a hidden one left out would come back on no sheet, or read as nobody's), and
+   a dozen suites lift dayCrewHouses by name. */
+function houseIsHiddenDone(h){ return !!(h && h.done && h.hiddenDone); }
+function markDoneHousesHidden(stamp){
+  let n = 0;
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    (d.houses || []).forEach(function(h){
+      if(h && h.done && !h.hiddenDone){ h.hiddenDone = stamp || true; n++; }
+      else if(h && !h.done && h.hiddenDone) delete h.hiddenDone;
+    });
+  });
+  return n;
+}
 function dayCrewHouses(day){
   /* ⭐ [[SCH-106]] a printed day keeps the split the crew was handed — see frozenCrewSplit. */
   if(typeof frozenCrewSplit === 'function'){ const fz = frozenCrewSplit(day); if(fz) return fz; }
@@ -73597,7 +73704,8 @@ function dayCrewHouses(day){
    the empty crew sheet fixed alongside this. */
 function crewHousesFor(i,day){
   if(!day) return [];
-  return dayCrewHouses(day)[i]||[];
+  /* [[SCH-119]] a house ticked done before the last Recalculate is off the panel, the sheets and the route order. */
+  return (dayCrewHouses(day)[i]||[]).filter(function(h){ return !(typeof houseIsHiddenDone === 'function' && houseIsHiddenDone(h)); });
 }
 /* ---------- what did not get done ----------
    On a normal day nearly everything gets finished, so ticking off the ones
@@ -74584,6 +74692,19 @@ function renderSeasonBar(){
   RT.getElementById('startDate').value=isoOf(addDays(BASE_START,globalDelta));
   const rd=RT.getElementById('shiftRead'), lab=dlabel(first), last=dlabel(installDays()[installDays().length-1]._date);
   rd.innerHTML=(globalDelta===0?'Plan runs ':'Shifted <b>'+(globalDelta>0?'+':'')+globalDelta+'d</b> — ')+'<b>'+lab.wd+' '+lab.full+'</b> → <b>'+last.full+'</b>.';
+  /* [[SCH-116]] which sheet the crews are on, and so which three days Recalculate everything will not touch. */
+  try{
+    const real=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date());
+    const hang=hangDayOn(real);
+    const hi=RT.getElementById('hangDayInput'), hc=RT.getElementById('hangDayClear'), hr=RT.getElementById('hangDayRead');
+    if(hi) hi.value=hang||real;
+    if(hc) hc.style.display=hang?'':'none';
+    if(hr){
+      const lockList=[hang||real].concat(Array.from(LOCKED_DATES||[]).filter(function(ds){ return ds>(hang||real); }).sort())
+        .map(function(ds){ const l=dlabel(new Date(ds+'T00:00:00')); return l.wd+' '+l.full; });
+      hr.innerHTML=(hang?'⚠ Crews are behind — on the <b>'+lockList[0]+'</b> sheet. ':'')+'Locked (Recalculate everything leaves these alone): <b>'+lockList.join(', ')+'</b>.';
+    }
+  }catch(err){ console.error('[HU] could not show the hang day',err); }
   const bumped=SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown&&!d.pin&&isDayOff(desired(d))).length, wk=RT.getElementById('wkNote');
   /* Named rather than lumped in as "a weekend": a day that moved off Thanksgiving
      moved for a different reason, and the office should not have to work out which. */
@@ -75808,6 +75929,8 @@ function serialize(){
        Recalculate everything honour it: the rebuild replaces every day object, so
        anything stored on a day (soloCrew) is gone by the time the builder runs. */
     dayLimits:Object.assign({},DAY_LIMITS),
+    /* [[SCH-116]] which schedule day the crew is on when they are behind. With the plan, so every office device agrees. */
+    hangDay:(HANG_DAY&&HANG_DAY.date&&HANG_DAY.setOn)?{date:String(HANG_DAY.date),setOn:String(HANG_DAY.setOn)}:null,
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
@@ -76478,11 +76601,26 @@ function rebuildSeasonDays(){
      rule the crew's sweep follows. Anything with a house ticked off counts as
      started even if its date has not arrived. */
   const today=new Date(); today.setHours(0,0,0,0);
+  /* ⭐ [[SCH-116]] "TODAY" FOR WHAT IS HISTORY AND WHAT IS PRINTED IS THE DAY THE CREW IS HANGING. With the crews on the
+     Oct 5 sheet on 7 October, Oct 5 and Oct 6 are not worked days whose leftovers go back in the pool — they are the
+     sheets in the vans. `realToday` keeps the calendar for the two things that really are about it: the deadline clock
+     handed to houseInstallPriority, and the floor for BRAND NEW days, which may never be today or earlier ([[SCH-114]]).
+     ⚠ `today` IS MOVED IN PLACE rather than renamed: three suites pin the clock by rewriting the line above word for
+     word, and the history checks below are asserted by their exact text. */
+  const realToday=new Date(today);
+  {
+    /* Only when a hang day is actually in force (it differs from the clock) — otherwise the clock line above stands,
+       which is what the suites that pin `new Date()` rely on. */
+    const s=(typeof scheduleTodayStr==='function')?scheduleTodayStr():'';
+    const clock=(typeof mtnNowParts==='function')?mtnNowParts().date:'';
+    const d=(s&&clock&&s<clock)?new Date(s+'T00:00:00'):null;
+    if(d&&!isNaN(d)&&d<realToday) today.setTime(d.getTime());
+  }
   /* ⭐ THE DAY THE PLAN IS BEING BUILT ON, handed to houseInstallPriority so a
      deadline running out can move somebody up. Read once here rather than inside the
      priority function, which is lifted alone by three suites and must stay timeless
      unless a caller says otherwise. */
-  const todayStr=isoOf(today);
+  const todayStr=isoOf(realToday);
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
@@ -76786,7 +76924,7 @@ function rebuildSeasonDays(){
      customer, or anybody else, a crew-day with zero notice. Starting the
      search at tomorrow is what makes "never the day of" true here too. */
   let floor=start;
-  const tomorrow=new Date(today.getFullYear(), today.getMonth(), today.getDate()+1);
+  const tomorrow=new Date(realToday.getFullYear(), realToday.getMonth(), realToday.getDate()+1);
   const nextFree=nextWorkingDay(tomorrow);
   if(nextFree>floor) floor=nextFree;
   keep.forEach(function(d){
@@ -77630,7 +77768,7 @@ function lockedDaySnapshot(){
     /* ⚠ TODAY AND LATER ONLY. A day already gone is history, not paper the crew is holding: its
        unfinished houses are MEANT to go back in the pool as missed ([[SCH-61]]), so counting it
        here would report that correct rescue as "a printed day changed". */
-    if(typeof mtnNowParts === 'function' && ds < mtnNowParts().date) return;
+    if(typeof scheduleTodayStr === 'function' ? ds < scheduleTodayStr() : (typeof mtnNowParts === 'function' && ds < mtnNowParts().date)) return;
     /* [[SCH-113]] a house whose lights are not built yet is EXPECTED to leave a printed day, so it is not part of what must stay. */
     snap[ds + '|' + day.id] = (day.houses || []).filter(function(h){ return !(typeof unbuiltNewHangOnPrintedDay === 'function' && unbuiltNewHangOnPrintedDay(h)); })
       .map(function(h){ return h.id; }).join(',');
@@ -77949,7 +78087,10 @@ function enforceInstallTiming(){
 function sweepGoneDaysForward(){
   const moved = [], stuck = [];
   if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
-  const today = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  /* [[SCH-116]] "gone" means before the day the crew is HANGING, not before the calendar date: with the crew two days
+     behind, the two sheets they have not reached yet are not missed days and must not be emptied forward. */
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
   const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
   const emptied = [];
   SEASON.forEach(function(day){
@@ -78413,7 +78554,9 @@ function rehomeMovedHouses(ids){
    rebuildSeasonDays makes, for the same reason. */
 function dropHousesWhoLeftSeason(){
   const out = {dropped: [], locked: [], unbuiltOff: []};
-  const todayStr = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  /* [[SCH-116]] the hang day the crew is on: a warehouse house comes off the sheet they are working today too. */
+  const todayStr = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
   if(typeof SEASON === 'undefined' || !SEASON.length) return out;
   if(typeof isOutForSeason !== 'function') return out;
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return out;
@@ -78979,6 +79122,9 @@ function hydrate(o){
   // A plan saved before this existed comes back with nothing marked, which is the
   // ordinary maths — exactly what it had.
   DAY_LIMITS=normalizeDayLimits(o.dayLimits); pruneDayLimits();
+  /* [[SCH-116]] only two plain dates are accepted back; anything else means "on today's date". */
+  HANG_DAY=(o.hangDay&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.date||''))&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.setOn||'')))
+    ?{date:String(o.hangDay.date),setOn:String(o.hangDay.setOn)}:null;
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
@@ -79086,6 +79232,16 @@ RT.addEventListener('change',e=>{const t=e.target;
     CREWS[i].name=v||crewFallbackName(i);renderAll();toast('Renamed to '+crewName(i));return;}
   if(t.dataset.crewcity!=null){const i=+t.dataset.crewcity;CREWS[i].city=t.value||'';
     renderAll();toast(crewName(i)+' → '+(t.value||'Auto by day'));return;}
+  /* ⭐ [[SCH-116]] the office says which sheet the crews are on. Picked as of TODAY, so it walks forward one working
+     day per working day from here; a day on or after today (or a cleared box) means "on today's date". */
+  if(t.id==='hangDayInput'){
+    const real=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date());
+    HANG_DAY=(t.value&&t.value<real)?{date:t.value,setOn:real}:null;
+    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+    renderAll();
+    toast(HANG_DAY?('Crews on the '+dlabel(new Date(HANG_DAY.date+'T00:00:00')).full+' sheet — that day and the next two are locked'):'Crews on today’s date');
+    return;
+  }
   if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
   if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
   if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){
@@ -79169,6 +79325,12 @@ RT.addEventListener('change',e=>{const t=e.target;
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
+  /* [[SCH-116]] the crews have caught up. */
+  if(t.id==='hangDayClear'){
+    HANG_DAY=null;
+    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+    renderAll(); toast('Crews on today’s date'); return;
+  }
   /* It says what it did even when nothing moved. "Nothing to change" and "the
      button did not work" look identical otherwise, and this is the button
      somebody presses precisely because they are not sure a correction landed.
@@ -79260,6 +79422,11 @@ RT.addEventListener('click',e=>{const t=e.target;
        frozen as they stand — so nothing below can reshuffle them. */
     try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
     const before=JSON.stringify(serialize());
+    /* ⭐ [[SCH-119]] everybody ticked done since the last press leaves the day lists and the sheets now — after
+       `before` is taken, so Undo brings them back too. Hidden, never removed: see dayCrewHouses. */
+    let hiddenDone=0;
+    try{ hiddenDone=markDoneHousesHidden((typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date())); }
+    catch(err){ console.error('[HU] could not hide the finished houses',err); }
     /* ⭐ SCHEDULE V2: the printed days as they stood BEFORE the press, so invariant 7 (no locked day
        changed) is measured against what the crew is holding rather than assumed. */
     let lockedBefore=null;
@@ -79334,10 +79501,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        day after this press; this line says which ones only got there because of the net,
        so the rule that dropped them is not hidden. */
     if(PRINTED_UNBUILT_OFF.length){
-      parts.push(PRINTED_UNBUILT_OFF.length+' customer'+(PRINTED_UNBUILT_OFF.length===1?'':'s')+' with no lights built yet taken off a printed day: '+
+      parts.push(PRINTED_UNBUILT_OFF.length+' customer'+(PRINTED_UNBUILT_OFF.length===1?'':'s')+' still in the warehouse taken off a printed day: '+
         PRINTED_UNBUILT_OFF.slice(0,5).map(function(x){ return x.name+' ('+x.date+')'; }).join(', ')+' — tell the crew; a note is in the Inbox');
       noticeUnbuiltOffPrinted(PRINTED_UNBUILT_OFF);
     }
+    /* [[SCH-119]] said, so a list that suddenly got shorter is explained rather than alarming. */
+    if(hiddenDone) parts.push(hiddenDone+' finished house'+(hiddenDone===1?'':'s')+' cleared off the day lists (still counted as done)');
     if(r.pulledBack) parts.push(r.pulledBack+' customer'+(r.pulledBack===1?'':'s')+' moved earlier to stay inside their last allowed day: '+(r.pulledBackNames||[]).join(', ')+(r.pulledBack>5?' and others':''));
     if(r.pastLastDay) parts.push('⚠ '+r.pastLastDay+' customer'+(r.pastLastDay===1?' is':'s are')+' still after their last allowed day because no earlier day has room — add a crew day or pin them: '+(r.pastLastDayNames||[]).join(', ')+(r.pastLastDay>5?' and others':''));
     if(r.priorityMoved) parts.push(r.priorityMoved+' priority customer'+(r.priorityMoved===1?'':'s')+' moved to an earlier day beside other work: '+(r.priorityMovedNames||[]).join(', ')+(r.priorityMoved>5?' and others':''));
@@ -80895,8 +81064,8 @@ function exportCSV(){
       /* [[SCH-113]] named, and written to the Inbox — see noticeUnbuiltOffPrinted. */
       if((leftSeason.unbuiltOff||[]).length){
         bits.push(leftSeason.unbuiltOff.length===1
-          ? (leftSeason.unbuiltOff[0].name+" taken off "+leftSeason.unbuiltOff[0].date+" \u2014 lights not built yet, tell the crew")
-          : (leftSeason.unbuiltOff.length+" taken off printed days with no lights built yet \u2014 see the Inbox"));
+          ? (leftSeason.unbuiltOff[0].name+" taken off "+leftSeason.unbuiltOff[0].date+" \u2014 still in the warehouse, tell the crew")
+          : (leftSeason.unbuiltOff.length+" taken off printed days, still in the warehouse \u2014 see the Inbox"));
         noticeUnbuiltOffPrinted(leftSeason.unbuiltOff);
       }
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how

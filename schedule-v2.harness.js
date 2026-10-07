@@ -33,7 +33,8 @@ module.exports = function makeHarness(liftDeep){
     'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
     'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
-    'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF'],
+    'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
+    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'isInWarehouse', 'isWaitingOnTimer'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -68,6 +69,7 @@ module.exports = function makeHarness(liftDeep){
 
   const post = [
     /* the Mountain clock is pinned to the same "today" */
+    'window.scheduleHangDay = function(r){ return hangDayOn(r); };',
     'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: 7, minute: 0}; };',
     'return {',
     '  setNow: function(d){ __NOW = d.getTime(); },',
@@ -83,7 +85,7 @@ module.exports = function makeHarness(liftDeep){
     '    custByAddrKey = new Map(); book.forEach(function(c){ var d = c.data || {}; if(d.address) custByAddrKey.set(custAddrKey(d.address, d.city), c); });',
     '    var yard = opts.home || {lat: 40.3866, lng: -111.8616};',
     '    custByAddrKey.set(custAddrKey(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY), {id: "__yard", data: {lat: yard.lat, lng: yard.lng}});',
-    '    window.scheduleLockedDates = undefined; LOCKED_DATES = null; PRINTED_OVERRIDE = false;',
+    '    window.scheduleLockedDates = undefined; LOCKED_DATES = null; PRINTED_OVERRIDE = false; HANG_DAY = null;',
     '    SEASON = opts.season || []; BASE_START = new __RealDate(2026, 9, 1); globalDelta = 0;',
     '    CREWS_PER_DAY = opts.crews || 2;',
     '    CREWS = []; for(var i = 0; i < CREWS_PER_DAY; i++) CREWS.push({name: "Crew " + (i + 1), city: ""});',
@@ -95,7 +97,7 @@ module.exports = function makeHarness(liftDeep){
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
-    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); return {r: r, g: g, lb: lb}; },',
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
     '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
@@ -114,7 +116,9 @@ module.exports = function makeHarness(liftDeep){
     '        houseSchedulingProfile: houseSchedulingProfile, bestEarlierDayFor: bestEarlierDayFor, milesFromDay: milesFromDay,',
     '        pullBackPastDeadline: pullBackPastDeadline, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
     '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs,',
-    '        sweepGoneDaysForward: sweepGoneDaysForward}',
+    '        sweepGoneDaysForward: sweepGoneDaysForward, scheduleTodayStr: scheduleTodayStr, hangDayOn: hangDayOn,',
+    '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
+    '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden}',
     '};'
   ].join('\n');
 

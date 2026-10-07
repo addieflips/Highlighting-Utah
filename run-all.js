@@ -65981,6 +65981,8 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
   const sb = new Function('win',
     'const window = win;' + seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
     extractFn(admin, 'isWaitingOnColorChange') + extractFn(admin, 'isWaitingOnBuild') +
+    /* [[SCH-117]] lifted, never stubbed: isOffTheSchedule asks the whole Warehouse page now. */
+    extractFn(admin, 'isWaitingOnTimer') + extractFn(admin, 'isInWarehouse') +
     extractFn(admin, 'isOffTheSchedule') + extractFn(admin, 'seasonBadgeKey') +
     'return {badge: seasonBadgeKey, off: isOffTheSchedule};');
   const y = {rsvpStatus: 'yes', rsvpRespondedAt: 1};
