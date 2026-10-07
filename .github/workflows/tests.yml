@@ -212,6 +212,11 @@ jobs:
       # failure inside npm test is one line of a 2.4MB log.
       - name: A new member actually gets a bill
         run: npm run test:newmember
+      # ⭐ ONE SCHEDULE FOR EVERY COMPUTER. Named separately because the failure is a
+      # race between two screens: a stale copy of Routes quietly writing its old plan back
+      # over a Recalculate pressed somewhere else. Nothing errors; the season just reverts.
+      - name: Recalculate results are shared across computers
+        run: npm run test:sharedplan
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,
