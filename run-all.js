@@ -66091,3 +66091,33 @@ suite('372. The nightly invoice sends the picked template');
   check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
   check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
 }
+
+/* ---------------------------------------------------------------------------
+ * 373. A FIX CAN BE ADDED FROM ALL CUSTOMERS ([[FIX-08]], 2026-10-07). Addie: "We also need
+ * to be able to add fix to the costumers list with notes and picture there as well."
+ * The row opens the SAME showAddFixPopup every other door opens, so the dated write, the
+ * Inbox notice and the Fixer Route placement are not decided a second time. The cell is
+ * RUN, not matched: every claim here is about what the row shows.
+ * --------------------------------------------------------------------------- */
+suite('373. Add a fix from All Customers');
+{
+  const cellSrc = extractFn(admin, 'allCustFixCell');
+  check('S373', 'the row helper is findable', !!cellSrc);
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const cell = cellSrc ? new Function('esc', cellSrc + 'return allCustFixCell;')(esc) : () => '';
+  const none = cell('abc', {name: 'Kim'});
+  check('S373', 'a house with no fix offers Add fix, wired to its own id', /data-addfix="abc"/.test(none) && /Add fix/.test(none) && !/Needs fix/.test(none));
+  const open = cell('xyz', {needsFix: true, fixNote: 'two strands out <front>', fixPhotoUrl: 'https://img/x.jpg', fixScheduleDate: '2026-10-10'});
+  check('S373', 'an open fix says Needs fix and offers Edit fix', /Needs fix/.test(open) && /Edit fix/.test(open) && /data-addfix="xyz"/.test(open));
+  check('S373', 'the note the crew will read is on the row, escaped', open.indexOf('two strands out &lt;front&gt;') !== -1 && open.indexOf('<front>') === -1);
+  check('S373', 'the photo is on the row', /<img src="https:\/\/img\/x\.jpg"/.test(open));
+  check('S373', 'and the day it is booked for', open.indexOf('2026-10-10') !== -1);
+  check('S373', 'an open fix with no note says so rather than showing nothing', /no note yet/.test(cell('q', {needsFix: true})));
+  check('S373', 'a closed fix leaves no stale note or photo on the row', !/strands|<img/.test(cell('q', {needsFix: false, fixNote: 'old strands', fixPhotoUrl: 'https://img/old.jpg'})));
+  const render = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
+  check('S373', 'every row carries the fix cell', /allCustFixCell\(r\.item\.id, r\.d\)/.test(render));
+  check('S373', 'the button opens the shared fix popup', /\[data-addfix\][^]*?showAddFixPopup\(btn\.dataset\.addfix/.test(render));
+  check('S373', 'the table still has eight columns, so its empty-state row still spans them',
+    (render.match(/'<td style="padding:8px 10px;[^"]*">/g) || []).length === 8 && /colspan="8"/.test(render));
+  check('S373', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')) && !/needsFix\s*:/.test(render));
+}

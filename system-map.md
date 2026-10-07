@@ -8439,6 +8439,21 @@ sheet was never a declared destination for it. `js/options.js` now adds `crewShe
 `What's wrong` column already uses — only when a fix is actually on the sheet, never on the
 ~950 ordinary install rows a season holds.
 
+### Add a fix from All Customers — [[FIX-08]], 2026-10-07
+
+Addie: "We also need to be able to add fix to the costumers list with notes and picture there
+as well." The "customer-row status dropdown" FIX-07 names is on the Routes tab's address list
+(`buildAddressRowHtml`); the **All Customers** table had no way to raise one at all.
+
+**What it does now.** Every All Customers row carries a 🔧 **Add fix** button under the edit
+pencil (`allCustFixCell`). It opens the same `showAddFixPopup` as every other door — note,
+photo, day — so the dated write, the Inbox notice and the Fixer Route placement are exactly
+FIX-07's. A house with a fix open reads **Needs fix**, the day it is booked for, the note the
+crew will read and a thumbnail of the photo, and the button reads **Edit fix**.
+
+⚠ The table still has eight columns — the fix lives inside the last one — so the empty-state
+row's `colspan="8"` is unchanged. Nothing on the row writes `needsFix`. Suite 373 of run-all.js.
+
 Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
 didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own
 sub tab as well in RSVP."
