@@ -40218,20 +40218,20 @@ function isWaitingOnColorChange(d){ return !!(d && d.needsColorChange === true);
    still in the warehouse queue, was on that morning's crew sheet.
    ⚠ "BUILT" IS needsLightBuild GOING FALSE — the warehouse's own Mark Done is what clears it — so the moment
    the bundle is made they are Confirmed again and the next sync or Recalculate places them.
-   ⚠ "NEW HANG" IS THE OFFICE'S FEE BOX OR THE SCHEDULE'S OWN RULE (a quote converted into them). The box is
-   read here because it is on the record itself and needs nothing loaded — a hold that waited for the quotes
-   to arrive would let a Recalculate pressed in that second put an unbuilt house on a day. The quote rule
-   catches a new hang whose box was left unticked. This is a hold, not a priority: [[SCH-84]] (who outranks
-   whom) is untouched.
    ⚠ THROUGH THE BADGE, LIKE [[SCH-105]] — never a gate inside the schedule: they read "Being built", not
-   Confirmed, so the headline rule (every Confirmed customer is on a day) still holds. A returning customer
-   whose set is being rebuilt is NOT held: the crew has hung that house before. */
-function isWaitingOnBuild(d){
-  if(!d || d.needsLightBuild !== true) return false;
-  if(d.chargeNewMemberFee === true) return true;
-  return (typeof window !== 'undefined' && window && typeof window.customerIsNewHangData === 'function')
-    ? !!window.customerIsNewHangData(d) : false;
-}
+   Confirmed, so the headline rule (every Confirmed customer is on a day) still holds. This is a hold, not a
+   priority: [[SCH-84]] (who outranks whom) is untouched.
+   ⛔ SUPERSEDED 2026-10-07 → [[SCH-115]]: EVERY PENDING BUILD HOLDS, NEW OR RETURNING. The line that used to
+   stand here read "A returning customer whose set is being rebuilt is NOT held: the crew has hung that house
+   before" — kept struck rather than deleted because the argument is real for the ordinary case (an unrelated
+   colour swap, where the old lights are still up and `needsColorChange` holds them anyway, [[SCH-105]]). It
+   does not hold for a mover: their old set is recycled and comes down, so a returning customer scheduled
+   before their rebuild is made is the identical Bill Titera failure on the other side of the badge. Addie,
+   asked directly whether the hold should reach a returning customer too: "anyone that is in warehouse should
+   not be scheduled" — yes, everyone with a pending build. So this no longer asks whether the house is new;
+   `needsLightBuild === true` holds on its own, which also widens unbuiltNewHangOnPrintedDay (SCH-113) to pull
+   a returning mover's house off even a printed day, for the same reason it already does a new hang's. */
+function isWaitingOnBuild(d){ return !!(d && d.needsLightBuild === true); }
 function isOffTheSchedule(d){ return isOutForSeason(d) || isWaitingOnColorChange(d) || isWaitingOnBuild(d); }
 function isOutForSeason(d){
   if(!d) return true;
@@ -72469,14 +72469,14 @@ function noticeUnbuiltOffPrinted(list){
   const lines = list.map(function(x){ return x.name + ' — ' + x.date; });
   addDoc(collection(db, 'messages'), {
     topic: 'A Route Sheet Is Out Of Date', folder: 'System',
-    name: list.length === 1 ? list[0].name : (list.length + ' new hangs not built yet'), phone: '', email: '', contactMethod: '',
-    message: 'Taken off a printed day because their lights are not built yet — a new hang is not scheduled until the ' +
-      'warehouse marks their bundle done, and then they are placed on the next Recalculate.\n\n' + lines.join('\n') +
+    name: list.length === 1 ? list[0].name : (list.length + ' not built yet'), phone: '', email: '', contactMethod: '',
+    message: 'Taken off a printed day because their lights are not built yet — nobody is scheduled with a pending ' +
+      'build until the warehouse marks their bundle done, and then they are placed on the next Recalculate.\n\n' + lines.join('\n') +
       '\n\nIf that sheet is already with the crew, tell them to skip ' + (list.length === 1 ? 'this house' : 'these houses') +
       '. Nothing else on those days was moved.',
     autoQueuedToWarehouse: false, needsReassign: false,
     createdAt: (typeof serverTimestamp === 'function') ? serverTimestamp() : new Date()
-  }).catch(function(err){ console.error('[HU] could not raise the note about unbuilt new hangs taken off a printed day', err); });
+  }).catch(function(err){ console.error('[HU] could not raise the note about an unbuilt house taken off a printed day', err); });
 }
 function freezePrintedDays(){
   let n = 0;
@@ -76698,10 +76698,23 @@ function rebuildSeasonDays(){
   const homeless=waiting.filter(function(w){return !w.city;});
   const placeable=waiting.filter(function(w){return w.city;});
   /* New days start after the last day that was actually worked, and never
-     before today. Building from 1 October again would put a fresh crew-day on
-     top of a day the crew has already been out on. */
+     today or before it. Building from 1 October again would put a fresh
+     crew-day on top of a day the crew has already been out on.
+     ⭐ AND NEVER THE DAY OF, EVEN FOR TODAY ITSELF (added 2026-10-06). Addie:
+     "No one should be rescheduled or scheduled for dates that have already
+     passed", and, asked about priority: "never for the day of. So if asked
+     to be priority on the 6th should not be scheduled for the 6th too."
+     `nextWorkingDay(today)` answers today itself when today is a weekday —
+     which is a legal day to work by the calendar, but not one the crew can
+     be told about this morning. Every mover that touches an EXISTING day
+     already refuses one dated today or earlier (routeDayIsLocked treats
+     today as locked on purpose); this is the one spot that invents BRAND
+     NEW days, so it is the one spot that could otherwise hand a priority
+     customer, or anybody else, a crew-day with zero notice. Starting the
+     search at tomorrow is what makes "never the day of" true here too. */
   let floor=start;
-  const nextFree=nextWorkingDay(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+  const tomorrow=new Date(today.getFullYear(), today.getMonth(), today.getDate()+1);
+  const nextFree=nextWorkingDay(tomorrow);
   if(nextFree>floor) floor=nextFree;
   keep.forEach(function(d){
     if(d.isFixRoute||d.isTakedown) return;
@@ -77545,7 +77558,7 @@ function lockedDaySnapshot(){
        unfinished houses are MEANT to go back in the pool as missed ([[SCH-61]]), so counting it
        here would report that correct rescue as "a printed day changed". */
     if(typeof mtnNowParts === 'function' && ds < mtnNowParts().date) return;
-    /* [[SCH-113]] an unbuilt new hang is EXPECTED to leave a printed day, so it is not part of what must stay. */
+    /* [[SCH-113]] a house whose lights are not built yet is EXPECTED to leave a printed day, so it is not part of what must stay. */
     snap[ds + '|' + day.id] = (day.houses || []).filter(function(h){ return !(typeof unbuiltNewHangOnPrintedDay === 'function' && unbuiltNewHangOnPrintedDay(h)); })
       .map(function(h){ return h.id; }).join(',');
   });
@@ -77834,6 +77847,55 @@ function enforceInstallTiming(){
       moved.push({name: h.name || '(no name)', pref: h.pref || '', fromDate: here, toDate: dayStr(target)});
     });
   });
+  return {moved: moved, stuck: stuck};
+}
+/* ⭐ A DAY THAT HAS COME AND GONE NEVER GOES ON HOLDING SOMEBODY (added 2026-10-06).
+   Addie: "No one should be rescheduled or scheduled for dates that have already
+   passed", and, asked about priority customers specifically: "never for the day
+   of. So if asked to be priority on the 6th should not be scheduled for the 6th
+   too."
+
+   ⚠ rebuildSeasonDays ALREADY DOES THIS, AT RECALCULATE. Its own "worked" branch
+   pulls any unfinished house off a day once dt < today and sends it back to be
+   placed again — that is [[SCH-61]], and it is where the missed-day bump comes
+   from. But that only runs when somebody presses the button, and every mover on
+   the five-minute timer deliberately leaves a day alone once it is locked — which
+   a day in the past always is (routeDayIsLocked treats today and everything
+   before it as locked on purpose, so a printed sheet is never changed under the
+   crew). So a house left undone on a day that had already happened just sat
+   there, reading as "scheduled" for a date that was over, until somebody pressed
+   Recalculate everything.
+
+   This runs the identical rule on the five-minute sync instead of waiting for
+   that press: a day strictly before today gives up its unfinished houses to the
+   next legal day going, through nextInstallDayFor — the same placer the timing
+   sweep uses, which already refuses today and everything before it for the same
+   reason a day in the past is always locked. A house already done stays on the
+   day; it is the record of what happened, not paper the crew is still holding.
+   A day left with nothing on it at all is dropped, same as rebuildSeasonDays. */
+function sweepGoneDaysForward(){
+  const moved = [], stuck = [];
+  if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
+  const today = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const emptied = [];
+  SEASON.forEach(function(day){
+    if(day.isFixRoute || day.isTakedown) return;
+    const ds = dayStr(day);
+    if(!ds || ds >= today) return;   // only a day that has actually gone
+    (day.houses || []).slice().forEach(function(h){
+      if(!h || h.done || h.isTakedown || h.isFix) return;
+      if(typeof markHouseMissed === 'function') markHouseMissed(h, ds);
+      const target = nextInstallDayFor(h, {exclude: day});
+      if(!target){ stuck.push({name: h.name || '(no name)', day: ds}); return; }
+      day.houses = day.houses.filter(function(x){ return x !== h; });
+      target.houses.push(h);
+      moved.push({name: h.name || '(no name)', from: ds, to: dayStr(target)});
+    });
+    if(!(day.houses || []).length) emptied.push(day);
+  });
+  if(emptied.length) SEASON = SEASON.filter(function(d){ return emptied.indexOf(d) === -1; });
+  if(moved.length || emptied.length) computeDates();
   return {moved: moved, stuck: stuck};
 }
 /* A saved plan built before the one-other-town rule can hold a crew-day full of
@@ -78293,7 +78355,7 @@ function dropHousesWhoLeftSeason(){
       if(!cd) return;
       if(!(typeof isOffTheSchedule === 'function' ? isOffTheSchedule(cd) : (typeof isOutForSeason === 'function' && isOutForSeason(cd)))) return;
       if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
-        /* [[SCH-113]] an unbuilt new hang comes off even a printed day (today or later — never history). */
+        /* [[SCH-113]] a house whose lights are not built yet comes off even a printed day (today or later — never history). */
         if(here >= todayStr && typeof unbuiltNewHangOnPrintedDay === 'function' && unbuiltNewHangOnPrintedDay(h)){
           takeOffPrintedDay(day, h);
           out.unbuiltOff.push({name: h.name || '(no name)', date: here});
@@ -79199,7 +79261,7 @@ RT.addEventListener('click',e=>{const t=e.target;
        day after this press; this line says which ones only got there because of the net,
        so the rule that dropped them is not hidden. */
     if(PRINTED_UNBUILT_OFF.length){
-      parts.push(PRINTED_UNBUILT_OFF.length+' new hang'+(PRINTED_UNBUILT_OFF.length===1?'':'s')+' with no lights built yet taken off a printed day: '+
+      parts.push(PRINTED_UNBUILT_OFF.length+' customer'+(PRINTED_UNBUILT_OFF.length===1?'':'s')+' with no lights built yet taken off a printed day: '+
         PRINTED_UNBUILT_OFF.slice(0,5).map(function(x){ return x.name+' ('+x.date+')'; }).join(', ')+' — tell the crew; a note is in the Inbox');
       noticeUnbuiltOffPrinted(PRINTED_UNBUILT_OFF);
     }
@@ -80650,6 +80712,13 @@ function exportCSV(){
        actually coming. */
     let leftSeason={dropped:[],locked:[]};
     try{ leftSeason=dropHousesWhoLeftSeason(); }catch(err){ console.error('Season drop sweep failed:',err); }
+    /* ⭐ AND A DAY THAT HAS ALREADY GONE GIVES UP ANYBODY STILL ON IT (added
+       2026-10-06, see sweepGoneDaysForward). Run right after the season drop
+       and before everything else, so a house that left the season is already
+       gone rather than being rescued forward, and a house this DOES move is
+       held to its own timing by the sweep below in the same pass. */
+    let goneDays={moved:[],stuck:[]};
+    try{ goneDays=sweepGoneDaysForward(); }catch(err){ console.error('Past-day sweep failed:',err); }
     let rehome={moved:[],stuck:[],locked:[]};
     try{ rehome=rehomeMovedHouses(moved.filter(function(c){ return c.field==='town'; })
                                        .map(function(c){ return c.id; })); }
@@ -80684,6 +80753,7 @@ function exportCSV(){
        && !joinedV2.placed.length && !prioV2.moved.length
        && !leftSeason.dropped.length && !leftSeason.locked.length && !(leftSeason.unbuiltOff||[]).length
        && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length
+       && !goneDays.moved.length && !goneDays.stuck.length
        && !tdGone.length && !fixesPlaced.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
@@ -80699,7 +80769,7 @@ function exportCSV(){
     let routes={days:0};
     /* A house dropped onto a day is on the END of it, so that day is no longer in
        driving order — the same reason a timing move triggers this. */
-    if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged || joinedV2.placed.length || prioV2.moved.length){
+    if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged || joinedV2.placed.length || prioV2.moved.length || goneDays.moved.length){
       try{ routes=generateAllRoutes(); }catch(err){ console.error('Route generation failed:',err); }
     }
     computeDates(); renderAll(); scheduleSave();
@@ -80713,6 +80783,14 @@ function exportCSV(){
         ? (fixesPlaced[0].name+" \u2014 fix put on a Fixer Route for "+fixesPlaced[0].date)
         : (fixesPlaced.length+" fixes put on a Fixer Route"));
       if(timing.moved.length) bits.push(timing.moved.length+" moved to a day their timing allows");
+      /* ⭐ A DAY THAT WENT BY WITHOUT THEM IS SAID OUT LOUD, THE SAME WAY A TIMING
+         MOVE IS. "Scheduled for last Tuesday" with no explanation is exactly the
+         complaint this sweep exists to close. */
+      if(goneDays.moved.length) bits.push(goneDays.moved.length===1
+        ? (goneDays.moved[0].name+" \u2014 "+goneDays.moved[0].from+" came and went, moved to "+goneDays.moved[0].to)
+        : (goneDays.moved.length+" moved off a day that had already passed"));
+      if(goneDays.stuck.length) bits.push(goneDays.stuck.length+
+        " on a day that has passed and no later day has room \u2014 press Recalculate everything");
       /* ⭐ NAMED, NOT SILENT. "Somebody appeared on Tuesday" with no explanation is
          how the office stops trusting the plan. One name when it is one person,
          because that is the case they will want to check. */
@@ -80745,7 +80823,7 @@ function exportCSV(){
       if((leftSeason.unbuiltOff||[]).length){
         bits.push(leftSeason.unbuiltOff.length===1
           ? (leftSeason.unbuiltOff[0].name+" taken off "+leftSeason.unbuiltOff[0].date+" \u2014 lights not built yet, tell the crew")
-          : (leftSeason.unbuiltOff.length+" unbuilt new hangs taken off printed days \u2014 see the Inbox"));
+          : (leftSeason.unbuiltOff.length+" taken off printed days with no lights built yet \u2014 see the Inbox"));
         noticeUnbuiltOffPrinted(leftSeason.unbuiltOff);
       }
       /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how
