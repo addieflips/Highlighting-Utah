@@ -1299,6 +1299,38 @@ suite('SCH-116 The day the crew is hanging stands in for today when they are beh
     (function(){ H.api.setHangDay(HANG); const r = H.api.scheduleTodayStr({date: '2026-10-07', hour: 7, minute: 0}); H.api.setHangDay(null); return r === '2026-10-07'; })());
 }
 
+suite('SCH-120 A day that has been printed can no longer be rescheduled');
+{
+  /* Dax: "after a day is printed that day is no longer rescheduleable". A sheet printed a week ahead used to be
+     reshuffled by the next Recalculate, because "printed" only ever meant "one of the next two days". */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const all = daysOf().filter(function(d){ return d.ds; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const far = all.filter(function(d){ return !H.api.routeDayIsLocked(d.ds); })[3];
+  check('20.0 the scenario has a day well past the next two, not yet locked', !!far, JSON.stringify(all.map(function(d){ return d.ds; })));
+  const ids = function(){ const d = daysOf().filter(function(x){ return x.day.id === far.day.id; })[0]; return d ? d.ds + ':' + d.ids.slice().sort().join(',') : 'GONE'; };
+  H.api.markDayPrinted(far.day);
+  const before = ids();
+  check('20.1 printing it stamps the day', !!far.day.printedAt, String(far.day.printedAt));
+  check('20.2 and locks it at once, though it is not one of the next two', H.api.routeDayIsLocked(far.ds));
+  check('20.3 it counts as printed and still ahead of the crew', H.api.dayIsPrintedAhead(far.day));
+  H.press();
+  check('20.4 Recalculate everything leaves it exactly as it was', ids() === before, before + '  →  ' + ids());
+  H.tick();
+  check('20.5 and so does the five-minute sync', ids() === before, before + '  →  ' + ids());
+  H.press(true);
+  check('20.6 and so does Recalculate INCLUDING the next two days — a printed day is never reset', ids() === before, before + '  →  ' + ids());
+  check('20.7 and it is still locked afterwards', H.api.routeDayIsLocked(far.ds));
+  check('20.8 no Confirmed customer was left off a day getting there (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
+  H.setNow(new Date(far.day._date.getFullYear(), far.day._date.getMonth(), far.day._date.getDate(), 8, 0));
+  check('20.9 once the crew is on that day it is no longer "ahead" — missed houses can be moved on', !H.api.dayIsPrintedAhead(far.day));
+  check('20.10 a day never printed is never "printed ahead"', !H.api.dayIsPrintedAhead(all[all.length - 1].day) || !!all[all.length - 1].day.printedAt);
+}
+
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');
 {
   const mkC = function(id){ const c = TOWNS.Lehi;
