@@ -63,7 +63,11 @@ const READS = [
   ["the nightly switch", /\bdb\s*\.collection\(\s*'settings'\s*\)\s*\.doc\(\s*'nightlyInvoiceAutomation'\s*\)\s*\.get\(\s*\)/],
   ["the run log",        /\bdb\s*\.collection\(\s*'nightlyInvoiceLog'\s*\)\s*\.get\(\s*\)/],
   ["the customers",      /\bdb\s*\.collection\(\s*'jobAddresses'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/],
-  ["the templates",      /\bdb\s*\.collection\(\s*'emailTemplates'\s*\)\s*\.get\(\s*\)/]
+  ["the templates",      /\bdb\s*\.collection\(\s*'emailTemplates'\s*\)\s*\.get\(\s*\)/],
+  /* The fifth read, added 2026-10-08 for the failed payment receipts. It is a
+     deliberate line in this list exactly as the note above demands — that is what
+     stops a WRITE ever arriving as "one more use of db". */
+  ["the invoices",       /\bdb\s*\.collection\(\s*'invoices'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/]
 ];
 for (const [what, re] of READS) {
   check('reads ' + what + ', as a .get() and nothing else', re.test(live),
@@ -107,6 +111,84 @@ for (const field of ['heldNames', 'noEmailNames']) {
     '. PROC-36: who hit a fault belongs in the admin portal, not in an Actions log ' +
     'that anybody with repo access can read.');
 }
+/* ⛔ AN INVOICE CARRIES A NAME AND AN EMAIL ADDRESS, which is why the receipt section
+   groups by REASON and counts. The banner in admin already names the affected customers,
+   to the one person entitled to read it; this output is an Actions log. */
+for (const field of ['inv.name', 'invoice.name', 'd.name']) {
+  check('the receipt section never reads "' + field + '" off an invoice', live.indexOf(field) === -1,
+    'group by the reason and count the people — PROC-36');
+}
+check('an invoice email address is only ever TESTED, never printed',
+  !/say\([^\n]*inv\.email/.test(live),
+  'the count of customers with no address on file is the useful half; the address is the harm');
+/* ⛔ THIS ONE IS RUN, NOT MATCHED, and a red-check is why. The text version asserted
+   that the word "byReason" appeared; deleting the Map LOOKUP — so every failure forms
+   a group of its own and one fault prints as forty-one rows of one — sailed straight
+   through it. The whole value of the section is that it can tell ONE cause from FORTY-ONE,
+   so that is the claim, and only running it can hold it. */
+(function runTheGrouping() {
+  const src = fs.readFileSync(SCRIPT, 'utf8');
+  const cut = (name) => {
+    const i = src.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0, started = false;
+    for (let j = src.indexOf('{', i); j < src.length; j++) {
+      if (src[j] === '{') { d++; started = true; }
+      else if (src[j] === '}') { d--; if (started && d === 0) return src.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const body = cut('groupReceiptFailures');
+  check('groupReceiptFailures is its own function, so this gate can run it', !!body,
+    'inline, the only testable claim is that a word appears — which a red-check proved worthless');
+  if (!body) return;
+  let group;
+  try {
+    /* when/scrub are lifted from the script too, never re-written here: a second copy of
+       the scrubber would prove the copy works and say nothing about the code that runs. */
+    const whenSrc = src.slice(src.indexOf('const when = ts =>'), src.indexOf('*/', src.indexOf('const when = ts =>')) === -1 ? undefined : undefined);
+    const deps = src.slice(src.indexOf('const when = ts =>'), src.indexOf('(async function main'));
+    group = new Function(deps + '\n' + body + '\nreturn groupReceiptFailures;')();
+  } catch (e) {
+    check('the grouping rule can be lifted and run', false, e.message);
+    return;
+  }
+  /* ONE fault, three customers, three different dollar amounts in the text — the real
+     shape of a bulk import failing. It must come back as ONE row of 3. */
+  const oneFault = [
+    { receiptError: 'The email service rejected the payment receipt: quota of 200 exceeded. Paid $250.00', email: 'a@x.com' },
+    { receiptError: 'The email service rejected the payment receipt: quota of 200 exceeded. Paid $475.50', email: 'b@x.com' },
+    { receiptError: 'The email service rejected the payment receipt: quota of 200 exceeded. Paid $90.00',  email: 'c@x.com' },
+    { receiptError: '', email: 'd@x.com' }
+  ];
+  const r1 = group(oneFault);
+  check('three customers hit by ONE fault come back as one row of three',
+    r1.broken === 3 && r1.groups.length === 1 && r1.groups[0].n === 3,
+    'got broken=' + r1.broken + ' groups=' + r1.groups.length +
+    ' n=' + (r1.groups[0] && r1.groups[0].n) + '. Amounts differ per customer, so without ' +
+    'the digits collapsed this prints as three separate problems and reads as the book ' +
+    'being wrong rather than one setting.');
+  /* And the opposite must NOT collapse: genuinely different causes stay apart, or the
+     grouping would report one tidy cause for a book full of different ones. */
+  const manyFaults = [
+    { receiptError: 'This customer has no email address on their record.', email: '' },
+    { receiptError: 'The EmailJS keys are missing or incomplete.', email: 'b@x.com' },
+    { receiptError: 'The email service rejected the payment receipt: 429', email: 'c@x.com' }
+  ];
+  const r2 = group(manyFaults);
+  check('three DIFFERENT causes stay three rows', r2.groups.length === 3 && r2.broken === 3,
+    'got ' + r2.groups.length + ' groups. Collapsing unlike causes would report one tidy ' +
+    'answer for a book full of different ones — the opposite failure, and the worse one.');
+  check('and the ones with no address on file are counted separately',
+    r2.noEmailOnFile === 1 && r1.noEmailOnFile === 0,
+    'that count is what separates "nothing is broken, they have no email" from a real fault');
+  check('the commonest cause is reported first',
+    group(oneFault.concat(manyFaults)).groups[0].n === 3,
+    'the biggest group is the one to act on');
+  check('an empty book reports nothing rather than throwing',
+    group([]).broken === 0 && group([]).groups.length === 0, 'and undefined is survivable too');
+})();
+
 check('and an error line is scrubbed of anything email-shaped',
   /@\[A-Za-z0-9\.-\]\+|replace\([^)]*@/.test(live) && /email removed/.test(live),
   'the run log quotes template names AND customer-shaped text; the useful half is the ' +
