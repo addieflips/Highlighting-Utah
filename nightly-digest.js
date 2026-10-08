@@ -92,6 +92,17 @@ const scrub = t => String(t || '')
     say('     Whatever happened is in the run log below, not in the switch.');
   }
   if (auto) {
+    /* ⛔ WHEN was it switched on? That is the whole remaining question once the switch
+       reads ON and the log is EMPTY: either it was turned on just now (so no 7 PM has
+       passed yet, and nothing is wrong) or it has been on for weeks and the scheduled
+       function is not firing at all. Those need completely different answers.
+       ⚠ KEYS AND DATES ONLY, NEVER OTHER VALUES. This document has held `alertPhone`,
+       and PROC-36's rule is that this output names nobody. */
+    say('   fields on the document: ' + Object.keys(auto).sort().join(', '));
+    Object.keys(auto).forEach(function (k) {
+      if (!/At$|^updated|^created|Date$/i.test(k)) return;
+      say('   ' + k + ': ' + when(auto[k]));
+    });
     const u = String(auto.unpaidTemplateName || '').trim();
     const p = String(auto.paidTemplateName || '').trim();
     say('   template for bills still owing : ' + (u || '(standard)'));
@@ -148,6 +159,9 @@ const scrub = t => String(t || '')
     const snap = await db.collection('jobAddresses').limit(MAX_CUSTOMERS).get();
     let total = 0, done = 0, doneUnbilled = 0, doneUnbilledNoEmail = 0,
         doneUnbilledNeedsFix = 0, alreadyBilled = 0;
+    /* A date is not a person. When the work finished says whether the money has been
+       sitting still for one night or for a month. */
+    let newestMs = 0, oldestMs = 0, newestDone = '', oldestDone = '';
     snap.forEach(d => {
       const c = d.data() || {};
       total++;
@@ -160,12 +174,19 @@ const scrub = t => String(t || '')
         const email = String(c.email || c.billToEmail || '').trim();
         if (!email) doneUnbilledNoEmail++;
         if (c.needsFix) doneUnbilledNeedsFix++;
+        const ms = c.completedAt && c.completedAt.toMillis ? c.completedAt.toMillis() : 0;
+        if (ms) {
+          if (ms > newestMs) { newestMs = ms; newestDone = when(c.completedAt); }
+          if (!oldestMs || ms < oldestMs) { oldestMs = ms; oldestDone = when(c.completedAt); }
+        }
       }
     });
     say('   customers on the books          : ' + total);
     say('   marked completed                : ' + done);
     say('   already billed this season      : ' + alreadyBilled);
     say('   ⭐ COMPLETED AND NOT YET BILLED : ' + doneUnbilled);
+    if (newestDone) say('   newest of those finished at   : ' + newestDone);
+    if (oldestDone) say('   oldest of those finished at   : ' + oldestDone);
     if (doneUnbilledNoEmail) say('        of those, with NO email on file: ' + doneUnbilledNoEmail);
     if (doneUnbilledNeedsFix) say('        of those, still flagged needs-fix: ' + doneUnbilledNeedsFix);
     say('');
