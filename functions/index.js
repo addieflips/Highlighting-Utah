@@ -231,6 +231,25 @@ function templateSubjectOr(tplData, fallback) {
   return s || fallback;
 }
 
+/* ⭐ WHICH TEMPLATE THE NIGHTLY INVOICE SENDS IS PICKED IN THE ADMIN PORTAL
+   (added 2026-10-07, [[EM-25]]). Asked in chat: "Is there a way in nightly automation
+   that I can pick what template sends with the invoice as well?" — "Yeah lets build that".
+   Two dropdowns beside the nightly switch save `unpaidTemplateName` and
+   `paidTemplateName` on settings/nightlyInvoiceAutomation. Blank means the name this run
+   has always used, so nothing changes for anybody until a different one is picked.
+   ⚠ A PICK THAT CANNOT BE FOUND FALLS BACK, IN ORDER: the picked name, then the standard
+   name, then the built-in wording — a deleted or renamed template must never stop a bill
+   going out. Each step down is written to the run log so the office can see it.
+   ⚠ BY NAME, NOT BY ID, the same as every other template picker in admin.html
+   (quoteTemplateNames), so a template can be deleted and remade under its name. */
+const NIGHTLY_UNPAID_TEMPLATE = 'Nightly Auto-Invoice \u2014 Unpaid';
+const NIGHTLY_PAID_TEMPLATE = 'Nightly Auto-Invoice \u2014 Paid Receipt';
+function nightlyInvoiceTemplateNameServer(settings, paidInFull) {
+  const s = settings || {};
+  const picked = String((paidInFull ? s.paidTemplateName : s.unpaidTemplateName) || '').trim();
+  return picked || (paidInFull ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE);
+}
+
 async function findTemplateSnapByName(name) {
   const exact = await db.collection('emailTemplates').where('name', '==', name).limit(1).get();
   if (!exact.empty) return exact;
@@ -5874,6 +5893,14 @@ async function runInvoiceBatch(triggeredBy) {
     const pricingSnap = await db.collection('pricing').doc('config').get();
     const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
 
+    /* The templates picked beside the nightly switch — see nightlyInvoiceTemplateNameServer.
+       Read once per run. A failed read leaves the standard names, never stops the run. */
+    let nightlyTplSettings = {};
+    try {
+      const ntSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
+      nightlyTplSettings = ntSnap.exists ? (ntSnap.data() || {}) : {};
+    } catch (e) { console.error('Nightly invoice: could not read the picked templates, using the standard ones', e); }
+
     // Bills any house marked Done that hasn't been invoiced yet — no matter
     // which calendar day it was actually completed on. This avoids ever missing
     // a house that gets marked Done late (after 7pm, or the next morning): it
@@ -6307,14 +6334,21 @@ async function runInvoiceBatch(triggeredBy) {
           .map(function (f) { return (f.reason || 'Light change fee') + ' = $' + (Number(f.amount) || 0).toFixed(2); })
           .join('<br>');
 
-        const templateName = status === 'Paid in Full'
-          ? 'Nightly Auto-Invoice \u2014 Paid Receipt'
-          : 'Nightly Auto-Invoice \u2014 Unpaid';
+        const isPaidTpl = status === 'Paid in Full';
+        const standardName = isPaidTpl ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE;
+        let templateName = nightlyInvoiceTemplateNameServer(nightlyTplSettings, isPaidTpl);
         // Match on a flattened name (dashes, spacing and case ignored) rather
         // than the exact characters: an em dash, en dash and hyphen are
         // indistinguishable in a text box, and an invoice must not fall back to
         // the built-in wording just because someone typed a hyphen.
-        const tplSnap = await findTemplateSnapByName(templateName);
+        let tplSnap = await findTemplateSnapByName(templateName);
+        /* A picked template that has since been deleted or renamed: drop back to the
+           standard one rather than straight to the built-in wording, and say so. */
+        if (tplSnap.empty && templateName !== standardName) {
+          if (errors.length < 10) errors.push('Picked template not found, used the standard one instead: ' + templateName);
+          templateName = standardName;
+          tplSnap = await findTemplateSnapByName(templateName);
+        }
         let body;
         let tplData = null;
         if (tplSnap.empty) {

@@ -265,7 +265,13 @@ check('the one place that sets the flag without queuing is still excluded',
     buildAddressRowHtml: 'draws the tick box — it READS the flag into markup, never writes it',
     planTickCustomer: 'mirrors the flag into the local cache before the write is awaited, ' +
       'because the tick is derived and would otherwise spring back; the real dated write ' +
-      'is the hlxMarkJobDone call on the next line'
+      'is the hlxMarkJobDone call on the next line',
+    /* ⭐ [[FIX-07]], 2026-10-06 — same shape as planTickCustomer, for the same reason:
+       Save Fix calls hlxMarkJobDone first (the real dated write) and only mirrors the
+       flag into the local cache afterwards, so the note/photo popup does not read its
+       own stale copy on the next render. */
+    showAddFixPopup: 'mirrors the flag into the local cache after Save Fix calls ' +
+      'hlxMarkJobDone, which is the dated write'
   };
   const strangers = [...doors.keys()].filter(f => !(f in FIX_DOORS));
   check('no new place writes the fix flag without a decision about it',

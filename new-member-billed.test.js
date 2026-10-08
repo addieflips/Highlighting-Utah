@@ -92,7 +92,10 @@ const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStat
      payerHouseOfServer would decide which house gets the bill, which is the very
      thing the multi-house case is about. */
   'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
-  'clearHeldBill'];
+  'clearHeldBill',
+  /* main's own addition of 2026-10-07: the office can now pick which template the
+     nightly invoice sends, and runInvoiceBatch calls this to decide. */
+  'nightlyInvoiceTemplateNameServer'];
 const missing = LIFTED.filter(n => !lift(n));
 check('every rule the billing run depends on could be lifted out of the server',
   missing.length === 0,
@@ -132,6 +135,23 @@ function sandboxDeps(code, src, provided) {
     if (src.indexOf('function ' + n + '(') === -1) return;
     miss.push(n);
   });
+  /* ⚠ AND A MISSING **CONSTANT** IS THE SAME BUG, which this sweep did not cover until a
+     merge proved it on 2026-10-08: main added NIGHTLY_UNPAID_TEMPLATE beside the template
+     picker, the other gate's sandbox had never heard of it, and the run died on a bare
+     `NIGHTLY_UNPAID_TEMPLATE is not defined` — reported, once again, as the September
+     crash. A function-only sweep is half a guard.
+     ⚠ MODULE-LEVEL ONLY (`^const NAME =`, no indentation): a `const` declared inside some
+     other function is a local variable, not something a sandbox owes, and flagging those
+     would cry wolf on every harness in the repo. */
+  const refRe = /([A-Za-z_$][\w$]*)/g;
+  const referenced = new Set();
+  let r;
+  while ((r = refRe.exec(code))) referenced.add(r[1]);
+  referenced.forEach(function (n) {
+    if (have.has(n) || miss.indexOf(n) !== -1) return;
+    if (!new RegExp('^const ' + n + '\\s*=', 'm').test(src)) return;
+    miss.push(n);
+  });
   return miss.sort();
 }
 
@@ -139,9 +159,23 @@ function sandboxDeps(code, src, provided) {
    against a price the app has moved off, which is what seven fixtures did to
    CN_DOUBLE_BIN_FEET. */
 const NEW_MEMBER_FEE = Number((fns.match(/const NEW_MEMBER_FEE = (\d+)/) || [])[1]);
+/* ⚠ BOTH FOUND BY THE SWEEP ABOVE ON 2026-10-08, and both were real: this gate had been
+   running `heldBillReason` with BILL_HELD_DAYS undefined — every comparison against it
+   silently false, so the held-bill branch was being exercised against nothing. That is a
+   check passing for the wrong reason, which is the shape this file exists to refuse.
+   ⚠ HU_RETRY_PAUSE_MS IS DELIBERATELY ZERO HERE, not the real 400: it is tryFirestore's
+   backoff, and a harness that really sleeps makes a retry path cost a second per run. */
+const BILL_HELD_DAYS = Number((fns.match(/const BILL_HELD_DAYS = (\d+)/) || [])[1]);
 check('the installation fee was found in the source', NEW_MEMBER_FEE > 0,
   'got ' + NEW_MEMBER_FEE + '. Typing it here would let this pass against a price the ' +
   'app no longer charges.');
+
+/* The two standard template names the run falls back to (EM-25), lifted as the source
+   spells them rather than typed here, for the same reason as the fee above. */
+const NIGHTLY_TPL_CONSTS = (fns.match(/^const NIGHTLY_(UNPAID|PAID)_TEMPLATE = .*$/gm) || []).join('\n');
+check('the standard nightly template names were found in the source',
+  (NIGHTLY_TPL_CONSTS.match(/NIGHTLY_/g) || []).length === 2,
+  'got ' + JSON.stringify(NIGHTLY_TPL_CONSTS) + '. Without them every run in this file throws.');
 
 /* ---------------------------------------------------------------------------
  * A fake Firestore that records every write, so a check can ask what actually
@@ -200,7 +234,8 @@ function daysAgo(n) {
 function runBatch(jobAddresses, opts) {
   const o = opts || {};
   const db = makeDb({
-    settings: { emailjs: { serviceId: 's', templateId: 't', privateKey: 'k', publicKey: 'p' } },
+    settings: Object.assign({ emailjs: { serviceId: 's', templateId: 't', privateKey: 'k', publicKey: 'p' } },
+      o.nightly ? { nightlyInvoiceAutomation: o.nightly } : {}),
     pricing: { config: { perFootRate: 4 } },
     jobAddresses: jobAddresses,
     invoices: o.invoices || {},
@@ -210,10 +245,17 @@ function runBatch(jobAddresses, opts) {
      own built-in fallback body is then used, which is the branch a missing template takes
      in production and one fewer thing for this harness to invent. */
   const sandbox = lifted + `
-async function findTemplateSnapByName(n){ return { empty: true, docs: [] }; }
+async function findTemplateSnapByName(n){
+  __asked.push(n);
+  const body = __templates[n];
+  return body ? { empty: false, docs: [{ data: () => ({ name: n, body: body }) }] } : { empty: true, docs: [] };
+}
 function templateSubjectOr(t, f){ return f; }
 async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
+const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
+const HU_RETRY_PAUSE_MS = 0;
+${NIGHTLY_TPL_CONSTS}
 return runInvoiceBatch('test');
 `;
   /* One check, once: everything this sandbox CALLS that the server defines as a function
@@ -229,10 +271,13 @@ return runInvoiceBatch('test');
       'reports the new member as unbilled — the original crash\'s own symptom, with the ' +
       'cause nowhere near it.');
   }
-  const fn = new Function('db', 'admin', 'fetch', 'console', sandbox);
+  const fn = new Function('db', 'admin', 'fetch', 'console', '__templates', '__asked', sandbox);
   const quiet = { log: () => {}, error: () => {}, warn: () => {} };
-  return fn(db, adminStub, async () => ({ ok: true, text: async () => '' }), quiet)
-    .then(res => ({ res: res, db: db }));
+  const asked = [];
+  const sent = [];
+  const fetchStub = async (url, init) => { sent.push(init && init.body); return { ok: true, text: async () => '' }; };
+  return fn(db, adminStub, fetchStub, quiet, o.templates || {}, asked)
+    .then(res => ({ res: res, db: db, asked: asked, sent: sent }));
 }
 
 (async function main() {
@@ -336,6 +381,35 @@ return runInvoiceBatch('test');
       moduleLevel === 0,
       'found ' + moduleLevel + '. Declaring it at module level would make the name resolve ' +
       'and freeze every fee date at load time — a wrong answer instead of a loud one.');
+  }
+
+  /* =====================================================================
+     THE TEMPLATE PICKED BESIDE THE NIGHTLY SWITCH ([[EM-25]], 2026-10-07).
+     Run for real: which template the bill is built from, and what happens when the
+     pick has since been deleted.
+     ===================================================================== */
+  {
+    const STD = (NIGHTLY_TPL_CONSTS.match(/NIGHTLY_UNPAID_TEMPLATE = '([^']*)'/) || [])[1]
+      .replace(/\\u2014/g, '\u2014');
+    const tpls = {}; tpls[STD] = 'STANDARD BODY {{amount_due}}'; tpls['My Invoice'] = 'PICKED BODY {{amount_due}} {{pay_button}}';
+    const picked = await runBatch(oneHouse(), { templates: tpls, nightly: { enabled: true, unpaidTemplateName: 'My Invoice' } });
+    const pickedMail = picked.sent.join(' ');
+    check('a picked template is the one the bill is built from',
+      picked.res.sentCount === 1 && /PICKED BODY/.test(pickedMail) && !/STANDARD BODY/.test(pickedMail),
+      'sent=' + picked.res.sentCount + ' asked=' + JSON.stringify(picked.asked));
+    check('and its pay button still links to their own payment page',
+      /highlightingutah\.com\/#\/payment\?token=tok/.test(pickedMail));
+    const none = await runBatch(oneHouse(), { templates: tpls });
+    check('with nothing picked the standard template is used, exactly as before',
+      none.res.sentCount === 1 && /STANDARD BODY/.test(none.sent.join(' ')) && none.asked[0] === STD,
+      'asked=' + JSON.stringify(none.asked));
+    const gone = await runBatch(oneHouse(), { templates: tpls, nightly: { enabled: true, unpaidTemplateName: 'Deleted One' } });
+    check('a pick that has been deleted falls back to the standard template, and the bill still goes',
+      gone.res.sentCount === 1 && /STANDARD BODY/.test(gone.sent.join(' ')),
+      'sent=' + gone.res.sentCount + ' asked=' + JSON.stringify(gone.asked));
+    check('and the run log says the pick was not found',
+      (gone.res.errors || []).some(e => /Picked template not found/.test(e) && /Deleted One/.test(e)),
+      JSON.stringify(gone.res.errors));
   }
 
   console.log('');

@@ -76,7 +76,15 @@ const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStat
   'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
-  'clearHeldBill', 'toMillis', 'logNightlyInvoiceRun'];
+  'clearHeldBill', 'toMillis', 'logNightlyInvoiceRun',
+  /* ⚠ MAIN'S OWN ADDITION OF 2026-10-07 — the office can pick which template the
+     nightly invoice sends, and runInvoiceBatch calls this to decide. Added on the
+     merge of 2026-10-08: the extraction-list trap for the TWELFTH time, and this one
+     came in from the OTHER direction — main extracted a helper this branch's harness
+     had never heard of, so the gate died on a bare `NIGHTLY_UNPAID_TEMPLATE is not
+     defined` and reported it as the September crash. Run the whole suite after a
+     merge, not just the checks you wrote. */
+  'nightlyInvoiceTemplateNameServer'];
 const missing = LIFTED.filter(n => !lift(n));
 check('every rule the run depends on could be lifted out of the server',
   missing.length === 0,
@@ -90,6 +98,12 @@ const lifted = LIFTED.map(lift).join('\n\n');
    fixtures did to CN_DOUBLE_BIN_FEET. */
 const NEW_MEMBER_FEE = Number((fns.match(/const NEW_MEMBER_FEE = (\d+)/) || [])[1]);
 const BILL_HELD_DAYS = Number((fns.match(/const BILL_HELD_DAYS = (\d+)/) || [])[1]);
+/* ⛔ AND THE TWO STANDARD TEMPLATE NAMES, READ OUT OF THE SOURCE. Typed here they would
+   go on passing against names the app had moved off — the CN_DOUBLE_BIN_FEET lesson. They
+   carry an em dash, which is exactly why `findTemplateSnapByName` flattens the name
+   before matching: an em dash, en dash and hyphen are indistinguishable in a text box. */
+const NIGHTLY_UNPAID_TEMPLATE = (fns.match(/const NIGHTLY_UNPAID_TEMPLATE = '([^']+)'/) || [])[1];
+const NIGHTLY_PAID_TEMPLATE = (fns.match(/const NIGHTLY_PAID_TEMPLATE = '([^']+)'/) || [])[1];
 check('the two constants the run reads were found in the source',
   NEW_MEMBER_FEE > 0 && BILL_HELD_DAYS > 0,
   'fee=' + NEW_MEMBER_FEE + ' heldDays=' + BILL_HELD_DAYS +
@@ -175,6 +189,8 @@ function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
 const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
+const NIGHTLY_UNPAID_TEMPLATE = ${JSON.stringify(NIGHTLY_UNPAID_TEMPLATE)};
+const NIGHTLY_PAID_TEMPLATE = ${JSON.stringify(NIGHTLY_PAID_TEMPLATE)};
 return runInvoiceBatch('test');
 `;
   const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', sandbox);

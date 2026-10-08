@@ -16762,10 +16762,15 @@ suite('Suite 44. The plan keeps up with the customer list');
      obeyed — and, worse, it would have PASSED a new source that was announced but left
      out of the guard, which is the actual bug. It now reads every `X.length) bits.push`
      in the driver and requires each of those to appear in the early return, so the
-     check maintains itself the next time a sweep is added. */
+     check maintains itself the next time a sweep is added.
+     ⚠ SLICED TO THE NEXT REAL ANCHOR, NOT A MAGIC NUMBER (§7's own rule) — the guard
+     grows by one clause every time a sweep is added (it did again adding the past-day
+     one, 2026-10-06, and a fixed 400-char cap went stale on exactly that growth), so
+     this reads up to the literal `return 0;` that closes the statement rather than
+     guessing how wide it will ever get. */
   {
     const drv = admin.replace(/\r/g, '');
-    const guard = (drv.match(/if\(!moved\.length[\s\S]{0,400}?\) return 0;/) || [''])[0];
+    const guard = (drv.match(/if\(!moved\.length[\s\S]*?\) return 0;/) || [''])[0];
     const news = [...new Set((drv.match(/if\((\w+(?:\.\w+)?)\.length\)\s*bits\.push/g) || [])
       .map(m => m.replace(/^if\(/, '').replace(/\.length\)[\s\S]*$/, '')))];
     const missing = news.filter(n => guard.indexOf('!' + n + '.length') === -1);
@@ -16782,8 +16787,13 @@ suite('Suite 44. The plan keeps up with the customer list');
     /rejoin\.stuck\.length\) bits\.push/.test(admin),
     'a customer appearing on Tuesday with no explanation is how the office stops ' +
     'trusting the plan');
+  /* ⚠ ZERO OR MORE TRAILING CLAUSES, NOT A FIXED PAIR. This used to require exactly
+     "|| joinedV2.placed.length || prioV2.moved.length" and nothing after it, so the
+     past-day sweep appending its own "|| goneDays.moved.length" (2026-10-06) failed a
+     correct file — the core four sources must still trigger it, and anything added
+     after them still counts. */
   check('S44', 'and the day they landed on is re-ordered for driving',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(admin),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged(?: \|\| [\w.]+\.length)*\)/.test(admin),
     'a house dropped on the END of a day leaves that day out of driving order');
 }
 
@@ -17554,8 +17564,10 @@ suite('Suite 48. Days within two working days are set');
     /const setSoon = dt && dt >= today/.test(admin),
     'a past day belongs to the worked branch, which is what puts the houses nobody got to back in the pool');
 
-  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01): the set day is still kept and returned before the
-     pool — the only thing allowed off it is an unbuilt new hang, and only through takeOffPrintedDay. */
+  /* REPOINTED, NOT WEAKENED ([[SCH-113]], 2026-10-01; widened by [[SCH-115]], 2026-10-07): the set day is
+     still kept and returned before the pool — the only thing allowed off it is a house whose lights are not
+     built yet (new hang or returning, unbuiltNewHangOnPrintedDay keeps its old name but asks isWaitingOnBuild,
+     which no longer cares which), and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
     (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
      /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
@@ -26461,6 +26473,11 @@ suite('Suite 104. The Printing tab');
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
       extractFn(admin, 'printFixPhotos') +
+      /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
+         not only a flagged one, so this is lifted unconditionally rather than beside
+         the fix-only helpers above. A stub would prove the column renders and nothing
+         about whether a crew sent back to a house is told the colour actually on it. */
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'houseLightsText') +
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
@@ -34674,8 +34691,10 @@ suite('77. Schedule route generator');
   /* ⚠ AND A REJOINER LANDING ON A DAY COUNTS AS A MOVE (added 2026-08-22). They are
      pushed onto the END of that day, so it is no longer in driving order — exactly
      the case this trigger exists for. A changed phone number still is not. */
+  /* ⚠ ZERO OR MORE TRAILING CLAUSES, NOT A FIXED PAIR — see Suite 44's identical note.
+     The past-day sweep (2026-10-06) appends its own "|| goneDays.moved.length". */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged( \|\| joinedV2\.placed\.length \|\| prioV2\.moved\.length)?\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged(?: \|\| [\w.]+\.length)*\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
@@ -57722,8 +57741,12 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
 
       /* ⚠ AND NOBODY ELSE WAS MOVED BY IT. A hold read as a property of the TOWN rather
          than of the house would push forty other people back with it, which is a worse bug
-         than the one being fixed. */
-      const firstDay = out.days.filter(d => d.date === '2026-10-05')[0];
+         than the one being fixed.
+         ⚠ THE FIRST DAY IS 6 OCTOBER, NOT TODAY (2026-10-06): the floor a brand-new day may
+         open on is never today itself any more — Addie, "No one should be rescheduled or
+         scheduled for dates that have already passed... never for the day of" — so with
+         TODAY read as Monday the 5th, the season's first working day is Tuesday the 6th. */
+      const firstDay = out.days.filter(d => d.date === '2026-10-06')[0];
       check('S306', 'while the town still opens on the first working day of the season',
         !!firstDay && firstDay.who.length > 2,
         'got ' + JSON.stringify(out.days.map(d => d.date + ' x' + d.who.length)) +
@@ -64537,7 +64560,11 @@ suite('351. Takedown days are built from the customers, busiest town first');
     !!setFn && /updateDoc\(doc\(db,\s*'jobAddresses',\s*cust\.id\),\s*\{takedownTiming:/.test(setFn));
   check('S351', 'the customer sync reschedules takedowns when somebody will not be hung',
     /tdGone=takedownsNoLongerOwed\(\);\s*if\(tdGone\.length\)\{\s*rebuildTakedownDays\(\)/.test(strippedA) &&
-    /&& !tdGone\.length\) return 0;/.test(strippedA),
+    /* ⚠ [[FIX-07]], 2026-10-06 — WIDENED, NOT WEAKENED. A sibling clause,
+       `!fixesPlaced.length`, now sits between `!tdGone.length` and the close of the
+       guard it belongs to; the claim here is still that tdGone's own term survives
+       in that guard, wherever a later addition lands relative to it. */
+    /&& !tdGone\.length(?: && !\w+\.length)*\) return 0;/.test(strippedA),
     'without this a No or a deletion only reaches the takedown days when somebody presses Recalculate');
 }
 suite('352. Fixes and Takedowns have a name search too');
@@ -65973,6 +66000,8 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
   const sb = new Function('win',
     'const window = win;' + seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
     extractFn(admin, 'isWaitingOnColorChange') + extractFn(admin, 'isWaitingOnBuild') +
+    /* [[SCH-117]] lifted, never stubbed: isOffTheSchedule asks the whole Warehouse page now. */
+    extractFn(admin, 'isWaitingOnTimer') + extractFn(admin, 'isInWarehouse') +
     extractFn(admin, 'isOffTheSchedule') + extractFn(admin, 'seasonBadgeKey') +
     'return {badge: seasonBadgeKey, off: isOffTheSchedule};');
   const y = {rsvpStatus: 'yes', rsvpRespondedAt: 1};
@@ -65982,11 +66011,14 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
   check('S369', 'and is off the schedule', s1.off(Object.assign({chargeNewMemberFee: true, needsLightBuild: true}, y)) === true);
   check('S369', 'the moment the bundle is built they are Confirmed again',
     s1.badge(Object.assign({chargeNewMemberFee: true, needsLightBuild: false}, y)) === 'confirmed');
-  check('S369', 'a returning customer whose set is being rebuilt is NOT held',
-    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'confirmed');
-  const s2 = sb({customerIsNewHangData: function(){ return true; }});
-  check('S369', 'a new hang found by their quote (box unticked) is held too',
-    s2.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
+  /* ⭐ [[SCH-115]] 2026-10-07 — SUPERSEDES the claim this line used to make, "a returning
+     customer whose set is being rebuilt is NOT held" (the crew had hung them before).
+     Addie, asked whether the hold should reach a returning customer too: "anyone that is
+     in warehouse should not be scheduled" — yes, same as a new hang, because a mover's old
+     set is already recycled and a day with nothing built is the identical failure either
+     way. isWaitingOnBuild no longer asks whether the house is new at all. */
+  check('S369', 'a returning customer whose set is being rebuilt is held too (SCH-115)',
+    s1.badge(Object.assign({needsLightBuild: true}, y)) === 'building');
   check('S369', 'somebody who said No keeps the No badge', s1.badge({rsvpStatus: 'no', chargeNewMemberFee: true, needsLightBuild: true}) === 'no');
   check('S369', 'All Customers can show and filter on Being built',
     /badgeKey === 'building'/.test(admin) && /<option value="building">/.test(admin));
@@ -66041,4 +66073,40 @@ suite('371. Every Schedule day has its own id');
   check('S371', 'the rebuild names new days around the kept ones', /uniqueDayIds\(keep\)/.test(rb) && /id:freshDayId\(\)/.test(rb) && !/id:'rb'\+i\b/.test(rb));
   check('S371', 'and a plan saved with duplicates is repaired the moment it loads',
     /uniqueDayIds\(SEASON\)/.test(stripComments(extractFn(admin, 'hydrate') || '')));
+}
+
+/* ---------------------------------------------------------------------------
+ * 372. THE NIGHTLY INVOICE SENDS THE TEMPLATE PICKED BESIDE ITS SWITCH ([[EM-25]], 2026-10-07).
+ * "Is there a way in nightly automation that I can pick what template sends with the invoice
+ * as well?" — "Yeah lets build that". Blank = the standard name, so nothing changes until a
+ * pick is made; a pick that cannot be found drops to the standard one, then the built-in body.
+ * --------------------------------------------------------------------------- */
+suite('372. The nightly invoice sends the picked template');
+{
+  const srv = extractFn(fnsSrc, 'nightlyInvoiceTemplateNameServer');
+  check('S372', 'the server rule is findable', !!srv);
+  const constOf = (src, name) => { const m = src.match(new RegExp('const ' + name + " = '([^']*)'")); return m ? m[1] : null; };
+  const sU = constOf(fnsSrc, 'NIGHTLY_UNPAID_TEMPLATE'), sP = constOf(fnsSrc, 'NIGHTLY_PAID_TEMPLATE');
+  const aU = constOf(admin, 'NIGHTLY_UNPAID_TEMPLATE'), aP = constOf(admin, 'NIGHTLY_PAID_TEMPLATE');
+  check('S372', 'both files spell the standard names the same way', !!sU && !!sP && sU === aU && sP === aP, [sU, aU, sP, aP].join(' | '));
+  const pick = new Function("const NIGHTLY_UNPAID_TEMPLATE = 'U'; const NIGHTLY_PAID_TEMPLATE = 'P';" + srv + 'return nightlyInvoiceTemplateNameServer;')();
+  check('S372', 'nothing picked: the standard names, exactly as before', pick({}, false) === 'U' && pick({}, true) === 'P' && pick(null, false) === 'U');
+  check('S372', 'a blank or spaces-only pick is the standard name', pick({unpaidTemplateName: '   '}, false) === 'U');
+  check('S372', 'a pick is used for its own kind of bill only', pick({unpaidTemplateName: 'Mine'}, false) === 'Mine' && pick({unpaidTemplateName: 'Mine'}, true) === 'P');
+  check('S372', 'and the paid pick for paid bills', pick({paidTemplateName: 'Thanks'}, true) === 'Thanks' && pick({paidTemplateName: 'Thanks'}, false) === 'U');
+  /* the office copy must give the same answer */
+  const adm = extractFn(admin, 'nightlyInvoiceTemplateName');
+  check('S372', 'the office rule is findable', !!adm);
+  const admPick = (names, paid) => new Function('n', "const NIGHTLY_UNPAID_TEMPLATE = 'U'; const NIGHTLY_PAID_TEMPLATE = 'P'; const nightlyTemplateNames = n;" + adm + 'return nightlyInvoiceTemplateName(' + paid + ');')(names);
+  const cases = [[{unpaid: '', paid: ''}, {}], [{unpaid: 'Mine', paid: ''}, {unpaidTemplateName: 'Mine'}], [{unpaid: '', paid: 'Thanks'}, {paidTemplateName: 'Thanks'}], [{unpaid: ' ', paid: ' '}, {unpaidTemplateName: ' ', paidTemplateName: ' '}]];
+  check('S372', 'the office and the server agree on every case', cases.every(c => admPick(c[0], false) === pick(c[1], false) && admPick(c[0], true) === pick(c[1], true)));
+  const batch = stripComments(extractFn(fnsSrc, 'runInvoiceBatch') || '');
+  check('S372', 'the run reads the picks from the nightly settings', /doc\('nightlyInvoiceAutomation'\)/.test(batch) && /nightlyInvoiceTemplateNameServer\(nightlyTplSettings/.test(batch));
+  check('S372', 'a missing pick drops to the standard template before the built-in wording', /tplSnap\.empty && templateName !== standardName/.test(batch) && /templateName = standardName/.test(batch));
+  check('S372', 'the run no longer hard-codes which template a bill gets', !/const templateName = status === 'Paid in Full'/.test(batch));
+  const ui = stripComments(admin);
+  check('S372', 'both pickers are on the nightly panel', /id="nightlyUnpaidTemplate"/.test(admin) && /id="nightlyPaidTemplate"/.test(admin));
+  check('S372', 'they save to the fields the run reads', /'paidTemplateName' : 'unpaidTemplateName'/.test(ui));
+  check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
+  check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
 }

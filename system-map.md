@@ -2994,8 +2994,12 @@ new customer, a corrected town or a re-learnt town map re-split a printed sheet 
 involved at all. A printed day's split and order are now frozen on the day (`frozenIds`,
 `frozenCrews`, saved with the plan) and `dayCrewHouses` / `dayCrewTowns` read that first; a house
 added or removed by hand breaks the match and it is worked out again.
-⭐ **THE ONE EXCEPTION TO THE LOCK** ([[SCH-113]]): a new hang whose lights are not built yet comes off even a printed day — on Recalculate and on the five-minute sync, today or later, never a worked day. Removal only: nothing is added or reordered, and it comes off the frozen crew split too, so the rest of the sheet is exactly as printed. The button names who came off which day, and an Inbox note (A Route Sheet Is Out Of Date) says to tell the crew. Found because Rachel Oslund had been placed before the build hold existed.
+⭐ **THE ONE EXCEPTION TO THE LOCK** ([[SCH-113]], widened by [[SCH-115]]): a house whose lights are not built yet comes off even a printed day — new hang or returning — on Recalculate and on the five-minute sync, today or later, never a worked day. Removal only: nothing is added or reordered, and it comes off the frozen crew split too, so the rest of the sheet is exactly as printed. The button names who came off which day, and an Inbox note (A Route Sheet Is Out Of Date) says to tell the crew. Found because Rachel Oslund had been placed before the build hold existed.
 ⚠ **EVERY DAY HAS ITS OWN ID** ([[SCH-112]]): the day list selects by id, and Recalculate used to name new days rb0, rb1… from zero while the kept printed days still carried those names from the press before — so two days answered to one click. New days skip every id a kept day holds, and `hydrate` repairs a saved plan with duplicates on load.
+⭐ **NEVER TODAY, NEVER A DAY THAT HAS GONE** ([[SCH-114]], 2026-10-06). Addie: *"No one should be rescheduled or scheduled for dates that have already passed,"* and, on priority specifically, *"never for the day of. So if asked to be priority on the 6th should not be scheduled for the 6th too."* Every mover already refused today and before on an EXISTING day (`routeDayIsLocked` treats it as locked), but two gaps let it through anyway: a brand-new crew-day from Recalculate could still be built ON today, because the floor fell back to `nextWorkingDay(today)` rather than tomorrow; and a house left undone on a day that had since passed just sat there — the sweep that clears a gone day (`rebuildSeasonDays`'s own "worked" branch, [[SCH-61]]) only ran at a press of the button. The floor now starts at tomorrow, and `sweepGoneDaysForward` runs the same clean-up on the five-minute sync, not only at Recalculate.
+⭐ **THE CREW'S HANG DAY IS "TODAY" WHEN THEY ARE BEHIND** ([[SCH-116]] / [[SCH-118]], 2026-10-07). Dax: *"today we are hanging oct 5 but todays oct 7 adjust that so then the system knows not to recalculate the right days"*. The Schedule tab's **Crew is hanging** date (beside Season start; saved with the plan as `hangDay` = `{date, setOn}`) says which sheet the vans are working. `scheduleTodayStr()` answers that day in place of the calendar for every rule above that says "today" — what is history, which days are locked, which days the past-day sweep may empty — so the locked days are the hang day and the next two days with work (Oct 5, 6, 7, not Oct 7, 8, 9), and the sheets the crew has not reached are not "missed". It walks forward one working day per working day (`hangDayOn`), so two days behind stays two days behind until somebody changes it; **On today's date** clears it. ⚠ A BRAND NEW day is still never dated today or earlier by the real calendar, and a hang day on or after today is ignored. The line under the box lists the three locked days.
+⭐ **ANYBODY ON ANY WAREHOUSE LIST IS OFF THE SCHEDULE** ([[SCH-117]], 2026-10-07): `isInWarehouse` = a pending build (`needsLightBuild`), a timer-only job (`needsTimerOnly`), a timer removal (`needsTimerRemoved`) or the Color Change list (`needsColorChange`) — the whole Warehouse page. They read **Being built** / **Colour change** instead of Confirmed, the five-minute sync takes them off every day (printed ones too — the exception above now covers all four, still removal only, still never history, still a note in the Inbox), and the moment the warehouse marks the job done the same sync puts them back on a day with no Recalculate. Found live: Kate Johnson and Ogden Mills (timer-only rows) and Brooks Bostick (colour change) on the Oct 5/6 sheets.
+⭐ **A HOUSE TICKED DONE LEAVES THE DAY LISTS ON THE NEXT RECALCULATE** ([[SCH-119]], 2026-10-07): ⚙ Recalculate everything stamps `hiddenDone` on every house that is done at that moment (`markDoneHousesHidden`), and `crewHousesFor` — which the panel, both crew sheets, Print Today and the route order all read — leaves them out (`houseIsHiddenDone`). They stay in the day's own list and in the full split `dayCrewHouses`, so the Completed count, revenue, All Customers' hang day and the frozen printed split are unchanged; unticked again, they come straight back; ticked after the press, they stay visible until the next one.
 **⚙ Recalculate including the next two days** (`recalcAllBtn`) is the only reset: it asks
 first, runs the ordinary press with the lock lifted for that one press, and freezes the new next
 two days afterwards. It is also how a colour-change customer ([[SCH-105]]) already on one of those
@@ -3065,7 +3069,7 @@ purpose, and the priority and colour-change cases.
 
 **How the quote is found** (`closedQuoteFor`, [[SCH-110]]): the closed quote that NAMES this customer (`convertedToCustomerId` / `existingCustomerId`) wins; then the closed quote at the same STREET AND TOWN (whole addresses are never compared — the quote has no ", UT" and the customer does); then the same email; then the same phone. A shared email or phone never matches a different house. Found live: email-only new hangs (no phone anywhere) and a phone new hang rejected over ", UT" were all being missed.
 
-**Not scheduled until built** ([[SCH-110]]): a new hang (the $30 box, or a converted quote) whose `needsLightBuild` is still true reads **Being built** on All Customers instead of Confirmed, and `isOffTheSchedule` keeps them off every day. When the warehouse marks the bundle done the flag clears, they are Confirmed again, and the next sync or Recalculate places them. A returning customer whose set is being rebuilt is NOT held — the crew has hung that house before. A house already on one of the next two scheduled days stays until the override.
+**Not scheduled until built** ([[SCH-110]], widened by [[SCH-115]] 2026-10-07): anybody whose `needsLightBuild` is still true reads **Being built** on All Customers instead of Confirmed, and `isOffTheSchedule` keeps them off every day — new hang or returning. When the warehouse marks the bundle done the flag clears, they are Confirmed again, and the next sync or Recalculate places them. ⚠ SCH-110 originally held only a new hang, on the reasoning that a returning customer being rebuilt had already been hung before; Addie asked whether that should reach a returning customer's rebuild too (a mover's old lights are recycled and come down) and said yes — `isWaitingOnBuild` no longer asks whether the house is new at all. A house already on one of the next two scheduled days stays until the override, unless their lights are not built — see the next paragraph.
 
 **Which record the sheet reads** (`printCustData`): the house's own customer id (`planCustomerFor`), like the rest of the Schedule — never the customer number first. A new hang is the customer most likely to have no number yet, a number given after they were placed, or a phone shared with a parent's house, and the number-first lookup printed the wrong house's photos or none.
 
@@ -6428,6 +6432,10 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 ## 8. Everything automatic
 
 - **`sendNightlyInvoices`** — cron, 7 PM Mountain daily (`0 19 * * *`). No-ops unless the automation toggle in `settings/nightlyInvoiceAutomation` is on. Bills any completed-but-uninvoiced house, texts the owner a summary via Twilio, logs to `nightlyInvoiceLog`.
+  - ⭐ **Which template the bill is built from is picked beside the switch** (2026-10-07, [[EM-25]]). Invoices → Nightly Automation has two dropdowns, *Template for bills still owing* and *Template for bills already paid in full*. They save `unpaidTemplateName` and `paidTemplateName` (template **names**, like every other picker here) on `settings/nightlyInvoiceAutomation`; `nightlyInvoiceTemplateNameServer` in functions/index.js reads them once per run, and `nightlyInvoiceTemplateName` in admin.html gives the Invoices test send the same answer. Blank is **Standard** — *Nightly Auto-Invoice — Unpaid* / *— Paid Receipt*, the names the run has always used — so nothing changed for anybody until a pick was made.
+    - ⚠ **A pick that can no longer be found falls back in two steps**: to the standard template, then to the built-in wording, and each step is written to the run log (*Picked template not found…*). A deleted template must never stop a bill going out. The dropdown keeps showing the missing pick with *(not found — the standard one will send)* rather than quietly reading Standard.
+    - ⚠ **Payment receipts are not affected.** `sendPaymentReceipt` (both copies) still sends *Nightly Auto-Invoice — Paid Receipt* / *Payment Received — Balance Remaining* by their standard names; the pick covers the night-of-install invoice only.
+    - The standard names are spelled in both files; run-all.js **Suite 372** compares them and runs both copies of the rule, and `new-member-billed.test.js` runs the real batch with a pick, without one, and with a deleted one.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
 - ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-49]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
   - **Rung 1 — we are told to text them.** ⛔ **This sends the customer nothing.** Her sentence is *"**we** should get a notification to nudge them through text"*, so a person sends it. Nothing in this feature sends an SMS: an automatic text costs money per message, goes to somebody who has not replied, and cannot be recalled. A check **refuses** one, so adding it later has to be a deliberate change rather than a drift. They appear on **Text these people about their quote** on the automation card, with the number as a `tel:` link.
@@ -8576,7 +8584,54 @@ which prints on the new-hang crew sheets, is never touched.
 kind "does not retire the fix photo yet" while the call sat twenty lines below it. Corrected
 in the same change.
 
-### Everything about the season RSVP is on the RSVP tab
+### Raising a fix opens notes, a photo and a day to put it on — [[FIX-07]], 2026-10-06
+
+Addie asked for an Add Fix action in Customers that "will be added to fixes in schedule for
+every Saturday or whenever I choose to schedule it for," then, mid-build: "everywere I can
+put Needs fix it needs to automatically have a spot to put pictures and notes."
+
+**The gap.** Both places that could turn `needsFix` on — the customer-row status dropdown
+and the Routes-tab stop card's Mark Needs Fix button — wrote the bare flag with nowhere to
+say what was wrong. The note and photo lived in a separate Edit Note panel nobody was sent
+to, or, on the stop card, nowhere at all; `printFixReason`'s own comment already named the
+cost, a fix with no note prints "?" and no photo.
+
+**The fix.** `showAddFixPopup(id, opts)` is one popup — a note, a photo upload and a date
+field, "Schedule this fix for," defaulting to the next Saturday — called from both doors the
+moment `needsFix` is turned ON. Save Fix still goes through `hlxMarkJobDone` (the one dated
+door from the section above) before writing `fixNote`/`fixPhotoUrl`/`fixScheduleDate`, so
+raising a fix this way carries exactly the same date stamp and Inbox notice as before.
+Cancelling the popup unticks the box it came from rather than leaving it checked over
+nothing written.
+
+⚠ **The date is hers, never guessed at.** `fixScheduleDate` is read by a new Schedule-module
+function, `placeFixesFromCustomers`, hooked into the same three triggers as
+`syncHousesFromCustomers` — a customer change, opening the Schedule tab, and the 5-minute
+timer. It builds a fixer-route house through `houseFromCustomer` (the same builder a new
+install uses) and pins it to that date, or to the next Saturday if none was ever saved;
+two fixes asked for the same date land on one fixer-route day together.
+
+⚠ **This is additive, not the Job 4 migration.** `derivedDoneFor`'s own comment has said
+since Job 3 that "today a fix reaches the plan through FIXLIST, which is plan-only; nothing
+in the Schedule module writes `needsFix` to a customer at all" — true until this change.
+`placeFixesFromCustomers` only *adds* a fixer-route house for a flagged customer nothing
+already represents; it never removes, reorders or re-derives one, so a mended fix still
+reads as done through `derivedDoneFor` exactly as before, and the old manual FIXLIST /
+`buildFixRoutes` zip-clustering flow is untouched for anybody who still drags a house onto
+it by hand. It also never touches `seasonCustomerIds`, which already excludes `h.isFix`
+from "already on the plan" — the headline rule's own guard — so a customer who also needs a
+fix is still placed on an install day by `customersMissingFromSeason` exactly as if this
+function did not exist.
+
+**And printing gained a column.** Addie, on what should print for a fix: "Picture and notes
+need to print out along with persons name and address. Along with light colors they have."
+Name, address, the note and the photo already printed (the sections above); light colour
+never had, because `lightsDescription`'s registry entry stopped at the quote, the
+confirmation, the customer record and the two warehouse build sheets — the ordinary crew
+sheet was never a declared destination for it. `js/options.js` now adds `crewSheet` to its
+`consumers`, and `printCrewColumns` raises a `Light color` column on the SAME gate the
+`What's wrong` column already uses — only when a fix is actually on the sheet, never on the
+~950 ordinary install rows a season holds.
 
 Moved 2026-09-11. Addie: "at the top we got a lot going on. We can probably move emails that
 didn't get sent out over to RSVP in it's own sub tab. And Text the RSVP can go in it's own

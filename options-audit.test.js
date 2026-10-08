@@ -151,7 +151,11 @@ function check(label, ok, detail) {
   // -------------------------------------------------------------------------
   const AGREED = {
     measuredFeet:      ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
-    lightsDescription: ['quote', 'confirmation', 'customer', 'pullList'],
+    /* ⭐ 'crewSheet' ADDED 2026-10-06 — [[FIX-07]], the third deliberate change to this
+       frozen map. Addie, on what should print for a fix: "Along with light colors they
+       have." Only on a fix row (see printCrewColumns), the same gate the fix column
+       itself uses — the crew sheet does not carry it for an ordinary install. */
+    lightsDescription: ['quote', 'confirmation', 'customer', 'pullList', 'crewSheet'],
     /* ⭐ 'quote' PUT BACK 2026-09-18 — [[OPT-22]], and the SECOND deliberate change to
        this frozen map. Addie: "They should see Any, Green, White. With instructions on what
        to pick." The detail form asks again and `quoteSaveDetails` writes it again, so the
@@ -492,6 +496,11 @@ function check(label, ok, detail) {
           specificOutlet: /if\(outlet\) bits\.push\('OUTLET: '/,
           oneTimeNote:    /if\(once\) bits\.push\('TODAY: '/,
           notes:          /if\(standing\) bits\.push\(standing\)/,
+          /* ⭐ ONLY ON A FIX ROW ([[FIX-07]], 2026-10-06) — see printCrewColumns, which
+             raises this column exactly when the fix column is also raised. The option
+             still reaches the surface unconditionally in the code (every row computes
+             the cell); the column itself is what is conditional, same as `fix`. */
+          lightsDescription: /lights: printLightColor\(d\)/,
         },
       }],
       pullList: [

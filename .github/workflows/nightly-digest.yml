@@ -1,0 +1,68 @@
+# WHY THE NIGHTLY INVOICE DID OR DID NOT SEND.
+#
+# Addie, 2026-10-08: "So tonight an invoice should have gone out but looks like
+# it didn't can you check to see why?" The answer was entirely in her Firestore,
+# which nothing outside the admin portal could read — so answering it meant
+# asking her to go and look at a screen, at night, which is the pasting-a-log-in
+# step [[PROC-36]] removed for the Errors folder. This is the same step for the
+# billing run.
+#
+# ⛔ THE CAUSE IT EXISTS FOR IS THE SILENT ONE. sendNightlyInvoices checks
+# settings/nightlyInvoiceAutomation and, if `enabled` is not true, returns
+# BEFORE logging — "do nothing, don't even log". So a switched-off run and a run
+# that found nobody to bill look identical from every screen, because the screen
+# that would tell them apart is fed by the log the off-switch never writes.
+#
+# ⛔ MANUAL ONLY. No push trigger and no schedule, the same as the error reader:
+# it reads customer data, so it runs when somebody asks and never on its own.
+#
+# ⛔ READ-ONLY. The service account deploys Cloud Functions, so it CAN write
+# anything — including billing people. nightly-digest.test.js fails the build if
+# a write ever appears in that script. The gate is the guard; this comment is not.
+#
+# ⛔ AND IT NAMES NOBODY. A run log carries noEmailNames and heldNames, which are
+# real customers, and an Actions log is readable by anybody with repo access.
+# Counts and reasons only — who it was belongs in the admin portal.
+
+name: Why the nightly invoice did or did not send
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-digest
+  cancel-in-progress: true
+
+jobs:
+  digest:
+    name: The switch, the run log, and whether anything was owed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ⚠ INSTALL WHERE THE SCRIPT IS. Node resolves require() from the script's
+      # own directory, not the working directory — error-digest.yml records losing
+      # a run to exactly that. nightly-digest.js lives at the repo root.
+      #
+      # ⛔ AND THE MAJOR IS PINNED. This uses admin.firestore(), the namespaced
+      # API, which firebase-admin 14 REMOVES. Unpinned, this job keeps working
+      # until npm resolves 14 and then fails months later, nowhere near a change.
+      - name: Install the Firestore client
+        run: npm install --no-save firebase-admin@^13.10.0
+
+      - name: Write service account key to a temp file
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+
+      - name: Read it
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+        run: node nightly-digest.js

@@ -212,6 +212,13 @@ jobs:
       # failure inside npm test is one line of a 2.4MB log.
       - name: A new member actually gets a bill
         run: npm run test:newmember
+      # ⛔ THE TOOL THAT DIAGNOSES BILLING MUST NOT BE ABLE TO BILL. nightly-digest.js
+      # runs as the service account that deploys the functions, so it can write anything
+      # in the project; this gate pins every use of the database handle to a read and
+      # fails if a write, a second handle or a customer name ever appears. Named
+      # separately because "the reader is read-only" is a promise until something checks it.
+      - name: The nightly-run reader only reads, and names nobody
+        run: npm run test:nightly-read
       # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
       # runInvoiceBatch at all, and a one-word crash in it billed no new member at all
       # from 2026-09-18 to 2026-10-02: `nowMs` is not declared in that function,
