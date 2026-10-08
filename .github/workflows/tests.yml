@@ -212,6 +212,13 @@ jobs:
       # failure inside npm test is one line of a 2.4MB log.
       - name: A new member actually gets a bill
         run: npm run test:newmember
+      # ⛔ THE TOOL THAT DIAGNOSES BILLING MUST NOT BE ABLE TO BILL. nightly-digest.js
+      # runs as the service account that deploys the functions, so it can write anything
+      # in the project; this gate pins every use of the database handle to a read and
+      # fails if a write, a second handle or a customer name ever appears. Named
+      # separately because "the reader is read-only" is a promise until something checks it.
+      - name: The nightly-run reader only reads, and names nobody
+        run: npm run test:nightly-read
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,
