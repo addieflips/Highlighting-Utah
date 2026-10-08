@@ -2563,7 +2563,7 @@ check('flow', 'every newly added house is flagged for the warehouse',
    Check lights key and are built like anybody else. The claim is unchanged — flagging a
    house with no colours is only safe because it still reaches a list somebody works. */
 {
-  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildQueueGroups');
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') + extractFn(admin, 'whBuildQueueGroups');
   check('flow', 'and a house with none still reaches a pile somebody actually works',
     /isOutForSeason\(d\)\)\) return;/.test(q) &&
       q.indexOf('whCheckLightsKey(d.wireColor)') > q.indexOf('isOutForSeason(d))) return;'),
@@ -8295,7 +8295,8 @@ if (!JSDOM) {
     /* Numeric columns carry class="num" so they right-align on paper, which is
        why this matches the label rather than a bare <th>. */
     check('warehouse', 'the sheet is a real table with a header row',
-      /<thead>/.test(table) && />Bundles<\/th>/.test(table) && />Address<\/th>/.test(table),
+      /* "What to do" carries the bundles since 2026-10-05 (whBuildTodo). */
+      /<thead>/.test(table) && />What to do<\/th>/.test(table) && />Address<\/th>/.test(table),
       'without headers it is not a spreadsheet, it is a wall of text');
     /* ⭐ NUMBERED ON THE LEFT, TICK BOX ON THE RIGHT (changed 2026-08-20). Owner:
        "every single list should be numbered 1- whatever on the left... and also a blank
@@ -25906,12 +25907,19 @@ suite('Suite 104. The Printing tab');
        REQUEST, or CHANGED where nothing recorded the source. It sits after the name,
        which is where Type sits on the warehouse tab's own sheet: identity first, then
        what kind of job it is, then the spec. */
+    /* ⭐ ONE PLAIN INSTRUCTION (2026-10-05). Dax: "it should just be set up the easiest way for
+       the workers" — Why, Timer, Bundles and the feet columns became one "What to do" sentence
+       (whBuildTodo), which says NEW HANG / EXTENSION / REBUILD, the feet and bundles, and
+       "Add a timer". This list is not split by colour, so colour and wire stay as columns. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,bins,reason,lights,wire,timer,bundles') === 0,
+      keys('build') === 'number,name,lights,wire,todo,bins,notes',
       'got ' + keys('build'));
-    check('S104', 'and the build list does NOT carry feet',
-      keys('build').indexOf('feet') === -1,
-      'feet is the office number - it prices the job and sizes the bins');
+    /* ⭐ FEET ARE BACK, AS ADDED FT (2026-10-05). Dax: "it should print total bundles and
+       added feet." The raw office footage still stays off (no bare 'feet' key) — Added ft
+       is the footage being built today, Total bundles the whole house. */
+    check('S104', 'and the build list does NOT carry the raw office feet',
+      keys('build').split(',').indexOf('feet') === -1,
+      'Added ft (addedFeet) is the build footage; the bare office number stays off');
     /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
        is already on the shelf, and a finished bundle nobody can place is the thing that
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
@@ -25926,8 +25934,8 @@ suite('Suite 104. The Printing tab');
        every crew sheet. Asserted as the WHOLE list in order, not as "contains notes",
        because the position is the half that matters. */
     check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
-      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto,notes',
-      'got ' + keys('build'));
+      /put it in their bin/.test(extractFn(admin, 'whBuildTodo')) && /,notes$/.test(keys('build')),
+      'the EXTENSION sentence names the bin; got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
       'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
@@ -27856,7 +27864,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const cols = admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = ['),
                              admin.indexOf('const WH_RECYCLE_COLUMNS = ['));
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's own build sheet has the column too',
-      /key:'putInto'/.test(cols) && /When built, put into/.test(cols),
+      /* Since 2026-10-05 the bin rides in the EXTENSION sentence (whBuildTodo), not a column. */
+      /key:'todo'/.test(cols) && /put it in their bin/.test(extractFn(admin, 'whBuildTodo')),
       'this is the sheet the warehouse prints and builds off');
     /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11, when
        [[WH-34]] put the two timer jobs on paper (Remove timer, and the Timer only rows
@@ -27883,7 +27892,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
        warns about: there are two build sheets and this is the one with thinner
        cover. Both are asserted now. */
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's build sheet counts bundles',
-      /key:'bundles'/.test(cols),
+      /* ...in the "What to do" sentence since 2026-10-05 (whBuildTodo). */
+      /key:'todo'/.test(cols) && /bundle/.test(extractFn(admin, 'whBuildTodo')),
       'bundles is what somebody counts off a shelf');
     /* ⭐ AND Bin # BECAME A COUNT (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." The
@@ -27942,7 +27952,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -28026,10 +28036,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whWireLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
+    /* A colourless NEW hang — the house this block has always defended: it still has to be made. */
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
-                                            address: '9873 N Sunnybank Pl',
+                                            address: '9873 N Sunnybank Pl', chargeNewMemberFee: true,
                                             needsLightBuild: true, measuredFeet: 400}}],
       [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
       () => '', []).rows;
@@ -29148,7 +29159,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') + extractFn(admin, 'whWireLabel') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -29586,7 +29597,7 @@ suite('Suite 112. The number on the bin');
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= ' + CN_DOUBLE_BIN_FEET +
         ' ? 1 : Math.ceil(f / ' + CN_DOUBLE_BIN_FEET + '); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whNoteText') + extractFn(admin, 'whNotesCell') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') + extractFn(admin, 'whCheckLightsKey') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
@@ -29660,7 +29671,7 @@ suite('Suite 112. The number on the bin');
            blank cell — and this sandbox died with a bare ReferenceError until the real one
            was given to it. The extraction-list trap, for the ninth time in this file; a stub
            would keep the suite green through a change to what the warehouse is told. */
-        extractFn(admin, 'whWireLabel') +
+        extractFn(admin, 'whWireLabel') + extractFn(admin, 'whBuildSizeCells') + extractFn(admin, 'whBuildTodo') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',

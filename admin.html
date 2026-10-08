@@ -25745,7 +25745,9 @@ function houseBundleNeed(d){
   if(have > 0 && feet > have){
     const extra = feet - have;
     return withTyped({feet: extra, bundles: Math.ceil(extra / FEET_PER_BUNDLE), estimated: estimated,
-            unknown: false, topUp: true, have: have, total: feet});
+            unknown: false, topUp: true, have: have, total: feet,
+            /* The whole house's count once the add-on is in — see whBuildSizeCells. */
+            totalBundles: Math.ceil(feet / FEET_PER_BUNDLE)});
   }
   if(!feet) return withTyped({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
   return withTyped({feet: feet, bundles: Math.ceil(feet / FEET_PER_BUNDLE), estimated: estimated,
@@ -53701,8 +53703,22 @@ function warehouseRebuildFields(oldData, newData) {
     if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
     return raw;
   };
+  /* ⭐⭐ FILLING IN A BLANK IS NOT A CHANGE (2026-10-05). Dax: "i dont think we actually need to
+     rebuild the ones that say rebuild so if there is nothing that makes it seem like its supposed
+     to be a rebuild then just delete it from the build list." The activity log showed where
+     they came from: from 2026-09-01 the office and the portal filled in returning customers'
+     blank colours and wire, and every blank-to-value counted as a change here — 81 houses on the
+     build list with nothing behind them. A record learning what a house already has is not the
+     house getting different lights.
+     ⚠ EXCEPT once this season's bundle is made (lightsMarkedBuiltAt): a set built while the
+     wire read "Check lights" really does have to be remade once the wire is known.
+     ⚠ outletTimer is not touched — a timer has its own routing (timer-only / removal). */
   return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
     if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    /* ⚠ A BLANK WIRE BECOMING A NON-WHITE ONE STILL COUNTS (S133): the bundle was made on the
+       default white wire, so Green is a real change. Blank → White is the record catching up. */
+    if (f !== 'outletTimer' && norm(f, o) === '' && !o.lightsMarkedBuiltAt &&
+        (f !== 'wireColor' || norm(f, n) === 'white')) return false;
     return norm(f, n) !== norm(f, o);
   });
 }
@@ -53846,7 +53862,7 @@ function whToggleGroup(listId){
    assigned one of her four on a coin toss. A wrong provenance printed beside a name is
    worse than an honest "we do not know", and it fills itself in from here on. */
 const WH_BUILD_REASONS = {
-  'new':      {label: 'NEW',           bg: '#E4F0E6', color: '#2C6135'},
+  'new':      {label: 'NEW HANG',      bg: '#E4F0E6', color: '#2C6135'},
   'rebuild':  {label: 'OLD-REBUILD',   bg: '#E5EAF7', color: '#31447E'},
   'portal':   {label: 'MEMBER PORTAL', bg: '#F3E8F6', color: '#6B3F7A'},
   'request':  {label: 'REQUEST',       bg: '#FBF0DF', color: '#8A5A12'},
@@ -53858,6 +53874,14 @@ function whBuildReasonKey(d){
      stays set on somebody who joined in a previous season, so the flag alone would badge
      half the book NEW. */
   if(c.chargeNewMemberFee === true && !c.requoteAppliedAt) return 'new';
+  /* ⭐ AND EVERY OTHER NEW HANG (2026-10-05). Dax: "if they are a new hang it should say
+     somewhere that they are a new hang." The fee box is only one way in — a quote converted
+     into a customer is a new hang the Schedule already knows about ([[SCH-108]]), and those
+     rows printed with no badge at all. Asked through the Schedule's own rule rather than a
+     copy of it; false until the Schedule has loaded, never a guess. Same re-quote exclusion
+     as the line above. */
+  if(!c.requoteAppliedAt && typeof window !== 'undefined' && window &&
+     typeof window.customerIsNewHangData === 'function' && window.customerIsNewHangData(d)) return 'new';
   /* A re-quote that was actually applied. ⚠ 'price' is deliberately not here — a
      price-only re-quote changes no glass, queues no build, and would never reach this
      list; badging it a rebuild would describe work nobody is doing. */
@@ -53977,6 +54001,13 @@ function whBuildQueueGroups(){
        group, and heading it “Check lights” would send somebody to look up colours nobody
        ever asked for. Same rule as the line above, pointing the other way. */
     if(!wantsBuild) return;
+    /* ⭐ ON THE COLOR CHANGE LIST IS NOT ALSO A BUILD (2026-10-05). Dax: "if theyre on color change they
+       dont need to be on build." Every door that queues a colour change sets needsColorChange AND
+       needsLightBuild, so ten of eleven colour changes sat on both lists — two pieces of paper for one
+       new set. The Color Change list is that job; its Mark Done clears the build flag as well (see
+       there), so a finished colour change cannot fall back onto this list. A timer they want is
+       still collected above. */
+    if(d.needsColorChange === true) return;
     /* ⭐ NO COLOURS ON FILE IS A GROUP, NOT A SIDING (2026-09-18, [[WH-41]]). See
        whCheckLightsKey: the house is built like any other and the heading says to go and
        look at the bundle, which is the job somebody actually does. */
@@ -54192,12 +54223,19 @@ function renderWarehouseColorChangeQueue(){
       const who = ((item && item.data) || {}).name || 'That house';
       btn.disabled = true;
       try{
-        await updateDoc(doc(db,'jobAddresses', custId), {
-          needsColorChange: false,
-          colorChangeDoneAt: serverTimestamp()
-        });
+        /* ⭐ AND THE BUILD IS DONE TOO (2026-10-05). The colour change IS the new set, so the build flag
+           every colour-change door also sets is cleared here through whBuiltUpdates — the one place that
+           says what "made" means — or the house reappears on the build list the moment it leaves this
+           one and somebody makes a second set. Only when it was flagged: stamping lightsMarkedBuiltAt
+           on a house nobody queued would claim a build that never happened. */
+        const builtToo = !!(item && item.data && item.data.needsLightBuild);
+        const built = builtToo ? whBuiltUpdates() : {};
+        await updateDoc(doc(db,'jobAddresses', custId),
+          Object.assign({needsColorChange: false, colorChangeDoneAt: serverTimestamp()}, built));
         if(item && item.data){
-          Object.assign(item.data, {needsColorChange: false, colorChangeDoneAt: new Date()});
+          /* The mirror takes the same fields, with real dates in place of the server sentinels. */
+          Object.assign(item.data, built, {needsColorChange: false, colorChangeDoneAt: new Date()},
+                        builtToo ? {lightsMarkedBuiltAt: new Date()} : {});
         }
         toast(who + ' \u2014 colour change done');
         logActivity('Marked the colour change done for ' + who, 'customers', custId);
@@ -55090,6 +55128,7 @@ function whSheetRowsForBuild(){
     const d = item.data;
     rows.push({
       group: 'Remove timer',
+      todo: 'TAKE THE TIMER OUT of their bin \u2014 they do not want one.',
       wire: '',
       type: 'REMOVE TIMER',
       reason: whBuildReasonLabel(d),
@@ -55101,9 +55140,8 @@ function whSheetRowsForBuild(){
          instruction — printing YES here is how one comes back out of the van. */
       timer: 'TAKE OUT',
       putInto: whPutIntoLabel(d),
-      notes: 'THEY DO NOT WANT A TIMER ' + String.fromCharCode(8212) + ' take it out of their bin' +
-             (d.needsLightBuild ? ' (they are also having a set built)' : '') +
-             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+      notes: (d.needsLightBuild ? 'They are also having a set built.' : '') +
+             (d.notes ? (d.needsLightBuild ? ' ' : '') + String(d.notes).trim() : '')
     });
   });
   (built.timerHouses || []).forEach(function(item){
@@ -55111,6 +55149,7 @@ function whSheetRowsForBuild(){
     if(d.needsLightBuild || !d.needsTimerOnly) return;
     rows.push({
       group: 'Timer only',
+      todo: 'ADD A TIMER \u2014 nothing to build.',
       wire: '',
       type: 'TIMER ONLY',
       reason: whBuildReasonLabel(d),
@@ -55120,8 +55159,7 @@ function whSheetRowsForBuild(){
       bundles: '',
       timer: 'YES',
       putInto: whPutIntoLabel(d),
-      notes: 'TIMER ONLY ' + String.fromCharCode(8212) + ' nothing to build, just a timer in their bin' +
-             (d.notes ? ' ' + String.fromCharCode(8212) + ' ' + String(d.notes).trim() : '')
+      notes: d.notes ? String(d.notes).trim() : ''
     });
   });
   built.keys.forEach(function(key){
@@ -55142,6 +55180,7 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
+        todo: whBuildTodo(d, need),
         /* ⚠ A BLOCKED OR ADD-ON ROW STILL HAS A REASON. Type and Why answer two different
            questions and neither substitutes for the other: an add-on for somebody who extended
            their house is an ADD-ON that is an OLD-REBUILD. */
@@ -55160,6 +55199,9 @@ function whSheetRowsForBuild(){
            bundles for a house that needs four. ⚠ Type still says House/ADD-ON
            exactly, because the summary counts houses by matching that string. */
         bundles: (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''),
+        addedFeet: whBuildSizeCells(need).addedFeet,
+        totalFeet: whBuildSizeCells(need).totalFeet,
+        totalBundles: whBuildSizeCells(need).totalBundles,
         timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
         putInto: whPutIntoLabel(d),
         /* Said in words as well as in the Type column, because Notes is what gets read
@@ -55173,6 +55215,17 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
+        /* ⚠ AN EXTRA WITH A CUSTOMER ON IT IS THEIR JOB, NOT SPARE STOCK (2026-10-05). Lori Pugh's
+           and Doug Smith's warehouse requests printed as "Spare stock" — a worker reading that
+           puts them on a shelf instead of in the customer's bin. */
+        todo: (function(){
+          const q = Number(e.data.quantity) || 1;
+          const forCust = !!(e.data.customerId || e.data.customerNumber);
+          if(isTimer) return forCust ? 'ADD A TIMER \u2014 put it in their bin.'
+                                     : 'Spare timer' + (q > 1 ? 's \u00d7 ' + q : '');
+          return forCust ? 'EXTRA FOR THIS CUSTOMER \u2014 build ' + q + ' bundle' + (q === 1 ? '' : 's') + ' and put ' + (q === 1 ? 'it' : 'them') + ' in their bin.'
+                         : 'Spare stock \u2014 ' + q + ' bundle' + (q === 1 ? '' : 's');
+        })(),
         /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
            never one of the five — a badge on a row nobody asked for is a claim about somebody
            who does not exist. */
@@ -55233,12 +55286,43 @@ function whBuildSheetPages(){
     if(houses) bits.push(houses + ' house' + (houses === 1 ? '' : 's'));
     if(bundles) bits.push(bundles + ' bundle' + (bundles === 1 ? '' : 's'));
     if(timers) bits.push(timers + ' timer' + (timers === 1 ? '' : 's'));
-    /* ⚠ "SHEET X OF Y" IS THE POINT OF SPLITTING. Once the stack is handed out, the one
-       thing nobody can tell from a single page is whether they are holding all of them,
-       and a build that quietly lost a page is a house nobody makes. */
-    bits.push('sheet ' + (i + 1) + ' of ' + order.length);
+    /* "Sheet X of Y" is added by whPackBuildSheets, which knows how many pieces of paper
+       there really are once the small groups share one. */
     return {title: g, summary: bits.join(' \u00b7 '), rows: rows, columns: sheet.columns};
   });
+}
+/* ⭐ SMALL COLOUR GROUPS SHARE A PAGE (2026-10-05). Dax: "some colors only have like one
+   house on it for those we want to mush multiple colors onto one page." One page per group
+   ([[WH-24]]-era, Addie) printed a whole sheet of paper for a single row.
+   ⚠ EACH GROUP KEEPS ITS OWN HEADING AND TABLE on the shared page — the pile is still the
+   unit somebody builds from, it just no longer costs a sheet of paper on its own.
+   ⚠ IN ORDER, NEVER RE-SORTED. Groups are packed greedily as they come, so the stack reads
+   in the same order as the tab; a group that would overflow the page starts the next one,
+   and a big group fills a page (or more) by itself as before.
+   Budget: MEASURED, not guessed (2026-10-05). 26 printed every shared page with a few rows spilling
+   onto a second sheet, because addresses and colour names wrap each row to two lines. Re-packing that
+   day's real sheet (37 groups) and printing each page: with Total ft added as well, 17 fit and 18
+   spilled — 16 keeps a margin for a day with longer notes. A group's heading, summary and column header cost about 3 rows.
+   ⭐ RE-MEASURED FOR THE ONE-SENTENCE SHEET (same evening). With What to do replacing the number
+   columns most rows are one line again, and 16 left every page about half empty. Re-packing the
+   live sheet and printing each page: 26 fit, 28 spilled — 24 keeps a margin. */
+const WH_SHEET_ROW_BUDGET = 24;
+const WH_SHEET_GROUP_COST = 3;
+function whPackBuildSheets(groups){
+  const sheets = [];
+  let cur = null, used = 0;
+  (groups || []).forEach(function(g){
+    const cost = (g.rows ? g.rows.length : 0) + WH_SHEET_GROUP_COST;
+    if(!cur || used + cost > WH_SHEET_ROW_BUDGET){
+      cur = {parts: []}; used = 0; sheets.push(cur);
+    }
+    cur.parts.push(g); used += cost;
+  });
+  /* ⚠ "SHEET X OF Y" IS STILL THE POINT. Once the stack is handed out, the one thing nobody
+     can tell from a single page is whether they are holding all of them, and a build that
+     quietly lost a page is a house nobody makes. Counted in PAPER, after packing. */
+  sheets.forEach(function(s, i){ s.sheetLabel = 'sheet ' + (i + 1) + ' of ' + sheets.length; });
+  return sheets;
 }
 function whSheetRowsForRecycle(){
   const built = whRecycleGroups();
@@ -55341,7 +55425,13 @@ function whSheetTable(rows, columns){
    to take a single table; the build sheet is one page per colour group now, and the
    recycle sheet passes an array of one rather than keeping a second code path alive. */
 function whOpenPrintWindow(title, sections, emptyNote){
-  const live = (sections || []).filter(function(x){ return x && x.tableHtml; });
+  /* A section is one page: either one table ({title, summary, tableHtml}) or several groups
+     sharing it ({parts: [...], sheetLabel}) — see whPackBuildSheets. */
+  const live = (sections || []).map(function(x){
+    if(!x || !x.parts) return x;
+    const parts = x.parts.filter(function(p){ return p && p.tableHtml; });
+    return parts.length ? Object.assign({}, x, {parts: parts}) : null;
+  }).filter(function(x){ return x && (x.tableHtml || x.parts); });
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
     'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
@@ -55357,12 +55447,20 @@ function whOpenPrintWindow(title, sections, emptyNote){
     // no column names on it is a page nobody can read.
     'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px; color:#555;}'+
+    '.part + .part{margin-top:18px;}'+
     /* The break is what makes a page a page. Not on the last one, or every print
        ends with a blank sheet. */
     '.sheet{page-break-after:always;} .sheet:last-child{page-break-after:auto;}'+
     '@page{size:landscape; margin:10mm;}'+
     '</style></head><body>'+
     (live.length ? live.map(function(p){
+      if(p.parts){
+        return '<div class="sheet">'+p.parts.map(function(q){
+          return '<div class="part"><h1>'+esc(q.title || title)+'</h1>'+
+            '<div class="sub">'+esc(today)+(q.summary ? ' &middot; '+esc(q.summary) : '')+
+            (p.sheetLabel ? ' &middot; '+esc(p.sheetLabel) : '')+'</div>'+q.tableHtml+'</div>';
+        }).join('')+'</div>';
+      }
       return '<div class="sheet"><h1>'+esc(p.title || title)+'</h1>'+
         '<div class="sub">'+esc(today)+(p.summary ? ' &middot; '+esc(p.summary) : '')+'</div>'+
         p.tableHtml+'</div>';
@@ -55491,50 +55589,79 @@ function whBuiltUpdates(){
           buildBundleOverride: null,
           lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
 }
+/* ⭐ FEET BACK ON THE PAPER (2026-10-05). Dax: "in the warehouse on builds it says what to
+   build but not how many feet ... we need to make sure the feet are printed as well", and
+   then, settled: "it should print total bundles and added feet". This reverses the owner's
+   2026-08-21 "bundles is fine for warehouse" — the newer answer wins (R-024).
+   Added ft is the footage being built today: the whole house, or on an add-on only the extra
+   (marked +). Total bundles is the whole house once it is done, so on an add-on it is the
+   bin's count after this goes in. Bundles stays as its own column — it is what to make now,
+   and the per-page totals add it up.
+   " est" travels with both when the footage was worked back from the price. Blank, never 0,
+   when there is no footage — a 0 reads as a measurement. */
+/* ⭐ AND TOTAL FT (2026-10-05, same day). Dax, holding the printed page: "for builds it needs
+   to give the details like total feet and added feet". Total ft is the whole house once the
+   build is in — on an add-on, the bin's footage after the extra joins it. */
+function whBuildSizeCells(need){
+  if(!need) return {addedFeet: '', totalFeet: '', totalBundles: ''};
+  const est = need.estimated ? ' est' : '';
+  const total = need.topUp ? (need.totalBundles || '') : need.bundles;
+  const known = !(need.unknown || !need.feet);
+  return {
+    addedFeet: known ? ((need.topUp ? '+' : '') + need.feet + est) : '',
+    totalFeet: known ? ((need.topUp ? need.total : need.feet) + est) : '',
+    totalBundles: total ? (total + est) : ''
+  };
+}
+/* ⭐⭐ ONE PLAIN INSTRUCTION PER ROW (2026-10-05). Dax: "honestly it should just be set up the
+   easiest way for the workers, if its a add a timer then dont give them info they dont need just
+   tell them to add a timer if its extend a house, say we already have the house we just have an
+   extension, if its a build from scratch say its a new hang". He picked this layout from a mockup.
+   This REPLACES the column-per-fact sheet — Group, Wire, Type, Why, Bundles, Added ft, Total ft,
+   Total bundles, Timer and "When built, put into" were each right on their own and together made
+   a page a worker had to decode. Every fact a job needs is in its one sentence; nothing a job
+   does not need is on its row. The row objects still carry every field (the per-page totals and
+   the screen read them), only the PAPER changed.
+   ⚠ ONE FUNCTION, BOTH SHEETS — the same rule as whNotesCell, for the same reason.
+   ⚠ "NEW HANG" IS whBuildReasonKey's answer, which follows the Schedule's own new-hang rule;
+   anything else that is a whole set (a colour change, a move) is a REBUILD. */
+function whBuildTodo(d, need){
+  if(!need) return '';
+  const est = need.estimated ? ' (estimated)' : '';
+  const b = function(n){ return n + ' bundle' + (Number(n) === 1 ? '' : 's'); };
+  const timer = String((d && d.outletTimer) || '').trim() === 'Yes' ? ' Add a timer.' : '';
+  if(need.topUp){
+    const bin = (typeof whPutIntoLabel === 'function') ? whPutIntoLabel(d) : '';
+    return 'EXTENSION — we already have their house. Build only the extra ' + need.feet + ' ft' + est +
+      ' (' + b(need.bundles) + ') and put it in their bin' + (bin ? ': ' + bin : '') + '.' + timer;
+  }
+  /* ⚠ A COUNT THE OFFICE TYPED IS THE JOB (2026-10-05). Elaine Hadfield's 20 ft bay-window
+     change printed as "new set: 100 ft (estimated), 1 bundle" — the house's footage beside a
+     one-bundle job. The typed count wins on its own; the note says what it is for. */
+  if(need.typedBundles){
+    return 'BUILD ' + b(need.typedBundles) + ' (set by the office \u2014 see notes).' + timer;
+  }
+  const size = (need.unknown || !need.feet)
+    ? b(need.bundles) + ' \u2014 no footage on file, check before building'
+    : need.feet + ' ft' + est + ', ' + b(need.bundles);
+  const isNew = (typeof whBuildReasonKey === 'function') && whBuildReasonKey(d) === 'new';
+  return (isNew ? 'NEW HANG — build the whole house: ' : 'REBUILD — existing customer, new set: ') +
+    size + '.' + timer;
+}
 function whNotesCell(d, isTopUp){
   const t = whNoteText(d);
   if(isTopUp) return 'GOES INTO THE BIN THEY ALREADY HAVE' + (t ? ' \u2014 ' + t : '');
   return t;
 }
+/* ⭐ WHAT THE WAREHOUSE PRINTS (2026-10-05) — see whBuildTodo for why it is this short.
+   Colour and wire are the page heading (one page per pile), so they are not repeated per row.
+   Bins stays: Addie, 2026-08-25, "Everyone needs to know how many bins there are for each
+   house". Notes stays last, where a wide free-text column cannot push a short one off the edge. */
 const WH_BUILD_COLUMNS = [
-  {key:'group', label:'Group'},
-  {key:'wire', label:'Wire'},
-  {key:'type', label:'Type'},
-  /* ⭐ WHY THIS BUNDLE IS BEING BUILT, ON PAPER (added 2026-08-24). Addie: "I need paper
-     to carry badge too." It sits beside Type deliberately: Type says WHAT the row is (a
-     house, an add-on, a blocked one) and Why says where it came from, and an eye scanning
-     one column picks up the other. Notes is the wide free-text column and anything put
-     after it is lost against a wall of writing — the same argument that fixes the Timer
-     column's position on every crew sheet. Blank on buffer stock, which has no customer
-     behind it and so no provenance to claim. */
-  {key:'reason', label:'Why'},
-  {key:'what', label:'Customer / Item'},
+  {key:'what', label:'Customer'},
   {key:'address', label:'Address'},
-  /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
-     bins were making for them but costumer # should also show next to costumers
-     name." This column held the CUSTOMER number under a header that said Bin # —
-     true in the sense that the bin gets that number painted on it, and useless for
-     the question the warehouse is actually asking, which is how many bins to put
-     this house's lights into. The customer number moved into the Customer column
-     beside the name, where it reads as an identifier instead of a quantity.
-     ⚠ NOT the same column as WH_RECYCLE_COLUMNS' "Bin # to find". That one IS the
-     painted number, because finding a bin on a shelf is exactly what it is for. */
+  {key:'todo', label:'What to do'},
   {key:'bins', label:'Bins', num:true},
-  /* ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles.
-     I think how many bundles is fine for warehouse." Feet is the office's number —
-     it prices the job and sizes the bins — and bundles is the one somebody counts
-     off a shelf. Bundles is derived from feet, so printing both asked the warehouse
-     to check a sum that was never theirs to check. */
-  {key:'bundles', label:'Bundles', num:true},
-  {key:'timer', label:'Timer'},
-  /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
-     "when built put into Ashley Wray #909" in the blank column on the right, and then:
-     "or I dont know if you have a better idea for this because its a tricky situation."
-     The blank column is where the warehouse ticks a row off, so an instruction printed
-     there takes away the place to mark it done. A column of its own lines up down the
-     page, is empty on every ordinary row so the ones that need it stand out, and
-     survives the paste into Excel this sheet is built for. */
-  {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
 ];
 /* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
@@ -55689,10 +55816,12 @@ function whPrintBuildSheet(){
   /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
      whole-sheet totals that used to sit here have moved onto each page, because a page
      handed to somebody building one pile needs THEIR numbers, not the morning's. */
-  const pages = whBuildSheetPages();
+  const sheets = whPackBuildSheets(whBuildSheetPages());
   whOpenPrintWindow('Warehouse \u2014 Build Sheet',
-    pages.map(function(p){
-      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    sheets.map(function(s){
+      return {sheetLabel: s.sheetLabel, parts: s.parts.map(function(p){
+        return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+      })};
     }),
     'Nothing needs to be built right now.');
 }
@@ -74975,6 +75104,16 @@ function renderPanelInto(elId,day){
         ? '<button class="mini" data-printcrew="'+day.id+'" data-crew="'+i+'">Print '+esc(crewName(i))+'</button>'
         : '';
     }).join('')+
+    /* ⭐ THE SAME DAY'S PHONE NUMBERS, FOR A BULK TEXT (2026-10-05). Dax: "i need a way to bulk text everyone
+       on a given day, have it formatted for full day, crew 1 or crew 2, and then i can go to google voice
+       and bulk text it to them." Same three splits as the print buttons, and offered on the same rule —
+       only for a crew that has houses that day. See dayPhoneList. */
+    (n?'<button class="mini" data-phones="'+day.id+'" data-crew="all" title="Copy every phone number on this day for a bulk text">📱 Numbers: whole day</button>':'')+
+    CREWS.map(function(c,i){
+      return crewHousesFor(i,day).length
+        ? '<button class="mini" data-phones="'+day.id+'" data-crew="'+i+'" title="Copy '+esc(crewName(i))+'\'s phone numbers for a bulk text">📱 Numbers: '+esc(crewName(i))+'</button>'
+        : '';
+    }).join('')+
     (fr?'<button class="mini warn" data-disband="'+day.id+'">Disband route</button>':'')+'</div>';
   if(fr){h+='<div class="daycontrols" style="padding:10px 16px"><span class="lbl">Route date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'"><span class="read">the fixer’s route — can run the same day as installs'+(isWeekend(dt)?' · weekend':'')+'</span></div>';}
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
@@ -79112,6 +79251,8 @@ RT.addEventListener('click',e=>{const t=e.target;
                 ' crew'+(CREWS.length-1===1?'':'s')+' the next time you press Recalculate everything.')) return;
     setCrewCount(CREWS.length-1);return;
   }
+  const phonesEl=t.dataset.phones?t:t.closest('[data-phones]');
+  if(phonesEl){showDayPhones(phonesEl.dataset.phones,phonesEl.dataset.crew,phonesEl);return;}
   const printCrewEl=t.dataset.printcrew?t:t.closest('[data-printcrew]');
   if(printCrewEl){printCrewSheet(printCrewEl.dataset.printcrew,printCrewEl.dataset.crew);return;}
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');
@@ -79646,6 +79787,95 @@ function printCustData(h){
           : ((typeof customerForHouse === 'function') ? customerForHouse(h) : null);
   return (c && c.data) || {};
 }
+/* ⭐ WHO TO TEXT ON A DAY (2026-10-05) — see the 📱 buttons on the day panel. The numbers come off the
+   CUSTOMER record (printCustData, the same answer the crew sheets print), formatted (801) 555-1234 so
+   Google Voice's To box reads them. ⚠ TWO HOUSES ON ONE PHONE ARE ONE TEXT — a parent paying for a
+   child's house, or two houses of one household — so a number is listed once. ⚠ STOP IS HONOURED:
+   somebody who texted STOP (smsOptedOut) is left out and NAMED, never silently dropped. ⚠ AND A HOUSE
+   WITH NO USABLE NUMBER IS NAMED TOO, so the office knows who still has to be called or emailed. */
+function dayPhoneList(houses){
+  const seen=new Set(), numbers=[], noPhone=[], optedOut=[];
+  (houses||[]).forEach(function(h){
+    const d=printCustData(h)||{};
+    const name=d.name||h.name||'(no name)';
+    if(d.smsOptedOut){optedOut.push(name);return;}
+    let digits=String(d.phone||h.phone||'').replace(/\D/g,'');
+    if(digits.length===11&&digits.charAt(0)==='1')digits=digits.slice(1);
+    if(digits.length!==10){noPhone.push(name);return;}
+    if(seen.has(digits))return;
+    seen.add(digits);
+    numbers.push('('+digits.slice(0,3)+') '+digits.slice(3,6)+'-'+digits.slice(6));
+  });
+  return {numbers:numbers,noPhone:noPhone,optedOut:optedOut};
+}
+/* Draws the list under the day's buttons and copies it. ⚠ GOOGLE VOICE HAS NO SEND-SEPARATELY: numbers
+   pasted together in one To box become ONE GROUP TEXT (everyone sees everyone, replies go to all, and
+   it caps at about eight people). The box says so in words, because the obvious use of a list of forty
+   numbers is the one that leaks them. */
+/* ⭐ AND THE MESSAGE ITSELF, SAYING "TONIGHT" OR "TODAY" RIGHT (2026-10-05). Dax: "have it so you select
+   if your sending it at night or morning so it says like tomorrow or today." Sent the night before, the
+   crew comes TOMORROW; sent that morning, they come TODAY — the same day, two different words, so the
+   office picks which and the date is printed beside the word so a text read late cannot mislead.
+   ⚠ ONE MESSAGE FOR EVERYBODY, NO NAME IN IT: the list is pasted as numbers, so nothing can fill a name
+   per person. ⚠ AND IT PROMISES NO TIME OF DAY — the plan has no arrival times, so a time in the text
+   would be invented. Takedown and fixer days get their own verb. */
+function dayTextMessage(day,when){
+  const dt=day?dayDate(day):null;
+  const dateTxt=(dt&&typeof dt.toLocaleDateString==='function')?dt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}):'';
+  const word=when==='morning'?'today':'tomorrow';
+  const job=(day&&day.isTakedown)?'take down your Christmas lights':(day&&day.isFixRoute)?'stop by to fix your Christmas lights':'hang your Christmas lights';
+  return 'Hi from Highlighting Utah! Our crew is scheduled to '+job+' '+word+(dateTxt?' ('+dateTxt+')':'')+'. Reply STOP to opt out.';
+}
+/* Which to pre-pick: a day that is today is a morning send, anything else the night before. */
+function dayTextDefaultWhen(day,now){
+  const dt=day?dayDate(day):null; const n=now||new Date();
+  if(!dt||typeof dt.getFullYear!=='function') return 'night';
+  const same=dt.getFullYear()===n.getFullYear()&&dt.getMonth()===n.getMonth()&&dt.getDate()===n.getDate();
+  return same?'morning':'night';
+}
+function showDayPhones(dayId,crew,anchor){
+  const day=getDay(dayId); if(!day) return;
+  const all=crew==='all';
+  const houses=all?day.houses:crewHousesFor(Number(crew),day);
+  const r=dayPhoneList(houses);
+  const who=all?'the whole day':crewName(Number(crew));
+  const text=r.numbers.join(', ');
+  const host=(anchor&&anchor.closest('.daycontrols'))||null;
+  const old=host&&host.parentNode&&host.parentNode.querySelector('.phonebox');
+  if(old) old.remove();
+  const when0=dayTextDefaultWhen(day);
+  const box=document.createElement('div');
+  box.className='phonebox';
+  box.style.cssText='padding:12px 16px;border-top:1px solid var(--line);background:#fbfdfc;font-size:13px';
+  box.innerHTML='<div style="font-weight:750;color:var(--green);margin-bottom:6px">'+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+esc(who)+' — '+esc(printDayLabel(day))+'</div>'+
+    '<textarea readonly rows="3" data-phonenums="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(text)+'</textarea>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin:6px 0 10px;flex-wrap:wrap"><button class="mini" data-phonecopy="1">Copy numbers</button><button class="mini" data-phoneclose="1">Close</button></div>'+
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><b style="font-size:12.5px">Message</b>'+
+    '<select data-phonewhen="1" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px">'+
+    '<option value="night"'+(when0==='night'?' selected':'')+'>Sending tonight — says “tomorrow”</option>'+
+    '<option value="morning"'+(when0==='morning'?' selected':'')+'>Sending this morning — says “today”</option></select>'+
+    '<button class="mini" data-phonemsgcopy="1">Copy message</button></div>'+
+    '<textarea rows="3" data-phonemsg="1" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit">'+esc(dayTextMessage(day,when0))+'</textarea>'+
+    '<div style="color:var(--muted);font-size:12px;margin-top:6px">Paste the numbers into Google Voice’s To box and the message under it. You can edit the message before copying. ⚠ Numbers in one message become a group text — everyone sees each other’s number and replies go to all, and Voice caps a group at about 8. Send in small batches or one at a time.</div>'+
+    (r.noPhone.length?'<div style="margin-top:6px;color:#9a5b16">No number on file ('+r.noPhone.length+'): '+esc(r.noPhone.join(', '))+'</div>':'')+
+    (r.optedOut.length?'<div style="margin-top:4px;color:var(--red)">Texted STOP, left out ('+r.optedOut.length+'): '+esc(r.optedOut.join(', '))+'</div>':'');
+  if(host&&host.parentNode) host.parentNode.insertBefore(box,host.nextSibling);
+  const copyText=function(value,ta,label){
+    const done=function(){ toast(label); };
+    const fallback=function(){ ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); };
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(done,fallback);
+    else fallback();
+  };
+  const numsTa=box.querySelector('[data-phonenums]'), msgTa=box.querySelector('[data-phonemsg]');
+  const copyNums=function(){ copyText(text,numsTa,'Copied '+r.numbers.length+' number'+(r.numbers.length===1?'':'s')+' for '+who); };
+  box.querySelector('[data-phonecopy]').addEventListener('click',function(e){ e.stopPropagation(); copyNums(); });
+  box.querySelector('[data-phoneclose]').addEventListener('click',function(e){ e.stopPropagation(); box.remove(); });
+  box.querySelector('[data-phonewhen]').addEventListener('change',function(e){ e.stopPropagation(); msgTa.value=dayTextMessage(day,e.target.value); });
+  box.querySelector('[data-phonewhen]').addEventListener('click',function(e){ e.stopPropagation(); });
+  msgTa.addEventListener('click',function(e){ e.stopPropagation(); });
+  box.querySelector('[data-phonemsgcopy]').addEventListener('click',function(e){ e.stopPropagation(); copyText(msgTa.value,msgTa,'Message copied'); });
+  if(r.numbers.length) copyNums(); else toast('No phone numbers for '+who);
+}
 /* ---------- the lists ---------- */
 const PRINT_COLUMNS = {
   recycle:   [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
@@ -79655,39 +79885,12 @@ const PRINT_COLUMNS = {
      bin on a top-up — a bundle that joins a bin already on the shelf. It is a column
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
+  /* ⭐ THE SAME PLAIN INSTRUCTION AS THE WAREHOUSE TAB'S SHEET (2026-10-05) — see whBuildTodo.
+     This list is not split by colour, so the colour and wire stay as columns here. Bins stays
+     (Addie, 2026-08-25: "Everyone needs to know how many bins there are for each house"). */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
-              /* ⭐ HOW MANY BINS, ON EVERY SHEET (2026-08-25). Addie: "Everyone needs to
-                 know how many bins there are for each house so bin # and costumer #
-                 does matter."
-                 ⚠ THIS REVERSES HER OWN TRIMMING OF 2026-08-24, which is kept in the
-                 note below because the reasoning was sound at the time: "warehouse
-                 people should know 5000 means 2 bins so not necessary to put how many
-                 bins on there", then "just put how many bins will be needed if it is
-                 more than 2 bins." That made the count CONDITIONAL — it appeared only
-                 above two — so a house on a regular number said nothing at all and the
-                 person carrying the paper had to know the 5000 rule to read it.
-                 ⚠ AND THE CONDITIONAL NOTE IS GONE WITH IT. A column and a note saying
-                 the same thing on one row is noise, and the note was only ever there
-                 because there was no column. */
-              {k: 'bins', label: 'Bins'},
-              /* The same badge the warehouse tab shows, in words — see WH_BUILD_COLUMNS. */
-              {k: 'reason', label: 'Why'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
-              /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
-                 and bundles. I think how many bundles is fine for warehouse." Feet is
-                 what the office measures and prices; bundles is what somebody actually
-                 counts off a shelf, and it is derived from the feet anyway
-                 (houseBundleNeed), so printing both put a sum on the sheet nobody was
-                 being asked to do. A top-up shows the ADD-ON's bundles, not the whole
-                 house's — that is the number they are making today. */
-              {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
-              {k: 'putInto', label: 'When built, put into'},
-              /* ⚠ THIS REVERSES PART OF HER OWN 2026-08-24 TRIM OF THIS SHEET, and the
-                 older reasoning is kept a few lines up because it is still right about
-                 width: she cut this sheet down herself so it would read on landscape
-                 paper. R-024 — the newer answer wins, and it is said out loud rather
-                 than applied quietly. Notes goes LAST, where a wide free-text column
-                 cannot push a scannable one off the edge. */
+              {k: 'todo', label: 'What to do'}, {k: 'bins', label: 'Bins'},
               {k: 'notes', label: 'Notes'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
@@ -79785,7 +79988,8 @@ function printNeedsBuildList(){
          COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
          here and have a column of their own on the tab — but they must not disagree about
          WHO is on them. */
-      return d.needsLightBuild;
+      /* Same rule as the warehouse tab: a colour change is built from the Color Change list. */
+      return d.needsLightBuild && d.needsColorChange !== true;
     })
     .map(function(a){
       const d = a.data || {};
@@ -79831,6 +80035,13 @@ function printNeedsBuildList(){
               bundles: need
                 ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
                 : '',
+              todo: need ? whBuildTodo(d, need) : '',
+              addedFeet: whBuildSizeCells(need).addedFeet,
+              totalFeet: whBuildSizeCells(need).totalFeet,
+              totalBundles: whBuildSizeCells(need).totalBundles,
+              /* ⚠ THE WHY COLUMN WAS NEVER FILLED on this sheet — the heading printed and
+                 every cell under it was blank, so a new hang looked like any other row. */
+              reason: (typeof whBuildReasonLabel === 'function') ? whBuildReasonLabel(d) : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */

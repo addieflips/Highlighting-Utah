@@ -1893,8 +1893,22 @@ function warehouseRebuildFields(oldData, newData) {
     if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
     return raw;
   };
+  /* SAME RULE AS admin.html.  ⭐⭐ FILLING IN A BLANK IS NOT A CHANGE (2026-10-05). Dax: "i dont think we actually need to
+     rebuild the ones that say rebuild so if there is nothing that makes it seem like its supposed
+     to be a rebuild then just delete it from the build list." The activity log showed where
+     they came from: from 2026-09-01 the office and the portal filled in returning customers'
+     blank colours and wire, and every blank-to-value counted as a change here — 81 houses on the
+     build list with nothing behind them. A record learning what a house already has is not the
+     house getting different lights.
+     ⚠ EXCEPT once this season's bundle is made (lightsMarkedBuiltAt): a set built while the
+     wire read "Check lights" really does have to be remade once the wire is known.
+     ⚠ outletTimer is not touched — a timer has its own routing (timer-only / removal). */
   return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
     if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    /* ⚠ A BLANK WIRE BECOMING A NON-WHITE ONE STILL COUNTS (S133): the bundle was made on the
+       default white wire, so Green is a real change. Blank → White is the record catching up. */
+    if (f !== 'outletTimer' && norm(f, o) === '' && !o.lightsMarkedBuiltAt &&
+        (f !== 'wireColor' || norm(f, n) === 'white')) return false;
     return norm(f, n) !== norm(f, o);
   });
 }
@@ -6008,24 +6022,31 @@ async function runInvoiceBatch(triggeredBy) {
              question asked when a customer queries their bill.
 
              ⛔ AND IT USED TO SAY `Timestamp.fromMillis(nowMs)`, WHICH BILLED NOBODY
-             (fixed 2026-09-28). There is no `nowMs` in this function and never was — the
-             only declarations of that name are a `const` inside portalSave's lights branch
-             and a parameter of runLateFeeBatch, neither of them in scope here. Reading an
-             undeclared identifier throws, the throw landed in the per-payer catch a few
-             hundred lines below, and the payer was counted as an error and skipped — BEFORE
-             `invRef.set`, so no invoice document was written at all, `invoiceEmailSent` was
-             never set, and the same failure repeated every night for ever.
-             ⚠ SO IT WAS EXACTLY THE NEW MEMBERS WHO WENT UNBILLED, and only them: this
-             branch is the only place it appeared, so a returning customer billed normally
-             while anybody with the Installation Fee box ticked did not. One fixture, one
-             field changed, proves it both ways — see nightly-invoice.test.js.
-             ⚠ AND EVERY CHECK ON THIS FUNCTION PASSED THROUGHOUT, because every one of
-             them read the source as TEXT and the source looks right. That is the same
-             lesson Suite 10 learned on syncPayerInvoice and the reason the new gate RUNS
-             this function against a fake Firestore rather than matching it.
+             (live 2026-09-18 to 2026-10-02). There is no `nowMs` in this function and
+             never was — the only declarations of that name in the file are a `const`
+             inside portalSave's lights branch and a parameter of runLateFeeBatch, neither
+             of them in scope here. Reading an undeclared identifier throws.
+             ⚠ WHAT THAT COST, and the order is the whole of it: the throw landed in the
+             per-payer catch a few hundred lines below, so the payer was counted as an
+             error and skipped — BEFORE `invRef.set`. So no invoice document was written at
+             all, nothing reached their member portal, no record existed anywhere of what
+             was owed, `invoiceEmailSent` was never set, and the same failure repeated
+             every night for a fortnight.
+             ⚠ SO IT WAS EXACTLY THE NEW MEMBERS, AND ONLY THEM. `chargeNewMemberFee ===
+             true` is the one thing that reaches this branch, so a returning customer
+             billed perfectly throughout and nothing looked wrong on any screen. One
+             fixture with that single field flipped proves it both ways — see
+             new-member-billed.test.js, and nightly-invoice.test.js, which runs the same
+             pair alongside the held-bill report.
+             ⚠ AND EVERY CHECK ON THIS FUNCTION PASSED THE WHOLE TIME, because they all
+             read the source as TEXT and the source looks right. A regex cannot see scope.
+             That is the lesson Suite 10 wrote down for syncPayerInvoice — "a regex cannot
+             catch an undefined variable" — arriving a second time in the same family of
+             code, and the reason the new gate RUNS this function against a fake Firestore
+             rather than matching it.
              ⚠ `Timestamp.now()`, the same call `invoicedAt` makes eleven lines below — a
              real Timestamp rather than a server sentinel, because the {{due_date}} maths
-             further down reads this invoice back within the same run. */
+             further down reads this invoice back inside the same run. */
           inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.now();
         }
         if (inv.install == null) inv.install = groupSum;
@@ -6343,7 +6364,56 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{venmo_link}}').join(venmoUrl);
         body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnStyleGold + '">Pay with Venmo</a>');
         body = body.split('{{message_link}}').join(messagesUrl);
+        /* ⚠ THE PLURAL SPELLINGS ARE WHAT THE TEMPLATE EDITOR OFFERS, and this send only
+           ever resolved the singular — a one-character trap that mails a bill with
+           `{{messages_link}}` printed in it. Aliased rather than renamed: templates
+           already written against either spelling must both keep working. */
+        body = body.split('{{messages_link}}').join(messagesUrl);
+        body = body.split('{{messages_button}}').join('<a href="' + messagesUrl + '" style="' + btnStyleGold + '">Send Us A Message</a>');
+        /* ⭐ {{houses_block}} / {{houses_list}} NAME THE HOUSES ON A SHARED BILL, and
+           until 2026-10-06 this send resolved NEITHER — so the one token an office would
+           reach for on a multi-house invoice was mailed to the customer as its own
+           characters. admin.html's `resolveLinkTokens` handles both and its own comment
+           says "Any template can use it", which is exactly the invitation that makes this
+           bite. The {{photo}} failure of 2026-08-17, in the email that asks for money.
+           ⛔ ALIASED TO THE PER-HOUSE BLOCK THIS RUN ALREADY BUILT, never a second
+           renderer. `feetLine` already names every address on the bill with its own
+           footage, summed into the one total printed below it — so the two can never
+           disagree about who is on the bill or what it comes to. A server copy of
+           `billedHousesEmailBlock` would be a parity pair to keep in step for ever, and
+           this repo has been bitten four times by two renderers of one claim.
+           ⚠ RESOLVES TO NOTHING for an ordinary one-house customer, matching the office
+           renderer: a heading reading "who you are paying for" above a single address is
+           a question nobody asked. */
+        const housesBlock = active.length > 1 ? feetLine : '';
+        body = body.split('{{houses_block}}').join(housesBlock);
+        body = body.split('{{houses_list}}').join(housesBlock);
+        /* The invoice total before payments — the same expression the payment-received
+           email uses, so the two agree. */
+        body = body.split('{{amount_total}}').join('$' + Math.max(0, total - credits).toFixed(2));
+        body = body.split('{{setup_fee_line}}').join(newMemberLine);
         body = body.replace(/\n/g, '<br>');
+        /* ⛔ AND NOTHING UNRESOLVED EVER REACHES A CUSTOMER'S BILL (2026-10-06).
+           The template editor offers ~52 codes; this send resolves the ones that mean
+           something on an invoice. Every other one — {{photo}}, {{rsvp_yes_button}},
+           {{gate_code}}, a plain typo — used to be mailed out as literal characters,
+           because a `split().join()` chain simply leaves alone what it does not know.
+           ⚠ STRIPPED **AND COUNTED**, which is the whole of it. `rsvp-text-wording`'s own
+           lesson from the literal {{photo}} this app once mailed: "the lesson was not that
+           the token was wrong — it was that nothing was counting what it could not
+           render." A bill with a code printed in it looks broken to the customer and is
+           invisible to us; a bill missing a line is a template the run NAMES in its log,
+           so the office can fix the template rather than the customer ringing up.
+           ⚠ The customer's own text is never touched — only `{{...}}` shapes. */
+        const leftover = [...new Set(body.match(/\{\{[a-zA-Z_]+\}\}/g) || [])];
+        if (leftover.length) {
+          body = body.replace(/\{\{[a-zA-Z_]+\}\}/g, '');
+          if (errors.length < 10) {
+            errors.push('Invoice template has codes this send cannot fill, so they were '
+              + 'left out of ' + (payer.data.name || payer.id) + "'s bill: "
+              + leftover.join(' ') + ' — fix the template (' + templateName + ').');
+          }
+        }
 
         const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',

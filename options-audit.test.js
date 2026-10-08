@@ -800,7 +800,9 @@ function check(label, ok, detail) {
     check('the printed build sheet carries the customer number',
       /k: 'number', label: 'Cust #'/.test(buildCols),
       'it is what identifies the bin once the bundle is made');
-    check('and the bundle count', /k: 'bundles'/.test(buildCols),
+    /* Since 2026-10-05 the count rides in the "What to do" sentence (whBuildTodo). */
+    check('and the bundle count', /k: 'todo'/.test(buildCols) &&
+      /function whBuildTodo\([\s\S]{0,2500}bundle/.test(admin),
       'the number somebody counts off a shelf');
     /* ⭐ AND THE BIN COUNT, ON EVERY SHEET (2026-08-25). This check used to assert the
        OPPOSITE — that bins was deliberately NOT a column here — and said in its own

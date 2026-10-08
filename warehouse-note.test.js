@@ -58,6 +58,8 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                    The sandbox died with a bare "whWireLabel is not defined" the moment main
                    landed: the extraction-list trap, arriving from somebody else's branch. */
                 'whWireLabel',
+                /* Lifted for the same reason: Added ft / Total bundles on both sheets (2026-10-05). */
+                'whBuildSizeCells', 'whBuildTodo',
                 'whWhoLabel', 'isOutForSeason'];
 const src = {};
 const missing = [];
@@ -209,7 +211,7 @@ const needSrc = 'function houseBundleNeed(d){ return {bundles: 1, estimated: fal
 const whRows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
   'WH_BUILD_COLUMNS', 'isOutForSeason',
   binsSrc + needSrc + src.whWireLabel + src.houseLightsText + src.whBinsForHouse + src.whWhoLabel +
-  src.whPutIntoLabel + src.whNoteText + src.whNotesCell +
+  src.whPutIntoLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo +
   (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] +
   src.whBuildReasonKey + src.whBuildReasonLabel + src.whBuildQueueGroups + src.whSheetRowsForBuild +
   'return whSheetRowsForBuild();');
@@ -222,7 +224,7 @@ check('the warehouse tab builds a row for that house', !!whRow,
 /* The printing tab's sheet. */
 const prRows = new Function('jobAddresses', 'isOutForSeason', 'whBinsForHouse', 'whPutIntoLabel',
   'houseBundleNeed', 'printLightColor', 'printYesNo', 'whBuildReasonKey', 'whBuildReasonLabel',
-  src.whWireLabel + src.whNoteText + src.whNotesCell + src.printNeedsBuildList +
+  src.whWireLabel + src.whNoteText + src.whNotesCell + src.whBuildSizeCells + src.whBuildTodo + src.printNeedsBuildList +
   'return printNeedsBuildList();');
 const prOut = prRows([{id: 'a1', data: CUST}], () => false,
   new Function('d', binsSrc + src.whBinsForHouse + 'return whBinsForHouse(d);'),
@@ -317,6 +319,74 @@ check('and it is deliberately NOT in the customer option registry',
   options.indexOf('warehouseNote') === -1 && options.indexOf('warehouseOneTimeNote') === -1,
   'this is an internal note between the office and the warehouse, not something a ' +
   'customer is asked');
+
+/* ⭐ ADDED FT AND TOTAL BUNDLES (2026-10-05). Dax: "it should print total bundles and added
+   feet". Run against the real helper, and both sheets must carry the same two cells. */
+const size = new Function(src.whBuildSizeCells + 'return whBuildSizeCells;')();
+const plain = size({feet: 205, bundles: 6, estimated: true, unknown: false, topUp: false});
+check('a whole house prints its feet as Added ft', plain.addedFeet === '205 est', JSON.stringify(plain));
+check('a whole house prints its bundle count as Total bundles', plain.totalBundles === '6 est', JSON.stringify(plain));
+check('a whole house prints its feet as Total ft too', plain.totalFeet === '205 est', JSON.stringify(plain));
+const addOn = size({feet: 80, bundles: 3, estimated: false, unknown: false, topUp: true, total: 280, totalBundles: 8});
+check('an add-on prints only the extra feet, marked +', addOn.addedFeet === '+80', JSON.stringify(addOn));
+check('an add-on prints the whole bin\'s bundles as Total bundles', addOn.totalBundles === '8', JSON.stringify(addOn));
+check('an add-on prints the whole bin\'s feet as Total ft', addOn.totalFeet === '280', JSON.stringify(addOn));
+const none = size({feet: 0, bundles: 1, estimated: false, unknown: true, topUp: false});
+check('no footage is a blank Added ft, never 0', none.addedFeet === '', JSON.stringify(none));
+check('and houseBundleNeed hands an add-on its whole-house count',
+  /topUp: true[\s\S]{0,200}totalBundles: Math\.ceil\(feet \/ FEET_PER_BUNDLE\)/.test(lift('houseBundleNeed')),
+  'whBuildSizeCells reads need.totalBundles on an add-on');
+if (whRow && prRow) {
+  check('both build sheets print the same Added ft', whRow.addedFeet === prRow.addedFeet,
+    JSON.stringify([whRow.addedFeet, prRow.addedFeet]));
+  check('both build sheets print the same Total ft', whRow.totalFeet === prRow.totalFeet,
+    JSON.stringify([whRow.totalFeet, prRow.totalFeet]));
+  check('both build sheets print the same Total bundles', whRow.totalBundles === prRow.totalBundles,
+    JSON.stringify([whRow.totalBundles, prRow.totalBundles]));
+}
+/* ⭐ ON PAPER IT IS ONE SENTENCE NOW (2026-10-05) — the feet and bundles above still ride on
+   every row; what the worker reads is whBuildTodo. */
+/* ⭐ FILLING IN A BLANK DOES NOT QUEUE A REBUILD (2026-10-05). Dax: "if there is nothing that
+   makes it seem like its supposed to be a rebuild then just delete it from the build list."
+   81 houses were on the list only because a blank colour or wire was filled in. Run against
+   the real rule, and the server's copy must carry the same line. */
+{
+  const fieldsSrc = (admin.match(/const WAREHOUSE_BUILD_FIELDS = \[[^\]]*\];/) || [''])[0];
+  const wrf = new Function(fieldsSrc + lift('warehouseRebuildFields') + 'return warehouseRebuildFields;')();
+  check('filling in blank colours is not a change',
+    wrf({}, {lightsDescription: 'Red, Warm White'}).length === 0);
+  check('filling in a blank wire is not a change',
+    wrf({wireColor: ''}, {wireColor: 'White'}).length === 0);
+  check('a real colour change still is',
+    wrf({lightsDescription: 'Red'}, {lightsDescription: 'Blue'}).join() === 'lightsDescription');
+  check('and once this season\'s set is built, a newly known wire still rebuilds it',
+    wrf({lightsMarkedBuiltAt: 1}, {wireColor: 'Green'}).join() === 'wireColor');
+  check('a timer switched on still counts (it has its own routing)',
+    wrf({}, {outletTimer: 'Yes'}).join() === 'outletTimer');
+  const server = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+  check('the server applies the same rule',
+    server.indexOf("(f !== 'wireColor' || norm(f, n) === 'white')) return false;") !== -1);
+  check('but a blank wire becoming Green still rebuilds (made on the default white)',
+    wrf({}, {wireColor: 'Green'}).join() === 'wireColor');
+}
+/* ⭐ WHAT THE WORKER READS (2026-10-05). Run against the real sentence builder. */
+const todo = new Function('whBuildReasonKey', 'whPutIntoLabel', src.whBuildTodo + 'return whBuildTodo;');
+const T = (key, bin) => todo(() => key, () => bin || '');
+check('a new hang says NEW HANG with its feet and bundles',
+  T('new')({}, {feet: 232, bundles: 6, estimated: false, unknown: false, topUp: false}) ===
+    'NEW HANG — build the whole house: 232 ft, 6 bundles.');
+check('an extension says we already have the house, and only the extra',
+  T('rebuild', 'Ashley Wray #909')({}, {feet: 80, bundles: 2, estimated: false, unknown: false, topUp: true}) ===
+    'EXTENSION — we already have their house. Build only the extra 80 ft (2 bundles) and put it in their bin: Ashley Wray #909.');
+check('a timer is told in words, on the end',
+  /Add a timer\.$/.test(T('')({outletTimer: 'Yes'}, {feet: 100, bundles: 3, estimated: true, unknown: false, topUp: false})));
+check('a bundle count the office typed is printed as the job, without the house footage',
+  T('')({}, {feet: 100, bundles: 1, typedBundles: 1, estimated: true, unknown: false, topUp: false}) ===
+    'BUILD 1 bundle (set by the office — see notes).');
+check('a returning customer\'s whole new set is a REBUILD, not a new hang',
+  /^REBUILD/.test(T('portal')({}, {feet: 100, bundles: 3, estimated: false, unknown: false, topUp: false})));
+check('the warehouse sheet prints a What to do column, not the number columns',
+  /label:'What to do'/.test(whCols) && !/label:'Added ft'/.test(whCols));
 
 console.log('\n=======================================================');
 console.log('Warehouse note — ' + pass + ' passed, ' + fail + ' failed');

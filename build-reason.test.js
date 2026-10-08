@@ -85,6 +85,20 @@ const sb = new Function(reasonsSrc + fn('esc') + fn('whBuildReasonKey') +
   'return {WH_BUILD_REASONS, key: whBuildReasonKey, chip: whBuildReasonChip, label: whBuildReasonLabel};')();
 const { WH_BUILD_REASONS } = sb;
 
+/* ⭐ A NEW HANG THE FEE BOX DOES NOT KNOW ABOUT (2026-10-05). Dax: "if they are a new hang
+   it should say somewhere that they are a new hang." A quote converted into a customer is a
+   new hang by the Schedule's rule (window.customerIsNewHangData) without the fee box ticked. */
+{
+  const prev = global.window;
+  global.window = { customerIsNewHangData: () => true };
+  try {
+    check('a new hang by the Schedule\'s rule badges NEW HANG without the fee box',
+      sb.key({ lightsChangedAt: 1 }) === 'new');
+    check('a re-quoted member is still not a new hang',
+      sb.key({ requoteAppliedAt: 1, requoteKind: 'address' }) === 'rebuild');
+  } finally { if (prev === undefined) delete global.window; else global.window = prev; }
+}
+
 // ---------------------------------------------------------------------------
 // THE TABLE. One row per thing that can bring a house to the warehouse.
 // ---------------------------------------------------------------------------
@@ -130,8 +144,9 @@ CASES.forEach(([name, rec, want]) => {
 // ---------------------------------------------------------------------------
 /* ⭐ HER FOUR WORDS, SPELLED THE WAY SHE ASKED FOR THEM. A badge is read at a glance off
    a shelf; "Rebuild" and "Old-Rebuild" are not the same word to somebody scanning for
-   one of four. Renaming one is her call, not a tidy-up. */
-[['new', 'NEW'], ['rebuild', 'OLD-REBUILD'], ['portal', 'MEMBER PORTAL'],
+   one of four. Renaming one is her call, not a tidy-up.
+   ⭐ NEW became NEW HANG on 2026-10-05, asked for: "it should say somewhere that they are a new hang". */
+[['new', 'NEW HANG'], ['rebuild', 'OLD-REBUILD'], ['portal', 'MEMBER PORTAL'],
  ['request', 'REQUEST']].forEach(([key, label]) => {
   check('the ' + key + ' badge still reads "' + label + '"',
     WH_BUILD_REASONS[key] && WH_BUILD_REASONS[key].label === label,
@@ -213,17 +228,20 @@ check('and the warehouse row actually calls whHouseFactsHtml',
    because there is no customer behind it to make a claim about. */
 const whCols = admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = ['),
                            admin.indexOf('const WH_RECYCLE_COLUMNS = ['));
-check('the warehouse tab’s build sheet has a Why column',
-  /key:'reason'/.test(whCols) && /label:'Why'/.test(whCols),
+/* ⭐ THE BADGE NOW RIDES IN THE SENTENCE (2026-10-05). Dax picked one plain "What to do"
+   instruction per row over a column per fact, so the paper says NEW HANG / EXTENSION /
+   REBUILD / ADD A TIMER in words (whBuildTodo) instead of a Why column. The row objects
+   still carry `reason`, which the checks below keep asserting. */
+check('the warehouse tab’s build sheet has a What to do column',
+  /key:'todo'/.test(whCols) && /label:'What to do'/.test(whCols),
   'this is the sheet the warehouse prints and builds off');
-check('and it sits beside Type, not after Notes',
-  whCols.indexOf("key:'reason'") > whCols.indexOf("key:'type'") &&
-  whCols.indexOf("key:'reason'") < whCols.indexOf("key:'notes'"),
+check('and it sits before Notes',
+  whCols.indexOf("key:'todo'") !== -1 && whCols.indexOf("key:'todo'") < whCols.indexOf("key:'notes'"),
   'Notes is the wide free-text column and anything after it is lost against writing');
 const printCols = admin.slice(admin.indexOf("  build:     [{k: 'number'"),
                               admin.indexOf("  warehouse: [{k: 'number'"));
 check('and the Printing tab’s build sheet has one too',
-  /k: 'reason'/.test(printCols) && /label: 'Why'/.test(printCols),
+  /k: 'todo'/.test(printCols) && /label: 'What to do'/.test(printCols),
   'there are two build sheets and the other one is the one with thinner cover');
 /* ⚠ A CENSUS, AND THE NUMBER MOVING IS THE POINT. 3 → 5 on 2026-09-11 when [[WH-34]] put
    the two timer jobs on paper, then 5 → 4 on 2026-09-18 when [[WH-41]] retired the blocked
@@ -250,7 +268,7 @@ const sheet = fn('whSheetRowsForBuild');
 check('a house row keeps its badge',
   /type: need\.topUp \? 'ADD-ON' : 'House',[\s\S]{0,420}reason: whBuildReasonLabel/.test(sheet),
   'the rows most likely to need chasing are the ones that lost it');
-check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,400}reason: ''/.test(sheet),
+check('and buffer stock claims none', /type: isTimer \? 'Timer' : 'Extra',[\s\S]{0,1600}reason: ''/.test(sheet),
   'a badge on a row nobody asked for is a claim about somebody who does not exist');
 
 // ---------------------------------------------------------------------------
@@ -319,7 +337,7 @@ check('a re-quote with no stated kind writes nothing',
    Do not "tidy" this by merging the two sheets — that reverses her own decision. */
 const printFilter = fn('printNeedsBuildList');
 check('the printed build list asks the same one flag the tab does',
-  /return d\.needsLightBuild;/.test(printFilter),
+  /return d\.needsLightBuild && d\.needsColorChange !== true;/.test(printFilter),
   'stamps never clear, so a stamped house never leaves the printed sheet');
 /* ⚠ COMMENTS STRIPPED. The reason those two fields are NOT used is written down right
    there in the code, so a plain search finds the explanation and calls it a violation —
@@ -381,7 +399,7 @@ const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'hou
      this gate still green — which is the whole reason it is one function. The sandbox
      died with a bare "whNotesCell is not defined" the moment it was added, which is the
      extraction-list trap working as intended. */
-  reasonsSrc + fn('whNoteText') + fn('whNotesCell') +
+  reasonsSrc + fn('whNoteText') + fn('whNotesCell') + fn('whBuildSizeCells') + fn('whBuildTodo') +
   fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
   /* ⚠ LIFTED, NEVER STUBBED, for the reason above one more time ([[WH-41]]). This decides
      the heading a house with no colours on file is built under; a stub here would let that
@@ -414,9 +432,31 @@ if (Array.isArray(pages)) {
     'a house on two pages gets built twice; got ' + JSON.stringify(pages.map(p => p.rows.length)));
   /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
      thing nobody can tell from a single page is whether they hold all of them. */
-  check('and every page says which of how many it is',
-    pages.every((p, i) => p.summary.indexOf('sheet ' + (i + 1) + ' of 2') !== -1),
-    'got ' + JSON.stringify(pages.map(p => p.summary)));
+  /* ⭐ SMALL GROUPS SHARE A PAGE (2026-10-05). Dax: "some colors only have like one house on
+     it for those we want to mush multiple colors onto one page." Run against the real packer. */
+  const pack = new Function(
+    (admin.match(/const WH_SHEET_ROW_BUDGET = \d+;/) || [''])[0] +
+    (admin.match(/const WH_SHEET_GROUP_COST = \d+;/) || [''])[0] +
+    fn('whPackBuildSheets') + 'return whPackBuildSheets;')();
+  const packed = pack(pages);
+  check('two small colour groups share one sheet of paper',
+    packed.length === 1 && packed[0].parts.length === 2,
+    'got ' + JSON.stringify(packed.map(s => s.parts.map(p => p.title))));
+  check('and each keeps its own heading, in tab order',
+    packed.length === 1 && packed[0].parts.length === 2 && packed[0].parts[0].title === pages[0].title && packed[0].parts[1].title === pages[1].title);
+  const grp = (t, n) => ({title: t, summary: '', rows: Array.from({length: n}, () => ({}))});
+  const big = pack([grp('A', 1), grp('B', 2), grp('Big', 30), grp('C', 1), grp('D', 1)]);
+  check('a big group still gets a page of its own, and order is kept',
+    JSON.stringify(big.map(s => s.parts.map(p => p.title))) === '[["A","B"],["Big"],["C","D"]]',
+    'got ' + JSON.stringify(big.map(s => s.parts.map(p => p.title))));
+  check('nobody is lost or doubled by packing',
+    big.reduce((n, s) => n + s.parts.reduce((m, p) => m + p.rows.length, 0), 0) === 35);
+  /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+     thing nobody can tell from a single page is whether they hold all of them. Counted in
+     paper, after packing. */
+  check('and every sheet of paper says which of how many it is',
+    big.every((s, i) => s.sheetLabel === 'sheet ' + (i + 1) + ' of 3'),
+    'got ' + JSON.stringify(big.map(s => s.sheetLabel)));
   /* ⚠ AND EACH PAGE COUNTS ITSELF, not the morning. A page handed to somebody building
      one pile needs THEIR numbers. */
   check('and each page counts only its own houses',
@@ -433,7 +473,7 @@ if (Array.isArray(pages)) {
      ⚠ THE WORDS ON THE HEADING ARE PROVED IN warehouse-colours.test.js against the REAL
      whWireLabel. This sandbox stubs it, so what is asserted here is the SPLIT. */
   const withUnknown = P([H('h1','Ashley','Warm White','white'),
-                         {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}]);
+                         {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true, chargeNewMemberFee: true}}]);
   check('a house with no colours on file gets a page of its own',
     withUnknown.length === 2 &&
     withUnknown.every(pg => pg.rows.length === 1) &&
@@ -448,11 +488,24 @@ if (Array.isArray(pages)) {
     'got ' + JSON.stringify(withUnknown.map(p => p.rows.length)));
   check('and nothing to build prints no pages at all', P([]).length === 0,
     'an empty stack is what the Nothing needs building note is for');
+  /* ⭐ A COLOUR CHANGE IS BUILT FROM THE COLOR CHANGE LIST, NOT HERE TOO (2026-10-05). Dax: "if theyre
+     on color change they dont need to be on build." Same house, with and without the flag. */
+  const cc = Object.assign(H('h5','Angie','Warm White','white'), {});
+  cc.data.needsColorChange = true;
+  const withCc = P([H('h1','Ashley','Warm White','white'), cc]);
+  check('a house on the Color Change list is not also on the build sheet',
+    withCc.reduce((n, p) => n + p.rows.length, 0) === 1 && /Ashley/.test(withCc[0].rows[0].what),
+    'got ' + JSON.stringify(withCc.map(p => p.rows.map(r => r.what))));
+  /* And finishing the colour change finishes the build, or the house falls straight back onto it. */
+  const ccDoneSrc = (function(){ const i = admin.indexOf("btn.dataset.whccdone"); return i < 0 ? '' : admin.slice(i, admin.indexOf('renderWarehouseColorChangeQueue();', i)); })();
+  check('Mark Done on the Color Change list also marks the build done',
+    /builtToo \? whBuiltUpdates\(\) : \{\}/.test(ccDoneSrc) && /needsColorChange: false/.test(ccDoneSrc),
+    'without it a finished colour change reappears on the build list and gets a second set');
 }
 /* ⚠ AND BOTH THE BUILD BUTTON AND THE RECYCLE ONE GO THROUGH THE SECTIONS API, or one
    of them throws the moment somebody presses it. */
-check('the build button prints the pages',
-  /whBuildSheetPages\(\)/.test(fn('whPrintBuildSheet')),
+check('the build button prints the pages, packed',
+  /whPackBuildSheets\(whBuildSheetPages\(\)\)/.test(fn('whPrintBuildSheet')),
   'the pager exists and nothing calls it is the most expensive kind of green');
 check('and the recycle sheet passes an array of one',
   /whOpenPrintWindow\([\s\S]{0,80}\[\{/.test(fn('whPrintRecycleSheet')),

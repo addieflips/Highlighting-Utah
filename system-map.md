@@ -597,6 +597,7 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 **Measured Feet** (`measuredFeet` on `jobAddresses`) is the single highest-leverage field in the app. One number drives:
 - **Bin count**: a house needs another bin for every **320 ft** (⭐ **320 since 2026-09-10** — Addie: *"lets change feet to 320 feet in order to have two bins"*; it was 260 before that). Up to 320 → 1 bin; 321–640 → 2; 641–960 → 3; and so on. More than one bin means a **5000-series** customer number instead of a regular one — there are only two series, so a 3-bin and a 4-bin house both get a 5000 number, while the bin count saved on the customer is the real 3 or 4 so the warehouse builds the right amount. *(Note: older docs call this "the 200 ft rule" and it was 260 until 2026-09-10 — the cutoff in code is `cnBinsForFeet` / `CN_DOUBLE_BIN_FEET` in js/money.js, and nothing anywhere should type the number out for itself.)* ⛔ **Raising it does NOT re-count the houses already on the books, and must not.** `numberOfBins` is **stored**, worked out at the moment a footage is saved. A house between **261 and 320 ft** is stored as 2 bins on a 5000-series number and would now work out as 1 bin on a regular one — it keeps what it has until somebody re-saves its footage on purpose. Their bins are labelled and their numbers painted on, so changing them silently would send the warehouse to shelves that do not match the screen.
 - **Warehouse bundle count**: `ceil(feet / 40)`.
+  - ⭐ **Both printed build sheets carry Added ft and Total bundles (2026-10-05).** Dax: *"in the warehouse on builds it says what to build but not how many feet"*, then *"it should print total bundles and added feet"*. Added ft is the footage being built today (the whole house, or `+extra` on an add-on); **Total ft** (added the same day: *"it needs to give the details like total feet and added feet"*) and Total bundles are the whole house once done; Bundles stays as what to make now. One helper, `whBuildSizeCells`, fills both sheets. And the Warehouse tab's Print Build Sheet no longer spends a page on a one-house colour: `whPackBuildSheets` puts small colour groups together on one page (each keeps its own heading and table, in tab order), a big group still gets its own, and "sheet X of Y" counts paper. Dax: *"some colors only have like one house on it for those we want to mush multiple colors onto one page"*. ⭐ **Later the same day the paper went to one plain sentence per row** (`whBuildTodo`) — Dax: *"it should just be set up the easiest way for the workers"*. Both build sheets print Customer · Address · **What to do** · Bins · Notes (the Printing tab keeps Light/Wire colour, since it is not split by colour): *NEW HANG — build the whole house: 232 ft, 6 bundles*, *EXTENSION — we already have their house. Build only the extra 80 ft (2 bundles) and put it in their bin: …*, *REBUILD — existing customer, new set: …*, *ADD A TIMER — nothing to build*, and "Add a timer." on the end of any row that wants one. The row objects still carry every number (Added ft, Total ft, Total bundles) for the page totals and the screen. ⭐ **Filling in a blank is not a rebuild** (`warehouseRebuildFields`, admin and server, same evening): a blank light colour, or a blank wire becoming White, no longer queues a build — from 2026-09-01 the office and portal filling in returning customers' records had put 81 houses on the build list with nothing behind them. Dax: *"if there is nothing that makes it seem like its supposed to be a rebuild then just delete it from the build list."* Blank → a non-white wire still counts (the bundle was made on the default white), and so does anything once this season's set is built (`lightsMarkedBuiltAt`). The "check lights only" filter added earlier that day was removed: it also hid a real move (Laura Hightower). ⭐ **And three print polishes, the same evening:** an extra the office added FOR a customer (a warehouse request with a customer on it) prints **EXTRA FOR THIS CUSTOMER — build N bundles and put them in their bin** instead of "Spare stock"; a bundle count the office TYPED prints as **BUILD N bundle(s) (set by the office — see notes)** without the house's footage beside it; and a shared page holds 24 rows (re-measured for the one-sentence sheet: 26 fit, 28 spilled). ⭐ **A colour change is not also a build.** Every colour-change door sets `needsColorChange` AND `needsLightBuild`, so 10 of 11 colour changes sat on both lists. Dax: *"if theyre on color change they dont need to be on build."* The build list and both build sheets skip `needsColorChange` houses, and **Mark Done on the Color Change list applies `whBuiltUpdates`** when the build flag is set — otherwise a finished colour change falls straight back onto the build list. This reverses the 2026-08-21 "bundles only" trim. The same change makes the warehouse badge read **NEW HANG** and follow the Schedule's new-hang rule (`customerIsNewHangData`), so a converted quote without the fee box ticked is badged too — *"if they are a new hang it should say somewhere that they are a new hang"*.
 - **Auto-priced estimate**: `price ≈ feet × perFootRate`, padded ~5% upward, never down.
 
 Changing feet on an existing numbered customer warns before renumbering, rather than silently changing their bin/number out from under them.
@@ -1484,8 +1485,88 @@ moved twice ($30 → $25 → $30), so this is not a one-off. That is written dow
 line rather than fixed, because the fix is storing the amount on the invoice when it is
 charged, and until that exists every change to this number leaves a tail behind it.
 
+⭐ **WHAT THE INVOICE EMAIL ACTUALLY SAYS — THE FOUR CASES** (verified by running them,
+2026-10-06, [[MON-82]]). Addie: *"for invoices we need to make sure they will send right for
+regular invoice, unpaid, paid, multiple houses."* All four are right, and each is now a check
+that RUNS the real send and reads the bytes rather than matching source:
+
+| case | what the customer gets |
+|---|---|
+| **regular / unpaid** | "Here is your Christmas lights invoice", the footage the price came from, **Amount due**, a due date, Pay Your Invoice + Pay with Venmo |
+| **part paid** | the **remainder**, not the total — $400 billed less $150 paid reads "Amount due: $250.00" |
+| **paid in full** | a receipt: "paid in full", **Amount paid**, View Your Portal — and **no** Pay button, no Venmo, no "Amount due". It also fetches the *Paid Receipt* template, not the Unpaid one |
+| **multiple houses** | **one** email to the payer only, every address named with its own footage, and the total is those houses added up ($400 + $350 + $250 → "Amount due: $1000.00") |
+
+⛔ **AND NOTHING IN THIS REPO HAD EVER READ AN INVOICE EMAIL IT PRODUCED.** Every check on the
+nightly run proved the invoice **document** — the install total, the fee, the flags. The body
+went to a fake that answered ok and threw it away, so the wording, the amounts inside the
+sentence, which template was chosen, and whether a receipt still said "Pay Your Invoice" were
+all unexamined. Same shape as the crash of 18 September: the document was right and the thing
+the customer received did not exist.
+
+⛔ **THE HOLE THAT RUNNING IT FOUND: 37 CODES WERE MAILED AS LITERAL CHARACTERS.** Insert Code
+offers ~52 tokens; the nightly send resolved 15 and **left the rest alone**, because a
+`split().join()` chain passes over what it does not know. So an office that put
+`{{houses_block}}` in the invoice template — which `resolveLinkTokens`' own comment invites
+("Any template can use it") — mailed every shared-bill customer those characters. That is the
+literal `{{photo}}` of 2026-08-17, in the email that asks for money, and the **built-in body
+hid it completely** because it only ever uses resolved tokens.
+- ⭐ The ones that mean something on a bill now **resolve**: `{{houses_block}}`/`{{houses_list}}`
+  (aliased to the per-house block the run already builds — never a second renderer),
+  `{{amount_total}}`, `{{setup_fee_line}}`, and the **plural** `{{messages_link}}` /
+  `{{messages_button}}`, which the editor offers and the send had only ever matched singular: a
+  one-character trap that printed a code on a bill.
+- ⭐ Everything else is **stripped and counted**. The bill still goes out (refusing over a bad
+  template would bill nobody — [[QT-42]]'s rule in the one place it costs money), and the run
+  log names the codes and the template to fix. A missing line is something the office can
+  repair; a printed code is the customer ringing up.
+- ⚠ `{{houses_block}}` resolves to **nothing** for a one-house customer, matching the office
+  renderer: a heading reading "who you are paying for this year" over a single address is a
+  question nobody asked.
+
 **The two, in detail:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
+
+  ⛔ **AND FOR A FORTNIGHT IT BILLED NOBODY AT ALL — the new members, and only them**
+  (live 2026-09-18 to 2026-10-02, fixed 2026-10-02). ⚠ **READ THIS BEFORE CHANGING ANYTHING
+  IN `runInvoiceBatch`.** The branch that folds the fee in ended with
+  `inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.fromMillis(nowMs)`, and **there is
+  no `nowMs` in that function.** The only two declarations of that name in
+  `functions/index.js` are a `const` inside `portalSave`'s lights branch and a parameter of
+  `runLateFeeBatch` — neither of them in scope. Reading an identifier that was never
+  declared throws.
+
+  ⛔ **THE ORDER IS WHAT MADE IT EXPENSIVE, not the throw.** It landed in the per-payer
+  `catch`, so the payer was counted as an error and skipped — **before `invRef.set`**. So
+  there was no invoice document at all: nothing in that customer's member portal, no record
+  anywhere of what they owed, no email, and `invoiceEmailSent` never set, so the identical
+  failure repeated every night. **A re-send cannot fix this; a RUN has to build the bills.**
+  That is why the fix is followed by somebody pressing **Send Invoices Now**.
+
+  ⚠ **AND IT WAS INVISIBLE FROM EVERY SCREEN.** `chargeNewMemberFee === true` is the one
+  thing that reaches that branch, so every returning customer billed perfectly throughout
+  and nothing looked wrong anywhere. The only trace was a row in *Last 10 nightly runs*
+  counting an error — which reads exactly like a customer with no email on file.
+
+  ⚠ **EVERY CHECK ON THAT FUNCTION PASSED THE WHOLE TIME.** `run-all.js` reads
+  `runInvoiceBatch` with `sectionFrom` and regexes in nine places and the source *looks*
+  right, because it is right apart from one name that does not exist. **A regex cannot see
+  scope.** That is the lesson Suite 10 already wrote down for `syncPayerInvoice` — *"a regex
+  cannot catch an undefined variable and a text-only check is exactly what let the `forTotal`
+  crash ship for a day"* — arriving a second time in the same family of code.
+
+  ⭐ **SO THERE IS A GATE THAT RUNS IT NOW.** `new-member-billed.test.js`
+  (`npm run test:newmember`, its own named CI step) executes the shipped `runInvoiceBatch`
+  against a fake Firestore. **The pair of checks is the whole file:** one fixture, with
+  `chargeNewMemberFee` flipped. Either row alone proves nothing — a suite that only ever
+  billed a returning customer is what passed through the fortnight. It lifts
+  `houseIsOnTheBillServer`, `computeInvoiceStatusServer`, `invoiceKeyFor` and the invoice
+  calendar rather than stubbing any of them, and fakes only the genuinely external edges
+  (EmailJS, the template lookup, the token mint, Firestore). 6 of 6 sabotages red-checked.
+
+  ⚠ **AND CHECKLIST ROW 114 HAD ONLY EVER TESTED A RETURNING CUSTOMER**, which is how the
+  one manual test of the nightly run could pass through this too. It is v3 now and says to
+  tick the Installation Fee box, with a no-fee customer beside it as the control.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.
 
 ⭐ **THE × TAKES A LINE OFF THE BILL THE CUSTOMER IS ACTUALLY ON** (fixed 2026-09-07, MON-64).
@@ -2991,6 +3072,8 @@ purpose, and the priority and colour-change cases.
 **Which photo is which house** ([[SCH-109]]): every new hang with a photo gets a letter (A, B, C…) and a colour for the day. The # cell of their row is filled in that colour with the letter, and each of their photos is framed in the same colour with the same letter in the caption. The letter works on a black-and-white printer; `print-color-adjust:exact` keeps the colour on a colour one. Keyed per day across both crews (`printNewHangKeys`), so letters never repeat on the whole-day sheet or Print Whole Plan.
 
 **Where you can see it** ([[SCH-108]]): a blue **New hang** pill beside the name on All Customers, and **NEW HANG** on their Schedule stop. Both ask the Schedule's one rule (`isNewMemberHouse`, handed to the main app as `window.customerIsNewHang`), so they always agree; the pill appears once the Schedule has loaded.
+
+**Texting a day's customers** (2026-10-05): each Schedule day has **📱 Numbers: whole day** and one **📱 Numbers: <crew>** per crew with houses, beside Print This Day / Print Crew. Dax: *"i need a way to bulk text everyone on a given day, have it formatted for full day, crew 1 or crew 2, and then i can go to google voice and bulk text it to them."* `dayPhoneList` takes the numbers off the customer record (`printCustData`), formats them (801) 555-1234, lists a shared phone once, leaves out anybody who texted STOP (`smsOptedOut`) and names them, and names anybody with no usable number. `showDayPhones` copies the list and shows it under the day's buttons with a warning: Google Voice has no send-separately, so numbers pasted into one To box become ONE group text (everyone sees everyone, about eight at most). The same box writes the MESSAGE too (`dayTextMessage`): pick **Sending tonight** and it says *tomorrow*, **Sending this morning** and it says *today*, always with the date beside the word; it pre-picks morning when the day is today (`dayTextDefaultWhen`). Dax: *"have it so you select if your sending it at night or morning so it says like tomorrow or today."* No name (one message for everybody) and no arrival time (the plan has none). Takedown and fixer days get their own verb. `day-phones.test.js` runs both rules.
 
 **What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
 

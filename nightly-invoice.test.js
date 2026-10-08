@@ -163,21 +163,38 @@ function runBatch(jobAddresses, opts) {
   /* ⚠ ONLY THE EDGES ARE FAKED. The template lookup answers empty on purpose — the run's
      own built-in fallback body is then used, which is the branch a missing template takes
      in production and one fewer thing for this harness to invent. */
+  /* ⚠ AND THE TEMPLATE LOOKUP CAN BE GIVEN A REAL BODY (added 2026-10-06). Stubbing it
+     empty for ever meant this harness only ever exercised the BUILT-IN wording — and the
+     office edits templates, which is the whole point of templates. Every token hole found
+     on 2026-10-06 lived in that unexercised half. */
   const sandbox = lifted + `
-async function findTemplateSnapByName(n){ return { empty: true, docs: [] }; }
-function templateSubjectOr(t, f){ return f; }
+${o.template
+  ? 'async function findTemplateSnapByName(n){ __asked.push(n); return { empty:false, docs:[{ data: () => (' + JSON.stringify({ body: o.template, subject: 'Your invoice' }) + ') }] }; }'
+  : 'async function findTemplateSnapByName(n){ __asked.push(n); return { empty: true, docs: [] }; }'}
+function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
 const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
 return runInvoiceBatch('test');
 `;
-  const fn = new Function('db', 'admin', 'fetch', 'console', sandbox);
+  const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', sandbox);
+  const asked = [];
   const quietConsole = { log: () => {}, error: () => {}, warn: () => {} };
+  /* ⛔ THE EMAIL BODY IS KEPT, not thrown away. Every check below about what the CUSTOMER
+     receives is a claim about these bytes; the old fake answered ok and dropped them, so
+     nothing in this repo had ever read an invoice email it had actually produced. */
+  const sent = [];
   return fn(db, adminStub,
-    async () => ({ ok: !o.mailFails, text: async () => 'refused' }),
-    quietConsole
-  ).then(res => ({ res: res, db: db }));
+    async (url, init) => {
+      try { sent.push(JSON.parse(init.body).template_params); } catch (e) { sent.push({}); }
+      return { ok: !o.mailFails, text: async () => 'refused' };
+    },
+    quietConsole, asked
+  ).then(res => ({ res: res, db: db, sent: sent, asked: asked }));
 }
+/* The email as a person reads it, so a check can look for a sentence rather than markup. */
+const asText = h => String(h || '').replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
 const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w.v.topic);
 
 (async function main() {
@@ -566,6 +583,218 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
       /id: 'billHeld'/.test(clean) && /custBillHeld\(c\.data\)/.test(clean),
       'HC-03 is Addie\'s own note that she did not read that panel while the badge could ' +
       'never reach nought; it counts only open findings now, so a row there is seen');
+  }
+
+  /* =====================================================================
+     WHAT THE CUSTOMER ACTUALLY RECEIVES — Addie's four cases (2026-10-06).
+     Addie: "for invoices we need to make sure they will send right for regular
+     invoice, unpaid, paid, multiple houses."
+
+     ⛔ NOTHING IN THIS REPO HAD EVER READ AN INVOICE EMAIL IT PRODUCED. Every existing
+     check here proves the invoice DOCUMENT — the install total, the fee, the flags. The
+     BODY went to a fake that answered ok and dropped it, so the wording, the amounts in
+     the sentence, which template was chosen and whether a receipt still said "Pay Your
+     Invoice" were all unexamined. That is the same shape as the crash these four sit
+     beside: the document was right and the thing the customer got did not exist.
+     ⚠ SO THESE RUN THE REAL SEND AND READ THE BYTES. Not one matches source.
+     ===================================================================== */
+  {
+    const priced = (extra) => Object.assign({
+      housePrice: 400, measuredFeet: 100, completed: true, completedAt: daysAgo(1)
+    }, extra || {});
+
+    /* ---- 1 & 2. A REGULAR, UNPAID BILL ---------------------------------- */
+    {
+      const { res, sent } = await runBatch({ a1: priced({
+        name: 'Jane Smith', phone: '8015550111', email: 'jane@x.com',
+        address: '1 Elm St', customerNumber: '101' }) });
+      const body = asText(sent[0] && sent[0].body);
+      check('a regular unpaid bill goes out, and says what is owed',
+        res.sentCount === 1 && /Amount due: \$400\.00/.test(body),
+        'sent=' + res.sentCount + ' body=' + JSON.stringify(body.slice(0, 200)));
+      check('and it names the footage the price was worked out from',
+        /100 ft/.test(body) && /\$400\.00/.test(body),
+        'a bill whose total cannot be checked against anything is the one a customer ' +
+        'rings up about; feetLine is what makes it add up on the page');
+      check('and it offers a way to pay',
+        /Pay Your Invoice/.test(body) && /Pay with Venmo/.test(body),
+        'body=' + JSON.stringify(body));
+      check('and it carries a due date',
+        /Please pay by \w+ \d+, \d{4}/.test(body),
+        'the date the CUSTOMER is told, from the invoice own timestamp — the one ' +
+        '`invoiceIssuedAt` exists to keep the paper and the screen agreeing about');
+    }
+
+    /* ---- 3. PAID IN FULL ------------------------------------------------
+       ⚠ THE CHECK THAT EARNS ITS PLACE IS THE ABSENCE. A receipt that still says "Pay
+       Your Invoice" asks a settled customer for money again, which is the complaint
+       nobody forgets — and it is one wrong token in a template away at all times. */
+    {
+      const { res, sent, asked } = await runBatch({ a1: priced({
+        name: 'Paid Pete', phone: '8015550222', email: 'pete@x.com',
+        address: '2 Oak Ave', customerNumber: '102' }) },
+        { invoices: { '8015550222': { install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 400 } } });
+      const body = asText(sent[0] && sent[0].body);
+      check('a paid-up customer gets a receipt, not a bill',
+        res.sentCount === 1 && /paid in full/i.test(body) && /Amount paid: \$400\.00/.test(body),
+        'sent=' + res.sentCount + ' body=' + JSON.stringify(body.slice(0, 200)));
+      check('and the receipt never asks them to pay again',
+        !/Pay Your Invoice/.test(body) && !/Pay with Venmo/.test(body) && !/Amount due/.test(body),
+        'body=' + JSON.stringify(body) + '. Asking a settled customer for money is the ' +
+        'one invoice mistake they will certainly notice and certainly ring about.');
+      /* ⚠ AND IT ASKS FOR THE RIGHT TEMPLATE BY NAME, which nothing could see while the
+         lookup was stubbed: the body is chosen by its own `status` test, so a paid
+         customer kept getting correct BUILT-IN wording while the run fetched the office's
+         UNPAID template — which says "Amount due" and carries pay buttons. In production
+         that is a settled customer asked to pay again; in the harness it was invisible.
+         Caught by the red-check of 2026-10-06 as a miss. */
+      check('and it fetches the PAID template, not the unpaid one',
+        (asked || []).some(n => /Paid Receipt/.test(String(n))) &&
+        !(asked || []).some(n => /Unpaid/.test(String(n))),
+        'asked for: ' + JSON.stringify(asked));
+      check('and the subject line says so too',
+        /paid in full/i.test(String(sent[0] && sent[0].subject)),
+        'subject=' + JSON.stringify(sent[0] && sent[0].subject) +
+        '. A receipt whose subject reads like a bill is opened as a bill.');
+    }
+
+    /* ---- 4. PART PAID --------------------------------------------------- */
+    {
+      const { res, sent } = await runBatch({ a1: priced({
+        name: 'Half Hannah', phone: '8015550333', email: 'h@x.com',
+        address: '3 Pine Rd', customerNumber: '103' }) },
+        { invoices: { '8015550333': { install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 150 } } });
+      const body = asText(sent[0] && sent[0].body);
+      check('a part-paid customer is asked for the REMAINDER, not the total',
+        res.sentCount === 1 && /Amount due: \$250\.00/.test(body) && !/Amount due: \$400\.00/.test(body),
+        'body=' + JSON.stringify(body.slice(0, 200)) + '. 400 billed, 150 paid, 250 due. ' +
+        'Billing the total again is double-charging somebody who already paid.');
+    }
+
+    /* ---- 5. MULTIPLE HOUSES ON ONE BILL --------------------------------
+       The two halves of a group, deliberately: `kid` joins by billToPhone, `cabin` joins
+       because its own invoice key matches with no field set anywhere. A fixture of
+       billToPhone houses alone passes whether the second half is read or not. */
+    const groupBook = {
+      payer: priced({ name: 'Dana Payer', phone: '8015550444', email: 'dana@x.com',
+        address: '10 Main St', customerNumber: '14', completedAt: daysAgo(3) }),
+      kid: priced({ name: 'Kyle Kid', phone: '8015550999', billToPhone: '8015550444',
+        address: '22 Second St', housePrice: 350, measuredFeet: 90, customerNumber: '20',
+        completedAt: daysAgo(2) }),
+      cabin: priced({ name: 'Dana Cabin', phone: '8015550444', address: '99 Hill Dr',
+        housePrice: 250, measuredFeet: 60, customerNumber: '27', completedAt: daysAgo(1) })
+    };
+    {
+      const { res, sent, db } = await runBatch(groupBook);
+      const body = asText(sent[0] && sent[0].body);
+      const inv = db.store.invoices['8015550444'];
+      check('a shared bill goes out ONCE, not once per house',
+        res.sentCount === 1,
+        'sent=' + res.sentCount + '. Three emails for one bill reads as being charged ' +
+        'three times, and two of them name a total the recipient does not owe.');
+      check('and it names every house on it',
+        ['10 Main St', '22 Second St', '99 Hill Dr'].every(a => body.includes(a)),
+        'body=' + JSON.stringify(body) + '. A total bigger than the house they are ' +
+        'looking at, with nothing saying why, is the question this block exists to answer.');
+      check('and the total is the houses added up',
+        /Amount due: \$1000\.00/.test(body) && Number(inv.install) === 1000,
+        'body total vs install=' + (inv && inv.install) + '. 400+350+250. If the rows and ' +
+        'the figure disagree the customer is right to query the whole bill.');
+      check('and the invoice records which houses it covered',
+        Array.isArray(inv.billedHouseIds) && inv.billedHouseIds.length === 3,
+        'billedHouseIds=' + JSON.stringify(inv && inv.billedHouseIds) + '. This is the ' +
+        'list the total was summed from, so the rows and the amount cannot drift.');
+      check('and only the payer is emailed',
+        res.sentCount === 1 && String(sent[0] && sent[0].to_email) === 'dana@x.com',
+        'to=' + JSON.stringify(sent[0] && sent[0].to_email) + '. Kyle pays nothing; a ' +
+        'bill naming a landlord other tenants and their prices goes to the wrong person.');
+    }
+
+    /* ⚠ AND IT RESOLVES TO NOTHING FOR A ONE-HOUSE CUSTOMER, which the red-check found
+       nothing asserting. The office renderer returns '' there on purpose: a heading
+       reading "who you are paying for this year" over a single address is a question
+       nobody asked, and repeating that house's own feet line twice on its own bill reads
+       as a duplicate charge. */
+    {
+      const { sent } = await runBatch({ a1: priced({
+        name: 'Solo Sam', phone: '8015550777', email: 'sam@x.com',
+        address: '7 Only Way', customerNumber: '107' }) },
+        { template: 'Hi {{name}},<br>[{{houses_block}}]<br>Due: {{amount_due}}' });
+      const body = asText(sent[0] && sent[0].body);
+      check('{{houses_block}} says nothing at all for a single-house customer',
+        /\[\]/.test(body.replace(/\s+/g, '')) || /\[\s*\]/.test(body),
+        'body=' + JSON.stringify(body) + '. Matching the office renderer, which returns ' +
+        'empty for one house; the feet line already names it once.');
+      check('and that bill still carries its amount',
+        /Due: \$400\.00/.test(body),
+        'body=' + JSON.stringify(body));
+    }
+
+    /* ---- 6. THE TOKEN HOLE --------------------------------------------
+       ⛔ FOUND 2026-10-06 BY RUNNING THIS, and it is the {{photo}} failure of 2026-08-17
+       arriving in the email that asks for money. admin.html offers ~52 codes in Insert
+       Code; this send resolved 15 of them and left the other 37 ALONE — a split().join()
+       chain simply passes over what it does not know. So an office that put
+       {{houses_block}} in the invoice template (which admin's own comment invites: "Any
+       template can use it") mailed every shared-bill customer those literal characters.
+       ⚠ AND THE BUILT-IN BODY HID IT COMPLETELY: it uses only resolved tokens, and this
+       harness stubbed the template lookup empty, so the whole editable half was
+       unexercised. A fixture that cannot reach the fault proves nothing about it. */
+    {
+      const tpl = 'Hi {{name}},<br><br>{{houses_block}}<br><br>Total: {{amount_total}}<br>'
+                + 'Due: {{amount_due}} by {{due_date}}<br>{{setup_fee_line}}<br>'
+                + '{{pay_button}} {{messages_link}}';
+      /* ⚠ THE DEPOSIT IS WHAT MAKES THIS CHECK BITE, and its absence is what the
+         red-check caught: with nothing paid, total and amountDue are both $1000 and
+         {{amount_total}} reading the BALANCE is indistinguishable from it reading the
+         BILL. 250 paid separates them — the vacuous-fixture trap this repo names in
+         five other places. */
+      const { res, sent } = await runBatch(groupBook, { template: tpl,
+        invoices: { '8015550444': { install: 1000, removal: 0, changeFees: 0, credits: 0, deposit: 250 } } });
+      const raw = String(sent[0] && sent[0].body || '');
+      const body = asText(raw);
+      check('an office template using {{houses_block}} names the houses',
+        ['10 Main St', '22 Second St', '99 Hill Dr'].every(a => body.includes(a)),
+        'body=' + JSON.stringify(body) + '. Aliased to the per-house block the run ' +
+        'already built — never a second renderer, because two renderers of one claim is ' +
+        'what this repo has been bitten by four times.');
+      check('and NO code is ever mailed to a customer as its own characters',
+        !/\{\{[a-zA-Z_]+\}\}/.test(raw),
+        'left literal: ' + JSON.stringify((raw.match(/\{\{[a-zA-Z_]+\}\}/g) || [])) +
+        '. This is the whole fault: a bill with a code printed in it looks broken to the ' +
+        'customer and is invisible to us.');
+      check('and {{amount_total}} is the bill before payments, {{amount_due}} after',
+        /Total: \$1000\.00/.test(body) && /Due: \$750\.00/.test(body),
+        'body=' + JSON.stringify(body) + '. BOTH figures, because that is the only way ' +
+        'the two tokens can be told apart: 1000 billed, 250 paid, 750 due. Same ' +
+        'expression the payment-received email uses, so the two cannot disagree.');
+      check('and the plural {{messages_link}} resolves, not just the singular',
+        /contact/.test(raw),
+        'the editor offers the PLURAL and this send only ever resolved the singular — a ' +
+        'one-character trap that prints a code on a bill');
+    }
+    {
+      /* ⚠ STRIPPED **AND COUNTED**. rsvp-text-wording's own lesson from the literal
+         {{photo}}: the token being wrong was never the fault — nothing counting what it
+         could not render was. A missing line is a template the run NAMES; a printed code
+         is the customer ringing up. */
+      const { res, sent } = await runBatch(groupBook,
+        { template: 'Hi {{name}},<br>{{photo}} {{rsvp_yes_button}} {{nonsense_code}}<br>{{amount_due}}' });
+      const raw = String(sent[0] && sent[0].body || '');
+      check('a code this send cannot fill is left out of the bill',
+        res.sentCount === 1 && !/\{\{/.test(raw) && /\$1000\.00/.test(raw),
+        'raw=' + JSON.stringify(raw) + '. The rest of the bill must still go out — ' +
+        'refusing the send over a bad template bills nobody at all.');
+      check('and the run log NAMES the codes and the template to fix',
+        res.errors.some(e => /cannot fill/.test(e) && /\{\{photo\}\}/.test(e)
+                          && /Nightly Auto-Invoice/.test(e)),
+        'errors=' + JSON.stringify(res.errors) + '. Silent stripping would make a ' +
+        'half-written template indistinguishable from a working one, for ever.');
+      check('and a made-up code is caught as well as a real one',
+        res.errors.some(e => /\{\{nonsense_code\}\}/.test(e)),
+        'a typo in the template editor is the commonest way this happens, and it is the ' +
+        'case a list of known tokens would miss');
+    }
   }
 
   console.log('');
