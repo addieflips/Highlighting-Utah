@@ -212,6 +212,34 @@ jobs:
       # failure inside npm test is one line of a 2.4MB log.
       - name: A new member actually gets a bill
         run: npm run test:newmember
+      # ⛔ THE TOOL THAT DIAGNOSES BILLING MUST NOT BE ABLE TO BILL. nightly-digest.js
+      # runs as the service account that deploys the functions, so it can write anything
+      # in the project; this gate pins every use of the database handle to a read and
+      # fails if a write, a second handle or a customer name ever appears. Named
+      # separately because "the reader is read-only" is a promise until something checks it.
+      - name: The nightly-run reader only reads, and names nobody
+        run: npm run test:nightly-read
+
+      - name: A receipt that never went out can be sent again
+        run: npm run test:receiptresend
+      # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
+      # runInvoiceBatch at all, and a one-word crash in it billed no new member at all
+      # from 2026-09-18 to 2026-10-02: `nowMs` is not declared in that function,
+      # the throw was swallowed by the per-payer catch, and the payer was skipped before
+      # the invoice was ever written. Nine text checks over that same function passed
+      # throughout, because the source looks right — a regex cannot see scope. A failure
+      # here means somebody's lights are up and no bill exists, which is the most
+      # expensive silence in the app and the hardest to notice from any screen.
+      - name: The nightly billing run (executed, not read)
+        run: npm run test:nightly
+      # ⛔ OPENING VENMO IS AN INTENTION, NEVER A PAYMENT. Named separately because the
+      # rule it holds is about money not moving: Venmo has no webhook, so the press is
+      # the LAST thing this app knows about that payment, and the amount on the link is
+      # a pre-fill the customer can edit. A failure here means something has started
+      # treating "they went to pay" as "they paid" — which marks a bill settled that
+      # nobody has collected, and nothing downstream would ever question it.
+      - name: Opening Venmo records an intention, not a payment
+        run: npm run test:venmo
       # ⭐ WHEN SOMETHING GOES WRONG, SOMEBODY IS TOLD. Named separately because a
       # failure here is invisible in production by construction: the whole feature is
       # about reporting faults nobody was watching, so if the reporter itself breaks,

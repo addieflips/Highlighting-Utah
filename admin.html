@@ -4674,6 +4674,8 @@
                 <label><input type="checkbox" id="filterNotCompleted"> Not Done Yet</label>
                 <label><input type="checkbox" id="filterNeedsRemoval"> Needs Removal</label>
                 <label><input type="checkbox" id="filterCannotBill"> Cannot Be Billed</label>
+                <label><input type="checkbox" id="filterBillHeld"> Bill Held</label>
+                <label><input type="checkbox" id="filterVenmo"> Waiting on Venmo</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -8323,6 +8325,19 @@ const HISTORY_STEPS = [
      It is a note in the Inbox once, and then nothing until somebody notices. */
   { field: 'cannotBillNoEmailAt',      from: 'cust',
     what: 'Finished, but there was nobody to send the bill to' },
+  /* ⚠ THIS ONE IS MONEY SITTING STILL TOO, and for the opposite reason to the line
+     above: there IS somewhere to send the bill, and the bill has not been worked out
+     yet because another house on it is unfinished. The rule is Addie's and it is right;
+     what was missing is that a held bill said nothing to anybody. See reportHeldBill. */
+  { field: 'billHeldAt',               from: 'cust',
+    what: 'Their bill was held, waiting on another house on it' },
+
+  /* ⚠ AND THIS ONE IS NOT A PAYMENT, WHICH IS THE WHOLE OF IT. They pressed Pay with
+     Venmo in their portal; Venmo tells us nothing back, so all we know is that they
+     opened it. On the history it answers "I paid by Venmo, did you get it?" — the date
+     they say they sent it, beside whatever the ledger later recorded arriving. */
+  { field: 'venmoOpenedAt',            from: 'cust',
+    what: 'Opened Venmo to pay — not a payment, just that they went to send one' },
   /* ⭐ THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
      Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
      has existed for a while, is written by the portal, by Edit Customer and by the sheet
@@ -9697,6 +9712,63 @@ function reportReceiptOutcome(res){
   if(!res || res.sent){ if(res && res.sent) toast('Receipt emailed'); return; }
   if(res.quiet){ toast(res.why); return; }
   alert(res.why);
+}
+/* ---- Sending a receipt that never went out ---------------------------------
+   \u2b50 NOTHING RETRIED A FAILED RECEIPT, and that is the hole this fills (2026-10-09).
+   `sendPaymentReceipt` is called at the one moment a payment is recorded \u2014 by hand,
+   by the importer, or by PayPal on the server \u2014 and `receiptSentForDeposit` is
+   written only on a success. So a receipt refused at 2am stayed unsent for ever and
+   nobody was ever thanked for paying. Found with 41 of them on the books, every one
+   refused by EmailJS with "API access from non-browser environments is currently
+   disabled": PayPal captures, receipted SERVER-side, over a month.
+
+   \u26d4 IT RE-RUNS THE REAL SENDER, NEVER A SECOND COPY OF IT. The money figures on a
+   receipt \u2014 {{amount_paid}}, {{amount_due}}, {{payment_amount}} \u2014 are exactly the
+   part that must not be re-derived here: a second renderer is how two screens start
+   making different claims about one payment, which this file has been bitten by over
+   the bins count and the put-into wording. `sendPaymentReceipt` already knows how to
+   build one, so it builds these too.
+   \u26a0 AND THAT IS ALSO WHY THE EXISTING "Send again to the N who did not get it" BUTTON
+   (RSVP tab \u2192 Did-not-send) CANNOT COVER THESE, which is worth writing down because
+   it looks as though it should. Three separate reasons: receipts are never recorded
+   into `settings/emailSendFailures` at all; the four senders that DO write there all
+   mark themselves `resend: false`, and three of those four are dead UI (`pib*` and
+   `sendRsvpEmailBtn` have no markup \u2014 Suite 128 asserts it); and that button
+   re-renders through `etResolveVars`, which fills name/price/phone/link and NONE of
+   the three money tokens a receipt is made of. Pointing it at a receipt would mail a
+   customer a thank-you with the amount missing. */
+function receiptResendTargets(invoices){
+  /* \u26a0 AN EMAIL ON FILE IS PART OF THE RULE, not a detail of the loop. A row with no
+     address can never be sent and must be COUNTED rather than tried \u2014 otherwise the
+     press reports failures it was always going to have, and the real ones hide among
+     them. (Measured on the real book the day this was built: 0 of the 41.) */
+  const all = (invoices || []).filter(function(i){
+    return i && i.data && String(i.data.receiptError || '').trim();
+  });
+  const sendable = all.filter(function(i){ return String(i.data.email || '').trim(); });
+  return { all: all, sendable: sendable, noEmail: all.length - sendable.length };
+}
+/* \u26a0 WHAT THE RECEIPT SAYS WAS PAID, and the one figure the invoice cannot answer on
+   its own. {{amount_paid}} is the deposit and {{amount_due}} falls out of the maths,
+   but {{payment_amount}} \u2014 "we have received your payment of X" \u2014 is THIS payment,
+   which is not stored on the invoice. The ledger has it, so the ledger is asked.
+   \u26a0 NEWEST FIRST, sorted here rather than with orderBy, exactly as
+   `renderPaymentHistory` does it and for its reason: a composite index would need a
+   hand-run `firebase deploy --only firestore:indexes` that CI does not do, and the
+   number of payments on one invoice is tiny.
+   \u26a0 AND IT FALLS BACK TO THE DEPOSIT rather than to nothing. Anything paid before the
+   payment log existed has no row, and for a bill that is now settled the deposit IS
+   what they paid \u2014 which is the commonest case here by far. A receipt reporting $0
+   would be worse than the one that never arrived. */
+function receiptResendAmount(invData, paymentRows){
+  const rows = (paymentRows || []).slice().sort(function(a,b){
+    return (toJsDate(b && b.paidAt) || 0) - (toJsDate(a && a.paidAt) || 0);
+  });
+  for(const r of rows){
+    const amt = Number(r && r.amount) || 0;
+    if(amt > 0) return amt;
+  }
+  return Math.max(0, Number(invData && invData.deposit) || 0);
 }
 function partialPaymentNote(d){
   return (Number(d.deposit)||0) > 0 ? ('\n\nYou\'ve already paid ' + fmtMoney(Number(d.deposit)) + ' \u2014 the amount above is what\'s left.') : '';
@@ -11392,6 +11464,14 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     // A customer with no email can never be billed at all — that is a lost bill,
     // not a postponed one, so it is never folded into the generic skip counts.
     if(r.skippedNoEmail) msg += ', ' + r.skippedNoEmail + ' could NOT be billed (no email address)';
+    /* ⭐ NAMED, NOT COUNTED (2026-09-28). The two skip counts above say how many bills
+       were held and nothing about whose, so a payer whose lights are up and whose bill
+       is stuck behind one unfinished house read as an ordinary skip. heldNames only
+       carries the ones where work has actually been done — see reportHeldBill. */
+    if(Array.isArray(r.heldNames) && r.heldNames.length){
+      msg += '. Work done but held: ' + r.heldNames.slice(0, 3).join('; ') +
+        (r.heldNames.length > 3 ? ' +' + (r.heldNames.length - 3) + ' more' : '');
+    }
     if(r.errorCount){ msg += ', ' + r.errorCount + ' error(s)'; statusEl.style.color = 'var(--ember)'; }
     else { statusEl.style.color = 'var(--emerald)'; }
     statusEl.textContent = msg;
@@ -12044,6 +12124,8 @@ async function loadNightlyInvoiceLog(){
         ((r.errorCount||0) ? ', <span style="color:var(--ember);">'+r.errorCount+' error(s)</span>' : '')+
         ((r.skippedNoEmail||0) && Array.isArray(r.noEmailNames) && r.noEmailNames.length
           ? '<div style="font-size:12px; color:var(--slate); margin-top:3px;">No email: '+esc(r.noEmailNames.join(', '))+'</div>' : '')+
+        (Array.isArray(r.heldNames) && r.heldNames.length
+          ? '<div style="font-size:12px; color:#8A6D1F; margin-top:3px;">Work done but held: '+esc(r.heldNames.join('; '))+'</div>' : '')+
         '</div>';
     });
     el.innerHTML = html;
@@ -28791,7 +28873,8 @@ function renderUnmatchedPaymentBanner(){
 function renderReceiptErrorBanner(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
-  const broken = allInvoicesCache.filter(i => i.data && i.data.receiptError);
+  const found = receiptResendTargets(allInvoicesCache);
+  const broken = found.all;
   const existing = document.getElementById('receiptErrorBanner');
   if(existing) existing.remove();
   if(!broken.length) return;
@@ -28802,8 +28885,124 @@ function renderReceiptErrorBanner(){
     'The payments were recorded correctly &mdash; only the emails failed. Affected: '+
     broken.slice(0,5).map(i => esc(i.data.name || i.id)).join(', ')+
     (broken.length>5 ? ' and '+(broken.length-5)+' more' : '')+
-    '. The reason is shown in red on each invoice below.';
+    '. The reason is shown in red on each invoice below.'+
+    /* ⚠ THE BUTTON IS HERE, on the banner that already found and named them, rather
+       than on a card of its own. There is one list of who missed out and it is this
+       one; a second screen listing the same people is a second thing to keep true. */
+    '<div style="margin-top:10px;">'+
+      (found.sendable.length
+        ? '<button id="receiptRetryBtn" class="btn" style="font-size:13px;">Send the '+
+          found.sendable.length+' missing receipt'+(found.sendable.length===1?'':'s')+'</button>'
+        : '')+
+      /* ⚠ SAID, NEVER SILENTLY DROPPED. A row with no address is not a failure to fix
+         by pressing again — it is a customer who cannot be emailed by anything. */
+      (found.noEmail
+        ? '<span style="margin-left:8px; color:#9A2A1F;">'+found.noEmail+
+          ' of them have no email address on file and cannot be sent.</span>'
+        : '')+
+      '<span id="receiptRetryStatus" style="margin-left:10px; color:var(--slate);"></span>'+
+    '</div>';
   wrap.parentNode.insertBefore(bar, wrap);
+  /* ⚠ BOUND TO THE NODE THIS RENDER JUST MADE, and safe only because the banner above
+     is removed and rebuilt every time. Do NOT turn this into a document-wide query or
+     a listener on a persistent row: that is how one drop onto Inbox fired 2815
+     Firestore writes, measured, on this very page. */
+  document.getElementById('receiptRetryBtn')?.addEventListener('click',
+    onceAtATime(resendMissingReceipts, function(){ return document.getElementById('receiptRetryBtn'); }));
+}
+/* ⭐ SEND THE RECEIPTS THAT NEVER WENT (2026-10-09). Runs from the browser, which is
+   the point: the 41 that prompted this were refused SERVER-side, and the EmailJS
+   setting that refused them does not apply to a send made from this tab. So this
+   works before that checkbox is found, not after.
+   ⛔ PACED THROUGH `emailSendPaced`, the one helper that knows how fast we may mail
+   customers — written after Gmail refused 392 of ~410 sends in September, and whose
+   own note records that it was true of one sender out of five. This is one more that
+   would otherwise fire back to back down a list of dozens.
+   ⚠ A FAILURE HAS TO BE A THROW FOR THE PACER TO SEE IT. `sendPaymentReceipt` never
+   throws — it answers {sent, quiet, why} — so a non-quiet failure is re-thrown
+   carrying its own wording, which is what `emailSendRetryAfter` reads to tell a rate
+   limit (wait it out) from the day's cap (finish tomorrow). Returning quietly here
+   would spend the whole list discovering the same refusal.
+   ⚠ AND A QUIET OUTCOME IS NOT A FAILURE. Under the minimum, a correction, or already
+   receipted are all deliberate silences agreed in 2026-08-11; counting them as errors
+   would make a clean run look broken. */
+async function resendMissingReceipts(){
+  const statusEl = document.getElementById('receiptRetryStatus');
+  const say = function(t){ if(statusEl) statusEl.textContent = t; };
+  const found = receiptResendTargets(allInvoicesCache);
+  if(!found.sendable.length){ say('Nothing to send.'); return; }
+  if(!window.emailjs){ say('The email service did not load — check your connection.'); return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateId || !publicKey){ say('Set up EmailJS (Automation Emails → EmailJS Setup) first.'); return; }
+  if(!confirm('Send a receipt to the ' + found.sendable.length + ' customer(s) whose receipt never went out?\n\n'
+    + 'They have all already paid — this is the thank-you they never got. Nobody who '
+    + 'already had one is emailed again.')) return;
+  emailjs.init(publicKey);
+  const ctx = {};
+  let sent = 0, quiet = 0, failed = 0, rateStop = null;
+  const problems = [];
+  for(const item of found.sendable){
+    let outcome = null;
+    const paced = await emailSendPaced(async function(){
+      /* ⚠ READ PER INVOICE rather than once over the whole collection: `payments` is
+         every payment ever taken, and the number on any ONE invoice is tiny — the
+         same trade `renderPaymentHistory` makes, and it needs no composite index. */
+      let rows = [];
+      try{
+        const snap = await getDocs(query(collection(db,'payments'), where('invoiceKey','==', String(item.id))));
+        snap.forEach(function(d){ rows.push(d.data()); });
+      }catch(e){ /* quiet on purpose: the ledger is only consulted to report WHAT was
+                    paid. Losing it costs {{payment_amount}} its precision — the
+                    deposit stands in — and must never cost the customer the receipt,
+                    which is the whole thing this press exists to deliver. */ }
+      outcome = await sendPaymentReceipt(item.id, item.data, receiptResendAmount(item.data, rows));
+      if(outcome && !outcome.sent && !outcome.quiet){
+        const e = new Error(outcome.why || 'the receipt did not send');
+        e.text = outcome.why || '';
+        throw e;
+      }
+    }, ctx, function(mins){ say('Waiting ' + mins + ' min for the mail service, then carrying on…'); });
+    if(paced.sent){
+      if(outcome && outcome.sent){
+        sent++;
+        /* The real sender clears receiptError on the record; mirror it so the banner
+           shrinks as this runs rather than after the next reload. */
+        if(item.data){ item.data.receiptError = ''; item.data.receiptErrorAt = null; }
+      } else { quiet++; }
+    } else {
+      failed++;
+      problems.push((item.data.name || item.id) + ' — ' +
+        String((paced.err && (paced.err.text || paced.err.message)) || 'no reason was given'));
+      if(paced.until){
+        /* ⚠ Gmail's limit is on the ACCOUNT, so everybody behind a stop is left
+           untried rather than spending a request each being told the same thing. */
+        rateStop = paced.until;
+        break;
+      }
+    }
+    say('Sent ' + sent + ' of ' + found.sendable.length + '…');
+  }
+  renderReceiptErrorBanner();
+  const done = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent
+    + (quiet ? ', ' + quiet + ' needed none' : '')
+    + (failed ? ', ' + failed + ' still failing' : '') + '.';
+  /* ⚠ A TOAST AS WELL AS THE LINE, and the toast is the half that matters on the run
+     that works BEST: clearing the last failure removes the banner, which takes the
+     status line with it — so a completely successful press would otherwise end with
+     the red box silently vanishing and nothing anywhere saying 41 receipts went. */
+  toast(done);
+  const where2 = document.getElementById('receiptRetryStatus');
+  if(where2) where2.textContent = done + sendStoppedNote(rateStop);
+  /* ⚠ NAMED, NOT COUNTED. "nothing should fail quietly" — a count tells her a receipt
+     is still owed and not to whom, which is the complaint EM-01 was raised about. */
+  if(problems.length){
+    alert(problems.length + ' receipt(s) still could not be sent. The payments are all '
+      + 'recorded correctly — only the emails failed:\n\n'
+      + problems.slice(0, 12).join('\n')
+      + (problems.length > 12 ? '\n\n…and ' + (problems.length - 12) + ' more.' : ''));
+  }
 }
 function renderInvStatusStrip(){
   const wrap = document.getElementById('invStatusStrip');
@@ -28991,12 +29190,30 @@ function renderInvoicesList(){
            correction must not re-date a payment made weeks ago. */
         paidNow > 0 ? {lastPaymentAt: serverTimestamp()} : {})).then(async () => {
         toast('Payment status updated');
+        /* ⭐ A VENMO PAYMENT IS RECORDED AS ONE (2026-09-29). PAYMENT_METHOD_LABEL has
+           carried a `venmo` label since the ledger was built and NOTHING ever wrote it — a
+           reader with no writer, which §1 calls an error rather than a detail. The office
+           types these in off the Venmo email, so the honest method is known: if that
+           customer had pressed Pay with Venmo and is still unsettled, this money is what
+           they were told to send.
+           ⚠ DERIVED, AND THE NOTE SAYS SO, so nobody later reads it as a claim somebody
+           made by hand. A customer who opened Venmo and then paid by cheque would be filed
+           as Venmo, which is a wrong line in an audit trail and not a wrong balance — the
+           alternative was a second prompt on a `prompt()`-based entry, which buys accuracy
+           nobody asked for at the cost of a click on every payment.
+           ⚠ AND IT IS READ BEFORE THE WRITE LANDS IN THE CACHE, which is what makes it
+           work: custWaitingOnVenmo asks getLiveInvoiceStatus off allInvoicesCache, and that
+           still holds the OLD deposit here, so somebody being marked paid right now still
+           reads as waiting. */
+        const venmoCust = jobAddresses.find(a => custInvoiceKey(a.data) === invId);
+        const wasVenmo = paidNow > 0 && !!venmoCust && custWaitingOnVenmo(venmoCust.data);
         await logPayment({
           invoiceKey: invId,
           name: invRec ? (invRec.data.name || '') : '',
           amount: paidNow,
-          method: paidNow < 0 ? 'correction' : 'manual',
-          note: 'Payment status set to "' + sel.value + '" from the invoice list'
+          method: paidNow < 0 ? 'correction' : (wasVenmo ? 'venmo' : 'manual'),
+          note: 'Payment status set to "' + sel.value + '" from the invoice list' +
+            (wasVenmo ? ' — recorded as Venmo because they had opened it from their portal' : '')
         });
         if(invRec){
           reportReceiptOutcome(await sendPaymentReceipt(invId, Object.assign({}, invRec.data, {deposit: deposit}), paidNow));
@@ -49176,6 +49393,65 @@ function custCannotBeBilled(d){
   return !String(dd.email || '').trim() && !String(dd.email2 || '').trim();
 }
 let activeCannotBillFilter = false;
+/* ⭐ WHOSE BILL IS BEING HELD BY AN UNFINISHED HOUSE (added 2026-09-28).
+   The nightly run sets billHeld on the PAYER when work on their bill has been
+   finished for more than BILL_HELD_DAYS and the bill is still being held — one house
+   not marked done, or a fix nobody has cleared. See reportHeldBill in
+   functions/index.js for the rule and why it waits.
+
+   ⚠ WHY THIS IS NOT THE FULL DERIVED RE-CHECK custCannotBeBilled DOES. That one
+   re-asks its own question live, because "do they have an email" is one field on the
+   record in front of you and the office fixes it on this very screen — so a tag
+   surviving the fix would read as broken. This one cannot be answered from the record
+   alone: the blocker is a DIFFERENT house on the same bill, so re-deriving it means
+   grouping the whole book per row, which is ~900,000 comparisons a draw and the exact
+   shape that has locked this page up before.
+   ⚠ AND IT WOULD BE THE WRONG ANSWER ANYWAY. Marking the last house done does not
+   bill anybody — the run does that at 7 PM — so "their bill is held" stays TRUE until
+   it actually goes out. The stored flag is the honest answer here, not a stale one.
+   ⚠ WHAT IS CHECKED LIVE IS THE ONE THING THAT MAKES IT DEFINITELY WRONG: the bill
+   having gone out. `invoiceEmailSent` is on the payer's own record, so it costs
+   nothing, and the nightly run clears the flag on the same pass — this only covers
+   the hours between the two. */
+function custBillHeld(d){
+  const dd = d || {};
+  if(dd.billHeld !== true) return false;
+  return dd.invoiceEmailSent !== true;
+}
+let activeBillHeldFilter = false;
+/* ⭐ THEY OPENED VENMO TO PAY, AND WE HAVE NOT SEEN IT YET (added 2026-09-29).
+   Addie, asked how a Venmo payment should reach the app: "We can't even login to venmo
+   we just see it if it comes to email so I think it will be easiest if this was
+   manual", and on recording the press itself: "We can do this one so people are marked
+   as venmo and we can just check on venmo."
+
+   ⛔ VENMO TELLS US NOTHING, WHICH IS THE WHOLE PROBLEM. PayPal records itself through
+   its webhook; a Venmo deep link has no callback, no receipt and no webhook — so a
+   customer who paid that way stayed Unpaid on every screen, went onto the 1 February
+   text list, and would have collected an April late fee. `portalVenmoOpened` stamps
+   `venmoOpenedAt` when they press the button in their portal. This is the list of who
+   to go looking for in the Venmo email.
+
+   ⛔ IT IS NEVER A PAYMENT. Nothing about the press touches the invoice, and nothing
+   here reports them as settled. The money is recorded when the office types in what the
+   Venmo email actually says — which is also the answer to Addie's own worry, that the
+   amount in the link is a PRE-FILL the customer can change: she enters the real figure,
+   a short payment comes out Partial Payment, and the shortfall shows on the bill.
+
+   ⚠ DERIVED, SO NOTHING HAS TO CLEAR IT. Opening Venmo is a historical fact; what
+   changes is whether they still owe. Asking the bill means the mark disappears by itself
+   the moment the payment is entered — stored fact, derived display, the same shape as
+   derivedDoneFor and custCannotBeBilled. A clearing path would be a second writer.
+   ⚠ AND IT ASKS THE BILL THEY ARE ACTUALLY ON (getLiveInvoiceStatus), not their own
+   key, so somebody billed to a payer who has settled is not left on the list.
+   ⚠ A PARTIAL PAYMENT IS STILL WAITING, deliberately: they opened Venmo owing $430 and
+   $50 arrived, so there is still something to chase. */
+function custWaitingOnVenmo(d){
+  const dd = d || {};
+  if(!dd.venmoOpenedAt) return false;
+  return getLiveInvoiceStatus(dd) !== 'Paid in Full';
+}
+let activeVenmoFilter = false;
 let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
@@ -49559,7 +49835,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(custBillHeld(d) ? ' <span class="status-pill" style="background:#FFF8E9; color:#8A6D1F;" title="'+esc(d.billHeldWhy || '')+'">Bill Held</span>' : '')+(custWaitingOnVenmo(d) ? ' <span class="status-pill" style="background:#EEF1FF; color:#33397a;" title="They pressed Pay with Venmo in their portal. Venmo tells us nothing, so check the Venmo email and enter what actually arrived.">&#128179; Check Venmo</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -50310,6 +50586,8 @@ function renderRouteAddressList(){
   if(activeNotCompletedFilter) filtered = filtered.filter(a => !a.data.completed);
   if(activeNeedsRemovalFilter) filtered = filtered.filter(a => a.data.completed && !a.data.removalDone);
   if(activeCannotBillFilter) filtered = filtered.filter(a => custCannotBeBilled(a.data));
+  if(activeBillHeldFilter) filtered = filtered.filter(a => custBillHeld(a.data));
+  if(activeVenmoFilter) filtered = filtered.filter(a => custWaitingOnVenmo(a.data));
   if(searchTerm){
     const t = searchTerm.toLowerCase();
     filtered = filtered.filter(a =>
@@ -50400,6 +50678,8 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   activeNotCompletedFilter = document.getElementById('filterNotCompleted').checked;
   activeNeedsRemovalFilter = document.getElementById('filterNeedsRemoval').checked;
   activeCannotBillFilter = document.getElementById('filterCannotBill').checked;
+  activeBillHeldFilter = document.getElementById('filterBillHeld').checked;
+  activeVenmoFilter = document.getElementById('filterVenmo').checked;
   const parts = [];
   if(activeDiffFilters.length) parts.push(activeDiffFilters.join('/'));
   if(activeNeedsFixFilter) parts.push('Needs Fix');
@@ -50408,6 +50688,8 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   if(activeNotCompletedFilter) parts.push('Not Done');
   if(activeNeedsRemovalFilter) parts.push('Needs Removal');
   if(activeCannotBillFilter) parts.push('Cannot Be Billed');
+  if(activeBillHeldFilter) parts.push('Bill Held');
+  if(activeVenmoFilter) parts.push('Waiting on Venmo');
   document.getElementById('activeFilterSummary').textContent = parts.length ? parts.join(', ') : '';
   document.getElementById('filterDropdown').classList.remove('open');
   renderRouteAddressList();
@@ -63488,9 +63770,9 @@ function planNewCrewDays(waiting, taken, opts){
      With no anchor to start from, the first house is simply the front of the
      queue, which is what the builder took before. So the CHOICE of who leads a
      day is unchanged; what changed is who rides along with them. */
-  function pickClusteredFromQueue(queue, eligible, want, anchor){
+  function pickClusteredFromQueue(queue, eligible, want, anchor, riders){
     const chosen = [];
-    const pool = (eligible || []).slice();
+    let pool = (eligible || []).slice();
     const pinOf = function(i){
       const st = queue[i] && queue[i].stop;
       return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
@@ -63499,6 +63781,9 @@ function planNewCrewDays(waiting, taken, opts){
     let cur = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
       ? {lat: anchor.lat, lng: anchor.lng} : null;
     while(chosen.length < want && pool.length){
+      /* [[SCH-122]] the riders' room is spent: from here on only houses with a last day may ride. */
+      if(riders && riders.left <= 0) pool = pool.filter(function(i){ return !riders.is(queue[i]); });
+      if(!pool.length) break;
       /* Only the most urgent tier still in the pool is ever in play, so the
          geography below can never promote a November house over an October one. */
       let urg = Infinity;
@@ -63519,6 +63804,7 @@ function planNewCrewDays(waiting, taken, opts){
       if(bestPos === -1) break;
       const idx = pool.splice(bestPos, 1)[0];
       chosen.push(idx);
+      if(riders && riders.is(queue[idx])) riders.left--;
       const pin = pinOf(idx);
       if(pin) cur = {lat: pin.lat, lng: pin.lng};
     }
@@ -63641,6 +63927,16 @@ function planNewCrewDays(waiting, taken, opts){
      the season back on step 4 exactly as before. */
   const betterTown = function(c, p){
     if(!p) return true;
+    /* [[SCH-122]] AN AREA THAT CAN MAKE A REAL DAY BEATS ONE THAT CANNOT, whatever it holds. Measured: areas of three, each
+       holding a missed house, won 29 October on urgency; a day that small is dissolved after the build, and the October
+       customers who could have filled it went to November. A missed or rushed house still goes first INSIDE any day
+       that reaches it (pickClusteredFromQueue takes the most urgent tier first) — "the very next time it makes any
+       sense in a route" ([[SCH-54]]). Only while somebody else CAN make a real day; at the season's tail nobody can,
+       and urgency decides alone as before. */
+    const viableAt = (typeof ONE_MAN_MAX_HOUSES === 'number' ? ONE_MAN_MAX_HOUSES : 8) + 1;
+    if(c.due !== null && c.due !== undefined && c.due !== p.due) return c.due > p.due;
+    const cv = c.fits >= viableAt, pv = p.fits >= viableAt;
+    if(cv !== pv) return cv;
     if(c.urg !== p.urg) return c.urg < p.urg;
     if(c.fits !== p.fits) return c.fits > p.fits;
     /* ⚠ 3a. THE CHILLY BAND FIRST, and only against a town that is NOT chilly.
@@ -63822,7 +64118,76 @@ function planNewCrewDays(waiting, taken, opts){
       const r = (typeof q[i].priority === 'number') ? q[i].priority : u;
       if(r < urgRush) urgRush = r;
     }
-    return {n: n, urg: urg, urgRush: Math.min(urgRush, urg)};
+    let nd = 0;
+    if(curRiders) for(let i = 0; i < q.length; i++){
+      if(q[i].from > ds || awayOn(q[i], ds)) continue;
+      if(!curRiders.is(q[i])) nd++;
+    }
+    return {n: n, nd: nd, urg: urg, urgRush: Math.min(urgRush, urg)};
+  };
+  /* ⭐⭐ [[SCH-122]] "ANY" HOUSES ONLY FILL A DAY WHILE EVERY DEADLINE STILL FITS (2026-10-09). Dax: "theres a lot of
+     people wanting for october and scheduled in november which should never happen". Measured on a day-by-day season
+     (crews finishing 85% of each day, Recalculate every morning): up to 36 October customers sat on November days while
+     the October days ahead of them carried 13-26 no-preference houses each. Every crew-day is an AREA, nearly every
+     area holds a few October houses, so every area was "urgent" — and each crew-day then topped itself up to forty with
+     the area's any-time houses. Whichever areas came last took their October customers into November with them.
+     ⭐ SO A RIDER — a house with no last day, or a later one than the deadline that binds — may only take a slot the
+     deadline houses will not need. Before each date the builder works out, for every last day still waiting (31 October,
+     a named window, the run-up to Thanksgiving), the crew-slots between now and then against the houses that must be
+     done by then; the smallest margin is how many riders this date may carry, across all its crews. Early in the season
+     the margin is hundreds and nothing changes. When it closes, the day fills with October houses and their October
+     neighbours instead, and an area's claim on the day (fillableCount) is what it can carry WITHIN that margin.
+     ⚠ NEVER A REFUSAL. A priority house (new hang, rush, missed) still goes first because pickClusteredFromQueue takes
+     the most urgent tier first — it simply spends the margin before an any-time house can. A day the margin leaves short
+     is the cost: Normal Schedule work moves into November, which is where its customers said any time was fine. */
+  let curRiders = null;
+  const riderRoomOn = function(ds){
+    const dls = {};
+    /* ⚠ ONLY LAST DAYS STILL AHEAD. A house already past its last day is late, not a constraint — it is first in its
+       tier anyway, and counting it would hold the margin at nothing for the rest of the season (measured: the builder
+       stopped placing anything after 31 October and dumped 353 houses on the last day). */
+    Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){ if(w.until && w.until >= ds) dls[w.until] = 1; }); });
+    const list = Object.keys(dls).sort();
+    if(!list.length) return null;
+    let best = Infinity, by = '', bestTight = false;
+    list.forEach(function(D){
+      const end = D;
+      let need = 0;
+      Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){
+        if(w.until && w.until >= ds && w.until <= D && (w.from || '') <= end) need++; }); });
+      let slots = 0, crewDays = 0;
+      for(let t = dateOf(ds), g = 0; toDateStr(t) <= end && g < 400; g++){
+        const x = toDateStr(t);
+        slots += crewsOnDate(x) * capOnDate(x);
+        crewDays += crewsOnDate(x);
+        t = nextWorkingDay(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1));
+      }
+      /* ⭐ AND THE AREAS, which is the limit that actually bit. Measured: with slots to spare, 40 October customers
+         still went to November, because a crew-day works ONE area (and one neighbour) and nearly every area holds a
+         few October houses — visiting each area once IS the whole season. When more areas hold a house due by D than
+         there are crew-days left before D, the margin is nothing, and the crew-day gathers the due houses from the
+         areas next door before it tops up (see `tight` in the crew loop). */
+      const areas = {};
+      Object.keys(byCity).forEach(function(c){ if(byCity[c].some(function(w){
+        return w.until && w.until >= ds && w.until <= D && (w.from || '') <= end; })) areas[c] = 1; });
+      /* equal counts as tight: with as many due areas as crew-days left, every crew-day must go to one of them */
+      const tight = Object.keys(areas).length >= crewDays;
+      const margin = tight ? 0 : (slots - need);
+      if(margin < best || (tight && !bestTight)){ if(!bestTight || tight){ best = margin; by = D; bestTight = tight; } }
+    });
+    /* ⚠ A HOUSE THAT OUTRANKS THE DUE ONES IS NEVER A RIDER. A missed house, a new hang or a rush sorts ahead of October
+       on purpose; treating one as filler emptied a whole date (measured: the area holding a missed any-time house won the
+       morning, could place nobody, and the builder jumped to 2 November). The line is the most urgent due house. */
+    let dueUrg = Infinity;
+    Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){
+      if(w.until && w.until >= ds && w.until <= by && typeof w.priority === 'number' && w.priority < dueUrg) dueUrg = w.priority; }); });
+    return {left: Math.max(0, best), by: by, tight: bestTight,
+            /* ⚠ BUT A MISSED BUMP ALONE DOES NOT LIFT AN ANY-TIME HOUSE OVER AN OCTOBER ONE. Measured at a 70% finish rate:
+               every miss outranked October, the last October days filled with missed any-time houses, and 18 October
+               customers went to November. Missed still sorts first among the any-time houses; a rush still beats all. */
+            is: function(w){ return !w || ((!w.until || w.until > by) &&
+              (!(typeof w.priority === 'number' && w.priority < dueUrg) || ((w.missed || 0) > 0 && !w.rush))); }};
+    /* (a late house, until < ds, is never a rider: it is not "any time", it is overdue) */
   };
   const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
   /* ⭐ HOW BIG A CREW-DAY THIS TOWN CAN ACTUALLY MAKE TODAY (added 2026-08-20).
@@ -63850,13 +64215,16 @@ function planNewCrewDays(waiting, taken, opts){
        dates the office has marked — a one man date can only make eight, and a town
        should not win the slot by promising twenty it will not be allowed to place. */
     const room = capOnDate(ds);
-    const own = allowedStats(city, ds).n;
+    /* [[SCH-122]] while the riders' margin is short, an area can only promise its deadline houses plus what is left of it. */
+    /* (TIGHT is different: the crew-day gathers due houses and then fills from the areas it is in, so an area's size is all of it.) */
+    const carry = function(st){ return (curRiders && !curRiders.tight) ? st.nd + Math.min(st.n - st.nd, Math.max(0, curRiders.left)) : st.n; };
+    const own = carry(allowedStats(city, ds));
     if(own >= room) return room;
     const used = townsUsedOn(ds);
     let best = 0;
     nearbyTowns(city, centres).forEach(function(other){
       if(other === city || used.indexOf(other) !== -1) return;
-      const n = allowedCount(other, ds);
+      const n = carry(allowedStats(other, ds));
       if(n > best) best = n;
     });
     return Math.min(room, own + best);
@@ -63877,8 +64245,11 @@ function planNewCrewDays(waiting, taken, opts){
     let freeSlot = false;
     for(let cr = 1; cr <= crewsToday; cr++) if(!onDay[String(cr)]) freeSlot = true;
     let placedToday = 0;
+    curRiders = riderRoomOn(ds);
+    /* [[SCH-122]] an area that could place nobody is passed over for the rest of the date, never the date itself. */
+    const passedOver = {};
     if(freeSlot){
-      for(let cr = 1; cr <= crewsToday && made < maxDays; cr++){
+      for(let cr = 1, tries = 0; cr <= crewsToday && made < maxDays && tries < 200; cr++, tries++){
         if((busy[ds] || {})[String(cr)]) continue;
         /* ⭐ THE MOST URGENT TOWN, AND AMONG EQUALS THE ONE WITH THE MOST
            STILL WAITING. Counted fresh, ties alphabetical so the same input
@@ -63933,12 +64304,14 @@ function planNewCrewDays(waiting, taken, opts){
           Object.keys(byCity).forEach(function(c){
             if(!byCity[c].length) return;
             if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
+            if(passedOver[c]) return;
             const st = allowedStats(c, ds);
             if(!st.n) return;
             const cold = tooCold(c, ds) && !byCity[c].some(function(w){
               return w.from <= ds && !awayOn(w, ds) && !houseFrozen(w, ds); });
             if(cold && !allowCold) return;
             const fits = fillableCount(c, ds);
+            if(curRiders && !fits) return;   // [[SCH-122]] nothing here may ride today
             /* ⭐ A HOUSE ASKED TO GO SOONER MOVES ITS AREA UP — WHEN THE AREA CAN
                CARRY A REAL DAY ([[SCH-64]], 2026-09-09). Dax, asked directly whether
                priority should be able to move an area: "it can move their area up
@@ -63968,7 +64341,9 @@ function planNewCrewDays(waiting, taken, opts){
             const viable = fits >= ((typeof ONE_MAN_MAX_HOUSES === 'number'
                                      ? ONE_MAN_MAX_HOUSES : 8) + 1);
             const cand = {city: c, n: st.n, urg: viable ? st.urgRush : st.urg, fits: fits,
-                          temp: tempFor(areaTown(c), ds), cold: cold};
+                          temp: tempFor(areaTown(c), ds), cold: cold,
+                          /* [[SCH-122]] while October is tight, the area holding the most due houses wins the day */
+                          due: (curRiders && curRiders.tight) ? st.nd : null};
             if(betterTown(cand, pick)) pick = cand;
           });
         }
@@ -63988,8 +64363,8 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = pickClusteredFromQueue(queue, eligible, capToday, null);
-        if(!take.length) break;
+        const take = pickClusteredFromQueue(queue, eligible, capToday, null, curRiders);
+        if(!take.length){ passedOver[city] = 1; cr--; continue; }
         const ids = take.map(function(i){ return queue[i].id; });
         /* Where this crew ends up on the map, kept before the splice — the
            neighbour it borrows from below lends from that end of the town. */
@@ -64042,13 +64417,58 @@ function planNewCrewDays(waiting, taken, opts){
             for(let i = 0; i < borrow.queue.length; i++){
               if(borrow.queue[i].from <= ds && !awayOn(borrow.queue[i], ds) && (pick.cold || !houseFrozen(borrow.queue[i], ds))) oel.push(i);
             }
-            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
+            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor, curRiders);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
               lent.slice().sort(function(a, b){ return b - a; })
                   .forEach(function(i){ borrow.queue.splice(i, 1); });
               towns.push(borrow.town);
             }
+          }
+        }
+        /* [[SCH-122]] A SHORT CREW-DAY KEEPS GATHERING. The one-neighbour loan above can still leave a crew with two houses
+           (measured: two areas of one and two missed houses won 29 October, the day was too small to keep, and its October
+           customers went to November). So a crew-day not yet full takes from the next areas over (nearest first, at most
+           two more) and then fills what is left from the areas it is already in. When October is TIGHT the gathering takes
+           due houses only, and only the fill may use any-time ones. */
+        if(ids.length < capToday){
+          const near2 = nearbyTowns(city, centres);
+          let extra = 0;
+          let anchor2 = anchor;
+          for(let n = 0; n < near2.length && ids.length < capToday && extra < 2; n++){
+            const other = near2[n];
+            if(towns.indexOf(other) !== -1 || townsUsedOn(ds).indexOf(other) !== -1) continue;
+            /* ⚠ ONLY AREAS INSIDE THE TOWNS THIS CREW ALREADY COVERS. A crew is its own town plus one other, a date holds
+               at most four, and a far town runs on its own — standing rulings the suites hold; gathering never adds a town. */
+            const coveredTowns = {};
+            towns.forEach(function(k){ areaTowns(k).forEach(function(t){ coveredTowns[t] = 1; }); });
+            if(areaTowns(other).some(function(t){ return !coveredTowns[t]; })) continue;
+            if(!pick.cold && tooCold(other, ds)) continue;
+            const oq = byCity[other];
+            if(!oq || !oq.length) continue;
+            const oel = [];
+            for(let i = 0; i < oq.length; i++){
+              if(oq[i].from <= ds && !awayOn(oq[i], ds) && (pick.cold || !houseFrozen(oq[i], ds)) && !(curRiders && curRiders.tight && curRiders.is(oq[i]))) oel.push(i);
+            }
+            if(!oel.length) continue;
+            const lent = pickClusteredFromQueue(oq, oel, capToday - ids.length, anchor2, curRiders);
+            if(!lent.length) continue;
+            anchor2 = lastPinOf(oq, lent) || anchor2;
+            lent.forEach(function(i){ ids.push(oq[i].id); });
+            lent.slice().sort(function(a, b){ return b - a; }).forEach(function(i){ oq.splice(i, 1); });
+            towns.push(other);
+            extra++;
+          }
+          for(let k = 0; k < towns.length && ids.length < capToday; k++){
+            const oq = byCity[towns[k]];
+            if(!oq || !oq.length) continue;
+            const oel = [];
+            for(let i = 0; i < oq.length; i++){
+              if(oq[i].from <= ds && !awayOn(oq[i], ds) && (pick.cold || !houseFrozen(oq[i], ds))) oel.push(i);
+            }
+            const fill = pickClusteredFromQueue(oq, oel, capToday - ids.length, anchor2, null);
+            fill.forEach(function(i){ ids.push(oq[i].id); });
+            fill.slice().sort(function(a, b){ return b - a; }).forEach(function(i){ oq.splice(i, 1); });
           }
         }
         busy[ds] = busy[ds] || {};
@@ -70710,6 +71130,38 @@ function hcRunChecks(){
       };
     })
   });
+  /* ⭐ WORK DONE AND THE BILL STILL HELD (added 2026-09-28).
+     The nightly run holds a whole bill until every house on it is finished — Addie's
+     own rule, "After the last persons house is done ... is when they will be charged"
+     — and until now a held bill was a bare count in the nightly summary. One house
+     nobody marks done, or one fix flag nobody clears, therefore stopped that payer
+     being billed for the whole season with nothing anywhere naming them.
+
+     ⚠ IT READS THE FLAG THE RUN WROTE, IT DOES NOT RE-DECIDE THE HOLD. The run has
+     the whole book and a clock; this panel would have to group every customer to
+     answer the same question, and would then be a second opinion about who is held.
+     The run also waits BILL_HELD_DAYS before setting it, which is what keeps the
+     ordinary case — a crew that simply has not been to the second house yet — out of
+     here. See reportHeldBill in functions/index.js.
+     ⚠ AND THE ROW SAYS WHICH HOUSE. The flag is on the PAYER and the blocker is a
+     different house, so a row naming only the payer sends somebody back to the screen
+     to work out what to do; billHeldWhy carries the addresses. */
+  checks.push({
+    id: 'billHeld',
+    title: 'Work done, but the bill is being held',
+    why: 'Their lights are up and nobody has been charged. The bill waits for every house on it to be finished, which is right — but nothing was naming the ones that have been waiting a long time, so the money simply sat there.',
+    fix: null,
+    fixNote: 'No button: mark the last house done, or clear its fix, and the next nightly run bills them by itself.',
+    rows: jobAddresses.filter(function(c){ return custBillHeld(c.data); }).map(function(c){
+      const d = c.data || {};
+      const since = d.billHeldAt && typeof toJsDate === 'function' ? toJsDate(d.billHeldAt) : null;
+      return {
+        label: hcName(d),
+        detail: (d.billHeldWhy || 'a house on this bill is not finished') +
+          (since ? ' — flagged ' + since.toLocaleDateString() : '')
+      };
+    })
+  });
   /* Two households filed under one number. See hcSharedPhoneGroups above for
      what the nightly run actually does with them, and why this is surfaced
      rather than resolved automatically. */
@@ -72621,25 +73073,55 @@ function hangDayOn(realStr){
   return ds < realStr ? ds : null;
 }
 if(typeof window !== 'undefined' && window) window.scheduleHangDay = function(realStr){ return hangDayOn(realStr); };
+/* ⭐⭐ [[SCH-120]] A DAY THAT HAS BEEN PRINTED CAN NO LONGER BE RESCHEDULED (2026-10-07). Dax: "after a day is printed that
+   day is no longer rescheduleable". Until now nothing recorded a print at all: "printed" meant only "one of the next
+   few days" ([[SCH-106]]), so a sheet printed a week ahead could be reshuffled by the next Recalculate, and the hand
+   moves (Reschedule to, Pull/Push, Day off, Force exact date) never asked about the lock at all.
+   Printing a day sheet, a crew sheet, Print Today or the warehouse page for a day now stamps `printedAt` on that day
+   (saved with the plan). A printed day is in LOCKED_DATES for good, so every automatic mover and Recalculate leave it
+   alone, and the hand moves refuse it while it is still ahead of the crew.
+   ⚠ WHAT STILL HAPPENS TO A PRINTED DAY, ON PURPOSE: anybody who goes onto a Warehouse list comes off it ([[SCH-117]],
+   removal only — a house with nothing built cannot be hung), and once the crew reaches it (the hang day or earlier,
+   [[SCH-116]]) the "Not all of them got done" flow still moves the missed houses on — that is rescheduling the HOUSE
+   the crew could not do, not the day. Print Whole Plan and the CSV are overviews and stamp nothing. */
+function markDayPrinted(day){
+  if(!day || day.isTakedown) return;
+  const real = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  if(!day.printedAt) day.printedAt = real;
+  try{ if(typeof refreshLockedDates === 'function') refreshLockedDates(); if(typeof freezePrintedDays === 'function') freezePrintedDays(); }
+  catch(err){ console.error('[HU] could not lock the printed day', err); }
+  if(typeof scheduleSave === 'function') scheduleSave();
+}
+/* Printed and still ahead of the crew — the days no hand may move. */
+function dayIsPrintedAhead(day){
+  if(!day || !day.printedAt) return false;
+  const dt = (typeof dayDate === 'function') ? dayDate(day) : null;
+  if(!dt) return false;
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  return isoOf(dt) > today;
+}
 function refreshLockedDates(){
   /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
      the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
     : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
-  const upcoming = {}, frozen = {};
+  const upcoming = {}, frozen = {}, printed = {};
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
     if(d.isFixRoute || !(d.houses || []).length) return;
     const dt = dayDate(d);
     if(!dt) return;
     const ds = isoOf(dt);
     if(ds <= today) return;
+    /* [[SCH-120]] a day that has been PRINTED stays locked for good — even "Recalculate including the next two days",
+       whose own tooltip has always said "only if they have not been printed", leaves it alone. */
+    if(d.printedAt){ printed[ds] = 1; upcoming[ds] = 1; return; }
     if(PRINTED_OVERRIDE){ delete d.frozenIds; delete d.frozenCrews; return; }
     upcoming[ds] = 1;
     /* A day frozen as printed stays printed until it is worked, even if a new day lands in front of it. */
     if(typeof frozenCrewSplit === 'function' && frozenCrewSplit(d)) frozen[ds] = 1;
   });
   const next = Object.keys(upcoming).sort().slice(0, ROUTE_LOCK_SCHEDULED_DAYS);
-  LOCKED_DATES = new Set(next.concat(Object.keys(frozen)));
+  LOCKED_DATES = new Set(next.concat(Object.keys(frozen), Object.keys(printed)));
   if(typeof window !== 'undefined' && window) window.scheduleLockedDates = function(){ return LOCKED_DATES; };
   return LOCKED_DATES;
 }
@@ -73793,7 +74275,8 @@ function laterDaysLike(day){
   const seq=(day.isFixRoute?fixerRoutes():(day.isTakedown?takedownDays():installDays()))
     .slice().sort((a,b)=>dayDate(a)-dayDate(b));
   const t=dayDate(day).getTime();
-  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t);
+  /* [[SCH-120]] a printed day still ahead is not somewhere a missed house can be sent. */
+  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t&&!(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)));
 }
 /* "The next day we are in that city" — the first later day of the same kind
    that already has at least one house in that town, so the truck is going
@@ -74835,11 +75318,13 @@ function renderDayList(elId,days,selId,listName){
        the next rebuild, the second will not until the mark is taken off. */
     const forcedSize=!fr && !day.isTakedown && typeof dayLimitFor==='function' ? dayLimitFor(day) : '';
     const setTag=forcedSize?' · SET':'';
+    /* [[SCH-120]] a printed day says so in the list — it will not move again. */
+    const printedBadge=day.printedAt?'<span class="pinbadge" title="Printed '+esc(String(day.printedAt))+' — this day is locked">🖨 PRINTED</span>':'';
     const sizeBadge=oneMan?'<span class="newbadge">1 MAN'+setTag+'</span>'
       :(oneCrew?'<span class="pinbadge">1 CREW'+setTag+'</span>'
       :(forcedSize?'<span class="pinbadge">1 CREW · SET</span>':''));
     return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
-      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
+      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+printedBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
       '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
 }
 function dayOptions(currentId,kind){
@@ -76010,6 +76495,7 @@ function serialize(){
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
       frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():null,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):null,
+      printedAt:d.printedAt||null,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
 /* ---------- rebuilding the season's days ----------
@@ -76699,6 +77185,8 @@ function rebuildSeasonDays(){
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
+  /* [[SCH-121]] the done houses off every worked day that is not locked, packed onto the first days of the season below. */
+  const doneRecord=[];
   if(typeof PRINTED_UNBUILT_OFF!=='undefined') PRINTED_UNBUILT_OFF = [];
   /* WHAT IS LEFT TO DO drives everything, not what was planned.
      Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
@@ -76777,8 +77265,44 @@ function rebuildSeasonDays(){
     });
     /* A day that came and went with nothing done is not a record of anything —
        drop it rather than leaving an empty day in the calendar. */
-    if(done.length){ d.houses=done; keep.push(d); }
+    if(done.length) doneRecord.push({id:d.id, dt:dt, houses:done});
   });
+  /* ⭐⭐ [[SCH-121]] DONE HOUSES GO TO THE FRONT OF THE SEASON, AND EVERYTHING ELSE CLOSES UP BEHIND THEM (2026-10-09).
+     Dax: "after someone is finished they should be pushed to the begining of the list when we recalculate everything
+     while everything else gets push forward so the OCt 1 2 3 all are filled with done people", and, the same morning,
+     "we need to adjust recalculate everything so that we fill up October days first".
+     ⛔ THE FAULT THIS CLOSES, MEASURED ON THE REAL PRESS. A worked day used to be kept ON ITS OWN DATE holding its done
+     houses, and the floor for new days is the day after the last kept day. A crew ticking off ONE house on 28 October
+     ahead of time made 28 October a "worked" day — and the next Recalculate started the season on 29 October, leaving
+     14-27 October empty while the same houses went to November. Packed here, a done house can only ever sit on a date
+     before today, so it can never hold the floor up.
+     ⚠ ONLY DATES BEFORE `today` (the hang day when one is set — SCH-116), ONE FULL DAY APIECE, earliest hung first. Every
+     date from today on belongs to the locked days or the new plan. More done than those dates hold: the rest go on the
+     last of them — a record day is never driven, so a big one costs nothing. No date before today at all (the first
+     morning of the season): the old behaviour, each day kept where it was.
+     ⚠ A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
+     customer's record: done houses are hidden (SCH-119), so schedulePlanBookings never re-stamps their date, and when
+     their lights went up is `completedAt`, not the day they sit on. */
+  if(doneRecord.length){
+    const perDay=Math.max(1,((typeof CREWS_PER_DAY==='number'&&CREWS_PER_DAY>0)?CREWS_PER_DAY:2)*((typeof crewCap==='function')?crewCap():20));
+    doneRecord.sort(function(a,b){ const x=a.dt?a.dt.getTime():0, y=b.dt?b.dt.getTime():0; return x-y; });
+    const doneHouses=[]; doneRecord.forEach(function(r){ r.houses.forEach(function(h){ doneHouses.push(h); }); });
+    const recordDates=[];
+    for(let dd=nextWorkingDay(start), g=0; dd<today && g<400 && recordDates.length*perDay<doneHouses.length; g++){
+      recordDates.push(dd);
+      dd=nextWorkingDay(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate()+1));
+    }
+    if(!recordDates.length){
+      doneRecord.forEach(function(r){ const d=SEASON.filter(function(x){ return x.id===r.id; })[0]; if(d){ d.houses=r.houses; keep.push(d); } });
+    } else {
+      recordDates.forEach(function(dd,i){
+        const last=i===recordDates.length-1;
+        const houses=last?doneHouses.slice(i*perDay):doneHouses.slice(i*perDay,(i+1)*perDay);
+        if(!houses.length) return;
+        keep.push({id:(doneRecord[i]&&doneRecord[i].id)||('done'+i), base:daysBetween(dd,BASE_START), cascade:0, pin:null, houses:houses});
+      });
+    }
+  }
   /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF IT (added 2026-08-22). Owner:
      "back next year should be on 2027 and not split for this year on schedule."
 
@@ -77625,6 +78149,36 @@ function dayTownCount(day){ return dayTownList(day).length; }
    "on no day" is what the headline rule forbids.
    ⚠ A PINNED HOUSE IS NEVER PULLED — its window is one day wide and the pin is the answer — and
    a locked day is never touched from either end. */
+/* [[SCH-122]] the any-time house in the same town, on an open day no later than `until`, that `h` can trade places with. */
+function deadlineSwapFor(h, fromDay, fromDs, until){
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const custOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; return (c && c.data) || {}; };
+  const startStr = isoOf(seasonStartDate());
+  const hd = custOf(h);
+  const hp = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, hd) : null;
+  let best = null;
+  SEASON.forEach(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown) return;
+    const x = dayStr(d);
+    if(!x || x > until || x >= fromDs) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(x)) return;
+    if(d.printedAt) return;
+    if(!houseMayGoOn(h, hd, x, startStr).ok) return;
+    (d.houses || []).forEach(function(o){
+      if(!o || o.done || o.isFix || o.isTakedown || o === h) return;
+      if(('' + (o.stuck || '')).trim() || o.notBefore) return;
+      if(!sameCity(cityOf(o), cityOf(h))) return;
+      if((typeof houseDeadline === 'function') && houseDeadline(o)) return;
+      const od = custOf(o);
+      if(typeof isRushInstall === 'function' && isRushInstall(od)) return;
+      if(!houseMayGoOn(o, od, fromDs, startStr).ok) return;
+      const op = (typeof houseGeoPoint === 'function') ? houseGeoPoint(o, od) : null;
+      const miles = (hp && op && typeof hp.lat === 'number' && typeof op.lat === 'number') ? haversine(hp.lat, hp.lng, op.lat, op.lng) : 1e6;
+      if(!best || miles < best.miles || (miles === best.miles && x < best.ds)) best = {day: d, ds: x, other: o, miles: miles};
+    });
+  });
+  return best;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -77640,7 +78194,21 @@ function pullBackPastDeadline(){
         if(!until || ds <= until) return;
         const target = nextInstallDayFor(h, {exclude: day});
         const ts = target ? dayStr(target) : null;
-        if(!target || !ts || ts > until){ res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return; }
+        if(!target || !ts || ts > until){
+          /* ⭐ [[SCH-122]] NO ROOM INSIDE THEIR LAST DAY — SO TRADE PLACES WITH SOMEBODY WHO SAID ANY TIME. Dax: "theres a lot
+             of people wanting for october and scheduled in november which should never happen". An open day on or before
+             their last day, holding an any-time house in the SAME TOWN: the two swap, so both days keep their size and their
+             towns, and the crew sheets need no new town. Never a rush, a pinned, a done or a dated house, never a locked or
+             printed day, and the any-time house must be allowed on the day it is given. Nearest any-time house first. */
+          const swap = deadlineSwapFor(h, day, ds, until);
+          if(swap){
+            day.houses.splice(day.houses.indexOf(h), 1, swap.other);
+            swap.day.houses.splice(swap.day.houses.indexOf(swap.other), 1, h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: swap.ds, swappedWith: swap.other.name || ''});
+            return;
+          }
+          res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;
+        }
         day.houses.splice(day.houses.indexOf(h), 1);
         target.houses.push(h);
         res.moved.push({name: h.name || '(no name)', from: ds, to: ts});
@@ -77871,7 +78439,8 @@ function validateSeasonPlan(opts){
     (day.houses || []).forEach(function(h){
       if(!h || h.isTakedown || h.isFix) return;
       const who = h.name || h.id;
-      if(!sheets[h.id]) add(8, who, ds, 'on no crew sheet');
+      /* [[SCH-119]] a done house hidden by Recalculate is meant to be on no crew sheet. */
+      if(!sheets[h.id] && !(typeof houseIsHiddenDone === 'function' && houseIsHiddenDone(h))) add(8, who, ds, 'on no crew sheet');
       else if(sheets[h.id] > 1) add(3, who, ds, 'on ' + sheets[h.id] + ' crew sheets');
       if(seen[h.id]) add(1, who, ds, 'also on ' + seen[h.id]);
       seen[h.id] = seen[h.id] || ds;
@@ -79202,6 +79771,7 @@ function hydrate(o){
     ?{date:String(o.hangDay.date),setOn:String(o.hangDay.setOn)}:null;
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
+    printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
   uniqueDayIds(SEASON);
@@ -79301,6 +79871,7 @@ RT.addEventListener('change',e=>{const t=e.target;
     const target=moveLeftover(t.dataset.lmove,t.value);
     renderAll();
     if(target)toast('Moved to '+dlabel(dayDate(target)).wd+' '+dlabel(dayDate(target)).full);
+    else if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(getDay(t.value)))toast('That day has been printed and can no longer be changed — pick another');
     return;
   }
   if(t.dataset.crewname!=null){const i=+t.dataset.crewname,v=(t.value||'').trim();
@@ -79396,7 +79967,10 @@ RT.addEventListener('change',e=>{const t=e.target;
   }
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
-  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
+  if(t.dataset.pin){const d=getDay(t.dataset.pin);
+    /* [[SCH-120]] a printed day's date is fixed. */
+    if(d&&typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)){t.value=isoOf(dayDate(d));toast('This day has been printed and can no longer be moved');return;}
+    if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
@@ -79748,7 +80322,17 @@ RT.addEventListener('click',e=>{const t=e.target;
 function cascade(id,delta,msg){
   const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
+  /* [[SCH-120]] a shift that would move a PRINTED day's date is refused — the day itself, or one further on that the
+     shift would drag along. Checked by RESULT (dates before and after), so a shift that leaves printed days alone still works. */
+  const printedBefore=affected.filter(function(d){ return typeof dayIsPrintedAhead==='function' && dayIsPrintedAhead(d); })
+    .map(function(d){ return {d:d, t:d._date.getTime()}; });
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
+  const movedPrinted=printedBefore.filter(function(x){ return x.d._date && x.d._date.getTime()!==x.t; });
+  if(movedPrinted.length){
+    affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+    const l=dlabel(new Date(movedPrinted[0].t));
+    toast(l.wd+' '+l.full+' has been printed and can no longer be moved — nothing was shifted');return;
+  }
   /* ⚠ THE REVERT IS WHAT KEEPS "Pull earlier" INSIDE THE SEASON. With the floor in
      computeDates the date simply stops moving once the day is sitting on the season
      start, this branch puts the cascade back, and the press does nothing instead of
@@ -79760,6 +80344,10 @@ function cascade(id,delta,msg){
   renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;
+  /* [[SCH-120]] nothing moves onto or off a printed day the crew has not reached yet. */
+  if(typeof dayIsPrintedAhead==='function'&&(dayIsPrintedAhead(f.day)||dayIsPrintedAhead(target))){
+    const pd=dayIsPrintedAhead(f.day)?f.day:target;renderAll();
+    toast(dlabel(dayDate(pd)).wd+' '+dlabel(dayDate(pd)).full+' has been printed and can no longer be changed');return;}
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
   if(target.isFixRoute)selFix=dayId;else if(target.isTakedown)selTake=dayId;else selSchedule=dayId;
@@ -79770,6 +80358,8 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
 function moveLeftover(id,dayId){
   const f=findHouse(id);if(!f)return null;
   const target=getDay(dayId);if(!target||target===f.day)return null;
+  /* [[SCH-120]] a missed house may leave the day the crew worked, but may not land on a printed day still ahead. */
+  if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return null;
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='not done — rescheduled';}
   return target;
@@ -79893,6 +80483,8 @@ function schedOpenPrint(title,summary,tableHtml,emptyNote){
 function printDaySheet(dayId){
   const day=getDay(dayId);
   if(!day){toast('Pick a day first');return;}
+  /* [[SCH-120]] printing a day locks it — see markDayPrinted. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows=schedRouteRows(day);
   const l=dlabel(dayDate(day));
   const what=day.isFixRoute?'Fixer Route':(day.isTakedown?'Takedown':'Install');
@@ -80843,6 +81435,8 @@ function printOneList(kind, title, rows, summary, empty){
     body: printTableHtml(rows, PRINT_COLUMNS[kind]), empty: empty}]);
 }
 function printCrewSheetPage(day, i){
+  /* [[SCH-120]] printing a sheet locks its day — see markDayPrinted. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows = printCrewDayList(day, i);
   const who = (typeof crewName === 'function') ? crewName(i) : ('Crew ' + (i + 1));
   const where = (typeof crewCityFor === 'function') ? crewCityFor(i, day) : '';
@@ -80862,6 +81456,8 @@ function printCrewSheetPage(day, i){
   };
 }
 function printWarehousePage(day){
+  /* [[SCH-120]] the warehouse builds from this day's list, so printing it locks the day too. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows = printWarehouseDayList(day);
   return {
     title: 'Warehouse — ' + printDayLabel(day),

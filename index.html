@@ -7891,6 +7891,38 @@ function updateTipBreakdown(){
       var venmoNote = 'Christmas Lights';
       venmoBtn.href = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + total.toFixed(2) + '&note=' + encodeURIComponent(venmoNote);
     }
+    /* ⭐ AND WE RECORD THAT THEY OPENED IT (2026-09-29). Addie: "We can do this one so
+       people are marked as venmo and we can just check on venmo." Venmo has no webhook
+       and sends us nothing, so a payment made this way was invisible on every screen —
+       the customer stayed Unpaid, went on the 1 February text list and would have
+       collected an April late fee. This is the half a machine can do: tell the office
+       who to go looking for in their Venmo email.
+       ⛔ AN INTENTION, NEVER A PAYMENT. It touches no invoice and no balance; see
+       portalVenmoOpened for the whole argument, including why no amount is stored.
+       ⚠ BOUND ONCE, NOT ON EVERY RENDER. This function runs again whenever the amount
+       changes — a tip, an instalment — and a listener added each time would fire a
+       write per render. That is the shape of the drag that once fired 2,815 Firestore
+       writes off one gesture. The button is static markup, so a flag on the node is
+       enough; do not move this to a `querySelectorAll` bind. */
+    if(!venmoBtn._venmoOpenBound){
+      venmoBtn._venmoOpenBound = true;
+      venmoBtn.addEventListener('click', function(){
+        /* ⚠ FIRE AND FORGET, AND NEVER AWAITED. The link opens Venmo in a new tab and
+           must not wait on us: standing between a customer and paying, to file a note
+           for ourselves, would be the wrong way round. */
+        var tok = getActivePortalToken();
+        if(!tok) return;
+        try{
+          callPortalFn('portalVenmoOpened', {token: tok}).catch(function(){
+            /* Quiet on purpose, and this is the reason: the ONLY thing lost is a
+               row on the office's "check Venmo for these people" list, which they
+               reach anyway through the ordinary unpaid filters. The customer is
+               already on their way to Venmo in another tab, so there is no screen
+               left to tell and nothing for them to do about it. */
+          });
+        }catch(err){ /* same reason as the catch above — the send is best effort and the payment must not depend on it */ }
+      });
+    }
   }
   if(payNote){
     payNote.style.display = showVenmo ? '' : 'none';
