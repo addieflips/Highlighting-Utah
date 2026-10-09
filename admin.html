@@ -76938,6 +76938,8 @@ function rebuildSeasonDays(){
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
+  /* [[SCH-121]] the done houses off every worked day that is not locked, packed onto the first days of the season below. */
+  const doneRecord=[];
   if(typeof PRINTED_UNBUILT_OFF!=='undefined') PRINTED_UNBUILT_OFF = [];
   /* WHAT IS LEFT TO DO drives everything, not what was planned.
      Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
@@ -77016,8 +77018,44 @@ function rebuildSeasonDays(){
     });
     /* A day that came and went with nothing done is not a record of anything —
        drop it rather than leaving an empty day in the calendar. */
-    if(done.length){ d.houses=done; keep.push(d); }
+    if(done.length) doneRecord.push({id:d.id, dt:dt, houses:done});
   });
+  /* ⭐⭐ [[SCH-121]] DONE HOUSES GO TO THE FRONT OF THE SEASON, AND EVERYTHING ELSE CLOSES UP BEHIND THEM (2026-10-09).
+     Dax: "after someone is finished they should be pushed to the begining of the list when we recalculate everything
+     while everything else gets push forward so the OCt 1 2 3 all are filled with done people", and, the same morning,
+     "we need to adjust recalculate everything so that we fill up October days first".
+     ⛔ THE FAULT THIS CLOSES, MEASURED ON THE REAL PRESS. A worked day used to be kept ON ITS OWN DATE holding its done
+     houses, and the floor for new days is the day after the last kept day. A crew ticking off ONE house on 28 October
+     ahead of time made 28 October a "worked" day — and the next Recalculate started the season on 29 October, leaving
+     14-27 October empty while the same houses went to November. Packed here, a done house can only ever sit on a date
+     before today, so it can never hold the floor up.
+     ⚠ ONLY DATES BEFORE `today` (the hang day when one is set — SCH-116), ONE FULL DAY APIECE, earliest hung first. Every
+     date from today on belongs to the locked days or the new plan. More done than those dates hold: the rest go on the
+     last of them — a record day is never driven, so a big one costs nothing. No date before today at all (the first
+     morning of the season): the old behaviour, each day kept where it was.
+     ⚠ A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
+     customer's record: done houses are hidden (SCH-119), so schedulePlanBookings never re-stamps their date, and when
+     their lights went up is `completedAt`, not the day they sit on. */
+  if(doneRecord.length){
+    const perDay=Math.max(1,((typeof CREWS_PER_DAY==='number'&&CREWS_PER_DAY>0)?CREWS_PER_DAY:2)*((typeof crewCap==='function')?crewCap():20));
+    doneRecord.sort(function(a,b){ const x=a.dt?a.dt.getTime():0, y=b.dt?b.dt.getTime():0; return x-y; });
+    const doneHouses=[]; doneRecord.forEach(function(r){ r.houses.forEach(function(h){ doneHouses.push(h); }); });
+    const recordDates=[];
+    for(let dd=nextWorkingDay(start), g=0; dd<today && g<400 && recordDates.length*perDay<doneHouses.length; g++){
+      recordDates.push(dd);
+      dd=nextWorkingDay(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate()+1));
+    }
+    if(!recordDates.length){
+      doneRecord.forEach(function(r){ const d=SEASON.filter(function(x){ return x.id===r.id; })[0]; if(d){ d.houses=r.houses; keep.push(d); } });
+    } else {
+      recordDates.forEach(function(dd,i){
+        const last=i===recordDates.length-1;
+        const houses=last?doneHouses.slice(i*perDay):doneHouses.slice(i*perDay,(i+1)*perDay);
+        if(!houses.length) return;
+        keep.push({id:(doneRecord[i]&&doneRecord[i].id)||('done'+i), base:daysBetween(dd,BASE_START), cascade:0, pin:null, houses:houses});
+      });
+    }
+  }
   /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF IT (added 2026-08-22). Owner:
      "back next year should be on 2027 and not split for this year on schedule."
 
