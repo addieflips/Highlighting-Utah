@@ -1049,8 +1049,11 @@ if (amberTotal) {
     'the frame asks window.parent for these by name; without them every decision falls ' +
     'into the "opened in its own tab" branch and nothing is ever saved');
   check('and reads the saved decisions eagerly, beside the health-check ones',
-    /loadRuleDecisions\(\);/.test(admin.slice(admin.indexOf('loadHcDecisions();'),
-      admin.indexOf('loadHcDecisions();') + 600)),
+    /loadRuleDecisions\(\);/.test((function(){
+      /* scoped to initData: the live-settings list ([[PROC-38]]) names both loaders earlier in the file */
+      const body = admin.slice(admin.indexOf('function initData('));
+      return body.slice(body.indexOf('loadHcDecisions();'), body.indexOf('loadHcDecisions();') + 600);
+    })()),
     'the frame asks for these while it loads and can be opened before any panel group ' +
     'has run — loaded later, every rule she confirmed reads as never-read');
   check('and the write is awaited before the record is handed back',

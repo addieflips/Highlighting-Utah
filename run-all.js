@@ -66197,3 +66197,62 @@ suite('374. A fix raised in Customers reaches a fixer route');
     }
   }
 }
+
+suite('375. A setting changed on another computer reaches this one without a refresh');
+{
+  const names = ['liveSettingsSomebodyTyping', 'liveSettingsRun', 'followSettingsLive'];
+  const parts = names.map(n => extractFn(admin, n));
+  const listSrc = (admin.match(/const LIVE_SETTINGS = \[[\s\S]*?\r?\n\];/) || [])[0];
+  check('S375', 'the live-settings helpers and their list are findable', parts.every(Boolean) && !!listSrc, names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean) && listSrc) {
+    const loaderNames = (listSrc.match(/return (load\w+)\(\)/g) || []).map(s => s.replace(/^return |\(\)$/g, ''));
+    check('S375', 'every setting it follows is reloaded by a loader that really exists', loaderNames.length >= 13 &&
+      loaderNames.every(n => !!extractFn(admin, n)), loaderNames.filter(n => !extractFn(admin, n)).join(','));
+    check('S375', 'it starts with the rest of the data at sign-in', /loadNightlyInvoiceSettings\(\);\s*followSettingsLive\(\);/.test(admin));
+    const build = () => {
+      const pre = 'const calls = []; const listeners = {}; let focused = null; const focusHandlers = [];' +
+        'const db = {};' +
+        'function doc(d, a, b){ return {path: a + "/" + b}; }' +
+        'function collection(d, a){ return {path: a}; }' +
+        'function onSnapshot(ref, cb){ (listeners[ref.path] = listeners[ref.path] || []).push(cb); return function(){ listeners[ref.path] = listeners[ref.path].filter(x => x !== cb); }; }' +
+        'const document = { get activeElement(){ return focused; }, addEventListener: function(t, f){ if(t === "focusout") focusHandlers.push(f); } };' +
+        'function setTimeout(f){ f(); }' +
+        loaderNames.map(n => 'function ' + n + '(){ calls.push("' + n + '"); }').join('\n') + '\n' +
+        listSrc.replace(/^const /, 'var ') + '\n' +
+        'let liveSettingsStops = []; let liveSettingsWaiting = {}; let liveSettingsFocusBound = false;\n';
+      const ret = 'return {calls, listeners, focusHandlers, setFocus(f){ focused = f; }, follow: followSettingsLive,' +
+        'docSnap(path, data, pending){ (listeners[path] || []).forEach(cb => cb({exists(){ return data !== null; }, data(){ return data; }, metadata: {hasPendingWrites: !!pending}})); },' +
+        'collSnap(path, rows){ (listeners[path] || []).forEach(cb => cb({docs: rows.map(r => ({id: r[0], data(){ return r[1]; }})), metadata: {hasPendingWrites: false}})); } };';
+      return new Function(pre + parts.join('\n') + '\n' + ret)();
+    };
+    let t, threw = '';
+    try { t = build(); t.follow(); } catch (e) { threw = String(e && e.message || e); }
+    check('S375', 'it builds and follows without throwing', !threw, threw);
+    if (t) {
+      t.docSnap('settings/scheduling', {crewsPerDay: 2});
+      check('S375', 'the first snapshot (already read at login) reloads nothing', t.calls.length === 0, t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 1});
+      check('S375', 'a change saved on another computer reloads exactly that setting', t.calls.join(',') === 'loadSchedulingSettings', t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 1});
+      check('S375', 'the same data again reloads nothing', t.calls.length === 1, t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 3}, true);
+      check('S375', 'our own save echoing back reloads nothing (the screen already shows it)', t.calls.length === 1, t.calls.join(','));
+      t.collSnap('healthCheckDecisions', [['a', {v: 1}]]);
+      t.collSnap('healthCheckDecisions', [['a', {v: 1}], ['b', {v: 2}]]);
+      check('S375', 'a decision added to a collection on another computer reloads it too', t.calls[t.calls.length - 1] === 'loadHcDecisions', t.calls.join(','));
+      const before = t.calls.length;
+      t.setFocus({tagName: 'INPUT'});
+      t.docSnap('siteContent/main', {heroHeadline: 'x'});
+      t.docSnap('siteContent/main', {heroHeadline: 'y'});
+      check('S375', 'while somebody is typing in a box, the reload waits', t.calls.length === before, t.calls.slice(before).join(','));
+      t.setFocus(null);
+      t.focusHandlers.forEach(f => f());
+      check('S375', 'and it runs the moment they leave the box', t.calls[t.calls.length - 1] === 'loadSettings', t.calls.slice(before).join(','));
+      let threw2 = '';
+      try { t.follow(); } catch (e) { threw2 = String(e && e.message || e); }
+      check('S375', 'signing in again rebuilds the listeners rather than stacking a second set',
+        !threw2 && (t.listeners['settings/scheduling'] || []).length === 1, threw2 || String((t.listeners['settings/scheduling'] || []).length));
+      check('S375', 'and binds the focus handler only once', t.focusHandlers.length === 1, String(t.focusHandlers.length));
+    }
+  }
+}

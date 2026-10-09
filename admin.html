@@ -12876,6 +12876,80 @@ document.getElementById('downloadBackupBtn').addEventListener('click', async fun
    reason the far-away version worked was that initData runs after the module finishes.
    Not a fact worth depending on. */
 let nightlyHealthTimer = null;
+/* ⭐⭐ [[PROC-38]] SETTINGS ARE LIVE ON EVERY COMPUTER TOO (2026-10-09). Dax: "my sister is working on a different computer ...
+   make the entire system so any changes to customers or saves or anything else on both our screens so the entire website
+   is live". Every collection the office works in already arrives through onSnapshot (customers, quotes, invoices, messages,
+   routes, templates, the warehouse, time logs) and the Schedule plan follows itself since #551. What did not were the
+   SETTINGS documents, each read once at login by its own loader — so a switch flipped or a template picked on one computer
+   stayed the old way on the other until somebody refreshed.
+   ⭐ ONE LISTENER PER DOCUMENT, AND IT CALLS THE LOADER THAT ALREADY EXISTS. Each loader is the one place that knows how its
+   setting reaches the screen and the caches; a second copy of that here is how the two would start disagreeing.
+   ⚠ THREE SNAPSHOTS ARE SKIPPED: the first (login already read it), our own write echoing back (hasPendingWrites — the
+   screen already shows it), and an unchanged one. ⚠ AND IT NEVER REFILLS A FORM UNDER SOMEBODY TYPING: while a box has the
+   focus the reload waits, and runs when the focus leaves. Losing a half-typed setting to the other computer's save is
+   worse than seeing their change a few seconds later. */
+const LIVE_SETTINGS = [
+  {key: 'settings/scheduling', load: function(){ return loadSchedulingSettings(); }},
+  {key: 'settings/season', load: function(){ return loadRsvpSentMark(); }},
+  {key: 'settings/rsvpSendPlan', load: function(){ return loadRsvpDripPlan(); }},
+  {key: 'settings/nightlyInvoiceAutomation', load: function(){ return loadNightlyInvoiceSettings(); }},
+  {key: 'settings/arrearsRsvpAutomation', load: function(){ return loadArrearsChaseSetting(); }},
+  {key: 'settings/quoteNudgeAutomation', load: function(){ return loadQuoteNudgeSettings(); }},
+  {key: 'settings/quoteTemplates', load: function(){ return loadQuoteTemplateSettings(); }},
+  {key: 'settings/rsvpText', load: function(){ return loadRsvpTextSettings(); }},
+  {key: 'settings/portalChangeEmail', load: function(){ return loadPortalChangeEmailSettings(); }},
+  {key: 'settings/emailjs', load: function(){ return loadEmailjsSettings(); }},
+  {key: 'siteContent/main', load: function(){ return loadSettings(); }},
+  {coll: 'ruleDecisions', load: function(){ return loadRuleDecisions(); }},
+  {coll: 'healthCheckDecisions', load: function(){ return loadHcDecisions(); }}
+];
+let liveSettingsStops = [];
+let liveSettingsWaiting = {};
+function liveSettingsSomebodyTyping(){
+  const a = (typeof document !== 'undefined') ? document.activeElement : null;
+  if(!a) return false;
+  const tag = (a.tagName || '').toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || a.isContentEditable === true;
+}
+function liveSettingsRun(item){
+  if(liveSettingsSomebodyTyping()){ liveSettingsWaiting[item.key || item.coll] = item; return; }
+  try{
+    const p = item.load();
+    if(p && typeof p.catch === 'function') p.catch(function(err){ console.error('[HU] could not reload ' + (item.key || item.coll) + ' after another computer changed it', err); });
+  }catch(err){ console.error('[HU] could not reload ' + (item.key || item.coll) + ' after another computer changed it', err); }
+}
+let liveSettingsFocusBound = false;
+function followSettingsLive(){
+  /* initData runs on every sign-in, and sign-out detaches every listener (detachAllListeners) — so this starts fresh each
+     time rather than refusing to start twice, which would leave a second sign-in with no live settings at all. */
+  liveSettingsStops.forEach(function(stop){ try{ stop(); }catch(err){ /* already detached by the sign-out — nothing to stop */ } });
+  liveSettingsStops = []; liveSettingsWaiting = {};
+  LIVE_SETTINGS.forEach(function(item){
+    let first = true, lastSeen = null;
+    const ref = item.key ? doc(db, item.key.split('/')[0], item.key.split('/')[1]) : collection(db, item.coll);
+    try{
+      liveSettingsStops.push(onSnapshot(ref, function(snap){
+        if(snap.metadata && snap.metadata.hasPendingWrites) return;
+        const seen = item.key ? JSON.stringify(snap.exists() ? snap.data() : null)
+          : JSON.stringify(snap.docs.map(function(d){ return [d.id, d.data()]; }));
+        if(first){ first = false; lastSeen = seen; return; }
+        if(seen === lastSeen) return;
+        lastSeen = seen;
+        liveSettingsRun(item);
+      }, function(err){ console.error('[HU] live listener for ' + (item.key || item.coll) + ' failed', err); }));
+    }catch(err){ console.error('[HU] could not follow ' + (item.key || item.coll) + ' live', err); }
+  });
+  /* a reload that waited for somebody to finish typing runs the moment they leave the box (bound once per page) */
+  if(liveSettingsFocusBound) return;
+  liveSettingsFocusBound = true;
+  document.addEventListener('focusout', function(){
+    setTimeout(function(){
+      if(liveSettingsSomebodyTyping()) return;
+      const waiting = liveSettingsWaiting; liveSettingsWaiting = {};
+      Object.keys(waiting).forEach(function(k){ liveSettingsRun(waiting[k]); });
+    }, 0);
+  });
+}
 function initData(){
   if(initialized) return;
   initialized = true;
@@ -12963,6 +13037,7 @@ function initData(){
   loadQuoteNudgeSettings();
   loadPortalChangeEmailSettings();
   loadNightlyInvoiceSettings();
+  followSettingsLive();
   loadNightlyInvoiceLog();
   loadPerFootRate();
   /* Whatever panel is on screen at login — the remembered one, or Quote
