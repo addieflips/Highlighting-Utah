@@ -1491,6 +1491,43 @@ suite('SCH-123 Two weeks of real presses and syncs: the next two days never move
   check('23.2 nobody on Build, Timer, Color Change or Recycle is on any day, after a sync or a Recalculate', failB.length === 0, failB.slice(0, 4).join(' | '));
   check('23.3 and the next Recalculate puts everybody taken off a list back on a day', failC.length === 0, failC.slice(0, 4).join(' | '));
 }
+suite('SCH-124 Recalculate everything runs itself once a morning, so a missed house is on a new day by the next morning');
+{
+  const M = lift(['morningRecalcDue'], 'const MORNING_RECALC_HOUR = 5;', 'return {due: morningRecalcDue};');
+  check('24.1 not before five in the morning', M.due({date: '2026-10-12', hour: 4, minute: 59}, '2026-10-09') === false);
+  check('24.2 from five on, once the date has moved on since the last press', M.due({date: '2026-10-12', hour: 5, minute: 0}, '2026-10-09') === true);
+  check('24.3 and never twice in one morning — a press earlier today counts', M.due({date: '2026-10-12', hour: 9, minute: 0}, '2026-10-12') === false);
+  check('24.4 the first morning ever (nothing stamped yet) runs', M.due({date: '2026-10-12', hour: 6, minute: 0}, null) === true);
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  const timer = code.slice(code.indexOf('function __startSyncTimer('), code.indexOf('function __startSyncTimer(') + 900);
+  check('24.5 the five-minute timer asks for it after every sync', /scheduleSyncFromCustomers\(\{quiet:false\}\);\s*maybeMorningRecalc\(\)/.test(timer));
+  const run = code.slice(code.indexOf('function runRecalculateEverything('), code.indexOf('function runRecalculateEverything(') + 400);
+  check('24.6 every press of the button stamps the morning, so an office press is not repeated', /LAST_RECALC_ON\s*=/.test(run));
+  check('24.7 the stamp is saved with the plan, so every computer agrees', /lastRecalcOn:LAST_RECALC_ON/.test(code));
+  check('24.8 and a stale copy from another computer can never move it backwards', /String\(o\.lastRecalcOn\)>String\(LAST_RECALC_ON/.test(code));
+  const mm = code.slice(code.indexOf('function maybeMorningRecalc('), code.indexOf('function __startSyncTimer('));
+  check('24.9 it presses the real button — forecast, loading guard and report included — and claims the morning first',
+    /getElementById\('recalcBtn'\)/.test(mm) && mm.indexOf('LAST_RECALC_ON=now.date') !== -1 && mm.indexOf('LAST_RECALC_ON=now.date') < mm.indexOf('.click()')
+    && /jobAddresses/.test(mm) && /recalcRunning/.test(mm));
+  /* and what it buys, on the real Recalculate: three weeks, crews finishing 70%, one press each morning */
+  const book = makeBook(600, 124);
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const r = rng(124);
+  const missed = {}, lost = [];
+  H.setNow(new Date(2026, 8, 30, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 1); day <= new Date(2026, 9, 21); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    const today = H.api.isoOf(day);
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    H.press();
+    const where = {}; H.api.installDays().forEach(function(d){ d.houses.forEach(function(h){ where[h.id] = {ds: ds(d), done: !!h.done}; }); });
+    Object.keys(missed).forEach(function(id){ const w = where[id]; if(!w || (!w.done && w.ds < today)) lost.push(id + ' missed ' + missed[id] + ' -> ' + (w ? w.ds : 'nowhere')); });
+    Object.keys(missed).forEach(function(k){ delete missed[k]; });
+    H.api.installDays().filter(function(d){ return ds(d) === today; }).forEach(function(d){ d.houses.forEach(function(h){
+      if(h.done) return; if(r() < 0.7) h.done = true; else missed[h.id] = today; }); });
+  }
+  check('24.10 with one press a morning, every house the crew missed is on a day from that morning on', lost.length === 0, lost.slice(0, 4).join(' | '));
+}
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){
