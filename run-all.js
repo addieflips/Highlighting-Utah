@@ -29197,6 +29197,12 @@ seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
     check('S116', 'one nobody queued is reported as not queued',
       ask({name: 'A'}).state === 'notqueued',
       'owner pressed a button and could not tell whether it had worked');
+    /* ⚠ A COLOUR CHANGE IS LEFT OFF THE BUILD LIST ON PURPOSE (2026-10-05) and was reported
+       as "That should not happen — tell somebody" (Robert Smith #780, 2026-10-09). */
+    check('S116', 'one on the Color Change list says so, rather than "tell somebody"',
+      ask({name: 'A', needsLightBuild: true, needsColorChange: true, lightsDescription: 'Red'}).state === 'colorchange');
+    check('S116', 'and that sentence names the Color Change tab',
+      /Color Change tab/.test(new Function('name', 'st', extractFn(admin, 'whBuildStatusText') + 'return whBuildStatusText(name, st);')('A', {state: 'colorchange'})));
     check('S116', 'and somebody sitting the season out says so',
       ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
     /* ⚠ INCLUDING THE ONE THE FLAG COULD NOT SEE. This screen exists to say WHY

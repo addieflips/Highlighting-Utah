@@ -54554,6 +54554,13 @@ function whHouseBuildStatus(item){
      press Build Them A New Set on a house that is already on this tab and needs no bundle. */
   if(!d.needsLightBuild && d.needsTimerRemoved) return {state: 'timerremoval'};
   if(!d.needsLightBuild) return {state: 'notqueued'};
+  /* ⭐ ON THE COLOR CHANGE LIST INSTEAD (2026-10-09). whBuildQueueGroups has left a colour
+     change off the build list since 2026-10-05 (Dax: "if theyre on color change they dont
+     need to be on build"), and this screen was never told — so every one of them fell
+     through to 'unknown' and read "That should not happen — tell somebody" when it was the
+     rule doing its job. Asked AFTER the groups and the season test, exactly as that
+     early return sits after them in the grouping. */
+  if(d.needsColorChange === true) return {state: 'colorchange'};
   return {state: 'unknown'};
 }
 /* One sentence per state, and each one says what to do about it. */
@@ -54567,6 +54574,7 @@ function whBuildStatusText(name, st){
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
     ', so nothing is being built for them.';
+  if(st.state === 'colorchange') return who + ' is on the Color Change list — that is their new set, so they are not on the build list as well. Look for them under the Color Change tab.';
   if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
   return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
 }
