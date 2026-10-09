@@ -7270,6 +7270,21 @@ unsubscribes the moment this device loads the plan for real, because from then o
 in-memory plan is the one being edited and hydrating over it would discard a move made a
 second ago.
 
+⭐ **AND AN OPEN SCHEDULE FOLLOWS THE PLAN LIVE TOO** (2026-10-09). Owner: *"for schedule when we
+recalculate it only shows for one computer but needs to show for everyone"*. `loadPlan` read
+`routeSchedule/plan` once, so a second computer with Routes open kept the season it opened with
+— and its own redraws and five-minute sync then saved that stale copy back **over** the
+Recalculate. Now `followPlanLive` listens on the plan once it is loaded (or imported) and takes
+another computer's save: hydrates, redraws, keeps the selected day, drops Undo (it would put the
+old season back over theirs) and says *"Schedule updated from another computer"*.
+`planSyncedKey` — the plan as this device last loaded, saved or received it, keys sorted — is what
+makes that safe: `saveNow` skips a save that holds nothing new, so a redraw no longer writes a
+stale plan, and two machines do not bounce the same plan back and forth.
+
+⚠ **A REAL UNSAVED EDIT STILL WINS.** If this device has changed the plan and not yet saved (the
+1.5-second debounce), or a Recalculate is mid-press, the incoming plan is skipped with a console
+warning and the local save goes out — last write wins, exactly as before.
+
 ⚠ **NOTHING ABOUT WHO GETS PLACED CHANGED.** This is what the page READS. The rule that puts
 every confirmed customer on a day, and names any who are left off, is
 `confirmedNotOnAnyDay` on the Recalculate press ([[SCH-74]]).
