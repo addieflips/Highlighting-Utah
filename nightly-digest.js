@@ -42,6 +42,7 @@ const admin = require('firebase-admin');
 
 const MAX_RUNS = 14;          // a fortnight of nights is enough to see a pattern
 const MAX_CUSTOMERS = 5000;
+const MAX_INVOICES = 5000;
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -57,6 +58,37 @@ const when = ts => {
 const scrub = t => String(t || '')
   .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(email removed)')
   .replace(/left out of .*?'s bill:/g, "left out of (a customer)'s bill:");
+
+/* ⛔ ITS OWN FUNCTION SO A GATE CAN RUN IT, which is the only way the claim this
+   section rests on can be tested at all. Written inline, the strongest check
+   possible was that the word "byReason" appears somewhere — and a red-check proved
+   that: deleting the Map LOOKUP gives every failure a group of its own, turning one
+   fault into forty-one rows of one, and the text check stayed green over it. That is
+   the reading this section exists to prevent, so it is the one that has to bite.
+   Same move as tallyEnv in error-digest.js, and for the same reason. */
+function groupReceiptFailures(rows) {
+  const byReason = new Map();
+  let broken = 0, noEmailOnFile = 0, oldest = null, newest = null;
+  (rows || []).forEach(inv => {
+    const why = String((inv || {}).receiptError || '').trim();
+    if (!why) return;
+    broken++;
+    if (!String(inv.email || '').trim()) noEmailOnFile++;
+    const at = when(inv.receiptErrorAt);
+    if (at !== '—') {
+      if (!oldest || at < oldest) oldest = at;
+      if (!newest || at > newest) newest = at;
+    }
+    /* Digits collapsed so one fault is one row: amounts and row numbers vary per
+       customer and would otherwise split a single cause into dozens. */
+    const key = scrub(why).replace(/\d+/g, '#').slice(0, 300);
+    const g = byReason.get(key) || { n: 0, sample: scrub(why) };
+    g.n++;
+    byReason.set(key, g);
+  });
+  return { broken, noEmailOnFile, oldest, newest,
+           groups: [...byReason.values()].sort((a, b) => b.n - a.n) };
+}
 
 (async function main() {
   const out = [];
@@ -227,7 +259,61 @@ const scrub = t => String(t || '')
     say('     almost never the reason nothing sent; it changes the WORDING, not the send.');
   } catch (e) { say('   could not read it: ' + e.message); }
 
+  /* ---- 5. PAYMENT RECEIPTS THAT DID NOT GO OUT  (invoices) -------------- */
+  /* ⛔ THE MONEY IS NEVER AT RISK HERE, AND THAT IS THE FIRST THING THE SECTION
+     SAYS. Both senders record the payment and treat the email as a courtesy —
+     "a failed receipt must not roll back a recorded payment" is written over
+     each of them — so a receiptError is an email that did not go, never money
+     that did not land. Said out loud because a red banner counting 41 failures
+     reads like 41 lost payments.
+     ⛔ AND THE REASONS ARE GROUPED, NOT LISTED. Forty-one of ONE reason is a
+     setting or a sending limit; forty-one DIFFERENT reasons are the book. Those
+     need opposite answers, and a list of names cannot tell them apart — while
+     the grouping can, without naming anybody. [[PROC-36]]: who hit it belongs
+     in the admin portal, which already names them on the banner itself.
+     ⚠ THE DIGITS ARE COLLAPSED before grouping, the same way the error reader
+     does it: amounts and row numbers vary per customer and would otherwise
+     split one cause into forty-one rows of one, which is precisely the reading
+     this section exists to prevent. */
+  say('5. PAYMENT RECEIPTS THAT DID NOT GO OUT  (invoices)');
+  say('-'.repeat(64));
+  try {
+    const snap = await db.collection('invoices').limit(MAX_INVOICES).get();
+    const rows = [];
+    snap.forEach(d => rows.push(d.data() || {}));
+    const invoices = rows.length;
+    const { broken, noEmailOnFile, oldest, newest, groups } = groupReceiptFailures(rows);
+    say('   invoices on file                 : ' + invoices);
+    say('   ⭐ RECEIPTS SHOWING AN ERROR      : ' + broken);
+    if (!broken) {
+      say('   ✓ nothing to report — no invoice is carrying a failed receipt.');
+    } else {
+      if (oldest) say('   first one failed at            : ' + oldest);
+      if (newest) say('   most recent failed at          : ' + newest);
+      say('   of those, no email on the record : ' + noEmailOnFile);
+      say('');
+      say('   Grouped by reason, commonest first:');
+      groups.forEach(g => {
+        say('   ' + String(g.n).padStart(4) + ' ×  ' + g.sample.slice(0, 240));
+      });
+      say('');
+      if (noEmailOnFile === broken) {
+        say('   ⚠ EVERY ONE of them simply has no email address on file, so nothing is');
+        say('     broken — those customers cannot be emailed at all, by anything.');
+      } else if (groups.length === 1 && broken > 5) {
+        say('   ⚠ ONE reason for ALL of them, so this is a setting or a sending limit,');
+        say('     not the book. The line above is quoted from the mail service itself.');
+      }
+      say('   ⚠ THE PAYMENTS THEMSELVES ARE FINE — this is unsent email, never');
+      say('     uncollected money.');
+      say('   ⚠ AND NOTHING RETRIES A FAILED RECEIPT. sendPaymentReceipt is only ever');
+      say('     called while a payment is being recorded (by hand, by the importer, or');
+      say('     by PayPal), and receiptSentForDeposit is written only on success — so');
+      say('     these stay unsent until something is built to send them again.');
+    }
+  } catch (e) { say('   could not read it: ' + e.message); }
   say('');
+
   say('='.repeat(64));
   say('Read §1 first. If the switch is off, that is the answer and nothing else');
   say('matters. If it is on, §2 says what the run decided and §3 says whether it');

@@ -1112,6 +1112,8 @@ const PATH_STEPS = [
   ['a new season starts',          'seasonResetAt',            'admin.html'],
   ['we ask about last year',       'askSameAsLastYearAt',      'functions/index.js'],
   ['there is nobody to bill',      'cannotBillNoEmailAt',      'functions/index.js'],
+  ['their bill is held',           'billHeldAt',               'functions/index.js'],
+  ['they open Venmo to pay',       'venmoOpenedAt',            'functions/index.js'],
   ['a card payment is taken',      'capturedAt',               'functions/index.js'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
   /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
@@ -1136,8 +1138,8 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 36,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 36. Removing a step deletes its ' +
+  PATH_STEPS.length >= 38,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 38. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
 
 /* ---------------------------------------------------------------------------

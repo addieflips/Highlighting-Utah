@@ -322,21 +322,28 @@ const MAIL = { customer_name: 'Addie', customer_phone: '3853584716', customer_em
      fallback write. Change it deliberately, in the same commit, the way this repo writes
      down its other censuses: a writer vanishing is as interesting as one arriving. */
   const sysNotices = (bareFns.match(/collection\('messages'\)\.add\(/g) || []).length;
-  check('and the six direct writes left on the server are all about us, not about a member',
-    sysNotices === 6,
-    'found ' + sysNotices + ' — expected 6: Payment With No Bill, Referral Taken Back, ' +
-    'Maybe Next Year — New Record, Nightly Billing Needs You, Cannot Be Billed, and ' +
-    'the funnel\'s own fallback write');
+  /* ⚠ 6 → 7 ON 2026-09-28: 'Bill Held'. Written down rather than the number being nudged,
+     which is what this census is for. It belongs on the direct side for the same reason
+     'Cannot Be Billed' does and it is the same kind of thing — a note about OUR billing run
+     failing to bill somebody, raised by the 7pm batch, not a member doing anything. Routing
+     it through the mail funnel would make a notice about money not moving depend on the mail
+     service, which is exactly backwards. */
+  check('and the seven direct writes left on the server are all about us, not about a member',
+    sysNotices === 7,
+    'found ' + sysNotices + ' — expected 7: Payment With No Bill, Referral Taken Back, ' +
+    'Maybe Next Year — New Record, Nightly Billing Needs You, Cannot Be Billed, Bill Held, ' +
+    'and the funnel\'s own fallback write');
 
-  /* ⛔ AND EACH OF THOSE FIVE IS NAMED, because a bare number cannot tell a member
+  /* ⛔ AND EACH OF THOSE SIX IS NAMED, because a bare number cannot tell a member
      notice sneaking back in from one of these being renamed. [[MSG-17]] settled that
      system notices email nobody — they were never part of the double-post, and making
      them conditional on the mail service would silence the nightly billing run, which
      is the one notice that exists because money did not move. */
   const STAY_DIRECT = ['Payment With No Bill', 'Referral Taken Back',
-    'Maybe Next Year — New Record', 'Nightly Billing Needs You', 'Cannot Be Billed'];
+    'Maybe Next Year — New Record', 'Nightly Billing Needs You', 'Cannot Be Billed',
+    'Bill Held'];
   const lost = STAY_DIRECT.filter(t => bareFns.indexOf("topic: '" + t + "'") === -1);
-  check('and the five that stay direct are still there by name',
+  check('and the six that stay direct are still there by name',
     lost.length === 0,
     'missing: ' + lost.join(', ') + ' — a count alone cannot tell one of these being ' +
     'renamed from a member notice quietly taking its place');

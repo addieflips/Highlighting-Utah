@@ -81,7 +81,21 @@ function lift(name) {
 const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
   'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
-  'toMillis', 'logNightlyInvoiceRun', 'nightlyInvoiceTemplateNameServer'];
+  'toMillis', 'logNightlyInvoiceRun',
+  /* ⚠ ADDED ON THE MERGE OF 2026-10-06, and this is the extraction-list trap for the
+     ELEVENTH time this repo has recorded it. The held-bill branch pulled
+     `payerHouseOfServer` and these four helpers OUT of runInvoiceBatch's body, so a
+     sandbox that does not supply them dies on a bare `payerHouseOfServer is not
+     defined` — and because the throw lands in the per-payer catch, it presents as
+     the ORIGINAL CRASH: six failures all reporting that the new member was not
+     billed. The cause is nowhere near the message. LIFTED, never stubbed: a stub of
+     payerHouseOfServer would decide which house gets the bill, which is the very
+     thing the multi-house case is about. */
+  'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
+  'clearHeldBill',
+  /* main's own addition of 2026-10-07: the office can now pick which template the
+     nightly invoice sends, and runInvoiceBatch calls this to decide. */
+  'nightlyInvoiceTemplateNameServer'];
 const missing = LIFTED.filter(n => !lift(n));
 check('every rule the billing run depends on could be lifted out of the server',
   missing.length === 0,
@@ -90,10 +104,68 @@ check('every rule the billing run depends on could be lifted out of the server',
   'the trap this file was written after being caught by.');
 const lifted = LIFTED.map(lift).join('\n\n');
 
+/* ⛔ AND THE SANDBOX IS SWEPT FOR WHAT IT CALLS BUT WAS NEVER GIVEN — run-all.js's own
+   `sandboxDeps`, brought here because this file is standalone and had none.
+   ⚠ THE POINT IS THE MESSAGE, NOT THE DETECTION. The census above already failed loudly
+   when the held-bill branch extracted `payerHouseOfServer` out of runInvoiceBatch on the
+   merge of 2026-10-06 — but the throw lands in the per-payer catch, so it presented as
+   SIX failures all saying the new member was not billed, i.e. as the original crash. The
+   cause was nowhere near the message, and "a check that fails for the wrong reason sends
+   the next person to the wrong line" is this repo's own rule. This names the function.
+   ⚠ A METHOD CALL IS NOT THIS BUG and must not be reported as one: `d.toDate()` is not a
+   missing lift, and functions/index.js defines plenty of names that also read as methods.
+   A name preceded by `.` or `?.` is skipped, and the preceding character is read out of
+   the source rather than with a lookbehind. */
+function sandboxDeps(code, src, provided) {
+  const have = new Set(provided || []);
+  let m;
+  const declRe = /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  while ((m = declRe.exec(code))) have.add(m[1] || m[2]);
+  const called = new Set();
+  const callRe = /([A-Za-z_$][\w$]*)\s*\(/g;
+  while ((m = callRe.exec(code))) {
+    const before = code.slice(Math.max(0, m.index - 2), m.index);
+    if (/[.?]$/.test(before)) continue;
+    if (/[\w$]$/.test(before)) continue;
+    called.add(m[1]);
+  }
+  const miss = [];
+  called.forEach(function (n) {
+    if (have.has(n)) return;
+    if (src.indexOf('function ' + n + '(') === -1) return;
+    miss.push(n);
+  });
+  /* ⚠ AND A MISSING **CONSTANT** IS THE SAME BUG, which this sweep did not cover until a
+     merge proved it on 2026-10-08: main added NIGHTLY_UNPAID_TEMPLATE beside the template
+     picker, the other gate's sandbox had never heard of it, and the run died on a bare
+     `NIGHTLY_UNPAID_TEMPLATE is not defined` — reported, once again, as the September
+     crash. A function-only sweep is half a guard.
+     ⚠ MODULE-LEVEL ONLY (`^const NAME =`, no indentation): a `const` declared inside some
+     other function is a local variable, not something a sandbox owes, and flagging those
+     would cry wolf on every harness in the repo. */
+  const refRe = /([A-Za-z_$][\w$]*)/g;
+  const referenced = new Set();
+  let r;
+  while ((r = refRe.exec(code))) referenced.add(r[1]);
+  referenced.forEach(function (n) {
+    if (have.has(n) || miss.indexOf(n) !== -1) return;
+    if (!new RegExp('^const ' + n + '\\s*=', 'm').test(src)) return;
+    miss.push(n);
+  });
+  return miss.sort();
+}
+
 /* The fee, read from the source rather than typed here — a copy would go on passing
    against a price the app has moved off, which is what seven fixtures did to
    CN_DOUBLE_BIN_FEET. */
 const NEW_MEMBER_FEE = Number((fns.match(/const NEW_MEMBER_FEE = (\d+)/) || [])[1]);
+/* ⚠ BOTH FOUND BY THE SWEEP ABOVE ON 2026-10-08, and both were real: this gate had been
+   running `heldBillReason` with BILL_HELD_DAYS undefined — every comparison against it
+   silently false, so the held-bill branch was being exercised against nothing. That is a
+   check passing for the wrong reason, which is the shape this file exists to refuse.
+   ⚠ HU_RETRY_PAUSE_MS IS DELIBERATELY ZERO HERE, not the real 400: it is tryFirestore's
+   backoff, and a harness that really sleeps makes a retry path cost a second per run. */
+const BILL_HELD_DAYS = Number((fns.match(/const BILL_HELD_DAYS = (\d+)/) || [])[1]);
 check('the installation fee was found in the source', NEW_MEMBER_FEE > 0,
   'got ' + NEW_MEMBER_FEE + '. Typing it here would let this pass against a price the ' +
   'app no longer charges.');
@@ -181,9 +253,24 @@ async function findTemplateSnapByName(n){
 function templateSubjectOr(t, f){ return f; }
 async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
+const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
+const HU_RETRY_PAUSE_MS = 0;
 ${NIGHTLY_TPL_CONSTS}
 return runInvoiceBatch('test');
 `;
+  /* One check, once: everything this sandbox CALLS that the server defines as a function
+     and we never supplied. It is asserted here rather than beside the lift list because
+     this is the assembled text that actually runs. */
+  if (!runBatch._swept) {
+    runBatch._swept = true;
+    const gaps = sandboxDeps(sandbox, fns, ['db', 'admin', 'fetch', 'console']);
+    check('the sandbox has every server function it calls',
+      gaps.length === 0,
+      'add to LIFTED, or stub deliberately: ' + gaps.join(', ') +
+      '. Left missing, the throw lands in the per-payer catch and every check below ' +
+      'reports the new member as unbilled — the original crash\'s own symptom, with the ' +
+      'cause nowhere near it.');
+  }
   const fn = new Function('db', 'admin', 'fetch', 'console', '__templates', '__asked', sandbox);
   const quiet = { log: () => {}, error: () => {}, warn: () => {} };
   const asked = [];

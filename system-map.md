@@ -1485,6 +1485,45 @@ moved twice ($30 → $25 → $30), so this is not a one-off. That is written dow
 line rather than fixed, because the fix is storing the amount on the invoice when it is
 charged, and until that exists every change to this number leaves a tail behind it.
 
+⭐ **WHAT THE INVOICE EMAIL ACTUALLY SAYS — THE FOUR CASES** (verified by running them,
+2026-10-06, [[MON-82]]). Addie: *"for invoices we need to make sure they will send right for
+regular invoice, unpaid, paid, multiple houses."* All four are right, and each is now a check
+that RUNS the real send and reads the bytes rather than matching source:
+
+| case | what the customer gets |
+|---|---|
+| **regular / unpaid** | "Here is your Christmas lights invoice", the footage the price came from, **Amount due**, a due date, Pay Your Invoice + Pay with Venmo |
+| **part paid** | the **remainder**, not the total — $400 billed less $150 paid reads "Amount due: $250.00" |
+| **paid in full** | a receipt: "paid in full", **Amount paid**, View Your Portal — and **no** Pay button, no Venmo, no "Amount due". It also fetches the *Paid Receipt* template, not the Unpaid one |
+| **multiple houses** | **one** email to the payer only, every address named with its own footage, and the total is those houses added up ($400 + $350 + $250 → "Amount due: $1000.00") |
+
+⛔ **AND NOTHING IN THIS REPO HAD EVER READ AN INVOICE EMAIL IT PRODUCED.** Every check on the
+nightly run proved the invoice **document** — the install total, the fee, the flags. The body
+went to a fake that answered ok and threw it away, so the wording, the amounts inside the
+sentence, which template was chosen, and whether a receipt still said "Pay Your Invoice" were
+all unexamined. Same shape as the crash of 18 September: the document was right and the thing
+the customer received did not exist.
+
+⛔ **THE HOLE THAT RUNNING IT FOUND: 37 CODES WERE MAILED AS LITERAL CHARACTERS.** Insert Code
+offers ~52 tokens; the nightly send resolved 15 and **left the rest alone**, because a
+`split().join()` chain passes over what it does not know. So an office that put
+`{{houses_block}}` in the invoice template — which `resolveLinkTokens`' own comment invites
+("Any template can use it") — mailed every shared-bill customer those characters. That is the
+literal `{{photo}}` of 2026-08-17, in the email that asks for money, and the **built-in body
+hid it completely** because it only ever uses resolved tokens.
+- ⭐ The ones that mean something on a bill now **resolve**: `{{houses_block}}`/`{{houses_list}}`
+  (aliased to the per-house block the run already builds — never a second renderer),
+  `{{amount_total}}`, `{{setup_fee_line}}`, and the **plural** `{{messages_link}}` /
+  `{{messages_button}}`, which the editor offers and the send had only ever matched singular: a
+  one-character trap that printed a code on a bill.
+- ⭐ Everything else is **stripped and counted**. The bill still goes out (refusing over a bad
+  template would bill nobody — [[QT-42]]'s rule in the one place it costs money), and the run
+  log names the codes and the template to fix. A missing line is something the office can
+  repair; a printed code is the customer ringing up.
+- ⚠ `{{houses_block}}` resolves to **nothing** for a one-house customer, matching the office
+  renderer: a heading reading "who you are paying for this year" over a single address is a
+  question nobody asked.
+
 **The two, in detail:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
 
@@ -6396,7 +6435,24 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
   - ⭐ **Which template the bill is built from is picked beside the switch** (2026-10-07, [[EM-25]]). Invoices → Nightly Automation has two dropdowns, *Template for bills still owing* and *Template for bills already paid in full*. They save `unpaidTemplateName` and `paidTemplateName` (template **names**, like every other picker here) on `settings/nightlyInvoiceAutomation`; `nightlyInvoiceTemplateNameServer` in functions/index.js reads them once per run, and `nightlyInvoiceTemplateName` in admin.html gives the Invoices test send the same answer. Blank is **Standard** — *Nightly Auto-Invoice — Unpaid* / *— Paid Receipt*, the names the run has always used — so nothing changed for anybody until a pick was made.
     - ⚠ **A pick that can no longer be found falls back in two steps**: to the standard template, then to the built-in wording, and each step is written to the run log (*Picked template not found…*). A deleted template must never stop a bill going out. The dropdown keeps showing the missing pick with *(not found — the standard one will send)* rather than quietly reading Standard.
     - ⚠ **Payment receipts are not affected.** `sendPaymentReceipt` (both copies) still sends *Nightly Auto-Invoice — Paid Receipt* / *Payment Received — Balance Remaining* by their standard names; the pick covers the night-of-install invoice only.
+  - ⭐ **AND THE RECEIPTS THAT NEVER WENT OUT CAN BE SENT AGAIN** (2026-10-08, [[EM-26]]). The red banner on the Invoices tab — *"N payment receipts failed to send"* — now carries **Send the N missing receipts**. Addie: *"I thought there was already a resend button for any invoice that didnt get sent."*
+    - ⛔ **THERE IS ONE, AND IT COULD NEVER REACH A RECEIPT.** RSVP tab → Did-not-send → *Send again to the N who did not get it* is live and works, and this is worth writing down because it looks as though it should cover these. Three separate reasons: a payment receipt is **never recorded** into `settings/emailSendFailures` — `sendPaymentReceipt` writes `receiptError` onto the invoice and calls nothing else; the four senders that *do* write there all mark themselves `resend: false` (*"the button below cannot rebuild this one"*), and three of those four are **dead UI** with no markup at all (`pibSendPaidBtn`, `pibSendUnpaidBtn`, `sendRsvpEmailBtn` — `/^pib[A-Z]/` is in `KNOWN_MISSING_IDS` and run-all.js **Suite 128** exists to assert they stay that way); and that button re-renders through `etResolveVars`, which fills `name`, `price`, `phone`, `link` and **none** of `{{amount_paid}}`, `{{payment_amount}}`, `{{amount_due}}`. Pointing it at a receipt mails a customer a thank-you with the amount missing.
+    - ⛔ **THE PRESS RE-RUNS THE REAL `sendPaymentReceipt`.** The money on a receipt is exactly the part that must not be re-derived: a second renderer is how two screens start making different claims about one payment, which this file records being bitten by twice already (the bins count, the put-into wording). The gate asserts the handler resolves no token of its own.
+    - ⛔ **AND IT IS PACED**, through `emailSendPaced` — the one helper that knows how fast we may mail customers, written after Gmail refused 392 of ~410 sends in September. ⚠ `sendPaymentReceipt` **never throws** (it answers `{sent, quiet, why}`), so a non-quiet failure is re-thrown carrying its own wording; without that, `emailSendRetryAfter` never runs and the whole list is spent discovering one refusal. A *quiet* outcome — under the minimum, a correction, already receipted — is not a failure and is counted apart, or a clean run reads as broken.
+    - ⚠ **`receiptResendAmount` ASKS THE LEDGER**, newest row first, sorted in memory exactly as `renderPaymentHistory` does and for its reason (a composite index needs a hand-run deploy CI does not do). `{{amount_paid}}` is the deposit and `{{amount_due}}` falls out of the maths, but `{{payment_amount}}` — *"we have received your payment of X"* — is **this** payment and is on no invoice. It falls back to the deposit, which is right for a settled bill and is the commonest case here; a receipt reporting $0 is worse than the one that never arrived.
+    - ⚠ **SOMEBODY WITH NO EMAIL IS COUNTED, NEVER ATTEMPTED**, and said on the banner. Trying them reports failures the press was always going to have, and the real ones hide among them. ⚠ **A blank-but-present `receiptError` is not a failure** — the real sender writes `receiptError: ''` on success, so that is the commonest shape in the book and reading it as a failure would re-email everybody who *was* receipted. Both are red-checked.
+    - ⚠ **AND THE WIRING IS ASSERTED APART FROM THE MECHANISM**, because the gate calls the rules from its own harness: delete the button and every behavioural check still passes while nothing reaches the screen. ⚠ The first draft of that check matched the id *anywhere* in the banner and a red-check caught it — removing the button leaves the id behind in the line that wires it up, so it passed over a banner with nothing to press. It asserts the `<button` markup now. 14 of 14 sabotages caught, `admin.html` byte-for-byte after each; 26 checks.
     - The standard names are spelled in both files; run-all.js **Suite 372** compares them and runs both copies of the rule, and `new-member-billed.test.js` runs the real batch with a pick, without one, and with a deleted one.
+- ⭐ **READING WHY IT DID OR DID NOT SEND, WITHOUT OPENING ADMIN** (2026-10-08). `nightly-digest.js`, run from **Actions → "Why the nightly invoice did or did not send" → Run workflow**, then read the job log. Addie: *"So tonight an invoice should have gone out but looks like it didn't can you check to see why?"* — the answer was entirely in Firestore and nothing outside the admin portal could read it, so answering meant asking her to go and look at a screen at night. [[PROC-36]]'s step for the error folder, applied to the billing run.
+  - ⛔ **THE CAUSE IT EXISTS FOR IS THE SILENT ONE.** `sendNightlyInvoices` reads `settings/nightlyInvoiceAutomation` and, if `enabled` is not true, returns **before logging** — its own comment says *"do nothing, don't even log"*. So a switched-off run and a run that found nobody to bill are **indistinguishable from every screen**, because *Last 10 nightly runs* is fed by the log the off switch never writes to. The only alarm is Health Check's 36-hour stale-run row, and [[HC-03]] is the record that she does not read that panel.
+  - **Five reads, and that is the whole of it**: the switch, `nightlyInvoiceLog`, `jobAddresses` (how many are completed-and-unbilled), `emailTemplates` (do the names it asks for exist), and `invoices` (receipts that failed to send).
+  - ⛔ **READ-ONLY, ENFORCED RATHER THAN PROMISED.** It runs as the service account that deploys the Cloud Functions, so it CAN write anything in the project — *including billing people*. A tool you run to find out whether customers were billed must not be able to bill them. `nightly-digest.test.js` pins every use of the database handle to one of five exact `.get()` read shapes and **counts them**, which makes a write unreachable whatever it is called. ⚠ A blanket ban on `.set(`/`.add(`/`.delete(` was tried in `error-digest.js` first and **failed on correct code** — `groups.set(key, g)` is a Map — so the reference is constrained, never the verb. A sixth read is fine and is a deliberate edit to that list; that is what stops a write arriving as "one more use".
+  - ⛔ **AND IT NAMES NOBODY.** The output is an Actions log anybody with repo access can read, while a run log carries `heldNames` / `noEmailNames` and an invoice carries a name and an email address. Those may be **counted** and never printed, and error text is scrubbed of anything email-shaped. Who hit a fault belongs in the admin portal, which already names them on the banner itself.
+  - ⭐ **§5, THE FAILED PAYMENT RECEIPTS, GROUPS BY REASON AND COUNTS** (added 2026-10-08, after Addie's Invoices tab showed *"41 payment receipts failed to send"*). **Forty-one of ONE reason is a setting or a sending limit; forty-one DIFFERENT reasons are the book.** Those need opposite answers and a list of names cannot tell them apart — so the digits are collapsed before grouping (amounts vary per customer and would split one cause into forty-one rows of one), and the count of customers with no address on file is kept separately, because *"nothing is broken, they have no email"* and *"the mail service refused us"* are different mornings.
+    - ⚠ **THE MONEY IS NEVER AT RISK AND THE SECTION SAYS SO FIRST.** Both copies of `sendPaymentReceipt` record the payment and treat the email as a courtesy — *"a failed receipt must not roll back a recorded payment"* is written over each of them. A `receiptError` is an email that did not go, never money that did not land; a red banner counting 41 failures reads otherwise.
+    - ⚠ **`groupReceiptFailures` IS ITS OWN FUNCTION SO THE GATE CAN RUN IT**, and a red-check is why. Inline, the strongest possible check was that the word `byReason` appears somewhere — and deleting the Map **lookup**, which gives every failure a group of its own and prints one fault as forty-one rows of one, **went straight through it**. That is the exact misreading the section exists to prevent, so it is the one that has to bite. Same move as `tallyEnv` in `error-digest.js`, for the same reason. 7 of 7 sabotages red-checked after the extraction; 30 checks.
+    - ⚠ **ONLY A THROW LEAVES A LASTING `receiptError` ON THE BROWSER SIDE.** admin.html's sender returns `{sent:false, quiet:false, why:…}` for *no email on file*, *EmailJS did not load*, *keys missing* and *template not found* — all shown on screen at the time, none written to the invoice. Only its `catch` writes the field. The server copy writes it for every reason. So an invoice still carrying one came from a **thrown** send or from the PayPal path, which is worth knowing before anybody goes hunting.
+    - ⚠ **AND NOTHING RETRIES A FAILED RECEIPT.** `sendPaymentReceipt` is called only while a payment is being recorded — by hand, by the payment importer, or by PayPal — and `receiptSentForDeposit` is written only on success. There is no re-send anywhere, so a receipt that failed stays unsent until something is built to send it again.
 - **`sendInvoicesNow`** — the same billing logic, on-demand, from an Automation-tab button — works even with the nightly toggle off.
 - ⭐ **`runQuoteNudgeBatch`** — cron, 10 AM Mountain, only while `settings/quoteNudgeAutomation.enabled` is on, and it stops entirely from November to January. **A quote nobody answers is chased on a three-rung ladder, ten days apart** (2026-09-18, [[QT-49]]). Addie: *"we should get a notification to nudge them through text after 10 days than after 10 more days if they still haven't responded then they should be sent an automatic email. After 10 more days after the email if they did not respond then they should be put in archived."*
   - **Rung 1 — we are told to text them.** ⛔ **This sends the customer nothing.** Her sentence is *"**we** should get a notification to nudge them through text"*, so a person sends it. Nothing in this feature sends an SMS: an automatic text costs money per message, goes to somebody who has not replied, and cannot be recalled. A check **refuses** one, so adding it later has to be a deliberate change rather than a drift. They appear on **Text these people about their quote** on the automation card, with the number as a `tel:` link.
@@ -7505,6 +7561,161 @@ Customers is deliberately left alone: it is an identifier the office reads, not 
 as S82 and S129: pinned to where a string sat rather than to what must be true, so it failed
 on correct code the moment the copy had to change. What must be true is that the alert
 **names** them.
+
+### Every new member went unbilled for ten days, and no screen said so
+
+⛔ **A ONE-WORD CRASH IN THE NIGHTLY RUN, live from 18 to 28 September 2026.** The
+new-member branch of `runInvoiceBatch` stamped the date the installation fee was charged
+with `Timestamp.fromMillis(nowMs)` — and there is no `nowMs` in that function. The only two
+declarations of that name in the whole file are a `const` inside `portalSave`'s lights
+branch and a parameter of `runLateFeeBatch`, neither of them in scope. Reading an undeclared
+identifier throws.
+
+**What that cost, exactly:**
+
+- the throw landed in the per-payer `catch`, so the payer was counted as an error and skipped;
+- it happened **before** `invRef.set`, so **no invoice document was written at all** — nothing
+  in their member portal, no record anywhere of what was owed;
+- `invoiceEmailSent` was never set, so it retried every night and failed identically, for ever.
+
+⚠ **It was exactly the new members, and only them.** `chargeNewMemberFee === true` is the
+one thing that reaches that branch — the Add Customer box, and the set-up fee carried across
+from a quote. A returning customer billed perfectly throughout, which is why nothing looked
+wrong from any screen.
+
+⛔ **AND NINE CHECKS OVER THAT SAME FUNCTION PASSED THE WHOLE TIME.** `run-all.js` reads
+`runInvoiceBatch` with `sectionFrom` and regexes in nine places, and the source *looks*
+right, because it is right apart from one identifier that does not exist. **A text check
+cannot see scope.** This is the lesson Suite 10 wrote down for `syncPayerInvoice` — *"a regex
+cannot catch an undefined variable and a text-only check is exactly what let the `forTotal`
+crash ship for a day"* — arriving a second time in the same family of code, and nothing had
+ever RUN the nightly run.
+
+⭐ **So `nightly-invoice.test.js` runs it**, against a fake Firestore, and the check that
+earns the file is a **pair**: the same fixture with `chargeNewMemberFee` flipped. Either row
+alone proves nothing, because the whole failure was that one branch threw while the other
+worked. 11 of 11 sabotages red-checked on the server, 7 of 7 on the screen.
+
+⚠ **Checklist row 114 could not reach it either, and was version-bumped to say so.** Its
+step 2 asked for an ordinary test customer, which takes the working branch — so a clean pass
+of the one manual row about the 7 PM run said nothing about the people who were not being
+billed. It now says to tick the Installation Fee box.
+
+⚠ **The fix is `Timestamp.now()`**, the same call `invoicedAt` makes eleven lines below: a
+real Timestamp rather than a server sentinel, because the `{{due_date}}` maths further down
+reads this invoice back inside the same run.
+
+### A Venmo payment used to be invisible, and now somebody is told to look
+
+⛔ **Venmo tells us nothing.** It is a deep link — `venmo.com/HighLightingUtah?txn=pay&amount=…`
+— with no webhook, no callback and no receipt coming back to us. PayPal records itself
+through `paypalWebhook`; Venmo records *nothing*. So a customer who paid that way stayed
+**Unpaid on every screen**: they went onto the 1 February text list, and would have
+collected an April late fee for money they had already sent.
+
+⭐ **The amount on that link is a PRE-FILL, and that is the whole design constraint.**
+Addie, asked to fix this: *"you can change the amount so if someone changes the amount it
+can be problamatic."* She is right — the payer confirms in the Venmo app and can edit the
+figure there. So nothing in this reads that number as a payment, and nothing stores it.
+
+**How it works now:**
+
+| | |
+|---|---|
+| **Pressing Pay with Venmo** in the portal | stamps `venmoOpenedAt` on the customer, and **nothing else** |
+| **The office sees** | a **Check Venmo** chip, and a **Waiting on Venmo** filter in All Customers |
+| **The money is recorded** | by hand, from the Venmo notification email, so the figure entered is the one that actually arrived |
+| **The mark goes away** | by itself, the moment that payment settles them |
+
+⛔ **The entry is manual because the data cannot be reached any other way.** Addie: *"We
+can't even login to venmo we just see it if it comes to email so I think it will be easiest
+if this was manual."* A statement importer was offered and turned down on those facts, not
+on effort — the existing payment importer would take the amount from a file, which is safe
+by construction, but there is no login to get a file from. **Do not re-propose it** unless
+the Venmo access changes.
+
+⛔ **No amount is stored, deliberately.** The only number that could be recorded at the
+press is what we *asked* for, which is already on the bill and derived by one rule — a
+snapshot would be a second opinion about a balance, sitting next to real money. And the
+shortfall she is worried about is visible without it: she enters what the email says, the
+bill comes out **Partial Payment**, and they stay on the chase list with the gap showing.
+
+⚠ **The mark is derived, so nothing has to clear it.** Opening Venmo is a historical fact;
+what changes is whether they still owe. `custWaitingOnVenmo` asks the bill, so the chip
+disappears the instant the payment is entered — stored fact, derived display, the same shape
+as `derivedDoneFor`. **A part payment leaves the mark standing**, which is exactly the
+short-payment case.
+
+⚠ **It is not in `PORTAL_READ_FIELDS`.** *"We have not seen your payment"* is a thing we
+cannot honestly say when nobody has checked yet, and saying it to somebody who really did
+pay is worse than saying nothing.
+
+⚠ **And it does not promote Venmo.** Her 2026-09-01 ruling — *"I want venmo under other
+payments not showing at all cause I want venmo to be a last resort"* — is untouched: the
+button stays inside a `<details>` that is shut on every render. Recording a press must not
+make it a more visible option.
+
+⚠ **The ledger's `venmo` method finally has a writer.** `PAYMENT_METHOD_LABEL` has carried
+that label since the ledger was built and nothing ever wrote it. The method is derived from
+the mark and the note says so, rather than costing a second prompt on every payment — a
+customer who opened Venmo and then paid by cheque is filed as Venmo, which is a wrong line
+in an audit trail and not a wrong balance.
+
+⚠ **What this does NOT catch, said plainly: a click in an EMAIL.** The Venmo button is also
+in the nightly invoice, the payment receipt and the late-fee email, and a click there is a
+plain link in a mail client — there is nothing to record it with. So the list is *"who
+pressed it in their portal"*, not *"everybody paying by Venmo"*. The ordinary Unpaid and
+Partial filters are still what covers the rest.
+
+### A bill held by an unfinished house is named now, not just counted
+
+A payer's bill covers every house they pay for, and the nightly run holds it until all of
+them are finished. That is Addie's own rule (**MON-12**: *"After the last persons house is
+done if there are multiple people on one bill is when they will be charged"*) and **it has
+not changed**. What changed is the silence around it.
+
+⚠ **A held bill used to be a bare number.** `skippedNotDone++` and `skippedNeedsFix++`, two
+counts in the nightly text, naming nobody, flagging nothing, raising no note. So one house
+nobody ever marks done — or one fix flag nobody clears — quietly stopped that payer being
+billed for the whole season, and the only trace was a figure that looks the same every
+night. Compare `skippedNoEmail`, which names the people, flags the record *and* raises a
+note; its own entry above is the argument, because it learned this a month earlier.
+
+⭐ **It is two speeds, because most held bills are correct.** Between the crew doing the
+Andersons' first house and their fourth, that bill is held every night and nothing is wrong.
+
+| | When | Where it shows |
+|---|---|---|
+| **named** | as soon as any house on the bill is finished | the nightly run log, and the *Nightly Billing Needs You* note |
+| **flagged** | once that finish is **10 days** old (`BILL_HELD_DAYS`) | `billHeld` on the payer, a *Bill Held* note, the **Bill Held** filter in All Customers, a chip on the row, and a Health Check row |
+
+⚠ **Flagging the ordinary case is the cries-wolf failure** this file names in four other
+places — it would tag most of the book in October and teach the office to click past both
+the tag and the note.
+
+⚠ **A payer with nothing finished is not named at all.** Nothing has been earned; the crew
+simply has not been yet. They are still *counted*, so the run log adds up.
+
+⚠ **The clock is `completedAt` on the earliest finished house on the bill** — never a stored
+counter, which would age the hold by a day every time the batch re-ran, and **never
+`scheduled`/`scheduledDate`**, which are the two stamps *"Why a row said scheduled for a day
+that is not on the schedule"* records as outliving the booking they describe. A billing
+warning inherits that unreliability the moment it reads them.
+
+⚠ **The flag lands on the payer**, picked by `payerHouseOfServer` — the same rule that
+decides the name on the invoice email. That rule was inline in `runInvoiceBatch` and had to
+come out, because a tag landing on a different house than the bill's own name is the
+disagreement this app already shipped once, on these very four Anderson houses.
+
+⚠ **The note goes up once, not nightly**, guarded on the flag not already being set — but
+the *reason* is rewritten every run, because the blocking house can change while the hold
+stands.
+
+⚠ **And the same run clears it.** A flag with only one way in is the sticky bug
+`functions/index.js` has already been bitten by (`maybeNextYear`), so the writer that sets it
+is the only thing that decides it is over. The office screen additionally drops the tag the
+moment `invoiceEmailSent` goes true, which covers the hours between the bill going out and
+the next 7 PM.
 
 ### How the takedown days are made
 
