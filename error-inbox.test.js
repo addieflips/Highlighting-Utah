@@ -1221,8 +1221,8 @@ check('an upload failure with no reason at all still reads as a sentence',
 const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
   (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
 check('every upload door that tells the office anything says WHY (structural)',
-  adviceCallers === 8,
-  'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
+  adviceCallers === 7,
+  'expected the extra house photo, the expense receipt, the Gallery, ' +
   'How It Works, Areas We Serve, the Blueprint Maps drawing and the Add Fix popup’s ' +
   'photo; found ' + adviceCallers +
   '. An upload added later without this line says "Upload failed" exactly as all of them used to');
@@ -1234,7 +1234,10 @@ check('every upload door that tells the office anything says WHY (structural)',
    ⚠ 7 → 8 ON 2026-10-06, [[FIX-07]]. showAddFixPopup is an EIGHTH, separate from the
    existing fix-note photo door (the Edit Note panel's `.note-fixphoto-input`, which this
    change does not touch) — raising a fix now opens its own popup with its own upload
-   input, so there are two places a fix photo can be added rather than one. */
+   input, so there are two places a fix photo can be added rather than one.
+   ⚠ 8 → 7 ON 2026-10-09, [[FIX-08]]. The Edit Note panel's fix photo door is GONE, not missed: it
+   wrote one photo over a list of several, so it now opens the Add Fix popup instead. One door, and
+   that one takes several photos. */
 
 /* ⛔ THREE CHECKS CAME OUT HERE ON 2026-09-12 ([[QT-41]]), WITH THE CODE THEY COVERED.
    They guarded the wording of the Twilio authentication failure on the quote card — added

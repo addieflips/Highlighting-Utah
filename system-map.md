@@ -8656,6 +8656,8 @@ timer. It builds a fixer-route house through `houseFromCustomer` (the same build
 install uses) and pins it to that date, or to the next Saturday if none was ever saved;
 two fixes asked for the same date land on one fixer-route day together.
 
+⭐ **A fix takes several photos and can be edited after it is saved** ([[FIX-08]], 2026-10-09). The popup takes several files at once and shows each photo with a × to take it off; the list is `fixPhotoUrls`, with the first copied into `fixPhotoUrl` so the older readers still find one (`fixPhotosOf` reads both). **Edit fix** opens the same popup from the Routes stop card, the Schedule fix list and the Schedule day view; the Customers Edit Note panel no longer has its own fix box and opens the popup too, because a second editor would write one photo over a list. The Schedule fix list reads the note and photos off the customer as they are now (it used to show only the note copied when the fix was placed, and no photo at all). The crew sheet prints every photo, numbered "2 of 3". Mark Done destroys every photo; any that cannot be destroyed stay on the record for the next try.
+
 ⛔ **It did not work from 2026-10-06 to 2026-10-09.** Every fix whose date had no fixer
 route yet threw "Fix placement failed: Cannot read properties of undefined (reading
 'getDay')": the new day was labelled before `computeDates` had given it a date. The live

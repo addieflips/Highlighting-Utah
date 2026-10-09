@@ -66,7 +66,7 @@ const sidesDefSrc = (admin.match(/const HOUSE_SIDES_DEFAULT = \d+;/) || [''])[0]
    differs from the stored one and a hand-typed copy could pick the wrong one. */
 const sideNamesSrc = (admin.match(/const HOUSE_SIDE_NAMES = \[[^\]]*\];/) || [''])[0];
 
-const NEEDED = ['printFixReason', 'printCrewColumns', 'printFixPhotos', 'printCrewRow',
+const NEEDED = ['printFixReason', 'printCrewColumns', 'printFixPhotos', 'fixPhotosOf', 'printCrewRow',
                 'printPhotosHtml', 'printCustData', 'printCrewNotes', 'printGateCode',
                 'printSidesCell', 'houseSidesListFromValue', 'printYesNo', 'printBinCount',
                 'houseSideCount', 'esc',
@@ -108,7 +108,7 @@ const sb = new Function(
      row: a stub would prove the column renders and nothing about whether it is
      filled with the real colour. */
   fn('printLightColor') + fn('houseLightsText') +
-  fn('printCrewColumns') + fn('printCrewRow') + fn('printFixPhotos') +
+  fn('printCrewColumns') + fn('printCrewRow') + fn('printFixPhotos') + fn('fixPhotosOf') +
   fn('printPhotosHtml') +
   'let HOUSES = [], CUST = {};' +
   'function crewHousesFor(){ return HOUSES; }' +
