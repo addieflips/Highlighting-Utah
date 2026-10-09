@@ -1,0 +1,37 @@
+# DRY RUN THE NIGHTLY INVOICE.
+#
+# Addie, 2026-10-09, with 49 bills waiting on Google restoring billing: "next time I
+# need to make sure invoice will send with email in the right way to the right people."
+# They go out in one burst the moment billing is back, so the only way to be sure first
+# is to RUN the real thing and read what comes out.
+#
+# ⛔ MANUAL ONLY. No push trigger and no schedule: it reads the whole customer book.
+# ⛔ IT SENDS NOTHING AND SAVES NOTHING. The real Firestore handle is used for four reads
+#    and is never given to the batch, which gets an in-memory fake instead; fetch is
+#    faked, so EmailJS is never called. invoice-dry-run.test.js fails the build if any of
+#    that stops being true.
+name: Dry run the nightly invoice
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dryrun:
+    name: What tonight's invoice run would do
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Pinned below 14 on purpose: 14 removes the namespaced admin.firestore() API.
+      - run: npm install --no-save firebase-admin@^13.10.0
+      - name: Write the service account out
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+      - name: Run it
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+        run: node invoice-dry-run.js
