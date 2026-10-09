@@ -34,7 +34,7 @@ module.exports = function makeHarness(liftDeep){
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
     'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
-    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'isInWarehouse', 'isWaitingOnTimer'],
+    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -118,7 +118,8 @@ module.exports = function makeHarness(liftDeep){
     '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs,',
     '        sweepGoneDaysForward: sweepGoneDaysForward, scheduleTodayStr: scheduleTodayStr, hangDayOn: hangDayOn,',
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
-    '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden}',
+    '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
+    '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead}',
     '};'
   ].join('\n');
 
