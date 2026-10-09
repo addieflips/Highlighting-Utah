@@ -219,7 +219,12 @@ suite('1.1 The Schedule is the only install-date authority');
     return i > 0 && j > i && body.indexOf('syncInstallStampsFromSchedule()') !== -1 && body.indexOf('clearStaleInstallBookings(') === -1;
   })());
   check('every saved plan is mirrored onto the records', /mirrorStampsSoon\(\);\}catch\(e\)/.test(noComments) &&
-    /async function saveNow\(\)\{try\{await setDoc\(PLAN_REF\(\),serialize\(\)\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
+    /async function saveNow\(\)\{[\s\S]*?const data=serialize\(\)[\s\S]*?try\{await setDoc\(PLAN_REF\(\),data\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
+  /* The plan is shared: every open Schedule follows it live, so a Recalculate on one computer
+     reaches the others instead of being saved over by their stale copy. */
+  check('a loaded plan follows Firestore live', /hydrate\(s\.data\(\)\);planSyncedKey=planKey\(s\.data\(\)\);[^\n]*followPlanLive\(\)/.test(noComments) &&
+    /function followPlanLive\(\)\{[\s\S]*?onSnapshot\(PLAN_REF\(\)/.test(noComments));
+  check('a save with nothing new is not written', /if\(k===planSyncedKey\)\{[^\n]*return; \}/.test(noComments));
   check('"is this day real" asks the Schedule, not the crew-routes calendar', (function(){
     const s = extractFn(admin, 'scheduledDayIsReal') || '';
     return s.indexOf('window.schedulePlanBookings()') !== -1 && s.indexOf('window.schedulePlanBookings()') < s.indexOf('scheduledRoutesCache');

@@ -79459,7 +79459,60 @@ function mirrorStampsSoon(){clearTimeout(stampMirrorTimer);stampMirrorTimer=setT
   if(typeof syncInstallStampsFromSchedule!=='function')return;
   syncInstallStampsFromSchedule().catch(function(err){console.error('[HU] Schedule → customer day mirror failed',err);});
 },3000);}
-async function saveNow(){try{await setDoc(PLAN_REF(),serialize());RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){RT.getElementById('saveNote').textContent='save failed — check connection';}}
+/* ⭐ THE PLAN IS SHARED, SO EVERY OPEN COPY FOLLOWS IT LIVE. Owner: "for schedule when we
+   recalculate it only shows for one computer but needs to show for everyone." loadPlan read the
+   plan ONCE, so a second computer with Routes open kept the season as it stood when it opened
+   the tab — and its own redraws and five-minute sync then saved that stale copy straight back
+   over the Recalculate. planSyncedKey is the plan as this device last agreed with Firestore
+   (loaded, saved, or received); anything else in memory is an edit of ours not yet saved.
+   ⚠ KEYS ARE SORTED before comparing: Firestore does not hand a map's fields back in the order
+   they were written, and a false "it changed" here would bounce the plan between machines. */
+let planSyncedKey=null, planLiveStop=null;
+function planKey(o){
+  return JSON.stringify(o, function(k,v){
+    if(v && typeof v==='object' && !Array.isArray(v)){ const out={}; Object.keys(v).sort().forEach(function(x){ out[x]=v[x]; }); return out; }
+    return v;
+  });
+}
+function followPlanLive(){
+  if(planLiveStop) return;
+  try{
+    planLiveStop=onSnapshot(PLAN_REF(), function(s){
+      /* Our own write echoing back, or nothing there at all: nothing to take. */
+      if(!s.exists() || (s.metadata && s.metadata.hasPendingWrites)) return;
+      const data=s.data(), k=planKey(data);
+      if(k===planSyncedKey) return;
+      const mine=planKey(serialize());
+      if(k===mine){ planSyncedKey=k; return; }
+      /* ⚠ A REAL EDIT OF OURS IS ABOUT TO SAVE (or a press is mid-flight). It goes out in a
+         moment and wins, exactly as the last write always has — taking the other computer's
+         plan now would throw away a move made a second ago. */
+      if(mine!==planSyncedKey || recalcRunning){ console.warn('[HU] Schedule changed on another computer while this one had unsaved changes — keeping these'); return; }
+      const keep={s:selSchedule,f:selFix,t:selTake};
+      try{ hydrate(data); }
+      catch(e){ console.error('[HU] could not take the plan saved on another computer', e); return; }
+      planSyncedKey=k;
+      /* The hydrate jumps to the first day; stay on the one being looked at if it still exists. */
+      if(keep.s && getDay(keep.s)) selSchedule=keep.s;
+      if(keep.f && getDay(keep.f)) selFix=keep.f;
+      if(keep.t && getDay(keep.t)) selTake=keep.t;
+      /* Undo belonged to the plan before somebody else replaced it; pressing it now would put
+         the old season back over their Recalculate. */
+      preRebuild=null;
+      const u=RT.getElementById('undoRebuildBtn'); if(u) u.style.display='none';
+      syncTabs(); renderAll();
+      if(typeof window.schedulePlanChanged==='function') window.schedulePlanChanged();
+      toast('Schedule updated from another computer');
+    }, function(err){ console.error('[HU] live schedule listener failed', err); });
+  }catch(e){ console.error('[HU] could not follow the schedule live', e); }
+}
+async function saveNow(){
+  const data=serialize(), k=planKey(data);
+  /* Nothing new to say — a redraw, or the plan we just received from another computer. */
+  if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
+  const prev=planSyncedKey; planSyncedKey=k;
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){planSyncedKey=prev;RT.getElementById('saveNote').textContent='save failed — check connection';}
+}
 function showDashboard(){RT.getElementById('importBox').classList.add('hide');RT.getElementById('dashboard').classList.remove('hide');}
 function showImport(msg){RT.getElementById('dashboard').classList.add('hide');RT.getElementById('importBox').classList.remove('hide');if(msg)RT.getElementById('importErr').textContent=msg;}
 function startReplace(){
@@ -79477,7 +79530,7 @@ function cancelReplace(){
 }
 async function loadPlan(){
   try{const s=await getDoc(PLAN_REF());
-    if(s.exists()){hydrate(s.data());loaded=true;showDashboard();syncTabs();renderAll();
+    if(s.exists()){hydrate(s.data());planSyncedKey=planKey(s.data());loaded=true;showDashboard();syncTabs();renderAll();followPlanLive();
       /* After the plan is on screen, not before: the correction is usually a
          handful of houses and redrawing once when it lands beats holding the
          whole page back on a list that may still be loading. */
@@ -79518,7 +79571,7 @@ function importFromCSV(text){
 /* ---------- interactions ---------- */
 function toggleClear(){[['q','clearBtn'],['fixQ','fixClearBtn'],['takeQ','takeClearBtn']].forEach(function(p){const i=RT.getElementById(p[0]),b=RT.getElementById(p[1]);if(i&&b)b.style.display=i.value?'inline-block':'none';});}
 ['q','fixQ','takeQ'].forEach(function(id){RT.getElementById(id).addEventListener('input',function(){toggleClear();renderActive();});});
-RT.getElementById('importFile').addEventListener('change',function(){const file=this.files[0];if(!file)return;const rd=new FileReader();rd.onload=async()=>{try{const data=importFromCSV(rd.result);buildSeason(data);IMPORTED_AT=isoOf(new Date());loaded=true;const _c=RT.getElementById('importCancel');if(_c)_c.style.display='none';showDashboard();syncTabs();await saveNow();renderAll();toast('Imported '+data.length+' houses — saved to your Firebase');}catch(e){RT.getElementById('importErr').textContent=e.message;}};rd.readAsText(file);});
+RT.getElementById('importFile').addEventListener('change',function(){const file=this.files[0];if(!file)return;const rd=new FileReader();rd.onload=async()=>{try{const data=importFromCSV(rd.result);buildSeason(data);IMPORTED_AT=isoOf(new Date());loaded=true;const _c=RT.getElementById('importCancel');if(_c)_c.style.display='none';showDashboard();syncTabs();await saveNow();renderAll();followPlanLive();toast('Imported '+data.length+' houses — saved to your Firebase');}catch(e){RT.getElementById('importErr').textContent=e.message;}};rd.readAsText(file);});
 RT.addEventListener('change',e=>{const t=e.target;
   /* Renaming fires on blur, not on every keystroke — the bar re-renders on
      save, and re-rendering under a cursor takes the focus away mid-word. */
