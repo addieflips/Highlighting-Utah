@@ -9711,6 +9711,63 @@ function reportReceiptOutcome(res){
   if(res.quiet){ toast(res.why); return; }
   alert(res.why);
 }
+/* ---- Sending a receipt that never went out ---------------------------------
+   \u2b50 NOTHING RETRIED A FAILED RECEIPT, and that is the hole this fills (2026-10-09).
+   `sendPaymentReceipt` is called at the one moment a payment is recorded \u2014 by hand,
+   by the importer, or by PayPal on the server \u2014 and `receiptSentForDeposit` is
+   written only on a success. So a receipt refused at 2am stayed unsent for ever and
+   nobody was ever thanked for paying. Found with 41 of them on the books, every one
+   refused by EmailJS with "API access from non-browser environments is currently
+   disabled": PayPal captures, receipted SERVER-side, over a month.
+
+   \u26d4 IT RE-RUNS THE REAL SENDER, NEVER A SECOND COPY OF IT. The money figures on a
+   receipt \u2014 {{amount_paid}}, {{amount_due}}, {{payment_amount}} \u2014 are exactly the
+   part that must not be re-derived here: a second renderer is how two screens start
+   making different claims about one payment, which this file has been bitten by over
+   the bins count and the put-into wording. `sendPaymentReceipt` already knows how to
+   build one, so it builds these too.
+   \u26a0 AND THAT IS ALSO WHY THE EXISTING "Send again to the N who did not get it" BUTTON
+   (RSVP tab \u2192 Did-not-send) CANNOT COVER THESE, which is worth writing down because
+   it looks as though it should. Three separate reasons: receipts are never recorded
+   into `settings/emailSendFailures` at all; the four senders that DO write there all
+   mark themselves `resend: false`, and three of those four are dead UI (`pib*` and
+   `sendRsvpEmailBtn` have no markup \u2014 Suite 128 asserts it); and that button
+   re-renders through `etResolveVars`, which fills name/price/phone/link and NONE of
+   the three money tokens a receipt is made of. Pointing it at a receipt would mail a
+   customer a thank-you with the amount missing. */
+function receiptResendTargets(invoices){
+  /* \u26a0 AN EMAIL ON FILE IS PART OF THE RULE, not a detail of the loop. A row with no
+     address can never be sent and must be COUNTED rather than tried \u2014 otherwise the
+     press reports failures it was always going to have, and the real ones hide among
+     them. (Measured on the real book the day this was built: 0 of the 41.) */
+  const all = (invoices || []).filter(function(i){
+    return i && i.data && String(i.data.receiptError || '').trim();
+  });
+  const sendable = all.filter(function(i){ return String(i.data.email || '').trim(); });
+  return { all: all, sendable: sendable, noEmail: all.length - sendable.length };
+}
+/* \u26a0 WHAT THE RECEIPT SAYS WAS PAID, and the one figure the invoice cannot answer on
+   its own. {{amount_paid}} is the deposit and {{amount_due}} falls out of the maths,
+   but {{payment_amount}} \u2014 "we have received your payment of X" \u2014 is THIS payment,
+   which is not stored on the invoice. The ledger has it, so the ledger is asked.
+   \u26a0 NEWEST FIRST, sorted here rather than with orderBy, exactly as
+   `renderPaymentHistory` does it and for its reason: a composite index would need a
+   hand-run `firebase deploy --only firestore:indexes` that CI does not do, and the
+   number of payments on one invoice is tiny.
+   \u26a0 AND IT FALLS BACK TO THE DEPOSIT rather than to nothing. Anything paid before the
+   payment log existed has no row, and for a bill that is now settled the deposit IS
+   what they paid \u2014 which is the commonest case here by far. A receipt reporting $0
+   would be worse than the one that never arrived. */
+function receiptResendAmount(invData, paymentRows){
+  const rows = (paymentRows || []).slice().sort(function(a,b){
+    return (toJsDate(b && b.paidAt) || 0) - (toJsDate(a && a.paidAt) || 0);
+  });
+  for(const r of rows){
+    const amt = Number(r && r.amount) || 0;
+    if(amt > 0) return amt;
+  }
+  return Math.max(0, Number(invData && invData.deposit) || 0);
+}
 function partialPaymentNote(d){
   return (Number(d.deposit)||0) > 0 ? ('\n\nYou\'ve already paid ' + fmtMoney(Number(d.deposit)) + ' \u2014 the amount above is what\'s left.') : '';
 }
@@ -28814,7 +28871,8 @@ function renderUnmatchedPaymentBanner(){
 function renderReceiptErrorBanner(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
-  const broken = allInvoicesCache.filter(i => i.data && i.data.receiptError);
+  const found = receiptResendTargets(allInvoicesCache);
+  const broken = found.all;
   const existing = document.getElementById('receiptErrorBanner');
   if(existing) existing.remove();
   if(!broken.length) return;
@@ -28825,8 +28883,124 @@ function renderReceiptErrorBanner(){
     'The payments were recorded correctly &mdash; only the emails failed. Affected: '+
     broken.slice(0,5).map(i => esc(i.data.name || i.id)).join(', ')+
     (broken.length>5 ? ' and '+(broken.length-5)+' more' : '')+
-    '. The reason is shown in red on each invoice below.';
+    '. The reason is shown in red on each invoice below.'+
+    /* ⚠ THE BUTTON IS HERE, on the banner that already found and named them, rather
+       than on a card of its own. There is one list of who missed out and it is this
+       one; a second screen listing the same people is a second thing to keep true. */
+    '<div style="margin-top:10px;">'+
+      (found.sendable.length
+        ? '<button id="receiptRetryBtn" class="btn" style="font-size:13px;">Send the '+
+          found.sendable.length+' missing receipt'+(found.sendable.length===1?'':'s')+'</button>'
+        : '')+
+      /* ⚠ SAID, NEVER SILENTLY DROPPED. A row with no address is not a failure to fix
+         by pressing again — it is a customer who cannot be emailed by anything. */
+      (found.noEmail
+        ? '<span style="margin-left:8px; color:#9A2A1F;">'+found.noEmail+
+          ' of them have no email address on file and cannot be sent.</span>'
+        : '')+
+      '<span id="receiptRetryStatus" style="margin-left:10px; color:var(--slate);"></span>'+
+    '</div>';
   wrap.parentNode.insertBefore(bar, wrap);
+  /* ⚠ BOUND TO THE NODE THIS RENDER JUST MADE, and safe only because the banner above
+     is removed and rebuilt every time. Do NOT turn this into a document-wide query or
+     a listener on a persistent row: that is how one drop onto Inbox fired 2815
+     Firestore writes, measured, on this very page. */
+  document.getElementById('receiptRetryBtn')?.addEventListener('click',
+    onceAtATime(resendMissingReceipts, function(){ return document.getElementById('receiptRetryBtn'); }));
+}
+/* ⭐ SEND THE RECEIPTS THAT NEVER WENT (2026-10-09). Runs from the browser, which is
+   the point: the 41 that prompted this were refused SERVER-side, and the EmailJS
+   setting that refused them does not apply to a send made from this tab. So this
+   works before that checkbox is found, not after.
+   ⛔ PACED THROUGH `emailSendPaced`, the one helper that knows how fast we may mail
+   customers — written after Gmail refused 392 of ~410 sends in September, and whose
+   own note records that it was true of one sender out of five. This is one more that
+   would otherwise fire back to back down a list of dozens.
+   ⚠ A FAILURE HAS TO BE A THROW FOR THE PACER TO SEE IT. `sendPaymentReceipt` never
+   throws — it answers {sent, quiet, why} — so a non-quiet failure is re-thrown
+   carrying its own wording, which is what `emailSendRetryAfter` reads to tell a rate
+   limit (wait it out) from the day's cap (finish tomorrow). Returning quietly here
+   would spend the whole list discovering the same refusal.
+   ⚠ AND A QUIET OUTCOME IS NOT A FAILURE. Under the minimum, a correction, or already
+   receipted are all deliberate silences agreed in 2026-08-11; counting them as errors
+   would make a clean run look broken. */
+async function resendMissingReceipts(){
+  const statusEl = document.getElementById('receiptRetryStatus');
+  const say = function(t){ if(statusEl) statusEl.textContent = t; };
+  const found = receiptResendTargets(allInvoicesCache);
+  if(!found.sendable.length){ say('Nothing to send.'); return; }
+  if(!window.emailjs){ say('The email service did not load — check your connection.'); return; }
+  const serviceId = document.getElementById('emailjsServiceId').value.trim();
+  const templateId = document.getElementById('emailjsTemplateId').value.trim();
+  const publicKey = document.getElementById('emailjsPublicKey').value.trim();
+  if(!serviceId || !templateId || !publicKey){ say('Set up EmailJS (Automation Emails → EmailJS Setup) first.'); return; }
+  if(!confirm('Send a receipt to the ' + found.sendable.length + ' customer(s) whose receipt never went out?\n\n'
+    + 'They have all already paid — this is the thank-you they never got. Nobody who '
+    + 'already had one is emailed again.')) return;
+  emailjs.init(publicKey);
+  const ctx = {};
+  let sent = 0, quiet = 0, failed = 0, rateStop = null;
+  const problems = [];
+  for(const item of found.sendable){
+    let outcome = null;
+    const paced = await emailSendPaced(async function(){
+      /* ⚠ READ PER INVOICE rather than once over the whole collection: `payments` is
+         every payment ever taken, and the number on any ONE invoice is tiny — the
+         same trade `renderPaymentHistory` makes, and it needs no composite index. */
+      let rows = [];
+      try{
+        const snap = await getDocs(query(collection(db,'payments'), where('invoiceKey','==', String(item.id))));
+        snap.forEach(function(d){ rows.push(d.data()); });
+      }catch(e){ /* quiet on purpose: the ledger is only consulted to report WHAT was
+                    paid. Losing it costs {{payment_amount}} its precision — the
+                    deposit stands in — and must never cost the customer the receipt,
+                    which is the whole thing this press exists to deliver. */ }
+      outcome = await sendPaymentReceipt(item.id, item.data, receiptResendAmount(item.data, rows));
+      if(outcome && !outcome.sent && !outcome.quiet){
+        const e = new Error(outcome.why || 'the receipt did not send');
+        e.text = outcome.why || '';
+        throw e;
+      }
+    }, ctx, function(mins){ say('Waiting ' + mins + ' min for the mail service, then carrying on…'); });
+    if(paced.sent){
+      if(outcome && outcome.sent){
+        sent++;
+        /* The real sender clears receiptError on the record; mirror it so the banner
+           shrinks as this runs rather than after the next reload. */
+        if(item.data){ item.data.receiptError = ''; item.data.receiptErrorAt = null; }
+      } else { quiet++; }
+    } else {
+      failed++;
+      problems.push((item.data.name || item.id) + ' — ' +
+        String((paced.err && (paced.err.text || paced.err.message)) || 'no reason was given'));
+      if(paced.until){
+        /* ⚠ Gmail's limit is on the ACCOUNT, so everybody behind a stop is left
+           untried rather than spending a request each being told the same thing. */
+        rateStop = paced.until;
+        break;
+      }
+    }
+    say('Sent ' + sent + ' of ' + found.sendable.length + '…');
+  }
+  renderReceiptErrorBanner();
+  const done = (rateStop ? 'Stopped early' : 'Done') + ' — sent ' + sent
+    + (quiet ? ', ' + quiet + ' needed none' : '')
+    + (failed ? ', ' + failed + ' still failing' : '') + '.';
+  /* ⚠ A TOAST AS WELL AS THE LINE, and the toast is the half that matters on the run
+     that works BEST: clearing the last failure removes the banner, which takes the
+     status line with it — so a completely successful press would otherwise end with
+     the red box silently vanishing and nothing anywhere saying 41 receipts went. */
+  toast(done);
+  const where2 = document.getElementById('receiptRetryStatus');
+  if(where2) where2.textContent = done + sendStoppedNote(rateStop);
+  /* ⚠ NAMED, NOT COUNTED. "nothing should fail quietly" — a count tells her a receipt
+     is still owed and not to whom, which is the complaint EM-01 was raised about. */
+  if(problems.length){
+    alert(problems.length + ' receipt(s) still could not be sent. The payments are all '
+      + 'recorded correctly — only the emails failed:\n\n'
+      + problems.slice(0, 12).join('\n')
+      + (problems.length > 12 ? '\n\n…and ' + (problems.length - 12) + ' more.' : ''));
+  }
 }
 function renderInvStatusStrip(){
   const wrap = document.getElementById('invStatusStrip');

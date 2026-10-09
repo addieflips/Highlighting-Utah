@@ -219,6 +219,9 @@ jobs:
       # separately because "the reader is read-only" is a promise until something checks it.
       - name: The nightly-run reader only reads, and names nobody
         run: npm run test:nightly-read
+
+      - name: A receipt that never went out can be sent again
+        run: npm run test:receiptresend
       # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
       # runInvoiceBatch at all, and a one-word crash in it billed no new member at all
       # from 2026-09-18 to 2026-10-02: `nowMs` is not declared in that function,

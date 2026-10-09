@@ -1384,10 +1384,16 @@ console.log('--- wiring ---');
      to make it so we never have this happen again." It was true of ONE sender out of
      five — the invoice and receipt runs would have walked into the identical Gmail
      refusal on an identical back-to-back loop. */
+  /* ⚠ 5 → 6 ON 2026-10-08, WRITTEN DOWN RATHER THAN THE NUMBER BEING RAISED. A FIFTH
+     list-walking sender arrived — `resendMissingReceipts`, which sends the receipts that
+     never went out — and a new sender appearing is as interesting as one disappearing,
+     which is the whole reason this is a census and not a floor. It is paced for the same
+     reason as the other four: it walks dozens of customers in one press. If this goes red
+     again, find the new sender and PACE it; do not move the number to get past it. */
   const pacedCalls = admin.split('emailSendPaced(').length - 1;
   check('every bulk email sender is paced, not just the RSVP one',
-    pacedCalls === 5,
-    'expected the helper plus one call in each of the four status-line senders; found ' +
+    pacedCalls === 6,
+    'expected the helper plus one call in each of the FIVE senders that walk a list; found ' +
     pacedCalls + '. A sender that skips it can still trip the limit that lost 392 emails');
 
   /* ⭐ AND EVERY ONE OF THEM NAMES WHO FAILED (EM-09). Addie: "it should also note whos
