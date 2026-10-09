@@ -73073,6 +73073,23 @@ let PRINTED_OVERRIDE = false, PRINTED_OVERRIDE_NEXT = false;
    it — and the moment it would reach the real date it stops mattering (scheduleTodayStr only ever takes it when it
    is EARLIER than the clock). null = the crew is on today's date, which is every season so far. */
 let HANG_DAY = null;
+/* ⭐⭐ [[SCH-124]] RECALCULATE EVERYTHING RUNS ITSELF ONCE A MORNING (2026-10-09). Dax: "if the crew misses a house we want them
+   to automatically be put on another day", and, shown the simulation (the five-minute sync left 25-40% of missed houses on
+   the gone day and the rest waited a median of 18-23 days; a Recalculate every morning put every one of them on a future
+   day by the next morning, median 6-12 days), chose this.
+   ⚠ THE DATE OF THE LAST PRESS IS SAVED WITH THE PLAN, so it is one answer on every computer: whichever opens Routes first
+   after MORNING_RECALC_HOUR runs it, every other machine sees it has been done, and an office press earlier that morning
+   counts — nobody's morning is recalculated twice. The ordinary press runs, so the next two scheduled days, printed days
+   and today stay exactly as the button already keeps them.
+   ⚠ IT NEEDS THE PAGE OPEN. The scheduler lives in this page, not on the server, so "a morning" is the first time
+   anybody has Routes open from that hour on (the five-minute timer covers a tab left open overnight). */
+const MORNING_RECALC_HOUR = 5;
+let LAST_RECALC_ON = null;
+function morningRecalcDue(nowParts, lastOn){
+  if(!nowParts || !nowParts.date) return false;
+  if(Number(nowParts.hour) < MORNING_RECALC_HOUR) return false;
+  return String(lastOn || '') !== String(nowParts.date);
+}
 function hangDayOn(realStr){
   if(!HANG_DAY || !HANG_DAY.date || !HANG_DAY.setOn) return null;
   if(String(HANG_DAY.date) >= String(realStr)) return null;
@@ -76501,6 +76518,7 @@ function serialize(){
     dayLimits:Object.assign({},DAY_LIMITS),
     /* [[SCH-116]] which schedule day the crew is on when they are behind. With the plan, so every office device agrees. */
     hangDay:(HANG_DAY&&HANG_DAY.date&&HANG_DAY.setOn)?{date:String(HANG_DAY.date),setOn:String(HANG_DAY.setOn)}:null,
+    lastRecalcOn:LAST_RECALC_ON||null,
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
@@ -79788,6 +79806,8 @@ function hydrate(o){
   /* [[SCH-116]] only two plain dates are accepted back; anything else means "on today's date". */
   HANG_DAY=(o.hangDay&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.date||''))&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.setOn||'')))
     ?{date:String(o.hangDay.date),setOn:String(o.hangDay.setOn)}:null;
+  /* [[SCH-124]] never move it BACKWARDS: a snapshot from another computer that predates this morning's press must not re-arm it */
+  if(o.lastRecalcOn&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.lastRecalcOn))&&String(o.lastRecalcOn)>String(LAST_RECALC_ON||'')) LAST_RECALC_ON=String(o.lastRecalcOn);
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
     printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
@@ -79828,6 +79848,8 @@ function cancelReplace(){
 async function loadPlan(){
   try{const s=await getDoc(PLAN_REF());
     if(s.exists()){hydrate(s.data());loaded=true;showDashboard();syncTabs();renderAll();
+      /* [[SCH-124]] first open of the morning — once the customers are in (it waits for them itself) */
+      setTimeout(function(){ try{ maybeMorningRecalc(); }catch(err){ console.error('[HU] morning recalculate failed',err); } },15000);
       /* After the plan is on screen, not before: the correction is usually a
          handful of houses and redrawing once when it lands beats holding the
          whole page back on a list that may still be loading. */
@@ -80086,6 +80108,8 @@ RT.addEventListener('click',e=>{const t=e.target;
      ⚠ DECLARED INSIDE THE LISTENER, so it keeps reaching the same helpers it always
      did (serialize, rebuildSeasonDays, toast) without any of them being moved. */
   function runRecalculateEverything(){
+    /* [[SCH-124]] any press counts as this morning's — see morningRecalcDue */
+    try{ LAST_RECALC_ON=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date()); }catch(err){ console.error('[HU] could not stamp the recalculate date',err); }
     /* ⭐ [[SCH-106]] which days are printed is decided once, before anything moves, and those days are
        frozen as they stand — so nothing below can reshuffle them. */
     try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
@@ -81797,10 +81821,24 @@ function exportCSV(){
   /* The backstop. Five minutes is often enough that a plan left open keeps up,
      and rare enough that it is not doing work nobody asked for. It runs only
      while the plan is loaded, which means only after somebody opened the tab. */
+  /* [[SCH-124]] press Recalculate everything for the office once a morning. Through the button, so it waits for the forecast,
+     refuses while the customer list is loading or a press is running, and reports exactly as a press does. */
+  function maybeMorningRecalc(){
+    if(!loaded) return false;
+    if(typeof jobAddresses==='undefined'||!jobAddresses.length) return false;
+    if(recalcRunning) return false;
+    const now=(typeof mtnNowParts==='function')?mtnNowParts():null;
+    if(!morningRecalcDue(now, LAST_RECALC_ON)) return false;
+    LAST_RECALC_ON=now.date;   // claimed before the press, so a second tick cannot start another
+    toast('Good morning — recalculating the schedule (the next two days stay as they are)');
+    const b=RT.getElementById('recalcBtn');
+    if(b) b.click();
+    return true;
+  }
   function __startSyncTimer(){
     if(__syncTimer) return;
     __syncTimer=setInterval(whileSignedIn(function(){
-      try{ window.scheduleSyncFromCustomers({quiet:false}); }
+      try{ window.scheduleSyncFromCustomers({quiet:false}); maybeMorningRecalc(); }
       catch(e){ /* The timer must survive a bad tick — killing it would stop the plan
                    following the customers for the rest of the session, silently. But it
                    is SAID: a sync that throws every five minutes is a real fault, and
