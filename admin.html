@@ -74098,6 +74098,22 @@ function markDoneHousesHidden(stamp){
 function dayCrewHouses(day){
   /* ⭐ [[SCH-106]] a printed day keeps the split the crew was handed — see frozenCrewSplit. */
   if(typeof frozenCrewSplit === 'function'){ const fz = frozenCrewSplit(day); if(fz) return fz; }
+  /* ⭐ [[SCH-125]] WHO IS ON WHICH CREW DOES NOT DEPEND ON THE ORDER THE DAY IS IN. The split below claims towns, re-homes
+     strays and levels the two crews by walking day.houses in order — so putting a crew's houses in driving order changed
+     which houses that crew had, and the order just worked out no longer fitted it (measured: a route ordered to 55 miles
+     read 70 once the split re-ran). So the split is decided on a fixed order (by house id) and each crew's houses are then
+     handed back in the day's own order — the driving order. Same houses on the same crew whatever order the day is in. */
+  if(day && Array.isArray(day.houses) && !day.__canonSplit){
+    /* a house with no id (an imported row) falls back to its name and address, so the order is fixed for every house */
+    const canonKey = function(h){ return String((h && h.id) || '') + '|' + String((h && h.name) || '') + '|' + String((h && h.address) || '') + '|' + String((h && h.city) || ''); };
+    const canon = Object.assign({}, day, {houses: day.houses.slice().sort(function(a, b){
+      const x = canonKey(a), y = canonKey(b);
+      return x < y ? -1 : (x > y ? 1 : 0);
+    }), __canonSplit: true});
+    const res = dayCrewHouses(canon);
+    const pos = new Map(); day.houses.forEach(function(h, i){ pos.set(h, i); });
+    return res.map(function(list){ return (list || []).slice().sort(function(a, b){ return pos.get(a) - pos.get(b); }); });
+  }
   const out=CREWS.map(function(){ return []; });
   if(!day||!day.houses) return out;
   /* ⚠ EXACTLY ONE CREW EACH, WHICH IS THE OTHER HALF OF [[SCH-67]]. Each crew used to
@@ -74734,6 +74750,93 @@ function missedStopStart(points, aim){
   if(!missed.length) return null;
   return stopFarthestFrom(missed, aim) || {lat: missed[0].lat, lng: missed[0].lng};
 }
+/* ⭐⭐ [[SCH-125]] THE ORDER A CREW DRIVES IS DECIDED BY GAS (2026-10-09). Dax: "every day should be decided by priority but every
+   route on the order its done should be decided based on gas". Measured on simulated seasons: the routes this file drew were
+   8-9% longer than the shortest order for the same houses — about 130 miles a season, the worst single day 12-16 miles over —
+   because the order carried rules on top of distance (aim at tomorrow's area, yesterday's missed houses first, the far house
+   moved to one end) and a nearest-neighbour walk from one start that 2-opt cannot always untangle.
+   ⭐ WHAT THIS IS: the shortest yard-to-yard order a strong local search can find — nearest neighbour from several starts,
+   then 2-opt (reverse a stretch) and or-opt (move one stop) until neither shortens the day. orderHousesForDriving still
+   builds its own order and then keeps WHICHEVER IS SHORTER, so a route can only ever get shorter than before, never longer.
+   ⚠ THIS NARROWS THREE EARLIER ROUTE RULINGS (R-024): the aim at tomorrow (SCH-58's neighbours), missed-first, and the far-house
+   placement (Addie 2026-08-21, Dax 2026-09-26). Where one of them is also the shortest drive it still happens; where it costs
+   gas, gas wins. Which houses are on a day is untouched — that is the builder's, by priority.
+   ⚠ PURE: points in, points out, the yard passed in. No yard (a sandbox, a book with no yard record) is an open path. */
+function gasShortestOrder(points, home){
+  const pts = (points || []).filter(function(p){ return p && typeof p.lat === 'number' && typeof p.lng === 'number' && isFinite(p.lat) && isFinite(p.lng); });
+  const n = pts.length;
+  if(n < 3) return pts.slice();
+  /* index n is the yard; with no yard it is a free end — every distance to it is 0, which makes the round trip an open path */
+  const D = [];
+  for(let i = 0; i <= n; i++){
+    D.push(new Float64Array(n + 1));
+    for(let j = 0; j <= n; j++){
+      if(i === n || j === n) D[i][j] = home ? (i === j ? 0 : haversine((i === n ? home : pts[i]).lat, (i === n ? home : pts[i]).lng, (j === n ? home : pts[j]).lat, (j === n ? home : pts[j]).lng)) : 0;
+      else D[i][j] = haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng);
+    }
+  }
+  const Y = n;
+  const cost = function(r){ let m = 0; for(let k = 1; k < r.length; k++) m += D[r[k - 1]][r[k]]; return m; };
+  /* r is the full loop [Y, stops..., Y]; every move below is scored from the four or six distances it changes */
+  const improve = function(r){
+    let improved = true, guard = 0;
+    while(improved && guard++ < 200){
+      improved = false;
+      /* 2-opt: reverse r[i..j] */
+      for(let i = 1; i < r.length - 2; i++){
+        for(let j = i + 1; j < r.length - 1; j++){
+          const delta = D[r[i - 1]][r[j]] + D[r[i]][r[j + 1]] - D[r[i - 1]][r[i]] - D[r[j]][r[j + 1]];
+          if(delta < -1e-9){
+            for(let a = i, b = j; a < b; a++, b--){ const t = r[a]; r[a] = r[b]; r[b] = t; }
+            improved = true;
+          }
+        }
+      }
+      /* or-opt: move a run of 1-3 stops (either way round) between two other neighbours */
+      for(let seg = 1; seg <= 3; seg++){
+        for(let i = 1; i + seg < r.length; i++){
+          const a = r[i], b = r[i + seg - 1], p = r[i - 1], q = r[i + seg];
+          const gain = D[p][a] + D[b][q] - D[p][q];
+          let bestDelta = -1e-9, bestK = -1, bestRev = false;
+          for(let k = 0; k < r.length - 1; k++){
+            if(k >= i - 1 && k <= i + seg - 1) continue;
+            const u = r[k], v = r[k + 1];
+            const fwd = D[u][a] + D[b][v] - D[u][v] - gain;
+            const rev = D[u][b] + D[a][v] - D[u][v] - gain;
+            if(fwd < bestDelta){ bestDelta = fwd; bestK = k; bestRev = false; }
+            if(rev < bestDelta){ bestDelta = rev; bestK = k; bestRev = true; }
+          }
+          if(bestK >= 0){
+            const run = r.slice(i, i + seg); if(bestRev) run.reverse();
+            const rest = r.slice(0, i).concat(r.slice(i + seg));
+            const at = bestK < i ? bestK + 1 : bestK + 1 - seg;
+            const next = rest.slice(0, at).concat(run, rest.slice(at));
+            for(let z = 0; z < r.length; z++) r[z] = next[z];
+            improved = true;
+          }
+        }
+      }
+    }
+    return r;
+  };
+  let best = null, bestM = Infinity;
+  const starts = [-1]; for(let i = 0; i < n; i++) starts.push(i);
+  starts.forEach(function(s){
+    const left = []; for(let i = 0; i < n; i++) if(i !== s) left.push(i);
+    const r = [Y]; let cur = Y;
+    if(s >= 0){ r.push(s); cur = s; }
+    while(left.length){
+      let bi = 0, bd = Infinity;
+      for(let k = 0; k < left.length; k++){ const x = D[cur][left[k]]; if(x < bd){ bd = x; bi = k; } }
+      cur = left.splice(bi, 1)[0]; r.push(cur);
+    }
+    r.push(Y);
+    improve(r);
+    const m = cost(r);
+    if(m < bestM - 1e-9){ bestM = m; best = r.slice(1, r.length - 1); }
+  });
+  return best ? best.map(function(i){ return pts[i]; }) : pts.slice();
+}
 function orderHousesForDriving(list, opts){
   const houses=(list||[]).slice();
   if(houses.length<2) return houses;
@@ -74815,6 +74918,13 @@ function orderHousesForDriving(list, opts){
     }
   }
   catch(err){ console.error('Route order failed:', err); return houses; }
+  /* [[SCH-125]] gas decides: keep whichever of the two orders is the shorter drive, yard to yard */
+  try{
+    const gasHome = (typeof routeHomePoint==='function') ? routeHomePoint() : null;
+    const pinnedNow = (ordered || []).filter(stopHasPin), bareNow = (ordered || []).filter(function(p){ return !stopHasPin(p); });
+    const gas = gasShortestOrder(pinnedNow, gasHome);
+    if(gas.length === pinnedNow.length && tourMiles(gas, gasHome, gasHome) < tourMiles(pinnedNow, gasHome, gasHome) - 1e-6) ordered = gas.concat(bareNow);
+  }catch(err){ console.error('Shortest route search failed — keeping the order already worked out:', err); }
   const out=[], seen=new Set();
   (ordered||[]).forEach(function(s){
     const h=s&&s.ref;
@@ -74838,16 +74948,43 @@ function generateDayRoutes(day, opts){
     /* One fixer, one van, one run — there is no crew split to make. */
     out=orderHousesForDriving(houses,{aim:aim});
   } else {
-    const seen=new Set();
-    CREWS.forEach(function(c,i){
-      const mine=crewHousesFor(i,day).filter(function(h){ return !seen.has(h); });
-      mine.forEach(function(h){ seen.add(h); });
-      out=out.concat(orderHousesForDriving(mine,{aim:aim}));
-    });
-    /* A house in neither crew's town is still on the day and still has to be
-       driven to. It goes on the end, where it stays visible — the same reason
-       unassignedHousesFor reports it rather than swallowing it. */
-    out=out.concat(orderHousesForDriving(houses.filter(function(h){ return !seen.has(h); }),{aim:aim}));
+    /* ⭐ [[SCH-125]] UNTIL THE SPLIT STOPS MOVING. The crew split is worked out from the day's list (dayCrewHouses, and the
+       levelling inside it reads the list in order), so writing a freshly ordered list back could hand a crew different houses
+       from the ones it was just ordered for — measured: a crew route ordered to 15.7 miles came back 23.9 once the split re-ran.
+       So: split, order each crew, write, split again — until every crew is handed exactly the houses, in exactly the order, it
+       was ordered for. Bounded, and if the split never settles the attempt that drives the fewest miles is kept. */
+    const home=(typeof routeHomePoint==='function') ? routeHomePoint() : null;
+    const crewMiles=function(){
+      let m=0;
+      CREWS.forEach(function(c,i){ m+=tourMiles((crewHousesFor(i,day)||[]).map(houseStopPoint).filter(stopHasPin), home, home); });
+      return m;
+    };
+    let bestOut=null, bestM=Infinity;
+    for(let pass=0; pass<6; pass++){
+      const seen=new Set(), orderedByCrew=[];
+      let attempt=[];
+      CREWS.forEach(function(c,i){
+        const mine=crewHousesFor(i,day).filter(function(h){ return !seen.has(h); });
+        mine.forEach(function(h){ seen.add(h); });
+        const ord=orderHousesForDriving(mine,{aim:aim});
+        orderedByCrew.push(ord);
+        attempt=attempt.concat(ord);
+      });
+      /* A house in neither crew's town is still on the day and still has to be
+         driven to. It goes on the end, where it stays visible — the same reason
+         unassignedHousesFor reports it rather than swallowing it. */
+      attempt=attempt.concat(orderHousesForDriving(houses.filter(function(h){ return !seen.has(h); }),{aim:aim}));
+      if(attempt.length!==houses.length) break;
+      day.houses=attempt;
+      const m=crewMiles();
+      if(m<bestM-1e-9){ bestM=m; bestOut=attempt; }
+      const settled=CREWS.every(function(c,i){
+        const now=crewHousesFor(i,day)||[], want=orderedByCrew[i]||[];
+        return now.length===want.length && now.every(function(h,k){ return h===want[k]; });
+      });
+      if(settled) break;
+    }
+    out=bestOut||houses.slice();
   }
   if(out.length!==houses.length) return 0;
   day.houses=out;

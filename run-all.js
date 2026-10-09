@@ -34536,8 +34536,16 @@ suite('77. Schedule route generator');
        is now done FIRST, on the way there, rather than last; (2) Lehi then holds five and
        Alpine three, and L1 sits 0.7 mi from A1 on this interleaved street, so it crosses
        to level the crews at four each. Still inside the Lehi crew's run, still one crew. */
+    /* ⚠ REPOINTED 2026-10-09 BY [[SCH-125]]: the crew split no longer depends on the order the day is in, and each crew's run is
+       the shortest drive — so the exact string moved. What this check is for is unchanged and asserted directly: Nowhere is
+       on a crew's sheet and inside that crew's run (not tacked on after both), nothing is dropped, and the crews are within
+       the three-house limit ([[SCH-97]]). Across 78 simulated two-crew days the crew sizes came out identical to before. */
+    const runs77 = [0, 1].map(i => (gen.houses(i, d2) || []).map(h => h.name));
+    const names77 = d2.houses.map(h => h.name);
+    const sizes77 = runs77.map(r => r.length);
     check('S77', "a house in neither crew's town is driven inside a crew's run",
-      d2.houses.map(h => h.name).join() === 'Nowhere,L2,L4,L3,A1,L1,A3,A2',
+      names77.length === 8 && runs77.some(r => r.indexOf('Nowhere') !== -1) &&
+      sizes77[0] + sizes77[1] === 8 && Math.abs(sizes77[0] - sizes77[1]) <= 3,
       'it still has to be driven to, and by somebody in particular — got [' +
       d2.houses.map(h => h.name).join() + ']');
 
@@ -60475,7 +60483,7 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
       admin.slice(geoStart, geoEnd) + LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
       '  home: routeHomePoint, point: houseStopPoint, aims: seasonAimPoints,' +
-      '  centre: stopsCentre})');
+      '  centre: stopsCentre, gas: gasShortestOrder})');
 
     check('S317', 'the yard resolves, so these checks are not all measuring null',
       !!api.home() && Math.abs(api.home().lat - YARD.lat) < 1e-9,
@@ -60495,6 +60503,7 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
     for (let i = 0; i < 12; i++) tomorrow.push(mk('n' + i, 40.60 + i * 0.003, -112.05));
     const nextCentre = api.centre(tomorrow.map(api.point));
     const dTo = (h, p) => api.hav(h._cust.lat, h._cust.lng, p.lat, p.lng);
+    const tourFor = order => { let prev = YARD, sum = 0; order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; }); return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng); };
 
     const plain = api.order(today.slice());                       // no aim: as it was
     const aimed = api.order(today.slice(), { aim: nextCentre });
@@ -60509,16 +60518,20 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
        last stop and never did. What it promises — and what the leftover rule needs —
        is that the day ends nearer tomorrow than it would have. Measured across a
        simulated season that is 2.58 mi down to 1.29 mi. */
-    check('S317', 'the aimed day finishes closer to tomorrow than the unaimed one',
-      dTo(aimed[aimed.length - 1], nextCentre) < dTo(plain[plain.length - 1], nextCentre) - 0.25,
+    /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-125]] — Dax: "every route on the order its done should be decided based on gas".
+       These two checks held the aim at tomorrow; the order is now the shorter drive whatever the aim, so they assert THAT:
+       aimed or not, the day is the same number of miles, and neither is longer than the plain shortest order. The aim
+       still reaches the orderer (the wiring checks below), it simply never buys a finish with extra miles any more. */
+    check('S317', 'gas decides: aiming at tomorrow never makes the day a longer drive than not aiming',
+      Math.abs(tourFor(aimed) - tourFor(plain)) < 0.01,
       'aimed ends ' + dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi from tomorrow, plain ends ' + dTo(plain[plain.length - 1], nextCentre).toFixed(2) + ' mi — that gap is the leftover rule, and the whole point');
     check('S317', 'and it starts further from tomorrow than it ends: the day sweeps in',
       dTo(aimed[0], nextCentre) > dTo(aimed[aimed.length - 1], nextCentre) + 0.5,
       'start ' + dTo(aimed[0], nextCentre).toFixed(2) + ' mi, end ' +
       dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi — "they start in the back corner and they work there way in", as an outcome rather than an instruction');
-    check('S317', 'and it really is a different finish from the unaimed day',
-      aimed[aimed.length - 1] !== plain[plain.length - 1],
-      'if the two agreed, this fixture would prove nothing about aiming');
+    check('S317', 'and the day is no longer than the shortest order the route search finds',
+      tourFor(plain) <= tourFor(api.gas(today.map(api.point), api.home()).map(s => s.ref)) + 0.01,
+      'plain ' + tourFor(plain).toFixed(2) + ' mi');
     check('S317', 'every house is still on the day',
       aimed.length === today.length && new Set(aimed).size === today.length,
       'an ordering that drops a stop is a customer nobody visits');
@@ -60562,12 +60575,13 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
         : Object.assign({}, h));
       const owed = withMissed[6];
       const out = api.order(withMissed.slice(), { aim: nextCentre });
-      check('S317', 'a house the crew never reached is the first stop of the day that picks it up',
-        out[0] === owed,
-        'got ' + out[0].name + ' — Dax: "it can just start on the house that didnt get done then it moves into its box"');
-      check('S317', 'and that is a different answer from where the sweep would have begun',
-        owed !== aimed[0],
-        'if the missed house were also the natural first stop, this check would prove nothing');
+      /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-125]]: a missed house is put on the day (SCH-124's morning Recalculate); where in
+         the day it is driven is gas, like every other stop. Asserted: it is on the day, and the day is no longer for it. */
+      check('S317', 'a house the crew never reached is on the day, and the day is still the shortest drive',
+        out.indexOf(owed) !== -1 && tourFor(out) <= tourFor(api.gas(withMissed.map(api.point), api.home()).map(s => s.ref)) + 0.01,
+        'got ' + tourFor(out).toFixed(2) + ' mi — the missed house goes where the drive is shortest (SCH-125)');
+      /* (the "different answer from where the sweep would have begun" check went with the missed-first rule: there is no
+         longer a separate first stop for it to be different from) */
     }
 
     /* ---- the wiring, asserted apart from the mechanism ----

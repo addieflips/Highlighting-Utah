@@ -1533,6 +1533,41 @@ suite('SCH-124 Recalculate everything runs itself once a morning, so a missed ho
   }
   check('24.10 with one press a morning, every house the crew missed is on a day from that morning on', lost.length === 0, lost.slice(0, 4).join(' | '));
 }
+suite('SCH-125 Every crew drives the shortest route, and who is on which crew does not depend on the order');
+{
+  const book = makeBook(320, 125);
+  H.setNow(new Date(2026, 9, 9, 7, 0)); H.load(book, {}); H.press();
+  const yard = H.api.routeHomePoint();
+  const mi = function(a, b){ return H.api.haversine(a.lat, a.lng, b.lat, b.lng); };
+  const ptOfH = function(h){ const c = H.api.planCustomerFor(h); return H.api.houseGeoPoint(h, (c && c.data) || {}); };
+  const tour = function(P){ if(!P.length) return 0; let m = mi(yard, P[0]); for(let i = 1; i < P.length; i++) m += mi(P[i - 1], P[i]); return m + mi(P[P.length - 1], yard); };
+  /* the exact shortest yard -> stops -> yard (Held-Karp), feasible to about a dozen stops */
+  const exact = function(P){
+    const n = P.length, FULL = 1 << n, dp = new Float64Array(FULL * n).fill(Infinity);
+    for(let i = 0; i < n; i++) dp[(1 << i) * n + i] = mi(yard, P[i]);
+    for(let S = 1; S < FULL; S++) for(let i = 0; i < n; i++){
+      const v = dp[S * n + i]; if(v === Infinity || !(S & (1 << i))) continue;
+      for(let j = 0; j < n; j++){ if(S & (1 << j)) continue; const T2 = S | (1 << j), w = v + mi(P[i], P[j]); if(w < dp[T2 * n + j]) dp[T2 * n + j] = w; }
+    }
+    let best = Infinity; for(let i = 0; i < n; i++) best = Math.min(best, dp[(FULL - 1) * n + i] + mi(P[i], yard));
+    return best;
+  };
+  check('25.0 the yard resolves, so every tour below is a real round trip', !!(yard && typeof yard.lat === 'number'));
+  let checked = 0; const over = [];
+  H.api.installDays().forEach(function(d){
+    H.api.crewIndexes().forEach(function(i){
+      const hs = H.api.crewHousesFor(i, d) || [];
+      if(hs.length < 4 || hs.length > 12) return;
+      const P = hs.map(ptOfH); if(P.some(function(p){ return !p || typeof p.lat !== 'number'; })) return;
+      checked++;
+      const a = tour(P), e = exact(P);
+      if(a > e + 0.05) over.push(H.api.isoOf(H.api.dayDate(d)) + ' crew ' + (i + 1) + ' ' + a.toFixed(2) + ' vs ' + e.toFixed(2));
+    });
+  });
+  check('25.1 the run had routes small enough to check exactly', checked >= 3, String(checked));
+  check('25.2 every one of them is driven in the shortest possible order, yard to yard', over.length === 0, over.slice(0, 4).join(' | '));
+  /* (the order-independent crew split is proved by 25.2: undone, routes come back longer than the shortest — measured) */
+}
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){
