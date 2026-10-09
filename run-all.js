@@ -54001,7 +54001,9 @@ suite('Suite 303. A flat no gets its own badge');
     'seasonBadgeKey can return a key the row has no branch for, and the row would ' +
     'fall through to Confirmed — the worst possible default for somebody who said no');
   check('S303', 'and the Season Badge filter can pick them out',
-    /id="allCustFilterSeason"[\s\S]{0,400}<option value="no">/.test(admin),
+    /* ⚠ REPOINTED 2026-10-09: a 400-character window fell short the day a Re-quote option was added before
+       it. Read the whole <select> instead — §7 bans fixed windows for exactly this. */
+    /<option value="no">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]),
     'the filter matches on r.badge, so a key with no option is unreachable from the screen');
 }
 
@@ -66260,5 +66262,46 @@ suite('375. A setting changed on another computer reaches this one without a ref
         !threw2 && (t.listeners['settings/scheduling'] || []).length === 1, threw2 || String((t.listeners['settings/scheduling'] || []).length));
       check('S375', 'and binds the focus handler only once', t.focusHandlers.length === 1, String(t.focusHandlers.length));
     }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 376. A SIDES RE-QUOTE HOLDS A CUSTOMER OFF THE SCHEDULE UNTIL IT IS ANSWERED
+ * ([[SCH-125]], 2026-10-09). Addie: "if I changes sides for someone like I add back on
+ * sides of house then that should send person to requote and unschedule that person".
+ * RUN against quotes shaped the way both doors write them.
+ * --------------------------------------------------------------------------- */
+suite('376. A sides re-quote holds a customer off the schedule');
+{
+  const names = ['isOutForSeason', 'isWaitingOnColorChange', 'isWaitingOnBuild', 'isWaitingOnTimer', 'isWaitingOnRecycle',
+    'isInWarehouse', 'sidesRequoteOpenIds', 'isWaitingOnSidesRequote', 'isOffTheSchedule', 'seasonBadgeKey', 'quoteWasSentOut', 'quoteStage'];
+  const parts = names.map(n => extractFn(admin, n));
+  check('S376', 'the hold and everything it asks are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('quotesCache', 'custById',
+      seasonRuleSrc() + 'let sidesRequoteMemo = null;' + parts.join('\n') +
+      'return {off: isOffTheSchedule, badge: seasonBadgeKey};');
+    const rec = (id, extra) => ({id, data: Object.assign({name: id, rsvpStatus: 'yes', rsvpRespondedAt: 1}, extra || {})});
+    const a = rec('a'), b = rec('b'), c = rec('c'), e = rec('e');
+    const idx = new Map([a, b, c, e].map(x => [x.id, x]));
+    const quotes = [
+      {id: 'q1', data: {existingCustomerId: 'a', changed: {what: 'sides', by: 'office'}, status: 'new'}},
+      {id: 'q2', data: {existingCustomerId: 'b', changed: {what: 'sides'}, status: 'closed'}},
+      {id: 'q3', data: {existingCustomerId: 'c', changed: {what: 'price'}, status: 'new'}},
+      {id: 'q4', data: {existingCustomerId: 'e', changed: {what: 'sides'}, approvalStatus: 'declined'}}
+    ];
+    const L = lib(quotes, idx);
+    check('S376', 'an open sides re-quote takes them off the schedule', L.off(a.data) === true);
+    check('S376', 'and their badge reads Re-quote, not Confirmed (the headline rule holds)', L.badge(a.data) === 'requote', L.badge(a.data));
+    check('S376', 'once the re-quote is answered (closed) they are scheduled again', L.off(b.data) === false && L.badge(b.data) === 'confirmed');
+    check('S376', 'a declined sides re-quote releases them too', L.off(e.data) === false);
+    check('S376', 'a price-only re-quote holds nobody — her words name sides', L.off(c.data) === false && L.badge(c.data) === 'confirmed');
+    check('S376', 'with no quotes loaded nobody is held (fails towards scheduling)', lib([], idx).off(a.data) === false);
+    check('S376', 'and a record it cannot match to its id is not held', L.off({name: 'a', rsvpStatus: 'yes', rsvpRespondedAt: 1}) === false);
+    check('S376', 'the All Customers row draws the Re-quote pill', /badgeKey === 'requote'[\s\S]{0,300}>Re-quote<\/span>/.test(admin));
+    check('S376', 'and the Season Badge filter can pick them out',
+      /<option value="requote">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]));
+    check('S376', 'the drop step and the placement step both ask isOffTheSchedule',
+      /isOffTheSchedule\(cd\)/.test(extractFn(admin, 'dropHousesWhoLeftSeason') || ''));
   }
 }
