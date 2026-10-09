@@ -63859,7 +63859,7 @@ function planNewCrewDays(waiting, taken, opts){
        sense in a route" ([[SCH-54]]). Only while somebody else CAN make a real day; at the season's tail nobody can,
        and urgency decides alone as before. */
     const viableAt = (typeof ONE_MAN_MAX_HOUSES === 'number' ? ONE_MAN_MAX_HOUSES : 8) + 1;
-    if(c.due !== null && c.due !== undefined && c.due !== p.due) return !!c.due;
+    if(c.due !== null && c.due !== undefined && c.due !== p.due) return c.due > p.due;
     const cv = c.fits >= viableAt, pv = p.fits >= viableAt;
     if(cv !== pv) return cv;
     if(c.urg !== p.urg) return c.urg < p.urg;
@@ -64095,7 +64095,8 @@ function planNewCrewDays(waiting, taken, opts){
       const areas = {};
       Object.keys(byCity).forEach(function(c){ if(byCity[c].some(function(w){
         return w.until && w.until >= ds && w.until <= D && (w.from || '') <= end; })) areas[c] = 1; });
-      const tight = Object.keys(areas).length > crewDays;
+      /* equal counts as tight: with as many due areas as crew-days left, every crew-day must go to one of them */
+      const tight = Object.keys(areas).length >= crewDays;
       const margin = tight ? 0 : (slots - need);
       if(margin < best || (tight && !bestTight)){ if(!bestTight || tight){ best = margin; by = D; bestTight = tight; } }
     });
@@ -64106,7 +64107,11 @@ function planNewCrewDays(waiting, taken, opts){
     Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){
       if(w.until && w.until >= ds && w.until <= by && typeof w.priority === 'number' && w.priority < dueUrg) dueUrg = w.priority; }); });
     return {left: Math.max(0, best), by: by, tight: bestTight,
-            is: function(w){ return !w || ((!w.until || w.until > by) && !(typeof w.priority === 'number' && w.priority < dueUrg)); }};
+            /* ⚠ BUT A MISSED BUMP ALONE DOES NOT LIFT AN ANY-TIME HOUSE OVER AN OCTOBER ONE. Measured at a 70% finish rate:
+               every miss outranked October, the last October days filled with missed any-time houses, and 18 October
+               customers went to November. Missed still sorts first among the any-time houses; a rush still beats all. */
+            is: function(w){ return !w || ((!w.until || w.until > by) &&
+              (!(typeof w.priority === 'number' && w.priority < dueUrg) || ((w.missed || 0) > 0 && !w.rush))); }};
     /* (a late house, until < ds, is never a rider: it is not "any time", it is overdue) */
   };
   const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
@@ -64262,8 +64267,8 @@ function planNewCrewDays(waiting, taken, opts){
                                      ? ONE_MAN_MAX_HOUSES : 8) + 1);
             const cand = {city: c, n: st.n, urg: viable ? st.urgRush : st.urg, fits: fits,
                           temp: tempFor(areaTown(c), ds), cold: cold,
-                          /* [[SCH-122]] while October is tight, an area holding a due house wins the day */
-                          due: (curRiders && curRiders.tight) ? st.nd > 0 : null};
+                          /* [[SCH-122]] while October is tight, the area holding the most due houses wins the day */
+                          due: (curRiders && curRiders.tight) ? st.nd : null};
             if(betterTown(cand, pick)) pick = cand;
           });
         }
@@ -78035,6 +78040,36 @@ function dayTownCount(day){ return dayTownList(day).length; }
    "on no day" is what the headline rule forbids.
    ⚠ A PINNED HOUSE IS NEVER PULLED — its window is one day wide and the pin is the answer — and
    a locked day is never touched from either end. */
+/* [[SCH-122]] the any-time house in the same town, on an open day no later than `until`, that `h` can trade places with. */
+function deadlineSwapFor(h, fromDay, fromDs, until){
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const custOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; return (c && c.data) || {}; };
+  const startStr = isoOf(seasonStartDate());
+  const hd = custOf(h);
+  const hp = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, hd) : null;
+  let best = null;
+  SEASON.forEach(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown) return;
+    const x = dayStr(d);
+    if(!x || x > until || x >= fromDs) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(x)) return;
+    if(d.printedAt) return;
+    if(!houseMayGoOn(h, hd, x, startStr).ok) return;
+    (d.houses || []).forEach(function(o){
+      if(!o || o.done || o.isFix || o.isTakedown || o === h) return;
+      if(('' + (o.stuck || '')).trim() || o.notBefore) return;
+      if(!sameCity(cityOf(o), cityOf(h))) return;
+      if((typeof houseDeadline === 'function') && houseDeadline(o)) return;
+      const od = custOf(o);
+      if(typeof isRushInstall === 'function' && isRushInstall(od)) return;
+      if(!houseMayGoOn(o, od, fromDs, startStr).ok) return;
+      const op = (typeof houseGeoPoint === 'function') ? houseGeoPoint(o, od) : null;
+      const miles = (hp && op && typeof hp.lat === 'number' && typeof op.lat === 'number') ? haversine(hp.lat, hp.lng, op.lat, op.lng) : 1e6;
+      if(!best || miles < best.miles || (miles === best.miles && x < best.ds)) best = {day: d, ds: x, other: o, miles: miles};
+    });
+  });
+  return best;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -78050,7 +78085,21 @@ function pullBackPastDeadline(){
         if(!until || ds <= until) return;
         const target = nextInstallDayFor(h, {exclude: day});
         const ts = target ? dayStr(target) : null;
-        if(!target || !ts || ts > until){ res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return; }
+        if(!target || !ts || ts > until){
+          /* ⭐ [[SCH-122]] NO ROOM INSIDE THEIR LAST DAY — SO TRADE PLACES WITH SOMEBODY WHO SAID ANY TIME. Dax: "theres a lot
+             of people wanting for october and scheduled in november which should never happen". An open day on or before
+             their last day, holding an any-time house in the SAME TOWN: the two swap, so both days keep their size and their
+             towns, and the crew sheets need no new town. Never a rush, a pinned, a done or a dated house, never a locked or
+             printed day, and the any-time house must be allowed on the day it is given. Nearest any-time house first. */
+          const swap = deadlineSwapFor(h, day, ds, until);
+          if(swap){
+            day.houses.splice(day.houses.indexOf(h), 1, swap.other);
+            swap.day.houses.splice(swap.day.houses.indexOf(swap.other), 1, h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: swap.ds, swappedWith: swap.other.name || ''});
+            return;
+          }
+          res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;
+        }
         day.houses.splice(day.houses.indexOf(h), 1);
         target.houses.push(h);
         res.moved.push({name: h.name || '(no name)', from: ds, to: ts});

@@ -1371,6 +1371,35 @@ suite('SCH-121 Recalculate packs done houses onto the first days and closes the 
   H.api.setHangDay(null);
 }
 
+suite('SCH-122 October customers get October: three weeks of real presses with crews finishing 70% a day');
+{
+  const book = makeBook(600, 14);
+  const prefOf = {}; book.forEach(function(c){ prefOf['cust-' + c.id] = c.data.installPreference; });
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const r = rng(5);
+  let worst = 0, sameTownAvoidable = 0;
+  H.setNow(new Date(2026, 9, 12, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 12); day <= new Date(2026, 9, 30); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    H.press();
+    const today = H.api.isoOf(day);
+    const inNov = [];
+    H.api.installDays().forEach(function(d){ if(ds(d) > '2026-10-31') d.houses.forEach(function(h){
+      if(!h.done && prefOf[h.id] === 'October') inNov.push(h); }); });
+    if(inNov.length > worst) worst = inNov.length;
+    const open = H.api.installDays().filter(function(d){ const x = ds(d); return x > today && x <= '2026-10-31' && !H.api.routeDayIsLocked(x); });
+    inNov.forEach(function(h){ if(open.some(function(d){ return d.houses.some(function(o){
+      return !o.done && o !== h && o.city === h.city && prefOf[o.id] === 'Normal Schedule'; }); })) sameTownAvoidable++; });
+    const td = H.api.installDays().filter(function(d){ return ds(d) === today; })[0];
+    if(td) td.houses.forEach(function(h){ if(!h.done && r() < 0.7) h.done = true; });
+  }
+  check('22.1 the worst morning holds at most 12 October customers in November — the ones missed on a locked last day (it was 50)',
+    worst <= 12, 'worst ' + worst);
+  check('22.2 no October customer is in November while an open October day holds an any-time house in their own town',
+    sameTownAvoidable === 0, sameTownAvoidable + ' times');
+}
+
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){
