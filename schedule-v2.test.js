@@ -1432,6 +1432,65 @@ suite('SCH-122 October customers get October: three weeks of real presses with c
     sameTownAvoidable === 0, sameTownAvoidable + ' times');
 }
 
+suite('SCH-123 Two weeks of real presses and syncs: the next two days never move, nobody on any warehouse list is on a day');
+{
+  const book = makeBook(500, 123);
+  const byId = {}; book.forEach(function(c){ byId['cust-' + c.id] = c; });
+  const KINDS = [['build', 'needsLightBuild'], ['timer', 'needsTimerOnly'], ['colour', 'needsColorChange'], ['recycle', 'needsLightRecycle']];
+  const r = rng(77);
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const holders = function(){ const m = {}; H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ m[h.id] = ds(d); }); }); return m; };
+  const flagged = {}, released = {};
+  const failA = [], failB = [], failC = [], kindsSeen = {};
+  const lockedSnap = function(today){
+    const dates = H.api.installDays().map(ds).filter(function(x, i, a){ return x >= today && a.indexOf(x) === i; }).sort();
+    const take = dates[0] === today ? dates.slice(0, 3) : dates.slice(0, 2);
+    const snap = {};
+    take.forEach(function(x){ snap[x] = {}; H.api.installDays().filter(function(d){ return ds(d) === x; })
+      .forEach(function(d){ d.houses.forEach(function(h){ snap[x][h.id] = 1; }); }); });
+    return snap;
+  };
+  const checkA = function(label, today, snap){
+    Object.keys(snap).forEach(function(x){
+      const now = {};
+      H.api.installDays().filter(function(d){ return ds(d) === x; }).forEach(function(d){ d.houses.forEach(function(h){ now[h.id] = 1; }); });
+      Object.keys(now).forEach(function(id){ if(!snap[x][id]) failA.push(label + ' ' + today + ' added ' + id + ' to ' + x); });
+      Object.keys(snap[x]).forEach(function(id){ if(!now[id] && !flagged[id]) failA.push(label + ' ' + today + ' moved ' + id + ' off ' + x); });
+    });
+  };
+  const checkB = function(label, today){
+    const m = holders();
+    Object.keys(flagged).forEach(function(id){ if(m[id] && m[id] >= today) failB.push(label + ' ' + today + ' ' + id + ' (' + flagged[id] + ') on ' + m[id]); });
+  };
+  H.setNow(new Date(2026, 8, 30, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 1); day <= new Date(2026, 9, 16); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    const today = H.api.isoOf(day);
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    const pool = Object.keys(holders()).filter(function(id){ return byId[id] && !flagged[id]; });
+    const s0 = lockedSnap(today);
+    const lockedIds = []; Object.keys(s0).slice(1).forEach(function(x){ Object.keys(s0[x]).forEach(function(id){ if(byId[id] && !flagged[id]) lockedIds.push(id); }); });
+    [pool, pool, pool, pool, lockedIds, lockedIds].forEach(function(list, i){
+      if(!list.length) return;
+      const id = list[Math.floor(r() * list.length)];
+      if(flagged[id]) return;
+      const k = KINDS[(i + day.getDate()) % 4];
+      byId[id].data[k[1]] = true; flagged[id] = k[0]; kindsSeen[k[0]] = 1;
+    });
+    Object.keys(flagged).forEach(function(id){
+      if(r() < 0.3){ const k = KINDS.filter(function(k){ return k[0] === flagged[id]; })[0]; byId[id].data[k[1]] = false; delete flagged[id]; released[id] = today; }
+    });
+    let snap = lockedSnap(today); H.tick(); checkA('sync', today, snap); checkB('sync', today);
+    snap = lockedSnap(today); H.press(); checkA('press', today, snap); checkB('press', today);
+    const after = holders();
+    Object.keys(released).forEach(function(id){ if(!flagged[id] && !after[id]) failC.push(today + ' ' + id + ' released ' + released[id]); delete released[id]; });
+    H.api.installDays().filter(function(d){ return ds(d) === today; }).forEach(function(d){ d.houses.forEach(function(h){ if(!h.done && r() < 0.75) h.done = true; }); });
+  }
+  check('23.0 the run put somebody on every one of the four lists', Object.keys(kindsSeen).length === 4, Object.keys(kindsSeen).join(','));
+  check('23.1 the next two days on the schedule never gain a house or lose one, except to the warehouse', failA.length === 0, failA.slice(0, 4).join(' | '));
+  check('23.2 nobody on Build, Timer, Color Change or Recycle is on any day, after a sync or a Recalculate', failB.length === 0, failB.slice(0, 4).join(' | '));
+  check('23.3 and the next Recalculate puts everybody taken off a list back on a day', failC.length === 0, failC.slice(0, 4).join(' | '));
+}
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){

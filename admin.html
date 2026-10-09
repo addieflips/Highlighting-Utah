@@ -40566,6 +40566,8 @@ function seasonBadgeKey(d){
   /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild.
      [[SCH-117]] nor is a house waiting on a timer job on the Build tab — see isWaitingOnTimer. */
   if(typeof isWaitingOnTimer === 'function' && isWaitingOnTimer(d)) return 'building';
+  /* [[SCH-123]] a mover kept as a customer whose old set is still on the Recycle tab is in the warehouse too */
+  if(typeof isWaitingOnRecycle === 'function' && isWaitingOnRecycle(d)) return 'building';
   return (typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(d)) ? 'building' : 'confirmed';
 }
 /* ⭐⭐ [[SCH-105]] THE COLOUR-CHANGE LIST HOLDS A CUSTOMER OFF THE SCHEDULE (2026-09-30). Owner: "anyone on the
@@ -40612,7 +40614,15 @@ function isWaitingOnBuild(d){ return !!(d && d.needsLightBuild === true); }
    ⚠ NOT isOutForSeason: the warehouse queues themselves ask that, and a house cannot be taken off the list that
    holds it. Schedule only. */
 function isWaitingOnTimer(d){ return !!(d && (d.needsTimerOnly === true || d.needsTimerRemoved === true)); }
-function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d); }
+/* ⭐⭐ [[SCH-123]] AND THE RECYCLE LIST (2026-10-09). Dax: "no one located anywhere in the warehouse list is ever put anywhere
+   on the schedule whether it be builds, color change or recycle, but when they are finished or taken off the warehouse list
+   through deletion then the next time we click recalculate everything they go on the schedule". Measured on a simulated
+   season: a customer whose old set was queued for recycle stayed on the next two days, because recycle only reached the
+   schedule through isOutForSeason — which leaves a locked day alone and reports it — and a mover kept as a customer
+   (recycleKeepingCustomer) was not held at all. `needsLightRecycle` is the Recycle tab's own flag, cleared by its Mark Done
+   or by deleting the row, so the hold ends exactly when the list lets go of them. */
+function isWaitingOnRecycle(d){ return !!(d && d.needsLightRecycle === true); }
+function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d) || isWaitingOnRecycle(d); }
 function isOffTheSchedule(d){ return isOutForSeason(d) || isInWarehouse(d); }
 function isOutForSeason(d){
   if(!d) return true;
@@ -78744,6 +78754,15 @@ function sweepGoneDaysForward(){
     (day.houses || []).slice().forEach(function(h){
       if(!h || h.done || h.isTakedown || h.isFix) return;
       if(typeof markHouseMissed === 'function') markHouseMissed(h, ds);
+      /* [[SCH-123]] SOMEBODY NOW ON A WAREHOUSE LIST IS NOT CARRIED FORWARD. Measured on a simulated season: a house the
+         crew did not reach yesterday went onto the Color Change list overnight, the removal step left it alone (a day
+         that has gone is history, not schedule) and this sweep then put it on a FUTURE day — on the schedule while in the
+         warehouse. It comes off the gone day instead; customersMissingFromSeason puts it back the moment the list lets go. */
+      const heldCust = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+      if(heldCust && heldCust.data && typeof isOffTheSchedule === 'function' && isOffTheSchedule(heldCust.data)){
+        day.houses = day.houses.filter(function(x){ return x !== h; });
+        return;
+      }
       const target = nextInstallDayFor(h, {exclude: day});
       if(!target){ stuck.push({name: h.name || '(no name)', day: ds}); return; }
       day.houses = day.houses.filter(function(x){ return x !== h; });
