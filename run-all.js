@@ -26472,7 +26472,7 @@ suite('Suite 104. The Printing tab');
          whole claim. printCrewColumns comes with it because the column only exists
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
-      extractFn(admin, 'printFixPhotos') +
+      extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
       /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
          not only a flagged one, so this is lifted unconditionally rather than beside
          the fix-only helpers above. A stub would prove the column renders and nothing
@@ -34536,7 +34536,7 @@ suite('77. Schedule route generator');
        is now done FIRST, on the way there, rather than last; (2) Lehi then holds five and
        Alpine three, and L1 sits 0.7 mi from A1 on this interleaved street, so it crosses
        to level the crews at four each. Still inside the Lehi crew's run, still one crew. */
-    /* ⚠ REPOINTED 2026-10-09 BY [[SCH-125]]: the crew split no longer depends on the order the day is in, and each crew's run is
+    /* ⚠ REPOINTED 2026-10-09 BY [[SCH-126]]: the crew split no longer depends on the order the day is in, and each crew's run is
        the shortest drive — so the exact string moved. What this check is for is unchanged and asserted directly: Nowhere is
        on a crew's sheet and inside that crew's run (not tacked on after both), nothing is dropped, and the crews are within
        the three-house limit ([[SCH-97]]). Across 78 simulated two-crew days the crew sizes came out identical to before. */
@@ -40784,7 +40784,7 @@ suite('Suite 140. A finished fix takes its photo with it');
   /* ---- 4. where it is wired -------------------------------------------- */
   const doneSrc = stripComments(extractFn(admin, 'hlxMarkJobDone') || '');
   check('S140', 'the one done-function retires the photo',
-    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhoto\(url\)/.test(doneSrc),
+    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhotos\(urls\)/.test(doneSrc),
     'five doors call hlxMarkJobDone; wiring any one of them instead would leave ' +
     'the other four keeping photos for ever');
   /* ⚠ AFTER THE WRITE, NEVER BEFORE. Destroying first and then failing to save
@@ -54009,7 +54009,9 @@ suite('Suite 303. A flat no gets its own badge');
     'seasonBadgeKey can return a key the row has no branch for, and the row would ' +
     'fall through to Confirmed — the worst possible default for somebody who said no');
   check('S303', 'and the Season Badge filter can pick them out',
-    /id="allCustFilterSeason"[\s\S]{0,400}<option value="no">/.test(admin),
+    /* ⚠ REPOINTED 2026-10-09: a 400-character window fell short the day a Re-quote option was added before
+       it. Read the whole <select> instead — §7 bans fixed windows for exactly this. */
+    /<option value="no">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]),
     'the filter matches on r.badge, so a key with no option is unreachable from the screen');
 }
 
@@ -60518,7 +60520,7 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
        last stop and never did. What it promises — and what the leftover rule needs —
        is that the day ends nearer tomorrow than it would have. Measured across a
        simulated season that is 2.58 mi down to 1.29 mi. */
-    /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-125]] — Dax: "every route on the order its done should be decided based on gas".
+    /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-126]] — Dax: "every route on the order its done should be decided based on gas".
        These two checks held the aim at tomorrow; the order is now the shorter drive whatever the aim, so they assert THAT:
        aimed or not, the day is the same number of miles, and neither is longer than the plain shortest order. The aim
        still reaches the orderer (the wiring checks below), it simply never buys a finish with extra miles any more. */
@@ -60575,11 +60577,11 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
         : Object.assign({}, h));
       const owed = withMissed[6];
       const out = api.order(withMissed.slice(), { aim: nextCentre });
-      /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-125]]: a missed house is put on the day (SCH-124's morning Recalculate); where in
+      /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-126]]: a missed house is put on the day (SCH-124's morning Recalculate); where in
          the day it is driven is gas, like every other stop. Asserted: it is on the day, and the day is no longer for it. */
       check('S317', 'a house the crew never reached is on the day, and the day is still the shortest drive',
         out.indexOf(owed) !== -1 && tourFor(out) <= tourFor(api.gas(withMissed.map(api.point), api.home()).map(s => s.ref)) + 0.01,
-        'got ' + tourFor(out).toFixed(2) + ' mi — the missed house goes where the drive is shortest (SCH-125)');
+        'got ' + tourFor(out).toFixed(2) + ' mi — the missed house goes where the drive is shortest (SCH-126)');
       /* (the "different answer from where the sweep would have begun" check went with the missed-first rule: there is no
          longer a separate first stop for it to be different from) */
     }
@@ -66275,4 +66277,92 @@ suite('375. A setting changed on another computer reaches this one without a ref
       check('S375', 'and binds the focus handler only once', t.focusHandlers.length === 1, String(t.focusHandlers.length));
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 376. A SIDES RE-QUOTE HOLDS A CUSTOMER OFF THE SCHEDULE UNTIL IT IS ANSWERED
+ * ([[SCH-125]], 2026-10-09). Addie: "if I changes sides for someone like I add back on
+ * sides of house then that should send person to requote and unschedule that person".
+ * RUN against quotes shaped the way both doors write them.
+ * --------------------------------------------------------------------------- */
+suite('376. A sides re-quote holds a customer off the schedule');
+{
+  const names = ['isOutForSeason', 'isWaitingOnColorChange', 'isWaitingOnBuild', 'isWaitingOnTimer', 'isWaitingOnRecycle',
+    'isInWarehouse', 'sidesRequoteOpenIds', 'isWaitingOnSidesRequote', 'isOffTheSchedule', 'seasonBadgeKey', 'quoteWasSentOut', 'quoteStage'];
+  const parts = names.map(n => extractFn(admin, n));
+  check('S376', 'the hold and everything it asks are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('quotesCache', 'custById',
+      seasonRuleSrc() + 'let sidesRequoteMemo = null;' + parts.join('\n') +
+      'return {off: isOffTheSchedule, badge: seasonBadgeKey};');
+    const rec = (id, extra) => ({id, data: Object.assign({name: id, rsvpStatus: 'yes', rsvpRespondedAt: 1}, extra || {})});
+    const a = rec('a'), b = rec('b'), c = rec('c'), e = rec('e');
+    const idx = new Map([a, b, c, e].map(x => [x.id, x]));
+    const quotes = [
+      {id: 'q1', data: {existingCustomerId: 'a', changed: {what: 'sides', by: 'office'}, status: 'new'}},
+      {id: 'q2', data: {existingCustomerId: 'b', changed: {what: 'sides'}, status: 'closed'}},
+      {id: 'q3', data: {existingCustomerId: 'c', changed: {what: 'price'}, status: 'new'}},
+      {id: 'q4', data: {existingCustomerId: 'e', changed: {what: 'sides'}, approvalStatus: 'declined'}}
+    ];
+    const L = lib(quotes, idx);
+    check('S376', 'an open sides re-quote takes them off the schedule', L.off(a.data) === true);
+    check('S376', 'and their badge reads Re-quote, not Confirmed (the headline rule holds)', L.badge(a.data) === 'requote', L.badge(a.data));
+    check('S376', 'once the re-quote is answered (closed) they are scheduled again', L.off(b.data) === false && L.badge(b.data) === 'confirmed');
+    check('S376', 'a declined sides re-quote releases them too', L.off(e.data) === false);
+    check('S376', 'a price-only re-quote holds nobody — her words name sides', L.off(c.data) === false && L.badge(c.data) === 'confirmed');
+    check('S376', 'with no quotes loaded nobody is held (fails towards scheduling)', lib([], idx).off(a.data) === false);
+    check('S376', 'and a record it cannot match to its id is not held', L.off({name: 'a', rsvpStatus: 'yes', rsvpRespondedAt: 1}) === false);
+    check('S376', 'the All Customers row draws the Re-quote pill', /badgeKey === 'requote'[\s\S]{0,300}>Re-quote<\/span>/.test(admin));
+    check('S376', 'and the Season Badge filter can pick them out',
+      /<option value="requote">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]));
+    check('S376', 'the drop step and the placement step both ask isOffTheSchedule',
+      /isOffTheSchedule\(cd\)/.test(extractFn(admin, 'dropHousesWhoLeftSeason') || ''));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 377. A FIX TAKES SEVERAL PHOTOS, CAN BE EDITED AFTER IT IS SAVED, AND SHOWS ITS PHOTOS
+ * ON THE SCHEDULE ([[FIX-08]], 2026-10-09). Addie: "on fixes we need to have a way to add
+ * notes and photos after it was already saved", "can't see the picture on the website on
+ * fixes after saved", "need a way to add multiple pictures on fixes".
+ * --------------------------------------------------------------------------- */
+suite('377. A fix takes several photos and can be edited after it is saved');
+{
+  const names = ['fixPhotosOf', 'fixPhotoFields', 'hlxRetireFixPhotos'];
+  const parts = names.map(n => extractFn(admin, n));
+  const asyncSrc = (n) => { const i = admin.indexOf('async function ' + n + '('); return i === -1 ? null : 'async ' + extractFn(admin.slice(i + 6), n); };
+  parts[2] = asyncSrc('hlxRetireFixPhotos');
+  check('S377', 'the photo-list helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('hlxRetireFixPhoto', parts.join('\n') + 'return {of: fixPhotosOf, fields: fixPhotoFields, retire: hlxRetireFixPhotos};');
+    const L = lib(async u => ({cleared: u !== 'stuck'}));
+    check('S377', 'a list of photos is read as a list', L.of({fixPhotoUrls: ['a', 'b', 'c']}).join() === 'a,b,c');
+    check('S377', 'a fix saved before today with one photo still has that photo', L.of({fixPhotoUrl: 'old'}).join() === 'old');
+    check('S377', 'blanks and repeats are dropped', L.of({fixPhotoUrls: ['a', '', 'a', ' b ']}).join() === 'a,b');
+    check('S377', 'nothing on file is an empty list, not a crash', L.of(null).length === 0 && L.of({}).length === 0);
+    const f = L.fields(['x', 'y']);
+    check('S377', 'saving writes the list AND the first photo in the old field, so every old reader still finds one',
+      f.fixPhotoUrls.join() === 'x,y' && f.fixPhotoUrl === 'x');
+    check('S377', 'saving no photos clears both', L.fields([]).fixPhotoUrl === '' && L.fields([]).fixPhotoUrls.length === 0);
+    pendingAsync.push((async () => {
+      const all = await L.retire(['a', 'b']);
+      check('S377', 'marking done destroys every photo, not only the first', all.cleared === true && all.keep.length === 0);
+      const some = await L.retire(['a', 'stuck', 'b']);
+      check('S377', 'a photo that could not be destroyed stays on the record (Job 4, per photo)',
+        some.cleared === false && some.keep.join() === 'stuck');
+    })());
+  }
+  const pop = stripComments(extractFn(admin, 'showAddFixPopup') || '');
+  check('S377', 'the fix popup takes several files at once', /accept="image\/\*" multiple class="addfix-photo-input"/.test(pop));
+  check('S377', 'and saves the whole list', /fixPhotoFields\(photos\)/.test(pop));
+  check('S377', 'a saved fix can be opened again from the Routes stop card', /data-editfix="'\+stop\.id\+'"/.test(admin) &&
+    /showAddFixPopup\(btn\.dataset\.editfix/.test(admin));
+  check('S377', 'and from the Schedule (fix list and the day view)', (admin.match(/data-editfix="'\+h\.id\+'"/g) || []).length === 2 &&
+    /if\(t\.dataset\.editfix\)\{editFixFromSchedule\(t\.dataset\.editfix\)/.test(admin));
+  check('S377', 'the Schedule fix list shows the photos and the note as it is now, not as it was placed',
+    /esc\(fixLiveNote\(h\)\)\+'<\/div>'\+fixLivePhotosHtml\(h\)/.test(admin));
+  check('S377', 'the Edit Note panel no longer writes a single fix photo over the list',
+    !/fixPhotoUrl: currentFixPhotoUrl/.test(admin) && /note-editfix/.test(admin));
+  const pr = extractFn(admin, 'printFixPhotos') || '';
+  check('S377', 'the crew sheet prints every fix photo, numbered', /fixPhotosOf\(d\)/.test(pr) && /' of ' \+ urls\.length/.test(pr));
 }

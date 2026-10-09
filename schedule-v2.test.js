@@ -1533,7 +1533,7 @@ suite('SCH-124 Recalculate everything runs itself once a morning, so a missed ho
   }
   check('24.10 with one press a morning, every house the crew missed is on a day from that morning on', lost.length === 0, lost.slice(0, 4).join(' | '));
 }
-suite('SCH-125 Every crew drives the shortest route, and who is on which crew does not depend on the order');
+suite('SCH-126 Every crew drives the shortest route, and who is on which crew does not depend on the order');
 {
   const book = makeBook(320, 125);
   H.setNow(new Date(2026, 9, 9, 7, 0)); H.load(book, {}); H.press();
