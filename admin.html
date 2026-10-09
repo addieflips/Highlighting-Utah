@@ -5948,6 +5948,8 @@
               border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:3px 7px; margin-left:6px;}
             #roofMeasureOverlay .rm-fs:hover,
             #roofMeasureOverlay .rm-panebtn:hover{background:#fff;}
+            /* [[MR-41]] the photo-date picker sits in the same head as its own kind of pane control. */
+            #roofMeasureOverlay select.rm-photodate{max-width:200px; padding:2px 4px; font-weight:600;}
             /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
                of house. The keyboard hints move into a tooltip, the heading loses
                its own row, and the bars run at 11px. */
@@ -6678,7 +6680,7 @@
               </div>
 
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="street" title="Full screen">&#9974;</button></span></div>
+                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span> <select id="rmPhotoDate" class="rm-panebtn rm-photodate" style="display:none;" title="Every Street View photo Google has of this spot — pick another season or year when leaves or a parked truck are in the way"></select><button type="button" class="rm-panebtn" id="rmFewestLeaves" style="display:none;" title="Jump to the photo taken closest to winter, when the trees are bare">&#127810; Fewest leaves</button> <button type="button" class="rm-fs" data-rmfull="street" title="Full screen">&#9974;</button></span></div>
                 <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
@@ -36324,6 +36326,77 @@ function rmEnsureMap(center){
     rmMapSizeWatch.observe(document.getElementById('rmMap'));
   }
 }
+/* ⭐⭐ [[MR-41]] EVERY STREET VIEW PHOTO GOOGLE HAS OF THE HOUSE, BY SEASON AND YEAR (2026-10-07). Dax: "in quotes you see a
+   picture on google maps, but I want a button to change the season of the google map picture because sometimes leaves are
+   in the way", then "it should show all the options of seasons/years that house was on google maps".
+   ⚠ NOBODY CAN ASK FOR A NEW PHOTO — this lists the ones Google already took. The Maps library hands them back with
+   the panorama as `data.time`: one entry per photo, each with its own panorama id and a Date. Measured on a Lehi street
+   the day it was built: eight photos, 2007 to 2026, in April, May, July and September.
+   ⚠ `time` IS NOT IN GOOGLE'S PUBLISHED REFERENCE and its date sits under a minified key that changes between library
+   versions, so the date is found as WHATEVER VALUE IS A Date rather than by name. If the list is ever missing the picker
+   simply stays hidden and the pane works exactly as it did.
+   ⚠ PICKING ONE IS setPano, the same move the arrow keys make — so the capture, which already names the panorama on
+   screen (rmCapture's pano= URL), saves the season that was picked, and the measuring follows like any other step. */
+const RM_SEASON_OF_MONTH = ['Winter','Winter','Spring','Spring','Spring','Summer','Summer','Summer','Fall','Fall','Fall','Winter'];
+/* How leafy a month is in Utah, lowest first: bare Nov–Mar, budding Apr, turning Oct, then full summer. */
+const RM_LEAF_RANK = [0,0,0,2,4,6,6,6,5,3,1,0];
+function rmPhotoDatesFrom(data){
+  const list = [], seen = {};
+  ((data && data.time) || []).forEach(function(x){
+    if(!x || !x.pano || seen[x.pano]) return;
+    const when = Object.keys(x).map(function(k){ return x[k]; }).filter(function(v){ return v instanceof Date && !isNaN(v); })[0];
+    if(!when) return;
+    seen[x.pano] = 1;
+    list.push({pano: x.pano, date: when});
+  });
+  list.sort(function(a, b){ return b.date - a.date; });
+  return list;
+}
+function rmPhotoDateLabel(date){
+  const m = date.getMonth();
+  return RM_SEASON_OF_MONTH[m] + ' · ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m] + ' ' + date.getFullYear();
+}
+/* The barest trees on offer; between two equally bare, the newer photo (the house has changed least since). */
+function rmFewestLeavesPano(list){
+  let best = null;
+  (list || []).forEach(function(p){
+    const r = RM_LEAF_RANK[p.date.getMonth()];
+    if(!best || r < best.r || (r === best.r && p.date > best.date)) best = {r: r, pano: p.pano, date: p.date};
+  });
+  return best ? best.pano : '';
+}
+let rmPhotoList = [], rmPhotoWired = false;
+function rmRefreshPhotoDates(){
+  const sel = document.getElementById('rmPhotoDate'), btn = document.getElementById('rmFewestLeaves');
+  if(!sel || !btn) return;
+  if(!rmPhotoWired){
+    rmPhotoWired = true;
+    sel.addEventListener('change', function(){ if(sel.value && rmPano) rmPano.setPano(sel.value); });
+    btn.addEventListener('click', function(){
+      const p = rmFewestLeavesPano(rmPhotoList);
+      if(p && rmPano && p !== rmPano.getPano()) rmPano.setPano(p);
+      else if(typeof toast === 'function') toast(p ? 'This is already the barest photo Google has here' : 'Google has only one photo of this spot');
+    });
+  }
+  const pano = rmPano && rmPano.getPano && rmPano.getPano();
+  if(!pano || typeof google === 'undefined' || !google.maps || !google.maps.StreetViewService){ sel.style.display = btn.style.display = 'none'; return; }
+  new google.maps.StreetViewService().getPanorama({pano: pano}, function(data, status){
+    rmPhotoList = (status === 'OK') ? rmPhotoDatesFrom(data) : [];
+    /* The photo on screen may be a different id from its own entry in the list (Google re-serves the newest under a
+       second id), so the current one is matched by id and otherwise by its own imageDate. */
+    let current = rmPhotoList.filter(function(p){ return p.pano === pano; })[0];
+    if(!current && data && data.imageDate){
+      current = rmPhotoList.filter(function(p){ return (p.date.getFullYear() + '-' + String(p.date.getMonth() + 1).padStart(2, '0')) === data.imageDate; })[0];
+      if(current) current = {pano: pano, date: current.date};
+    }
+    if(rmPhotoList.length < 2){ sel.style.display = btn.style.display = 'none'; return; }
+    sel.innerHTML = rmPhotoList.map(function(p){
+      const on = current ? (p.date.getTime() === current.date.getTime()) : false;
+      return '<option value="' + (on ? pano : p.pano) + '"' + (on ? ' selected' : '') + '>' + rmPhotoDateLabel(p.date) + (on ? ' (showing)' : '') + '</option>';
+    }).join('');
+    sel.style.display = btn.style.display = '';
+  });
+}
 function rmEnsurePano(center){
   if(rmPano){
     /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
@@ -36363,6 +36436,8 @@ function rmEnsurePano(center){
   });
   rmPano.addListener('pov_changed', rmPaintStreet);
   rmPano.addListener('zoom_changed', rmPaintStreet);
+  /* [[MR-41]] every photo of the new spot, whichever way the panorama changed (a new address, the arrow keys, a pick). */
+  rmPano.addListener('pano_changed', rmRefreshPhotoDates);
   /* Moving the camera does NOT invalidate anything: every point is stored
      against the house, not the camera. The elevation under the new spot is
      re-checked and the lines simply redraw from the new place. */
