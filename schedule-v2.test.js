@@ -1304,6 +1304,38 @@ suite('SCH-116 The day the crew is hanging stands in for today when they are beh
     (function(){ H.api.setHangDay(HANG); const r = H.api.scheduleTodayStr({date: '2026-10-07', hour: 7, minute: 0}); H.api.setHangDay(null); return r === '2026-10-07'; })());
 }
 
+suite('SCH-120 A day that has been printed can no longer be rescheduled');
+{
+  /* Dax: "after a day is printed that day is no longer rescheduleable". A sheet printed a week ahead used to be
+     reshuffled by the next Recalculate, because "printed" only ever meant "one of the next two days". */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const all = daysOf().filter(function(d){ return d.ds; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const far = all.filter(function(d){ return !H.api.routeDayIsLocked(d.ds); })[3];
+  check('20.0 the scenario has a day well past the next two, not yet locked', !!far, JSON.stringify(all.map(function(d){ return d.ds; })));
+  const ids = function(){ const d = daysOf().filter(function(x){ return x.day.id === far.day.id; })[0]; return d ? d.ds + ':' + d.ids.slice().sort().join(',') : 'GONE'; };
+  H.api.markDayPrinted(far.day);
+  const before = ids();
+  check('20.1 printing it stamps the day', !!far.day.printedAt, String(far.day.printedAt));
+  check('20.2 and locks it at once, though it is not one of the next two', H.api.routeDayIsLocked(far.ds));
+  check('20.3 it counts as printed and still ahead of the crew', H.api.dayIsPrintedAhead(far.day));
+  H.press();
+  check('20.4 Recalculate everything leaves it exactly as it was', ids() === before, before + '  →  ' + ids());
+  H.tick();
+  check('20.5 and so does the five-minute sync', ids() === before, before + '  →  ' + ids());
+  H.press(true);
+  check('20.6 and so does Recalculate INCLUDING the next two days — a printed day is never reset', ids() === before, before + '  →  ' + ids());
+  check('20.7 and it is still locked afterwards', H.api.routeDayIsLocked(far.ds));
+  check('20.8 no Confirmed customer was left off a day getting there (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
+  H.setNow(new Date(far.day._date.getFullYear(), far.day._date.getMonth(), far.day._date.getDate(), 8, 0));
+  check('20.9 once the crew is on that day it is no longer "ahead" — missed houses can be moved on', !H.api.dayIsPrintedAhead(far.day));
+  check('20.10 a day never printed is never "printed ahead"', !H.api.dayIsPrintedAhead(all[all.length - 1].day) || !!all[all.length - 1].day.printedAt);
+}
+
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');
 {
   const mkC = function(id){ const c = TOWNS.Lehi;
@@ -1335,6 +1367,172 @@ suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate,
 }
 }
 
+suite('SCH-121 Recalculate packs done houses onto the first days and closes the season up behind them');
+{
+  const book = makeBook(1000, 121, {towns: ['Lehi', 'American Fork', 'Orem']});
+  book.forEach(function(c){ c.data.installPreference = 'Normal Schedule'; });
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const doneOn = function(){ const out = []; H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(h.done) out.push({ds: ds(d), id: h.id}); }); }); return out; };
+  const scenario = function(hang){
+    H.setNow(new Date(2026, 9, 1, 7, 0)); H.load(book, {}); H.press();
+    let early = null;
+    H.api.installDays().forEach(function(d){ const x = ds(d);
+      if(x < '2026-10-09') d.houses.slice(0, 30).forEach(function(h){ h.done = true; });
+      if(x === '2026-10-28' && d.houses.length){ d.houses[0].done = true; early = d.houses[0].id; } });
+    const n = doneOn().length;
+    H.setNow(new Date(2026, 9, 9, 7, 0));
+    if(hang) H.api.setHangDay(hang);
+    H.press();
+    return {early: early, n: n};
+  };
+  const a = scenario(null);
+  const done = doneOn();
+  check('21.0 the scenario ticked a house on a day three weeks out', !!a.early);
+  check('21.1 every done house is still on the plan', done.length === a.n, done.length + ' of ' + a.n);
+  check('21.2 and every one of them sits before today', done.every(function(x){ return x.ds < '2026-10-09'; }),
+    JSON.stringify(done.filter(function(x){ return x.ds >= '2026-10-09'; }).slice(0, 3)));
+  check('21.3 the house ticked early on 28 October went to the front with the rest',
+    done.some(function(x){ return x.id === a.early && x.ds < '2026-10-09'; }));
+  const firstDays = H.api.installDays().map(ds).filter(function(x){ return x < '2026-10-09'; });
+  check('21.4 packed from 1 October, a full day apiece', firstDays[0] === '2026-10-01' &&
+    H.api.installDays().filter(function(d){ return ds(d) === '2026-10-01'; })[0].houses.length === 40, firstDays.join(','));
+  const open = H.api.installDays().filter(function(d){ const x = ds(d); return x > '2026-10-09' && x < '2026-11-01'; }).map(ds);
+  const want = []; for(let d = 12; d <= 30; d++){ const dt = new Date(2026, 9, d); if(dt.getDay() !== 0 && dt.getDay() !== 6) want.push(H.api.isoOf(dt)); }
+  check('21.5 and October closes up behind them: every working day from the 12th holds work, no gap',
+    want.every(function(x){ return open.indexOf(x) !== -1; }), 'missing ' + want.filter(function(x){ return open.indexOf(x) === -1; }).join(','));
+  check('21.6 nobody Confirmed is left off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
+  scenario('2026-10-05');
+  const done2 = doneOn();
+  check('21.7 with the crew hanging 5 October, a done house sits before the hang day or on a locked day (5-7 Oct), never later',
+    done2.length > 0 && done2.every(function(x){ return x.ds < '2026-10-08'; }), JSON.stringify(done2.filter(function(x){ return x.ds >= '2026-10-08'; }).slice(0, 3)));
+  H.api.setHangDay(null);
+}
+
+suite('SCH-122 October customers get October: three weeks of real presses with crews finishing 70% a day');
+{
+  const book = makeBook(600, 14);
+  const prefOf = {}; book.forEach(function(c){ prefOf['cust-' + c.id] = c.data.installPreference; });
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const r = rng(5);
+  let worst = 0, sameTownAvoidable = 0;
+  H.setNow(new Date(2026, 9, 12, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 12); day <= new Date(2026, 9, 30); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    H.press();
+    const today = H.api.isoOf(day);
+    const inNov = [];
+    H.api.installDays().forEach(function(d){ if(ds(d) > '2026-10-31') d.houses.forEach(function(h){
+      if(!h.done && prefOf[h.id] === 'October') inNov.push(h); }); });
+    if(inNov.length > worst) worst = inNov.length;
+    const open = H.api.installDays().filter(function(d){ const x = ds(d); return x > today && x <= '2026-10-31' && !H.api.routeDayIsLocked(x); });
+    inNov.forEach(function(h){ if(open.some(function(d){ return d.houses.some(function(o){
+      return !o.done && o !== h && o.city === h.city && prefOf[o.id] === 'Normal Schedule'; }); })) sameTownAvoidable++; });
+    const td = H.api.installDays().filter(function(d){ return ds(d) === today; })[0];
+    if(td) td.houses.forEach(function(h){ if(!h.done && r() < 0.7) h.done = true; });
+  }
+  check('22.1 the worst morning holds at most 12 October customers in November — the ones missed on a locked last day (it was 50)',
+    worst <= 12, 'worst ' + worst);
+  check('22.2 no October customer is in November while an open October day holds an any-time house in their own town',
+    sameTownAvoidable === 0, sameTownAvoidable + ' times');
+}
+
+suite('SCH-123 Two weeks of real presses and syncs: the next two days never move, nobody on any warehouse list is on a day');
+{
+  const book = makeBook(500, 123);
+  const byId = {}; book.forEach(function(c){ byId['cust-' + c.id] = c; });
+  const KINDS = [['build', 'needsLightBuild'], ['timer', 'needsTimerOnly'], ['colour', 'needsColorChange'], ['recycle', 'needsLightRecycle']];
+  const r = rng(77);
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const holders = function(){ const m = {}; H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ m[h.id] = ds(d); }); }); return m; };
+  const flagged = {}, released = {};
+  const failA = [], failB = [], failC = [], kindsSeen = {};
+  const lockedSnap = function(today){
+    const dates = H.api.installDays().map(ds).filter(function(x, i, a){ return x >= today && a.indexOf(x) === i; }).sort();
+    const take = dates[0] === today ? dates.slice(0, 3) : dates.slice(0, 2);
+    const snap = {};
+    take.forEach(function(x){ snap[x] = {}; H.api.installDays().filter(function(d){ return ds(d) === x; })
+      .forEach(function(d){ d.houses.forEach(function(h){ snap[x][h.id] = 1; }); }); });
+    return snap;
+  };
+  const checkA = function(label, today, snap){
+    Object.keys(snap).forEach(function(x){
+      const now = {};
+      H.api.installDays().filter(function(d){ return ds(d) === x; }).forEach(function(d){ d.houses.forEach(function(h){ now[h.id] = 1; }); });
+      Object.keys(now).forEach(function(id){ if(!snap[x][id]) failA.push(label + ' ' + today + ' added ' + id + ' to ' + x); });
+      Object.keys(snap[x]).forEach(function(id){ if(!now[id] && !flagged[id]) failA.push(label + ' ' + today + ' moved ' + id + ' off ' + x); });
+    });
+  };
+  const checkB = function(label, today){
+    const m = holders();
+    Object.keys(flagged).forEach(function(id){ if(m[id] && m[id] >= today) failB.push(label + ' ' + today + ' ' + id + ' (' + flagged[id] + ') on ' + m[id]); });
+  };
+  H.setNow(new Date(2026, 8, 30, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 1); day <= new Date(2026, 9, 16); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    const today = H.api.isoOf(day);
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    const pool = Object.keys(holders()).filter(function(id){ return byId[id] && !flagged[id]; });
+    const s0 = lockedSnap(today);
+    const lockedIds = []; Object.keys(s0).slice(1).forEach(function(x){ Object.keys(s0[x]).forEach(function(id){ if(byId[id] && !flagged[id]) lockedIds.push(id); }); });
+    [pool, pool, pool, pool, lockedIds, lockedIds].forEach(function(list, i){
+      if(!list.length) return;
+      const id = list[Math.floor(r() * list.length)];
+      if(flagged[id]) return;
+      const k = KINDS[(i + day.getDate()) % 4];
+      byId[id].data[k[1]] = true; flagged[id] = k[0]; kindsSeen[k[0]] = 1;
+    });
+    Object.keys(flagged).forEach(function(id){
+      if(r() < 0.3){ const k = KINDS.filter(function(k){ return k[0] === flagged[id]; })[0]; byId[id].data[k[1]] = false; delete flagged[id]; released[id] = today; }
+    });
+    let snap = lockedSnap(today); H.tick(); checkA('sync', today, snap); checkB('sync', today);
+    snap = lockedSnap(today); H.press(); checkA('press', today, snap); checkB('press', today);
+    const after = holders();
+    Object.keys(released).forEach(function(id){ if(!flagged[id] && !after[id]) failC.push(today + ' ' + id + ' released ' + released[id]); delete released[id]; });
+    H.api.installDays().filter(function(d){ return ds(d) === today; }).forEach(function(d){ d.houses.forEach(function(h){ if(!h.done && r() < 0.75) h.done = true; }); });
+  }
+  check('23.0 the run put somebody on every one of the four lists', Object.keys(kindsSeen).length === 4, Object.keys(kindsSeen).join(','));
+  check('23.1 the next two days on the schedule never gain a house or lose one, except to the warehouse', failA.length === 0, failA.slice(0, 4).join(' | '));
+  check('23.2 nobody on Build, Timer, Color Change or Recycle is on any day, after a sync or a Recalculate', failB.length === 0, failB.slice(0, 4).join(' | '));
+  check('23.3 and the next Recalculate puts everybody taken off a list back on a day', failC.length === 0, failC.slice(0, 4).join(' | '));
+}
+suite('SCH-124 Recalculate everything runs itself once a morning, so a missed house is on a new day by the next morning');
+{
+  const M = lift(['morningRecalcDue'], 'const MORNING_RECALC_HOUR = 5;', 'return {due: morningRecalcDue};');
+  check('24.1 not before five in the morning', M.due({date: '2026-10-12', hour: 4, minute: 59}, '2026-10-09') === false);
+  check('24.2 from five on, once the date has moved on since the last press', M.due({date: '2026-10-12', hour: 5, minute: 0}, '2026-10-09') === true);
+  check('24.3 and never twice in one morning — a press earlier today counts', M.due({date: '2026-10-12', hour: 9, minute: 0}, '2026-10-12') === false);
+  check('24.4 the first morning ever (nothing stamped yet) runs', M.due({date: '2026-10-12', hour: 6, minute: 0}, null) === true);
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  const timer = code.slice(code.indexOf('function __startSyncTimer('), code.indexOf('function __startSyncTimer(') + 900);
+  check('24.5 the five-minute timer asks for it after every sync', /scheduleSyncFromCustomers\(\{quiet:false\}\);\s*maybeMorningRecalc\(\)/.test(timer));
+  const run = code.slice(code.indexOf('function runRecalculateEverything('), code.indexOf('function runRecalculateEverything(') + 400);
+  check('24.6 every press of the button stamps the morning, so an office press is not repeated', /LAST_RECALC_ON\s*=/.test(run));
+  check('24.7 the stamp is saved with the plan, so every computer agrees', /lastRecalcOn:LAST_RECALC_ON/.test(code));
+  check('24.8 and a stale copy from another computer can never move it backwards', /String\(o\.lastRecalcOn\)>String\(LAST_RECALC_ON/.test(code));
+  const mm = code.slice(code.indexOf('function maybeMorningRecalc('), code.indexOf('function __startSyncTimer('));
+  check('24.9 it presses the real button — forecast, loading guard and report included — and claims the morning first',
+    /getElementById\('recalcBtn'\)/.test(mm) && mm.indexOf('LAST_RECALC_ON=now.date') !== -1 && mm.indexOf('LAST_RECALC_ON=now.date') < mm.indexOf('.click()')
+    && /jobAddresses/.test(mm) && /recalcRunning/.test(mm));
+  /* and what it buys, on the real Recalculate: three weeks, crews finishing 70%, one press each morning */
+  const book = makeBook(600, 124);
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const r = rng(124);
+  const missed = {}, lost = [];
+  H.setNow(new Date(2026, 8, 30, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 1); day <= new Date(2026, 9, 21); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    const today = H.api.isoOf(day);
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    H.press();
+    const where = {}; H.api.installDays().forEach(function(d){ d.houses.forEach(function(h){ where[h.id] = {ds: ds(d), done: !!h.done}; }); });
+    Object.keys(missed).forEach(function(id){ const w = where[id]; if(!w || (!w.done && w.ds < today)) lost.push(id + ' missed ' + missed[id] + ' -> ' + (w ? w.ds : 'nowhere')); });
+    Object.keys(missed).forEach(function(k){ delete missed[k]; });
+    H.api.installDays().filter(function(d){ return ds(d) === today; }).forEach(function(d){ d.houses.forEach(function(h){
+      if(h.done) return; if(r() < 0.7) h.done = true; else missed[h.id] = today; }); });
+  }
+  check('24.10 with one press a morning, every house the crew missed is on a day from that morning on', lost.length === 0, lost.slice(0, 4).join(' | '));
+}
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){

@@ -5948,6 +5948,8 @@
               border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:3px 7px; margin-left:6px;}
             #roofMeasureOverlay .rm-fs:hover,
             #roofMeasureOverlay .rm-panebtn:hover{background:#fff;}
+            /* [[MR-41]] the photo-date picker sits in the same head as its own kind of pane control. */
+            #roofMeasureOverlay select.rm-photodate{max-width:200px; padding:2px 4px; font-weight:600;}
             /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
                of house. The keyboard hints move into a tooltip, the heading loses
                its own row, and the bars run at 11px. */
@@ -6678,7 +6680,7 @@
               </div>
 
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="street" title="Full screen">&#9974;</button></span></div>
+                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span> <select id="rmPhotoDate" class="rm-panebtn rm-photodate" style="display:none;" title="Every Street View photo Google has of this spot — pick another season or year when leaves or a parked truck are in the way"></select><button type="button" class="rm-panebtn" id="rmFewestLeaves" style="display:none;" title="Jump to the photo taken closest to winter, when the trees are bare">&#127810; Fewest leaves</button> <button type="button" class="rm-fs" data-rmfull="street" title="Full screen">&#9974;</button></span></div>
                 <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
@@ -36324,6 +36326,77 @@ function rmEnsureMap(center){
     rmMapSizeWatch.observe(document.getElementById('rmMap'));
   }
 }
+/* ⭐⭐ [[MR-41]] EVERY STREET VIEW PHOTO GOOGLE HAS OF THE HOUSE, BY SEASON AND YEAR (2026-10-07). Dax: "in quotes you see a
+   picture on google maps, but I want a button to change the season of the google map picture because sometimes leaves are
+   in the way", then "it should show all the options of seasons/years that house was on google maps".
+   ⚠ NOBODY CAN ASK FOR A NEW PHOTO — this lists the ones Google already took. The Maps library hands them back with
+   the panorama as `data.time`: one entry per photo, each with its own panorama id and a Date. Measured on a Lehi street
+   the day it was built: eight photos, 2007 to 2026, in April, May, July and September.
+   ⚠ `time` IS NOT IN GOOGLE'S PUBLISHED REFERENCE and its date sits under a minified key that changes between library
+   versions, so the date is found as WHATEVER VALUE IS A Date rather than by name. If the list is ever missing the picker
+   simply stays hidden and the pane works exactly as it did.
+   ⚠ PICKING ONE IS setPano, the same move the arrow keys make — so the capture, which already names the panorama on
+   screen (rmCapture's pano= URL), saves the season that was picked, and the measuring follows like any other step. */
+const RM_SEASON_OF_MONTH = ['Winter','Winter','Spring','Spring','Spring','Summer','Summer','Summer','Fall','Fall','Fall','Winter'];
+/* How leafy a month is in Utah, lowest first: bare Nov–Mar, budding Apr, turning Oct, then full summer. */
+const RM_LEAF_RANK = [0,0,0,2,4,6,6,6,5,3,1,0];
+function rmPhotoDatesFrom(data){
+  const list = [], seen = {};
+  ((data && data.time) || []).forEach(function(x){
+    if(!x || !x.pano || seen[x.pano]) return;
+    const when = Object.keys(x).map(function(k){ return x[k]; }).filter(function(v){ return v instanceof Date && !isNaN(v); })[0];
+    if(!when) return;
+    seen[x.pano] = 1;
+    list.push({pano: x.pano, date: when});
+  });
+  list.sort(function(a, b){ return b.date - a.date; });
+  return list;
+}
+function rmPhotoDateLabel(date){
+  const m = date.getMonth();
+  return RM_SEASON_OF_MONTH[m] + ' · ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m] + ' ' + date.getFullYear();
+}
+/* The barest trees on offer; between two equally bare, the newer photo (the house has changed least since). */
+function rmFewestLeavesPano(list){
+  let best = null;
+  (list || []).forEach(function(p){
+    const r = RM_LEAF_RANK[p.date.getMonth()];
+    if(!best || r < best.r || (r === best.r && p.date > best.date)) best = {r: r, pano: p.pano, date: p.date};
+  });
+  return best ? best.pano : '';
+}
+let rmPhotoList = [], rmPhotoWired = false;
+function rmRefreshPhotoDates(){
+  const sel = document.getElementById('rmPhotoDate'), btn = document.getElementById('rmFewestLeaves');
+  if(!sel || !btn) return;
+  if(!rmPhotoWired){
+    rmPhotoWired = true;
+    sel.addEventListener('change', function(){ if(sel.value && rmPano) rmPano.setPano(sel.value); });
+    btn.addEventListener('click', function(){
+      const p = rmFewestLeavesPano(rmPhotoList);
+      if(p && rmPano && p !== rmPano.getPano()) rmPano.setPano(p);
+      else if(typeof toast === 'function') toast(p ? 'This is already the barest photo Google has here' : 'Google has only one photo of this spot');
+    });
+  }
+  const pano = rmPano && rmPano.getPano && rmPano.getPano();
+  if(!pano || typeof google === 'undefined' || !google.maps || !google.maps.StreetViewService){ sel.style.display = btn.style.display = 'none'; return; }
+  new google.maps.StreetViewService().getPanorama({pano: pano}, function(data, status){
+    rmPhotoList = (status === 'OK') ? rmPhotoDatesFrom(data) : [];
+    /* The photo on screen may be a different id from its own entry in the list (Google re-serves the newest under a
+       second id), so the current one is matched by id and otherwise by its own imageDate. */
+    let current = rmPhotoList.filter(function(p){ return p.pano === pano; })[0];
+    if(!current && data && data.imageDate){
+      current = rmPhotoList.filter(function(p){ return (p.date.getFullYear() + '-' + String(p.date.getMonth() + 1).padStart(2, '0')) === data.imageDate; })[0];
+      if(current) current = {pano: pano, date: current.date};
+    }
+    if(rmPhotoList.length < 2){ sel.style.display = btn.style.display = 'none'; return; }
+    sel.innerHTML = rmPhotoList.map(function(p){
+      const on = current ? (p.date.getTime() === current.date.getTime()) : false;
+      return '<option value="' + (on ? pano : p.pano) + '"' + (on ? ' selected' : '') + '>' + rmPhotoDateLabel(p.date) + (on ? ' (showing)' : '') + '</option>';
+    }).join('');
+    sel.style.display = btn.style.display = '';
+  });
+}
 function rmEnsurePano(center){
   if(rmPano){
     /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
@@ -36363,6 +36436,8 @@ function rmEnsurePano(center){
   });
   rmPano.addListener('pov_changed', rmPaintStreet);
   rmPano.addListener('zoom_changed', rmPaintStreet);
+  /* [[MR-41]] every photo of the new spot, whichever way the panorama changed (a new address, the arrow keys, a pick). */
+  rmPano.addListener('pano_changed', rmRefreshPhotoDates);
   /* Moving the camera does NOT invalidate anything: every point is stored
      against the house, not the camera. The elevation under the new spot is
      re-checked and the lines simply redraw from the new place. */
@@ -40491,6 +40566,8 @@ function seasonBadgeKey(d){
   /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild.
      [[SCH-117]] nor is a house waiting on a timer job on the Build tab — see isWaitingOnTimer. */
   if(typeof isWaitingOnTimer === 'function' && isWaitingOnTimer(d)) return 'building';
+  /* [[SCH-123]] a mover kept as a customer whose old set is still on the Recycle tab is in the warehouse too */
+  if(typeof isWaitingOnRecycle === 'function' && isWaitingOnRecycle(d)) return 'building';
   return (typeof isWaitingOnBuild === 'function' && isWaitingOnBuild(d)) ? 'building' : 'confirmed';
 }
 /* ⭐⭐ [[SCH-105]] THE COLOUR-CHANGE LIST HOLDS A CUSTOMER OFF THE SCHEDULE (2026-09-30). Owner: "anyone on the
@@ -40537,7 +40614,15 @@ function isWaitingOnBuild(d){ return !!(d && d.needsLightBuild === true); }
    ⚠ NOT isOutForSeason: the warehouse queues themselves ask that, and a house cannot be taken off the list that
    holds it. Schedule only. */
 function isWaitingOnTimer(d){ return !!(d && (d.needsTimerOnly === true || d.needsTimerRemoved === true)); }
-function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d); }
+/* ⭐⭐ [[SCH-123]] AND THE RECYCLE LIST (2026-10-09). Dax: "no one located anywhere in the warehouse list is ever put anywhere
+   on the schedule whether it be builds, color change or recycle, but when they are finished or taken off the warehouse list
+   through deletion then the next time we click recalculate everything they go on the schedule". Measured on a simulated
+   season: a customer whose old set was queued for recycle stayed on the next two days, because recycle only reached the
+   schedule through isOutForSeason — which leaves a locked day alone and reports it — and a mover kept as a customer
+   (recycleKeepingCustomer) was not held at all. `needsLightRecycle` is the Recycle tab's own flag, cleared by its Mark Done
+   or by deleting the row, so the hold ends exactly when the list lets go of them. */
+function isWaitingOnRecycle(d){ return !!(d && d.needsLightRecycle === true); }
+function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d) || isWaitingOnRecycle(d); }
 function isOffTheSchedule(d){ return isOutForSeason(d) || isInWarehouse(d); }
 function isOutForSeason(d){
   if(!d) return true;
@@ -63695,9 +63780,9 @@ function planNewCrewDays(waiting, taken, opts){
      With no anchor to start from, the first house is simply the front of the
      queue, which is what the builder took before. So the CHOICE of who leads a
      day is unchanged; what changed is who rides along with them. */
-  function pickClusteredFromQueue(queue, eligible, want, anchor){
+  function pickClusteredFromQueue(queue, eligible, want, anchor, riders){
     const chosen = [];
-    const pool = (eligible || []).slice();
+    let pool = (eligible || []).slice();
     const pinOf = function(i){
       const st = queue[i] && queue[i].stop;
       return (st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
@@ -63706,6 +63791,9 @@ function planNewCrewDays(waiting, taken, opts){
     let cur = (anchor && typeof anchor.lat === 'number' && typeof anchor.lng === 'number')
       ? {lat: anchor.lat, lng: anchor.lng} : null;
     while(chosen.length < want && pool.length){
+      /* [[SCH-122]] the riders' room is spent: from here on only houses with a last day may ride. */
+      if(riders && riders.left <= 0) pool = pool.filter(function(i){ return !riders.is(queue[i]); });
+      if(!pool.length) break;
       /* Only the most urgent tier still in the pool is ever in play, so the
          geography below can never promote a November house over an October one. */
       let urg = Infinity;
@@ -63726,6 +63814,7 @@ function planNewCrewDays(waiting, taken, opts){
       if(bestPos === -1) break;
       const idx = pool.splice(bestPos, 1)[0];
       chosen.push(idx);
+      if(riders && riders.is(queue[idx])) riders.left--;
       const pin = pinOf(idx);
       if(pin) cur = {lat: pin.lat, lng: pin.lng};
     }
@@ -63848,6 +63937,16 @@ function planNewCrewDays(waiting, taken, opts){
      the season back on step 4 exactly as before. */
   const betterTown = function(c, p){
     if(!p) return true;
+    /* [[SCH-122]] AN AREA THAT CAN MAKE A REAL DAY BEATS ONE THAT CANNOT, whatever it holds. Measured: areas of three, each
+       holding a missed house, won 29 October on urgency; a day that small is dissolved after the build, and the October
+       customers who could have filled it went to November. A missed or rushed house still goes first INSIDE any day
+       that reaches it (pickClusteredFromQueue takes the most urgent tier first) — "the very next time it makes any
+       sense in a route" ([[SCH-54]]). Only while somebody else CAN make a real day; at the season's tail nobody can,
+       and urgency decides alone as before. */
+    const viableAt = (typeof ONE_MAN_MAX_HOUSES === 'number' ? ONE_MAN_MAX_HOUSES : 8) + 1;
+    if(c.due !== null && c.due !== undefined && c.due !== p.due) return c.due > p.due;
+    const cv = c.fits >= viableAt, pv = p.fits >= viableAt;
+    if(cv !== pv) return cv;
     if(c.urg !== p.urg) return c.urg < p.urg;
     if(c.fits !== p.fits) return c.fits > p.fits;
     /* ⚠ 3a. THE CHILLY BAND FIRST, and only against a town that is NOT chilly.
@@ -64029,7 +64128,76 @@ function planNewCrewDays(waiting, taken, opts){
       const r = (typeof q[i].priority === 'number') ? q[i].priority : u;
       if(r < urgRush) urgRush = r;
     }
-    return {n: n, urg: urg, urgRush: Math.min(urgRush, urg)};
+    let nd = 0;
+    if(curRiders) for(let i = 0; i < q.length; i++){
+      if(q[i].from > ds || awayOn(q[i], ds)) continue;
+      if(!curRiders.is(q[i])) nd++;
+    }
+    return {n: n, nd: nd, urg: urg, urgRush: Math.min(urgRush, urg)};
+  };
+  /* ⭐⭐ [[SCH-122]] "ANY" HOUSES ONLY FILL A DAY WHILE EVERY DEADLINE STILL FITS (2026-10-09). Dax: "theres a lot of
+     people wanting for october and scheduled in november which should never happen". Measured on a day-by-day season
+     (crews finishing 85% of each day, Recalculate every morning): up to 36 October customers sat on November days while
+     the October days ahead of them carried 13-26 no-preference houses each. Every crew-day is an AREA, nearly every
+     area holds a few October houses, so every area was "urgent" — and each crew-day then topped itself up to forty with
+     the area's any-time houses. Whichever areas came last took their October customers into November with them.
+     ⭐ SO A RIDER — a house with no last day, or a later one than the deadline that binds — may only take a slot the
+     deadline houses will not need. Before each date the builder works out, for every last day still waiting (31 October,
+     a named window, the run-up to Thanksgiving), the crew-slots between now and then against the houses that must be
+     done by then; the smallest margin is how many riders this date may carry, across all its crews. Early in the season
+     the margin is hundreds and nothing changes. When it closes, the day fills with October houses and their October
+     neighbours instead, and an area's claim on the day (fillableCount) is what it can carry WITHIN that margin.
+     ⚠ NEVER A REFUSAL. A priority house (new hang, rush, missed) still goes first because pickClusteredFromQueue takes
+     the most urgent tier first — it simply spends the margin before an any-time house can. A day the margin leaves short
+     is the cost: Normal Schedule work moves into November, which is where its customers said any time was fine. */
+  let curRiders = null;
+  const riderRoomOn = function(ds){
+    const dls = {};
+    /* ⚠ ONLY LAST DAYS STILL AHEAD. A house already past its last day is late, not a constraint — it is first in its
+       tier anyway, and counting it would hold the margin at nothing for the rest of the season (measured: the builder
+       stopped placing anything after 31 October and dumped 353 houses on the last day). */
+    Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){ if(w.until && w.until >= ds) dls[w.until] = 1; }); });
+    const list = Object.keys(dls).sort();
+    if(!list.length) return null;
+    let best = Infinity, by = '', bestTight = false;
+    list.forEach(function(D){
+      const end = D;
+      let need = 0;
+      Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){
+        if(w.until && w.until >= ds && w.until <= D && (w.from || '') <= end) need++; }); });
+      let slots = 0, crewDays = 0;
+      for(let t = dateOf(ds), g = 0; toDateStr(t) <= end && g < 400; g++){
+        const x = toDateStr(t);
+        slots += crewsOnDate(x) * capOnDate(x);
+        crewDays += crewsOnDate(x);
+        t = nextWorkingDay(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1));
+      }
+      /* ⭐ AND THE AREAS, which is the limit that actually bit. Measured: with slots to spare, 40 October customers
+         still went to November, because a crew-day works ONE area (and one neighbour) and nearly every area holds a
+         few October houses — visiting each area once IS the whole season. When more areas hold a house due by D than
+         there are crew-days left before D, the margin is nothing, and the crew-day gathers the due houses from the
+         areas next door before it tops up (see `tight` in the crew loop). */
+      const areas = {};
+      Object.keys(byCity).forEach(function(c){ if(byCity[c].some(function(w){
+        return w.until && w.until >= ds && w.until <= D && (w.from || '') <= end; })) areas[c] = 1; });
+      /* equal counts as tight: with as many due areas as crew-days left, every crew-day must go to one of them */
+      const tight = Object.keys(areas).length >= crewDays;
+      const margin = tight ? 0 : (slots - need);
+      if(margin < best || (tight && !bestTight)){ if(!bestTight || tight){ best = margin; by = D; bestTight = tight; } }
+    });
+    /* ⚠ A HOUSE THAT OUTRANKS THE DUE ONES IS NEVER A RIDER. A missed house, a new hang or a rush sorts ahead of October
+       on purpose; treating one as filler emptied a whole date (measured: the area holding a missed any-time house won the
+       morning, could place nobody, and the builder jumped to 2 November). The line is the most urgent due house. */
+    let dueUrg = Infinity;
+    Object.keys(byCity).forEach(function(c){ byCity[c].forEach(function(w){
+      if(w.until && w.until >= ds && w.until <= by && typeof w.priority === 'number' && w.priority < dueUrg) dueUrg = w.priority; }); });
+    return {left: Math.max(0, best), by: by, tight: bestTight,
+            /* ⚠ BUT A MISSED BUMP ALONE DOES NOT LIFT AN ANY-TIME HOUSE OVER AN OCTOBER ONE. Measured at a 70% finish rate:
+               every miss outranked October, the last October days filled with missed any-time houses, and 18 October
+               customers went to November. Missed still sorts first among the any-time houses; a rush still beats all. */
+            is: function(w){ return !w || ((!w.until || w.until > by) &&
+              (!(typeof w.priority === 'number' && w.priority < dueUrg) || ((w.missed || 0) > 0 && !w.rush))); }};
+    /* (a late house, until < ds, is never a rider: it is not "any time", it is overdue) */
   };
   const allowedCount = function(city, ds){ return allowedStats(city, ds).n; };
   /* ⭐ HOW BIG A CREW-DAY THIS TOWN CAN ACTUALLY MAKE TODAY (added 2026-08-20).
@@ -64057,13 +64225,16 @@ function planNewCrewDays(waiting, taken, opts){
        dates the office has marked — a one man date can only make eight, and a town
        should not win the slot by promising twenty it will not be allowed to place. */
     const room = capOnDate(ds);
-    const own = allowedStats(city, ds).n;
+    /* [[SCH-122]] while the riders' margin is short, an area can only promise its deadline houses plus what is left of it. */
+    /* (TIGHT is different: the crew-day gathers due houses and then fills from the areas it is in, so an area's size is all of it.) */
+    const carry = function(st){ return (curRiders && !curRiders.tight) ? st.nd + Math.min(st.n - st.nd, Math.max(0, curRiders.left)) : st.n; };
+    const own = carry(allowedStats(city, ds));
     if(own >= room) return room;
     const used = townsUsedOn(ds);
     let best = 0;
     nearbyTowns(city, centres).forEach(function(other){
       if(other === city || used.indexOf(other) !== -1) return;
-      const n = allowedCount(other, ds);
+      const n = carry(allowedStats(other, ds));
       if(n > best) best = n;
     });
     return Math.min(room, own + best);
@@ -64084,8 +64255,11 @@ function planNewCrewDays(waiting, taken, opts){
     let freeSlot = false;
     for(let cr = 1; cr <= crewsToday; cr++) if(!onDay[String(cr)]) freeSlot = true;
     let placedToday = 0;
+    curRiders = riderRoomOn(ds);
+    /* [[SCH-122]] an area that could place nobody is passed over for the rest of the date, never the date itself. */
+    const passedOver = {};
     if(freeSlot){
-      for(let cr = 1; cr <= crewsToday && made < maxDays; cr++){
+      for(let cr = 1, tries = 0; cr <= crewsToday && made < maxDays && tries < 200; cr++, tries++){
         if((busy[ds] || {})[String(cr)]) continue;
         /* ⭐ THE MOST URGENT TOWN, AND AMONG EQUALS THE ONE WITH THE MOST
            STILL WAITING. Counted fresh, ties alphabetical so the same input
@@ -64140,12 +64314,14 @@ function planNewCrewDays(waiting, taken, opts){
           Object.keys(byCity).forEach(function(c){
             if(!byCity[c].length) return;
             if(townsUsedOn(ds).indexOf(c) !== -1) return;   // the other crew is already there
+            if(passedOver[c]) return;
             const st = allowedStats(c, ds);
             if(!st.n) return;
             const cold = tooCold(c, ds) && !byCity[c].some(function(w){
               return w.from <= ds && !awayOn(w, ds) && !houseFrozen(w, ds); });
             if(cold && !allowCold) return;
             const fits = fillableCount(c, ds);
+            if(curRiders && !fits) return;   // [[SCH-122]] nothing here may ride today
             /* ⭐ A HOUSE ASKED TO GO SOONER MOVES ITS AREA UP — WHEN THE AREA CAN
                CARRY A REAL DAY ([[SCH-64]], 2026-09-09). Dax, asked directly whether
                priority should be able to move an area: "it can move their area up
@@ -64175,7 +64351,9 @@ function planNewCrewDays(waiting, taken, opts){
             const viable = fits >= ((typeof ONE_MAN_MAX_HOUSES === 'number'
                                      ? ONE_MAN_MAX_HOUSES : 8) + 1);
             const cand = {city: c, n: st.n, urg: viable ? st.urgRush : st.urg, fits: fits,
-                          temp: tempFor(areaTown(c), ds), cold: cold};
+                          temp: tempFor(areaTown(c), ds), cold: cold,
+                          /* [[SCH-122]] while October is tight, the area holding the most due houses wins the day */
+                          due: (curRiders && curRiders.tight) ? st.nd : null};
             if(betterTown(cand, pick)) pick = cand;
           });
         }
@@ -64195,8 +64373,8 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = pickClusteredFromQueue(queue, eligible, capToday, null);
-        if(!take.length) break;
+        const take = pickClusteredFromQueue(queue, eligible, capToday, null, curRiders);
+        if(!take.length){ passedOver[city] = 1; cr--; continue; }
         const ids = take.map(function(i){ return queue[i].id; });
         /* Where this crew ends up on the map, kept before the splice — the
            neighbour it borrows from below lends from that end of the town. */
@@ -64249,13 +64427,58 @@ function planNewCrewDays(waiting, taken, opts){
             for(let i = 0; i < borrow.queue.length; i++){
               if(borrow.queue[i].from <= ds && !awayOn(borrow.queue[i], ds) && (pick.cold || !houseFrozen(borrow.queue[i], ds))) oel.push(i);
             }
-            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
+            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor, curRiders);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
               lent.slice().sort(function(a, b){ return b - a; })
                   .forEach(function(i){ borrow.queue.splice(i, 1); });
               towns.push(borrow.town);
             }
+          }
+        }
+        /* [[SCH-122]] A SHORT CREW-DAY KEEPS GATHERING. The one-neighbour loan above can still leave a crew with two houses
+           (measured: two areas of one and two missed houses won 29 October, the day was too small to keep, and its October
+           customers went to November). So a crew-day not yet full takes from the next areas over (nearest first, at most
+           two more) and then fills what is left from the areas it is already in. When October is TIGHT the gathering takes
+           due houses only, and only the fill may use any-time ones. */
+        if(ids.length < capToday){
+          const near2 = nearbyTowns(city, centres);
+          let extra = 0;
+          let anchor2 = anchor;
+          for(let n = 0; n < near2.length && ids.length < capToday && extra < 2; n++){
+            const other = near2[n];
+            if(towns.indexOf(other) !== -1 || townsUsedOn(ds).indexOf(other) !== -1) continue;
+            /* ⚠ ONLY AREAS INSIDE THE TOWNS THIS CREW ALREADY COVERS. A crew is its own town plus one other, a date holds
+               at most four, and a far town runs on its own — standing rulings the suites hold; gathering never adds a town. */
+            const coveredTowns = {};
+            towns.forEach(function(k){ areaTowns(k).forEach(function(t){ coveredTowns[t] = 1; }); });
+            if(areaTowns(other).some(function(t){ return !coveredTowns[t]; })) continue;
+            if(!pick.cold && tooCold(other, ds)) continue;
+            const oq = byCity[other];
+            if(!oq || !oq.length) continue;
+            const oel = [];
+            for(let i = 0; i < oq.length; i++){
+              if(oq[i].from <= ds && !awayOn(oq[i], ds) && (pick.cold || !houseFrozen(oq[i], ds)) && !(curRiders && curRiders.tight && curRiders.is(oq[i]))) oel.push(i);
+            }
+            if(!oel.length) continue;
+            const lent = pickClusteredFromQueue(oq, oel, capToday - ids.length, anchor2, curRiders);
+            if(!lent.length) continue;
+            anchor2 = lastPinOf(oq, lent) || anchor2;
+            lent.forEach(function(i){ ids.push(oq[i].id); });
+            lent.slice().sort(function(a, b){ return b - a; }).forEach(function(i){ oq.splice(i, 1); });
+            towns.push(other);
+            extra++;
+          }
+          for(let k = 0; k < towns.length && ids.length < capToday; k++){
+            const oq = byCity[towns[k]];
+            if(!oq || !oq.length) continue;
+            const oel = [];
+            for(let i = 0; i < oq.length; i++){
+              if(oq[i].from <= ds && !awayOn(oq[i], ds) && (pick.cold || !houseFrozen(oq[i], ds))) oel.push(i);
+            }
+            const fill = pickClusteredFromQueue(oq, oel, capToday - ids.length, anchor2, null);
+            fill.forEach(function(i){ ids.push(oq[i].id); });
+            fill.slice().sort(function(a, b){ return b - a; }).forEach(function(i){ oq.splice(i, 1); });
           }
         }
         busy[ds] = busy[ds] || {};
@@ -72850,6 +73073,23 @@ let PRINTED_OVERRIDE = false, PRINTED_OVERRIDE_NEXT = false;
    it — and the moment it would reach the real date it stops mattering (scheduleTodayStr only ever takes it when it
    is EARLIER than the clock). null = the crew is on today's date, which is every season so far. */
 let HANG_DAY = null;
+/* ⭐⭐ [[SCH-124]] RECALCULATE EVERYTHING RUNS ITSELF ONCE A MORNING (2026-10-09). Dax: "if the crew misses a house we want them
+   to automatically be put on another day", and, shown the simulation (the five-minute sync left 25-40% of missed houses on
+   the gone day and the rest waited a median of 18-23 days; a Recalculate every morning put every one of them on a future
+   day by the next morning, median 6-12 days), chose this.
+   ⚠ THE DATE OF THE LAST PRESS IS SAVED WITH THE PLAN, so it is one answer on every computer: whichever opens Routes first
+   after MORNING_RECALC_HOUR runs it, every other machine sees it has been done, and an office press earlier that morning
+   counts — nobody's morning is recalculated twice. The ordinary press runs, so the next two scheduled days, printed days
+   and today stay exactly as the button already keeps them.
+   ⚠ IT NEEDS THE PAGE OPEN. The scheduler lives in this page, not on the server, so "a morning" is the first time
+   anybody has Routes open from that hour on (the five-minute timer covers a tab left open overnight). */
+const MORNING_RECALC_HOUR = 5;
+let LAST_RECALC_ON = null;
+function morningRecalcDue(nowParts, lastOn){
+  if(!nowParts || !nowParts.date) return false;
+  if(Number(nowParts.hour) < MORNING_RECALC_HOUR) return false;
+  return String(lastOn || '') !== String(nowParts.date);
+}
 function hangDayOn(realStr){
   if(!HANG_DAY || !HANG_DAY.date || !HANG_DAY.setOn) return null;
   if(String(HANG_DAY.date) >= String(realStr)) return null;
@@ -72860,25 +73100,55 @@ function hangDayOn(realStr){
   return ds < realStr ? ds : null;
 }
 if(typeof window !== 'undefined' && window) window.scheduleHangDay = function(realStr){ return hangDayOn(realStr); };
+/* ⭐⭐ [[SCH-120]] A DAY THAT HAS BEEN PRINTED CAN NO LONGER BE RESCHEDULED (2026-10-07). Dax: "after a day is printed that
+   day is no longer rescheduleable". Until now nothing recorded a print at all: "printed" meant only "one of the next
+   few days" ([[SCH-106]]), so a sheet printed a week ahead could be reshuffled by the next Recalculate, and the hand
+   moves (Reschedule to, Pull/Push, Day off, Force exact date) never asked about the lock at all.
+   Printing a day sheet, a crew sheet, Print Today or the warehouse page for a day now stamps `printedAt` on that day
+   (saved with the plan). A printed day is in LOCKED_DATES for good, so every automatic mover and Recalculate leave it
+   alone, and the hand moves refuse it while it is still ahead of the crew.
+   ⚠ WHAT STILL HAPPENS TO A PRINTED DAY, ON PURPOSE: anybody who goes onto a Warehouse list comes off it ([[SCH-117]],
+   removal only — a house with nothing built cannot be hung), and once the crew reaches it (the hang day or earlier,
+   [[SCH-116]]) the "Not all of them got done" flow still moves the missed houses on — that is rescheduling the HOUSE
+   the crew could not do, not the day. Print Whole Plan and the CSV are overviews and stamp nothing. */
+function markDayPrinted(day){
+  if(!day || day.isTakedown) return;
+  const real = (typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date());
+  if(!day.printedAt) day.printedAt = real;
+  try{ if(typeof refreshLockedDates === 'function') refreshLockedDates(); if(typeof freezePrintedDays === 'function') freezePrintedDays(); }
+  catch(err){ console.error('[HU] could not lock the printed day', err); }
+  if(typeof scheduleSave === 'function') scheduleSave();
+}
+/* Printed and still ahead of the crew — the days no hand may move. */
+function dayIsPrintedAhead(day){
+  if(!day || !day.printedAt) return false;
+  const dt = (typeof dayDate === 'function') ? dayDate(day) : null;
+  if(!dt) return false;
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  return isoOf(dt) > today;
+}
 function refreshLockedDates(){
   /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
      the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
     : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
-  const upcoming = {}, frozen = {};
+  const upcoming = {}, frozen = {}, printed = {};
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
     if(d.isFixRoute || !(d.houses || []).length) return;
     const dt = dayDate(d);
     if(!dt) return;
     const ds = isoOf(dt);
     if(ds <= today) return;
+    /* [[SCH-120]] a day that has been PRINTED stays locked for good — even "Recalculate including the next two days",
+       whose own tooltip has always said "only if they have not been printed", leaves it alone. */
+    if(d.printedAt){ printed[ds] = 1; upcoming[ds] = 1; return; }
     if(PRINTED_OVERRIDE){ delete d.frozenIds; delete d.frozenCrews; return; }
     upcoming[ds] = 1;
     /* A day frozen as printed stays printed until it is worked, even if a new day lands in front of it. */
     if(typeof frozenCrewSplit === 'function' && frozenCrewSplit(d)) frozen[ds] = 1;
   });
   const next = Object.keys(upcoming).sort().slice(0, ROUTE_LOCK_SCHEDULED_DAYS);
-  LOCKED_DATES = new Set(next.concat(Object.keys(frozen)));
+  LOCKED_DATES = new Set(next.concat(Object.keys(frozen), Object.keys(printed)));
   if(typeof window !== 'undefined' && window) window.scheduleLockedDates = function(){ return LOCKED_DATES; };
   return LOCKED_DATES;
 }
@@ -74032,7 +74302,8 @@ function laterDaysLike(day){
   const seq=(day.isFixRoute?fixerRoutes():(day.isTakedown?takedownDays():installDays()))
     .slice().sort((a,b)=>dayDate(a)-dayDate(b));
   const t=dayDate(day).getTime();
-  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t);
+  /* [[SCH-120]] a printed day still ahead is not somewhere a missed house can be sent. */
+  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t&&!(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)));
 }
 /* "The next day we are in that city" — the first later day of the same kind
    that already has at least one house in that town, so the truck is going
@@ -75074,11 +75345,13 @@ function renderDayList(elId,days,selId,listName){
        the next rebuild, the second will not until the mark is taken off. */
     const forcedSize=!fr && !day.isTakedown && typeof dayLimitFor==='function' ? dayLimitFor(day) : '';
     const setTag=forcedSize?' · SET':'';
+    /* [[SCH-120]] a printed day says so in the list — it will not move again. */
+    const printedBadge=day.printedAt?'<span class="pinbadge" title="Printed '+esc(String(day.printedAt))+' — this day is locked">🖨 PRINTED</span>':'';
     const sizeBadge=oneMan?'<span class="newbadge">1 MAN'+setTag+'</span>'
       :(oneCrew?'<span class="pinbadge">1 CREW'+setTag+'</span>'
       :(forcedSize?'<span class="pinbadge">1 CREW · SET</span>':''));
     return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
-      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
+      '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+printedBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
       '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
 }
 function dayOptions(currentId,kind){
@@ -76245,10 +76518,12 @@ function serialize(){
     dayLimits:Object.assign({},DAY_LIMITS),
     /* [[SCH-116]] which schedule day the crew is on when they are behind. With the plan, so every office device agrees. */
     hangDay:(HANG_DAY&&HANG_DAY.date&&HANG_DAY.setOn)?{date:String(HANG_DAY.date),setOn:String(HANG_DAY.setOn)}:null,
+    lastRecalcOn:LAST_RECALC_ON||null,
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
       frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():null,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):null,
+      printedAt:d.printedAt||null,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
 /* ---------- rebuilding the season's days ----------
@@ -76938,6 +77213,8 @@ function rebuildSeasonDays(){
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
+  /* [[SCH-121]] the done houses off every worked day that is not locked, packed onto the first days of the season below. */
+  const doneRecord=[];
   if(typeof PRINTED_UNBUILT_OFF!=='undefined') PRINTED_UNBUILT_OFF = [];
   /* WHAT IS LEFT TO DO drives everything, not what was planned.
      Owner, 2026-08-17: "if a crew only got 2 houses done in a city then we still
@@ -77016,8 +77293,44 @@ function rebuildSeasonDays(){
     });
     /* A day that came and went with nothing done is not a record of anything —
        drop it rather than leaving an empty day in the calendar. */
-    if(done.length){ d.houses=done; keep.push(d); }
+    if(done.length) doneRecord.push({id:d.id, dt:dt, houses:done});
   });
+  /* ⭐⭐ [[SCH-121]] DONE HOUSES GO TO THE FRONT OF THE SEASON, AND EVERYTHING ELSE CLOSES UP BEHIND THEM (2026-10-09).
+     Dax: "after someone is finished they should be pushed to the begining of the list when we recalculate everything
+     while everything else gets push forward so the OCt 1 2 3 all are filled with done people", and, the same morning,
+     "we need to adjust recalculate everything so that we fill up October days first".
+     ⛔ THE FAULT THIS CLOSES, MEASURED ON THE REAL PRESS. A worked day used to be kept ON ITS OWN DATE holding its done
+     houses, and the floor for new days is the day after the last kept day. A crew ticking off ONE house on 28 October
+     ahead of time made 28 October a "worked" day — and the next Recalculate started the season on 29 October, leaving
+     14-27 October empty while the same houses went to November. Packed here, a done house can only ever sit on a date
+     before today, so it can never hold the floor up.
+     ⚠ ONLY DATES BEFORE `today` (the hang day when one is set — SCH-116), ONE FULL DAY APIECE, earliest hung first. Every
+     date from today on belongs to the locked days or the new plan. More done than those dates hold: the rest go on the
+     last of them — a record day is never driven, so a big one costs nothing. No date before today at all (the first
+     morning of the season): the old behaviour, each day kept where it was.
+     ⚠ A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
+     customer's record: done houses are hidden (SCH-119), so schedulePlanBookings never re-stamps their date, and when
+     their lights went up is `completedAt`, not the day they sit on. */
+  if(doneRecord.length){
+    const perDay=Math.max(1,((typeof CREWS_PER_DAY==='number'&&CREWS_PER_DAY>0)?CREWS_PER_DAY:2)*((typeof crewCap==='function')?crewCap():20));
+    doneRecord.sort(function(a,b){ const x=a.dt?a.dt.getTime():0, y=b.dt?b.dt.getTime():0; return x-y; });
+    const doneHouses=[]; doneRecord.forEach(function(r){ r.houses.forEach(function(h){ doneHouses.push(h); }); });
+    const recordDates=[];
+    for(let dd=nextWorkingDay(start), g=0; dd<today && g<400 && recordDates.length*perDay<doneHouses.length; g++){
+      recordDates.push(dd);
+      dd=nextWorkingDay(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate()+1));
+    }
+    if(!recordDates.length){
+      doneRecord.forEach(function(r){ const d=SEASON.filter(function(x){ return x.id===r.id; })[0]; if(d){ d.houses=r.houses; keep.push(d); } });
+    } else {
+      recordDates.forEach(function(dd,i){
+        const last=i===recordDates.length-1;
+        const houses=last?doneHouses.slice(i*perDay):doneHouses.slice(i*perDay,(i+1)*perDay);
+        if(!houses.length) return;
+        keep.push({id:(doneRecord[i]&&doneRecord[i].id)||('done'+i), base:daysBetween(dd,BASE_START), cascade:0, pin:null, houses:houses});
+      });
+    }
+  }
   /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF IT (added 2026-08-22). Owner:
      "back next year should be on 2027 and not split for this year on schedule."
 
@@ -77864,6 +78177,36 @@ function dayTownCount(day){ return dayTownList(day).length; }
    "on no day" is what the headline rule forbids.
    ⚠ A PINNED HOUSE IS NEVER PULLED — its window is one day wide and the pin is the answer — and
    a locked day is never touched from either end. */
+/* [[SCH-122]] the any-time house in the same town, on an open day no later than `until`, that `h` can trade places with. */
+function deadlineSwapFor(h, fromDay, fromDs, until){
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const custOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; return (c && c.data) || {}; };
+  const startStr = isoOf(seasonStartDate());
+  const hd = custOf(h);
+  const hp = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, hd) : null;
+  let best = null;
+  SEASON.forEach(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown) return;
+    const x = dayStr(d);
+    if(!x || x > until || x >= fromDs) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(x)) return;
+    if(d.printedAt) return;
+    if(!houseMayGoOn(h, hd, x, startStr).ok) return;
+    (d.houses || []).forEach(function(o){
+      if(!o || o.done || o.isFix || o.isTakedown || o === h) return;
+      if(('' + (o.stuck || '')).trim() || o.notBefore) return;
+      if(!sameCity(cityOf(o), cityOf(h))) return;
+      if((typeof houseDeadline === 'function') && houseDeadline(o)) return;
+      const od = custOf(o);
+      if(typeof isRushInstall === 'function' && isRushInstall(od)) return;
+      if(!houseMayGoOn(o, od, fromDs, startStr).ok) return;
+      const op = (typeof houseGeoPoint === 'function') ? houseGeoPoint(o, od) : null;
+      const miles = (hp && op && typeof hp.lat === 'number' && typeof op.lat === 'number') ? haversine(hp.lat, hp.lng, op.lat, op.lng) : 1e6;
+      if(!best || miles < best.miles || (miles === best.miles && x < best.ds)) best = {day: d, ds: x, other: o, miles: miles};
+    });
+  });
+  return best;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -77879,7 +78222,21 @@ function pullBackPastDeadline(){
         if(!until || ds <= until) return;
         const target = nextInstallDayFor(h, {exclude: day});
         const ts = target ? dayStr(target) : null;
-        if(!target || !ts || ts > until){ res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return; }
+        if(!target || !ts || ts > until){
+          /* ⭐ [[SCH-122]] NO ROOM INSIDE THEIR LAST DAY — SO TRADE PLACES WITH SOMEBODY WHO SAID ANY TIME. Dax: "theres a lot
+             of people wanting for october and scheduled in november which should never happen". An open day on or before
+             their last day, holding an any-time house in the SAME TOWN: the two swap, so both days keep their size and their
+             towns, and the crew sheets need no new town. Never a rush, a pinned, a done or a dated house, never a locked or
+             printed day, and the any-time house must be allowed on the day it is given. Nearest any-time house first. */
+          const swap = deadlineSwapFor(h, day, ds, until);
+          if(swap){
+            day.houses.splice(day.houses.indexOf(h), 1, swap.other);
+            swap.day.houses.splice(swap.day.houses.indexOf(swap.other), 1, h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: swap.ds, swappedWith: swap.other.name || ''});
+            return;
+          }
+          res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;
+        }
         day.houses.splice(day.houses.indexOf(h), 1);
         target.houses.push(h);
         res.moved.push({name: h.name || '(no name)', from: ds, to: ts});
@@ -78110,7 +78467,8 @@ function validateSeasonPlan(opts){
     (day.houses || []).forEach(function(h){
       if(!h || h.isTakedown || h.isFix) return;
       const who = h.name || h.id;
-      if(!sheets[h.id]) add(8, who, ds, 'on no crew sheet');
+      /* [[SCH-119]] a done house hidden by Recalculate is meant to be on no crew sheet. */
+      if(!sheets[h.id] && !(typeof houseIsHiddenDone === 'function' && houseIsHiddenDone(h))) add(8, who, ds, 'on no crew sheet');
       else if(sheets[h.id] > 1) add(3, who, ds, 'on ' + sheets[h.id] + ' crew sheets');
       if(seen[h.id]) add(1, who, ds, 'also on ' + seen[h.id]);
       seen[h.id] = seen[h.id] || ds;
@@ -78414,6 +78772,15 @@ function sweepGoneDaysForward(){
     (day.houses || []).slice().forEach(function(h){
       if(!h || h.done || h.isTakedown || h.isFix) return;
       if(typeof markHouseMissed === 'function') markHouseMissed(h, ds);
+      /* [[SCH-123]] SOMEBODY NOW ON A WAREHOUSE LIST IS NOT CARRIED FORWARD. Measured on a simulated season: a house the
+         crew did not reach yesterday went onto the Color Change list overnight, the removal step left it alone (a day
+         that has gone is history, not schedule) and this sweep then put it on a FUTURE day — on the schedule while in the
+         warehouse. It comes off the gone day instead; customersMissingFromSeason puts it back the moment the list lets go. */
+      const heldCust = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+      if(heldCust && heldCust.data && typeof isOffTheSchedule === 'function' && isOffTheSchedule(heldCust.data)){
+        day.houses = day.houses.filter(function(x){ return x !== h; });
+        return;
+      }
       const target = nextInstallDayFor(h, {exclude: day});
       if(!target){ stuck.push({name: h.name || '(no name)', day: ds}); return; }
       day.houses = day.houses.filter(function(x){ return x !== h; });
@@ -79439,8 +79806,11 @@ function hydrate(o){
   /* [[SCH-116]] only two plain dates are accepted back; anything else means "on today's date". */
   HANG_DAY=(o.hangDay&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.date||''))&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.setOn||'')))
     ?{date:String(o.hangDay.date),setOn:String(o.hangDay.setOn)}:null;
+  /* [[SCH-124]] never move it BACKWARDS: a snapshot from another computer that predates this morning's press must not re-arm it */
+  if(o.lastRecalcOn&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.lastRecalcOn))&&String(o.lastRecalcOn)>String(LAST_RECALC_ON||'')) LAST_RECALC_ON=String(o.lastRecalcOn);
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
+    printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
   uniqueDayIds(SEASON);
@@ -79531,6 +79901,8 @@ function cancelReplace(){
 async function loadPlan(){
   try{const s=await getDoc(PLAN_REF());
     if(s.exists()){hydrate(s.data());planSyncedKey=planKey(s.data());loaded=true;showDashboard();syncTabs();renderAll();followPlanLive();
+      /* [[SCH-124]] first open of the morning — once the customers are in (it waits for them itself) */
+      setTimeout(function(){ try{ maybeMorningRecalc(); }catch(err){ console.error('[HU] morning recalculate failed',err); } },15000);
       /* After the plan is on screen, not before: the correction is usually a
          handful of houses and redrawing once when it lands beats holding the
          whole page back on a list that may still be loading. */
@@ -79593,6 +79965,7 @@ RT.addEventListener('change',e=>{const t=e.target;
     const target=moveLeftover(t.dataset.lmove,t.value);
     renderAll();
     if(target)toast('Moved to '+dlabel(dayDate(target)).wd+' '+dlabel(dayDate(target)).full);
+    else if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(getDay(t.value)))toast('That day has been printed and can no longer be changed — pick another');
     return;
   }
   if(t.dataset.crewname!=null){const i=+t.dataset.crewname,v=(t.value||'').trim();
@@ -79688,7 +80061,10 @@ RT.addEventListener('change',e=>{const t=e.target;
   }
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
-  if(t.dataset.pin){const d=getDay(t.dataset.pin);if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
+  if(t.dataset.pin){const d=getDay(t.dataset.pin);
+    /* [[SCH-120]] a printed day's date is fixed. */
+    if(d&&typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)){t.value=isoOf(dayDate(d));toast('This day has been printed and can no longer be moved');return;}
+    if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
@@ -79785,6 +80161,8 @@ RT.addEventListener('click',e=>{const t=e.target;
      ⚠ DECLARED INSIDE THE LISTENER, so it keeps reaching the same helpers it always
      did (serialize, rebuildSeasonDays, toast) without any of them being moved. */
   function runRecalculateEverything(){
+    /* [[SCH-124]] any press counts as this morning's — see morningRecalcDue */
+    try{ LAST_RECALC_ON=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date()); }catch(err){ console.error('[HU] could not stamp the recalculate date',err); }
     /* ⭐ [[SCH-106]] which days are printed is decided once, before anything moves, and those days are
        frozen as they stand — so nothing below can reshuffle them. */
     try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
@@ -80040,7 +80418,17 @@ RT.addEventListener('click',e=>{const t=e.target;
 function cascade(id,delta,msg){
   const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
+  /* [[SCH-120]] a shift that would move a PRINTED day's date is refused — the day itself, or one further on that the
+     shift would drag along. Checked by RESULT (dates before and after), so a shift that leaves printed days alone still works. */
+  const printedBefore=affected.filter(function(d){ return typeof dayIsPrintedAhead==='function' && dayIsPrintedAhead(d); })
+    .map(function(d){ return {d:d, t:d._date.getTime()}; });
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
+  const movedPrinted=printedBefore.filter(function(x){ return x.d._date && x.d._date.getTime()!==x.t; });
+  if(movedPrinted.length){
+    affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+    const l=dlabel(new Date(movedPrinted[0].t));
+    toast(l.wd+' '+l.full+' has been printed and can no longer be moved — nothing was shifted');return;
+  }
   /* ⚠ THE REVERT IS WHAT KEEPS "Pull earlier" INSIDE THE SEASON. With the floor in
      computeDates the date simply stops moving once the day is sitting on the season
      start, this branch puts the cascade back, and the press does nothing instead of
@@ -80052,6 +80440,10 @@ function cascade(id,delta,msg){
   renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;
+  /* [[SCH-120]] nothing moves onto or off a printed day the crew has not reached yet. */
+  if(typeof dayIsPrintedAhead==='function'&&(dayIsPrintedAhead(f.day)||dayIsPrintedAhead(target))){
+    const pd=dayIsPrintedAhead(f.day)?f.day:target;renderAll();
+    toast(dlabel(dayDate(pd)).wd+' '+dlabel(dayDate(pd)).full+' has been printed and can no longer be changed');return;}
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
   if(target.isFixRoute)selFix=dayId;else if(target.isTakedown)selTake=dayId;else selSchedule=dayId;
@@ -80062,6 +80454,8 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
 function moveLeftover(id,dayId){
   const f=findHouse(id);if(!f)return null;
   const target=getDay(dayId);if(!target||target===f.day)return null;
+  /* [[SCH-120]] a missed house may leave the day the crew worked, but may not land on a printed day still ahead. */
+  if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return null;
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='not done — rescheduled';}
   return target;
@@ -80185,6 +80579,8 @@ function schedOpenPrint(title,summary,tableHtml,emptyNote){
 function printDaySheet(dayId){
   const day=getDay(dayId);
   if(!day){toast('Pick a day first');return;}
+  /* [[SCH-120]] printing a day locks it — see markDayPrinted. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows=schedRouteRows(day);
   const l=dlabel(dayDate(day));
   const what=day.isFixRoute?'Fixer Route':(day.isTakedown?'Takedown':'Install');
@@ -81135,6 +81531,8 @@ function printOneList(kind, title, rows, summary, empty){
     body: printTableHtml(rows, PRINT_COLUMNS[kind]), empty: empty}]);
 }
 function printCrewSheetPage(day, i){
+  /* [[SCH-120]] printing a sheet locks its day — see markDayPrinted. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows = printCrewDayList(day, i);
   const who = (typeof crewName === 'function') ? crewName(i) : ('Crew ' + (i + 1));
   const where = (typeof crewCityFor === 'function') ? crewCityFor(i, day) : '';
@@ -81154,6 +81552,8 @@ function printCrewSheetPage(day, i){
   };
 }
 function printWarehousePage(day){
+  /* [[SCH-120]] the warehouse builds from this day's list, so printing it locks the day too. */
+  if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows = printWarehouseDayList(day);
   return {
     title: 'Warehouse — ' + printDayLabel(day),
@@ -81474,10 +81874,24 @@ function exportCSV(){
   /* The backstop. Five minutes is often enough that a plan left open keeps up,
      and rare enough that it is not doing work nobody asked for. It runs only
      while the plan is loaded, which means only after somebody opened the tab. */
+  /* [[SCH-124]] press Recalculate everything for the office once a morning. Through the button, so it waits for the forecast,
+     refuses while the customer list is loading or a press is running, and reports exactly as a press does. */
+  function maybeMorningRecalc(){
+    if(!loaded) return false;
+    if(typeof jobAddresses==='undefined'||!jobAddresses.length) return false;
+    if(recalcRunning) return false;
+    const now=(typeof mtnNowParts==='function')?mtnNowParts():null;
+    if(!morningRecalcDue(now, LAST_RECALC_ON)) return false;
+    LAST_RECALC_ON=now.date;   // claimed before the press, so a second tick cannot start another
+    toast('Good morning — recalculating the schedule (the next two days stay as they are)');
+    const b=RT.getElementById('recalcBtn');
+    if(b) b.click();
+    return true;
+  }
   function __startSyncTimer(){
     if(__syncTimer) return;
     __syncTimer=setInterval(whileSignedIn(function(){
-      try{ window.scheduleSyncFromCustomers({quiet:false}); }
+      try{ window.scheduleSyncFromCustomers({quiet:false}); maybeMorningRecalc(); }
       catch(e){ /* The timer must survive a bad tick — killing it would stop the plan
                    following the customers for the rest of the session, silently. But it
                    is SAID: a sync that throws every five minutes is a real fault, and

@@ -57698,7 +57698,9 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
         '{key:"name",label:"name",read:function(d){return d.name;}},' +
         '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
         lifts.map(f => extractFn(admin, f)).join('\n')
-          .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+          .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+          /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+          .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
         '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
         'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
         'const r=rebuildSeasonDays();' +
@@ -63794,7 +63796,9 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
       '{key:"name",label:"name",read:function(d){return d.name;}},' +
       '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
       lifts.map(f => extractFn(admin, f)).join('\n')
-        .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+        .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+        /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+        .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
       /* ⚠ THE SABOTAGE, AND IT IS THE POINT OF THE SUITE. A rule that keeps anybody carrying
          `__gate` off the plan — the same shape as the `needsLightBuild` gate SCH-48 removed.
          The real function is wrapped, never replaced, so everything else it does still runs. */
@@ -66109,4 +66113,41 @@ suite('372. The nightly invoice sends the picked template');
   check('S372', 'they save to the fields the run reads', /'paidTemplateName' : 'unpaidTemplateName'/.test(ui));
   check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
   check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
+}
+
+/* ---------------------------------------------------------------------------
+ * 373. Every Street View photo of the house, by season and year ([[MR-41]], 2026-10-07)
+ * Dax: "I want a button to change the season of the google map picture because sometimes
+ * leaves are in the way", then "it should show all the options of seasons/years that house
+ * was on google maps". The list is RUN against a photo list shaped the way the Maps library
+ * really hands it back — the date under a minified key — because the whole risk is that the
+ * key changes name between library versions.
+ * --------------------------------------------------------------------------- */
+suite('373. Every Street View photo of the house, by season and year');
+{
+  const a = admin.indexOf('const RM_SEASON_OF_MONTH'), b = admin.indexOf('let rmPhotoList');
+  check('S373', 'the photo-date rules are findable', a !== -1 && b > a);
+  const lib = new Function(admin.slice(a, b) + 'return {from: rmPhotoDatesFrom, label: rmPhotoDateLabel, barest: rmFewestLeavesPano};')();
+  const D = (y, m) => new Date(y, m - 1, 15);
+  /* exactly the Lehi street measured the day it was built, with the date under a minified key */
+  const time = [[2007, 8], [2012, 9], [2015, 7], [2016, 4], [2019, 5], [2021, 7], [2022, 9], [2026, 7]]
+    .map((x, i) => ({pano: 'p' + i, Xq: D(x[0], x[1])}));
+  const list = lib.from({time: time});
+  check('S373', 'every photo Google has is listed — eight of eight', list.length === 8, list.length);
+  check('S373', 'newest first', list[0].pano === 'p7' && list[7].pano === 'p0');
+  check('S373', 'the date is found whatever the library calls its key', lib.from({time: [{pano: 'z', abc: D(2020, 1)}]}).length === 1);
+  check('S373', 'a photo with no date or no id is left out rather than shown blank',
+    lib.from({time: [{pano: 'x'}, {Xq: D(2020, 1)}, {pano: 'y', Xq: 'Jan 2020'}]}).length === 0);
+  check('S373', 'and the same photo twice is listed once', lib.from({time: [{pano: 'q', d: D(2020, 1)}, {pano: 'q', d: D(2020, 1)}]}).length === 1);
+  check('S373', 'no list at all is an empty list, not a crash', lib.from(null).length === 0 && lib.from({}).length === 0);
+  check('S373', 'each photo says its season and year', lib.label(D(2016, 4)) === 'Spring · Apr 2016' && lib.label(D(2022, 9)) === 'Fall · Sep 2022'
+    && lib.label(D(2025, 12)) === 'Winter · Dec 2025' && lib.label(D(2026, 7)) === 'Summer · Jul 2026', lib.label(D(2016, 4)));
+  check('S373', 'Fewest leaves picks the barest month on offer (April 2016 on that street)', lib.barest(list) === 'p3', lib.barest(list));
+  const bare = lib.from({time: [{pano: 'old', d: D(2012, 1)}, {pano: 'new', d: D(2024, 2)}, {pano: 'sum', d: D(2025, 7)}]});
+  check('S373', 'between two equally bare photos it takes the newer one', lib.barest(bare) === 'new', lib.barest(bare));
+  check('S373', 'and with nothing to choose from it picks nothing', lib.barest([]) === '');
+  /* wiring: a list nobody can see is not a feature */
+  check('S373', 'the picker and the button are on the Street View pane', /id="rmPhotoDate"/.test(admin) && /id="rmFewestLeaves"/.test(admin));
+  check('S373', 'the list is refreshed whenever the panorama changes', /rmPano\.addListener\('pano_changed', rmRefreshPhotoDates\)/.test(admin));
+  check('S373', 'and picking a photo moves the panorama to it, the same way the arrow keys do', /rmPano\.setPano\(sel\.value\)/.test(admin));
 }
