@@ -1362,6 +1362,76 @@ suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate,
 }
 }
 
+suite('SCH-121 Recalculate packs done houses onto the first days and closes the season up behind them');
+{
+  const book = makeBook(1000, 121, {towns: ['Lehi', 'American Fork', 'Orem']});
+  book.forEach(function(c){ c.data.installPreference = 'Normal Schedule'; });
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const doneOn = function(){ const out = []; H.api.installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(h.done) out.push({ds: ds(d), id: h.id}); }); }); return out; };
+  const scenario = function(hang){
+    H.setNow(new Date(2026, 9, 1, 7, 0)); H.load(book, {}); H.press();
+    let early = null;
+    H.api.installDays().forEach(function(d){ const x = ds(d);
+      if(x < '2026-10-09') d.houses.slice(0, 30).forEach(function(h){ h.done = true; });
+      if(x === '2026-10-28' && d.houses.length){ d.houses[0].done = true; early = d.houses[0].id; } });
+    const n = doneOn().length;
+    H.setNow(new Date(2026, 9, 9, 7, 0));
+    if(hang) H.api.setHangDay(hang);
+    H.press();
+    return {early: early, n: n};
+  };
+  const a = scenario(null);
+  const done = doneOn();
+  check('21.0 the scenario ticked a house on a day three weeks out', !!a.early);
+  check('21.1 every done house is still on the plan', done.length === a.n, done.length + ' of ' + a.n);
+  check('21.2 and every one of them sits before today', done.every(function(x){ return x.ds < '2026-10-09'; }),
+    JSON.stringify(done.filter(function(x){ return x.ds >= '2026-10-09'; }).slice(0, 3)));
+  check('21.3 the house ticked early on 28 October went to the front with the rest',
+    done.some(function(x){ return x.id === a.early && x.ds < '2026-10-09'; }));
+  const firstDays = H.api.installDays().map(ds).filter(function(x){ return x < '2026-10-09'; });
+  check('21.4 packed from 1 October, a full day apiece', firstDays[0] === '2026-10-01' &&
+    H.api.installDays().filter(function(d){ return ds(d) === '2026-10-01'; })[0].houses.length === 40, firstDays.join(','));
+  const open = H.api.installDays().filter(function(d){ const x = ds(d); return x > '2026-10-09' && x < '2026-11-01'; }).map(ds);
+  const want = []; for(let d = 12; d <= 30; d++){ const dt = new Date(2026, 9, d); if(dt.getDay() !== 0 && dt.getDay() !== 6) want.push(H.api.isoOf(dt)); }
+  check('21.5 and October closes up behind them: every working day from the 12th holds work, no gap',
+    want.every(function(x){ return open.indexOf(x) !== -1; }), 'missing ' + want.filter(function(x){ return open.indexOf(x) === -1; }).join(','));
+  check('21.6 nobody Confirmed is left off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0);
+  scenario('2026-10-05');
+  const done2 = doneOn();
+  check('21.7 with the crew hanging 5 October, a done house sits before the hang day or on a locked day (5-7 Oct), never later',
+    done2.length > 0 && done2.every(function(x){ return x.ds < '2026-10-08'; }), JSON.stringify(done2.filter(function(x){ return x.ds >= '2026-10-08'; }).slice(0, 3)));
+  H.api.setHangDay(null);
+}
+
+suite('SCH-122 October customers get October: three weeks of real presses with crews finishing 70% a day');
+{
+  const book = makeBook(600, 14);
+  const prefOf = {}; book.forEach(function(c){ prefOf['cust-' + c.id] = c.data.installPreference; });
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const r = rng(5);
+  let worst = 0, sameTownAvoidable = 0;
+  H.setNow(new Date(2026, 9, 12, 7, 0)); H.load(book, {}); H.press();
+  for(let day = new Date(2026, 9, 12); day <= new Date(2026, 9, 30); day.setDate(day.getDate() + 1)){
+    if(day.getDay() === 0 || day.getDay() === 6) continue;
+    H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 7, 0));
+    H.press();
+    const today = H.api.isoOf(day);
+    const inNov = [];
+    H.api.installDays().forEach(function(d){ if(ds(d) > '2026-10-31') d.houses.forEach(function(h){
+      if(!h.done && prefOf[h.id] === 'October') inNov.push(h); }); });
+    if(inNov.length > worst) worst = inNov.length;
+    const open = H.api.installDays().filter(function(d){ const x = ds(d); return x > today && x <= '2026-10-31' && !H.api.routeDayIsLocked(x); });
+    inNov.forEach(function(h){ if(open.some(function(d){ return d.houses.some(function(o){
+      return !o.done && o !== h && o.city === h.city && prefOf[o.id] === 'Normal Schedule'; }); })) sameTownAvoidable++; });
+    const td = H.api.installDays().filter(function(d){ return ds(d) === today; })[0];
+    if(td) td.houses.forEach(function(h){ if(!h.done && r() < 0.7) h.done = true; });
+  }
+  check('22.1 the worst morning holds at most 12 October customers in November — the ones missed on a locked last day (it was 50)',
+    worst <= 12, 'worst ' + worst);
+  check('22.2 no October customer is in November while an open October day holds an any-time house in their own town',
+    sameTownAvoidable === 0, sameTownAvoidable + ' times');
+}
+
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){

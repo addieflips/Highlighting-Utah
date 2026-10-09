@@ -57698,7 +57698,9 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
         '{key:"name",label:"name",read:function(d){return d.name;}},' +
         '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
         lifts.map(f => extractFn(admin, f)).join('\n')
-          .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+          .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+          /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+          .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
         '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
         'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
         'const r=rebuildSeasonDays();' +
@@ -63794,7 +63796,9 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
       '{key:"name",label:"name",read:function(d){return d.name;}},' +
       '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
       lifts.map(f => extractFn(admin, f)).join('\n')
-        .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+        .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+        /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+        .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
       /* ⚠ THE SABOTAGE, AND IT IS THE POINT OF THE SUITE. A rule that keeps anybody carrying
          `__gate` off the plan — the same shape as the `needsLightBuild` gate SCH-48 removed.
          The real function is wrapped, never replaced, so everything else it does still runs. */
