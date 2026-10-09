@@ -26472,7 +26472,7 @@ suite('Suite 104. The Printing tab');
          whole claim. printCrewColumns comes with it because the column only exists
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
-      extractFn(admin, 'printFixPhotos') +
+      extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
       /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
          not only a flagged one, so this is lifted unconditionally rather than beside
          the fix-only helpers above. A stub would prove the column renders and nothing
@@ -40776,7 +40776,7 @@ suite('Suite 140. A finished fix takes its photo with it');
   /* ---- 4. where it is wired -------------------------------------------- */
   const doneSrc = stripComments(extractFn(admin, 'hlxMarkJobDone') || '');
   check('S140', 'the one done-function retires the photo',
-    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhoto\(url\)/.test(doneSrc),
+    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhotos\(urls\)/.test(doneSrc),
     'five doors call hlxMarkJobDone; wiring any one of them instead would leave ' +
     'the other four keeping photos for ever');
   /* ⚠ AFTER THE WRITE, NEVER BEFORE. Destroying first and then failing to save
@@ -66261,4 +66261,51 @@ suite('375. A setting changed on another computer reaches this one without a ref
       check('S375', 'and binds the focus handler only once', t.focusHandlers.length === 1, String(t.focusHandlers.length));
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 377. A FIX TAKES SEVERAL PHOTOS, CAN BE EDITED AFTER IT IS SAVED, AND SHOWS ITS PHOTOS
+ * ON THE SCHEDULE ([[FIX-08]], 2026-10-09). Addie: "on fixes we need to have a way to add
+ * notes and photos after it was already saved", "can't see the picture on the website on
+ * fixes after saved", "need a way to add multiple pictures on fixes".
+ * --------------------------------------------------------------------------- */
+suite('377. A fix takes several photos and can be edited after it is saved');
+{
+  const names = ['fixPhotosOf', 'fixPhotoFields', 'hlxRetireFixPhotos'];
+  const parts = names.map(n => extractFn(admin, n));
+  const asyncSrc = (n) => { const i = admin.indexOf('async function ' + n + '('); return i === -1 ? null : 'async ' + extractFn(admin.slice(i + 6), n); };
+  parts[2] = asyncSrc('hlxRetireFixPhotos');
+  check('S377', 'the photo-list helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('hlxRetireFixPhoto', parts.join('\n') + 'return {of: fixPhotosOf, fields: fixPhotoFields, retire: hlxRetireFixPhotos};');
+    const L = lib(async u => ({cleared: u !== 'stuck'}));
+    check('S377', 'a list of photos is read as a list', L.of({fixPhotoUrls: ['a', 'b', 'c']}).join() === 'a,b,c');
+    check('S377', 'a fix saved before today with one photo still has that photo', L.of({fixPhotoUrl: 'old'}).join() === 'old');
+    check('S377', 'blanks and repeats are dropped', L.of({fixPhotoUrls: ['a', '', 'a', ' b ']}).join() === 'a,b');
+    check('S377', 'nothing on file is an empty list, not a crash', L.of(null).length === 0 && L.of({}).length === 0);
+    const f = L.fields(['x', 'y']);
+    check('S377', 'saving writes the list AND the first photo in the old field, so every old reader still finds one',
+      f.fixPhotoUrls.join() === 'x,y' && f.fixPhotoUrl === 'x');
+    check('S377', 'saving no photos clears both', L.fields([]).fixPhotoUrl === '' && L.fields([]).fixPhotoUrls.length === 0);
+    pendingAsync.push((async () => {
+      const all = await L.retire(['a', 'b']);
+      check('S377', 'marking done destroys every photo, not only the first', all.cleared === true && all.keep.length === 0);
+      const some = await L.retire(['a', 'stuck', 'b']);
+      check('S377', 'a photo that could not be destroyed stays on the record (Job 4, per photo)',
+        some.cleared === false && some.keep.join() === 'stuck');
+    })());
+  }
+  const pop = stripComments(extractFn(admin, 'showAddFixPopup') || '');
+  check('S377', 'the fix popup takes several files at once', /accept="image\/\*" multiple class="addfix-photo-input"/.test(pop));
+  check('S377', 'and saves the whole list', /fixPhotoFields\(photos\)/.test(pop));
+  check('S377', 'a saved fix can be opened again from the Routes stop card', /data-editfix="'\+stop\.id\+'"/.test(admin) &&
+    /showAddFixPopup\(btn\.dataset\.editfix/.test(admin));
+  check('S377', 'and from the Schedule (fix list and the day view)', (admin.match(/data-editfix="'\+h\.id\+'"/g) || []).length === 2 &&
+    /if\(t\.dataset\.editfix\)\{editFixFromSchedule\(t\.dataset\.editfix\)/.test(admin));
+  check('S377', 'the Schedule fix list shows the photos and the note as it is now, not as it was placed',
+    /esc\(fixLiveNote\(h\)\)\+'<\/div>'\+fixLivePhotosHtml\(h\)/.test(admin));
+  check('S377', 'the Edit Note panel no longer writes a single fix photo over the list',
+    !/fixPhotoUrl: currentFixPhotoUrl/.test(admin) && /note-editfix/.test(admin));
+  const pr = extractFn(admin, 'printFixPhotos') || '';
+  check('S377', 'the crew sheet prints every fix photo, numbered', /fixPhotosOf\(d\)/.test(pr) && /' of ' \+ urls\.length/.test(pr));
 }

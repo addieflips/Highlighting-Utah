@@ -50113,8 +50113,10 @@ function attachAddressRowHandlers(container){
          pointing at it. The field is cleared below only if the destroy worked. */
       if(!needsFix && item && item.data.needsFix){
         updates.fixNote = '';
-        const gone = await hlxRetireFixPhoto(item.data.fixPhotoUrl);
+        const gone = await hlxRetireFixPhotos(fixPhotosOf(item.data));
         if(gone.cleared) updates.fixPhotoUrl = '';
+        updates.fixPhotoUrls = gone.keep;
+        if(!gone.cleared) updates.fixPhotoUrl = gone.keep[0];
       }
       updateDoc(doc(db,'jobAddresses',id), updates).then(function(){
         document.getElementById('statusdrop-'+id).classList.remove('open');
@@ -50621,34 +50623,24 @@ function attachAddressRowHandlers(container){
         '<div class="form-row" style="margin-top:10px;"><label>One-Time Note <span style="font-weight:400; color:var(--slate);">(just for this visit &mdash; clears automatically once marked Done)</span></label>'+
           '<textarea class="note-onetime" rows="2" placeholder="e.g. customer asked us to come after 3pm this week only...">'+esc(d.oneTimeNote||'')+'</textarea>'+
         '</div>'+
-        '<div class="form-row" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
-          '<label>Fix Note &amp; Photo <span style="font-weight:400; color:var(--slate);">(what needs fixing &mdash; the crew doing the fix will see this; clears once Needs Fix is unchecked)</span></label>'+
-          '<textarea class="note-fixnote" rows="2" placeholder="e.g. two strands out on the front peak, customer said it started last week...">'+esc(d.fixNote||'')+'</textarea>'+
-          '<input type="file" accept="image/*" class="note-fixphoto-input" style="margin-top:8px;">'+
-          '<div class="note-fixphoto-preview" style="margin-top:8px;">'+(d.fixPhotoUrl ? '<img src="'+esc(d.fixPhotoUrl)+'" style="max-width:200px; border-radius:8px; border:1px solid var(--line); display:block;">' : '')+'</div>'+
-          '<span class="note-fixphoto-status" style="font-size:12px; color:var(--slate); display:block; margin-top:4px;"></span>'+
-        '</div>'+
+        /* [[FIX-08]] ONE FIX EDITOR, NOT TWO. This panel used to carry its own fix note and a single-photo
+           upload, a second door that would have written one photo over a list of several. It opens the
+           same popup every other door uses now. */
+        (d.needsFix ? '<div class="form-row" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">'+
+          '<label>Fix</label>'+(d.fixNote ? '<div style="font-size:12.5px; margin-bottom:6px;">'+esc(d.fixNote)+'</div>' : '')+
+          fixPhotoThumbsHtml(fixPhotosOf(d), 200)+
+          '<button type="button" class="btn btn-outline note-editfix" style="margin-top:8px;">Edit fix note, photos &amp; day</button>'+
+        '</div>' : '')+
         '<button type="button" class="btn btn-gold btn-sm note-save" style="margin-top:10px;">Save Notes</button>';
-      let currentFixPhotoUrl = d.fixPhotoUrl || '';
-      panel.querySelector('.note-fixphoto-input').addEventListener('change', async function(e){
-        const file = e.target.files[0];
-        if(!file) return;
-        const statusEl = panel.querySelector('.note-fixphoto-status');
-        statusEl.textContent = 'Uploading photo…';
-        try{
-          const url = await uploadOneToCloudinary(file);
-          currentFixPhotoUrl = url;
-          panel.querySelector('.note-fixphoto-preview').innerHTML = '<img src="'+esc(url)+'" style="max-width:200px; border-radius:8px; border:1px solid var(--line); display:block;">';
-          statusEl.textContent = 'Photo uploaded — click Save Notes to keep it.';
-        } catch(err){
-          statusEl.textContent = uploadFailText(err);
-        }
+      const editFixBtn = panel.querySelector('.note-editfix');
+      if(editFixBtn) editFixBtn.addEventListener('click', function(){
+        panel.style.display = 'none';
+        showAddFixPopup(id, {onSaved: function(){ renderRouteAddressList(); }});
       });
       panel.querySelector('.note-save').addEventListener('click', function(){
         const permanentVal = panel.querySelector('.note-permanent').value.trim();
         const oneTimeVal = panel.querySelector('.note-onetime').value.trim();
-        const fixNoteVal = panel.querySelector('.note-fixnote').value.trim();
-        updateDoc(doc(db,'jobAddresses',id), {notes: permanentVal, oneTimeNote: oneTimeVal, fixNote: fixNoteVal, fixPhotoUrl: currentFixPhotoUrl}).then(function(){
+        updateDoc(doc(db,'jobAddresses',id), {notes: permanentVal, oneTimeNote: oneTimeVal}).then(function(){
           toast('Notes saved');
         });
       });
@@ -59467,6 +59459,37 @@ async function hlxRetireFixPhoto(url){
     return {cleared: false, destroyed: false, result: 'error'};
   }
 }
+/* ⭐ A FIX CAN CARRY SEVERAL PHOTOS ([[FIX-08]], 2026-10-09). Addie: "need a way to add multiple pictures
+   on fixes". `fixPhotoUrls` is the list; `fixPhotoUrl` is kept as the FIRST of it, written by the same
+   call, so every reader that has only ever known one photo still finds one. fixPhotosOf is the one
+   reader: the list where there is one, else the single field a fix saved before today carries. */
+function fixPhotosOf(d){
+  const x = d || {};
+  const out = (Array.isArray(x.fixPhotoUrls) ? x.fixPhotoUrls : [])
+    .map(function(u){ return String(u || '').trim(); }).filter(Boolean);
+  if(!out.length){ const one = String(x.fixPhotoUrl || '').trim(); if(one) out.push(one); }
+  return out.filter(function(u, i){ return out.indexOf(u) === i; });
+}
+function fixPhotoThumbsHtml(urls, w){
+  if(!urls || !urls.length) return '';
+  return '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">' + urls.map(function(u){
+    return '<a href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(cloudThumb(u, (w || 200) * 2)) + '" loading="lazy" decoding="async" style="max-width:' + (w || 200) + 'px; max-height:160px; border-radius:8px; border:1px solid var(--line); display:block;"></a>';
+  }).join('') + '</div>';
+}
+function fixPhotoFields(list){
+  const l = (list || []).slice();
+  return {fixPhotoUrls: l, fixPhotoUrl: l[0] || ''};
+}
+/* Destroys every photo on a finished fix. `keep` is whatever could NOT be destroyed — Job 4's rule per
+   photo: a picture that still exists stays on the record so the next Mark Done can try it again. */
+async function hlxRetireFixPhotos(urls){
+  const keep = [];
+  for(const u of (urls || [])){
+    const g = await hlxRetireFixPhoto(u);
+    if(!g.cleared) keep.push(u);
+  }
+  return {cleared: !keep.length, keep: keep};
+}
 /* ⭐ THE FIX NOTE'S DOCUMENT ID IS DERIVED FROM THE CUSTOMER ([[FIX-02]]).
    Its own function so a test can RUN it, and so the raise and the clear cannot drift
    apart — two spellings of this is a note that is written and never found again.
@@ -59564,21 +59587,25 @@ async function hlxMarkJobDone(target, kind, done, opts) {
      ⚠ ONLY ON done === true. Unticking a fix must not destroy anything.
      ⚠ AND THE FIELD IS ONLY CLEARED IF THE PICTURE REALLY WENT. */
   if (kind === 'fix' && done) {
-    const url = o.fixPhotoUrl !== undefined
-      ? o.fixPhotoUrl
-      : ((target && target.data && target.data.fixPhotoUrl) ||
-         ((typeof jobAddresses !== 'undefined' && (jobAddresses.find(function(a){ return a.id === id; }) || {}).data || {}).fixPhotoUrl) || '');
-    if (url) {
-      const gone = await hlxRetireFixPhoto(url);
+    const urls = o.fixPhotoUrl !== undefined
+      ? fixPhotosOf({fixPhotoUrl: o.fixPhotoUrl})
+      : fixPhotosOf((target && target.data && fixPhotosOf(target.data).length) ? target.data
+         : ((typeof jobAddresses !== 'undefined' && (jobAddresses.find(function(a){ return a.id === id; }) || {}).data) || {}));
+    if (urls.length) {
+      const gone = await hlxRetireFixPhotos(urls);
       if (gone.cleared) {
         try {
-          await updateDoc(doc(db, 'jobAddresses', id), {fixPhotoUrl: ''});
+          await updateDoc(doc(db, 'jobAddresses', id), {fixPhotoUrl: '', fixPhotoUrls: []});
           const cached = (typeof jobAddresses !== 'undefined')
             ? jobAddresses.find(function(a){ return a.id === id; }) : null;
-          if (cached && cached.data) cached.data.fixPhotoUrl = '';
+          if (cached && cached.data) { cached.data.fixPhotoUrl = ''; cached.data.fixPhotoUrls = []; }
           fields.fixPhotoUrl = '';
+          fields.fixPhotoUrls = [];
         } catch (e) { console.error('[HU] could not clear fixPhotoUrl for ' + id, e); }
       } else {
+        /* Some went, some did not: the record keeps exactly the ones still out there. */
+        try { await updateDoc(doc(db, 'jobAddresses', id), fixPhotoFields(gone.keep)); }
+        catch (e) { console.error('[HU] could not trim fixPhotoUrls for ' + id, e); }
         /* Said out loud rather than logged. The office asked for the picture to
            be gone; if it is still there they need to know, and the record still
            points at it so pressing Mark Done again retries. */
@@ -59649,9 +59676,9 @@ function showAddFixPopup(id, opts){
     '<div class="form-row"><label>Note <span style="font-weight:400; color:var(--slate);">(the crew doing the fix will see this)</span></label>' +
       '<textarea class="addfix-note" rows="3" placeholder="e.g. two strands out on the front peak, customer said it started last week...">' + esc(d.fixNote || '') + '</textarea>' +
     '</div>' +
-    '<div class="form-row" style="margin-top:10px;"><label>Photo</label>' +
-      '<input type="file" accept="image/*" class="addfix-photo-input" style="margin-top:4px; display:block;">' +
-      '<div class="addfix-photo-preview" style="margin-top:8px;">' + (d.fixPhotoUrl ? '<img src="' + esc(d.fixPhotoUrl) + '" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block;">' : '') + '</div>' +
+    '<div class="form-row" style="margin-top:10px;"><label>Photos <span style="font-weight:400; color:var(--slate);">(add as many as you like)</span></label>' +
+      '<input type="file" accept="image/*" multiple class="addfix-photo-input" style="margin-top:4px; display:block;">' +
+      '<div class="addfix-photo-preview" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;"></div>' +
       '<span class="addfix-photo-status" style="font-size:12px; color:var(--slate); display:block; margin-top:4px;"></span>' +
     '</div>' +
     '<div class="form-row" style="margin-top:10px;"><label>Schedule this fix for <span style="font-weight:400; color:var(--slate);">(defaults to the next Saturday &mdash; pick any day instead)</span></label>' +
@@ -59663,18 +59690,36 @@ function showAddFixPopup(id, opts){
     '</div>' +
   '</div>';
   document.body.appendChild(overlay);
-  let currentPhotoUrl = d.fixPhotoUrl || '';
+  /* [[FIX-08]] the photos on file when the popup opened, and the list as it stands now. A photo
+     removed here is destroyed after Save Fix lands — never before, so Cancel loses nothing. */
+  const startPhotos = fixPhotosOf(d);
+  let photos = startPhotos.slice();
   const statusEl = overlay.querySelector('.addfix-photo-status');
+  const preview = overlay.querySelector('.addfix-photo-preview');
+  function drawPhotos(){
+    preview.innerHTML = photos.map(function(u, i){
+      return '<div style="position:relative;"><img src="' + esc(cloudThumb(u, 240)) + '" style="width:110px; height:82px; object-fit:cover; border-radius:8px; border:1px solid var(--line); display:block;">' +
+        '<button type="button" data-rmfixphoto="' + i + '" title="Remove this photo" style="position:absolute; top:2px; right:2px; border:none; border-radius:50%; width:22px; height:22px; background:rgba(0,0,0,.65); color:#fff; cursor:pointer;">&times;</button></div>';
+    }).join('');
+  }
+  drawPhotos();
+  preview.addEventListener('click', function(e){
+    const b = e.target.closest('[data-rmfixphoto]');
+    if (!b) return;
+    photos.splice(Number(b.dataset.rmfixphoto), 1);
+    drawPhotos();
+  });
   overlay.querySelector('.addfix-photo-input').addEventListener('change', async function(e){
-    const file = e.target.files[0];
-    if (!file) return;
-    statusEl.textContent = 'Uploading photo…';
-    try {
-      const url = await uploadOneToCloudinary(file);
-      currentPhotoUrl = url;
-      overlay.querySelector('.addfix-photo-preview').innerHTML = '<img src="' + esc(url) + '" style="max-width:220px; border-radius:8px; border:1px solid var(--line); display:block;">';
-      statusEl.textContent = 'Photo uploaded.';
-    } catch (err) { statusEl.textContent = uploadFailText(err); }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    let done = 0, failed = '';
+    for (const file of files) {
+      statusEl.textContent = 'Uploading photo ' + (done + 1) + ' of ' + files.length + '…';
+      try { photos.push(await uploadOneToCloudinary(file)); done++; drawPhotos(); }
+      catch (err) { failed = uploadFailText(err); }
+    }
+    e.target.value = '';
+    statusEl.textContent = failed ? (done + ' uploaded. ' + failed) : (done === 1 ? 'Photo uploaded.' : done + ' photos uploaded.');
   });
   function close(){ overlay.remove(); }
   function cancelled(){
@@ -59702,16 +59747,21 @@ function showAddFixPopup(id, opts){
           return;
         }
       }
-      await updateDoc(doc(db, 'jobAddresses', id), {
-        fixNote: noteVal, fixPhotoUrl: currentPhotoUrl, fixScheduleDate: dateVal
-      });
+      await updateDoc(doc(db, 'jobAddresses', id), Object.assign({
+        fixNote: noteVal, fixScheduleDate: dateVal
+      }, fixPhotoFields(photos)));
       const fresh = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === id; }) : null;
       if (fresh && fresh.data) {
         fresh.data.needsFix = true;
         fresh.data.fixNote = noteVal;
-        fresh.data.fixPhotoUrl = currentPhotoUrl;
+        Object.assign(fresh.data, fixPhotoFields(photos));
         fresh.data.fixScheduleDate = dateVal;
       }
+      /* Photos taken off in this popup are destroyed now the save has landed. Best effort: one that
+         survives is an orphan on Cloudinary, which the old single-photo replace also left behind. */
+      startPhotos.filter(function(u){ return photos.indexOf(u) === -1; }).forEach(function(u){
+        hlxRetireFixPhoto(u).catch(function(err){ console.error('[HU] could not destroy a removed fix photo', err); });
+      });
       toast('Fix saved — it will go on the schedule for ' + dateVal);
       if (typeof o.onSaved === 'function') o.onSaved();
       close();
@@ -67172,11 +67222,11 @@ function renderRouteOrderedList(ordered){
       (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
       '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(whWireLabel(hd.wireColor))+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
-      (needsFix && (hd.fixNote || hd.fixPhotoUrl) ? (
+      (needsFix && (hd.fixNote || fixPhotosOf(hd).length) ? (
         '<div style="background:#FDECEA; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin-top:8px;">'+
           '<strong style="font-size:12px; color:#8a3b32;">What needs fixing:</strong>'+
           (hd.fixNote ? '<div style="font-size:12.5px; color:var(--ink); margin-top:4px;">'+esc(hd.fixNote)+'</div>' : '')+
-          (hd.fixPhotoUrl ? '<img src="'+esc(cloudThumb(hd.fixPhotoUrl, 440))+'" loading="lazy" decoding="async" style="max-width:220px; border-radius:8px; margin-top:8px; display:block;">' : '')+
+          fixPhotoThumbsHtml(fixPhotosOf(hd), 220)+
         '</div>'
       ) : '')+
       /* Every house photo, one at a time - arrows, thumbnails and swipe. The
@@ -67201,6 +67251,7 @@ function renderRouteOrderedList(ordered){
           }).join('')+
         '</select>'+
         '<button type="button" class="fix-toggle-btn'+(needsFix?' active':'')+'" data-togglefix="'+stop.id+'" data-current="'+(needsFix?1:0)+'">'+(needsFix?'Needs Fix \u2713':'Mark Needs Fix')+'</button>'+
+        (needsFix ? '<button type="button" class="fix-toggle-btn" data-editfix="'+stop.id+'">Edit fix</button>' : '')+
         '<button type="button" class="fix-toggle-btn'+(completed?' active':'')+'" data-togglecomplete="'+stop.id+'" data-current="'+(completed?1:0)+'">'+(completed?'Done \u2713':'Mark Done')+'</button>'+
         '<button type="button" class="fix-toggle-btn'+((hd.notes||hd.oneTimeNote)?' active':'')+'" data-editnote="'+stop.id+'">'+((hd.notes||hd.oneTimeNote)?'Edit Note':'Add Note')+'</button>'+
       '</div>'+
@@ -67239,6 +67290,12 @@ function renderRouteOrderedList(ordered){
       updateDoc(doc(db,'jobAddresses',sel.dataset.setdiff), {difficulty: sel.value}).then(function(){ renderRouteOrderedList(currentRouteStops); });
     });
   });
+  /* [[FIX-08]] a saved fix's note, photos and day can be changed again from the stop card. */
+  listEl.querySelectorAll('[data-editfix]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      showAddFixPopup(btn.dataset.editfix, {onSaved: function(){ renderRouteOrderedList(currentRouteStops); }});
+    });
+  });
   listEl.querySelectorAll('[data-togglefix]').forEach(function(btn){
     /* async because clearing a fix now DESTROYS its photo server-side (Job 4)
        and the field may only be blanked once that has actually happened. */
@@ -67265,10 +67322,12 @@ function renderRouteOrderedList(ordered){
          handler is no longer inside once the list has rendered, and referencing it
          here threw a ReferenceError on every house whose fix carried a photo. */
       const liveItem = jobAddresses.find(function(a){ return a.id === btn.dataset.togglefix; });
-      const livePhotoUrl = (liveItem && liveItem.data) ? liveItem.data.fixPhotoUrl : '';
+      const livePhotos = fixPhotosOf(liveItem && liveItem.data);
       /* Job 4 — destroyed, not just forgotten. See hlxRetireFixPhoto. */
-      const gone = await hlxRetireFixPhoto(livePhotoUrl);
+      const gone = await hlxRetireFixPhotos(livePhotos);
       if(gone.cleared) updates.fixPhotoUrl = '';
+      updates.fixPhotoUrls = gone.keep;
+      if(!gone.cleared) updates.fixPhotoUrl = gone.keep[0];
       updateDoc(doc(db,'jobAddresses',btn.dataset.togglefix), updates).then(function(){ renderRouteOrderedList(currentRouteStops); });
     });
   });
@@ -75459,13 +75518,45 @@ function dayOptions(currentId,kind){
    out of the markup without taking "members" out of that list throws on load and the
    whole Schedule tab goes blank. The New members COUNT stays in the stats bar — it
    is one number and it is still worth a glance. */
+/* ⭐ [[FIX-08]] A FIX ON THE SCHEDULE SHOWS ITS PHOTOS AND READS ITS NOTE LIVE. Addie: "can't see the picture
+   on the website on fixes after saved." The house only ever carried `issue`, copied ONCE when it was placed,
+   so a note edited afterwards never reached this list and a photo never reached it at all. Read off the
+   customer the house points at; the copied text is only the fallback for a house with no customer. */
+function fixCustomerIdFor(h){
+  const c = (h && typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  return (c && c.id) ? c.id : '';
+}
+function fixLiveNote(h){
+  const c = (h && typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const live = c && c.data && c.data.needsFix ? String(c.data.fixNote || '') : '';
+  return live || (h && h.issue) || '';
+}
+function fixLivePhotosHtml(h){
+  const c = (h && typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  if(!(c && c.data && c.data.needsFix)) return '';
+  const urls = fixPhotosOf(c.data);
+  if(!urls.length) return '';
+  return '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">' + urls.map(function(u){
+    return '<a href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(cloudThumb(u, 200)) + '" loading="lazy" style="width:90px; height:68px; object-fit:cover; border-radius:6px; border:1px solid #ddd; display:block;"></a>';
+  }).join('') + '</div>';
+}
+function editFixFromSchedule(houseId){
+  const f = findHouse(houseId);
+  const custId = f ? fixCustomerIdFor(f.house) : '';
+  if(!custId){ toast('This fix is not linked to a customer, so there is nothing to edit.'); return; }
+  showAddFixPopup(custId, {onSaved: function(){
+    const c = planCustomerFor(f.house);
+    if(c && c.data){ f.house.issue = c.data.fixNote || ''; f.house.details = 'FIX: ' + (c.data.fixNote || ''); }
+    renderAll(); scheduleSave();
+  }});
+}
 function renderFixTray(){
   const el=RT.getElementById('fixtray'), routed=routedFixes(), total=routed.length+FIXLIST.length;
   if(!total){el.innerHTML='<h3 class="fix">🔧 Fixes</h3><div class="traynote">Fix requests will show here. When the crew will be near a fix within '+FIX_LOOKAHEAD+' days it rides along; otherwise it waits on the fix list to become the fixer’s own route.</div>';return;}
   let body='';
   const rowFor=h=>{const f=findHouse(h.id);return '<div class="newrow"><div><div class="who">'+esc(personName(h.name,h))+'<span class="fixbadge">FIX</span></div><div class="meta">'+esc(h.address)+', '+esc(h.city)+'</div></div>'+
-    '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+esc(h.issue||'')+'</div></div>'+
-    '<div class="acts"><select class="moveday" data-move="'+h.id+'">'+dayOptions(f?f.day.id:null,'fix')+'</select><button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button></div></div>';};
+    '<div><div class="auto">🔧 on '+esc(h.autoDay||'')+' — '+esc(h.autoReason||'')+'</div><div class="meta">'+esc(fixLiveNote(h))+'</div>'+fixLivePhotosHtml(h)+'</div>'+
+    '<div class="acts"><select class="moveday" data-move="'+h.id+'">'+dayOptions(f?f.day.id:null,'fix')+'</select>'+(fixCustomerIdFor(h)?'<button class="mini" data-editfix="'+h.id+'">Edit fix</button>':'')+'<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button></div></div>';};
   const rideAlong=routed.filter(h=>{const f=findHouse(h.id);return f&&!f.day.isFixRoute;});
   const onFixer=routed.filter(h=>{const f=findHouse(h.id);return f&&f.day.isFixRoute;});
   if(rideAlong.length)body+='<div class="grouph">Same day as a nearby route — the fixer catches these</div>'+rideAlong.map(rowFor).join('');
@@ -75510,7 +75601,7 @@ function stopHTML(h,n,dayId){
   const cls='stop'+(h.done?' done':'')+(isNewMemberHouse(h)?' isnew':'')+(h.isFix?' isfix':'')+(h.isTakedown?' istake':'');
   const kind=h.isTakedown?'take':(h.isFix?'fix':'install');
   let extra='<div class="sctl"><span class="lbl">'+(h.isTakedown?'Move takedown to':'Reschedule to')+'</span><select class="moveday" data-move="'+h.id+'">'+dayOptions(dayId,kind)+'</select>';
-  if(h.isFix)extra+='<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button>';
+  if(h.isFix)extra+=(fixCustomerIdFor(h)?'<button class="mini" data-editfix="'+h.id+'">Edit fix</button>':'')+'<button class="mini warn" data-tolist="'+h.id+'">→ Fix list</button>';
   else if(!h.isTakedown){
     extra+='<button class="qbtn oct" data-reassign="'+h.id+'" data-month="10">→ Oct</button><button class="qbtn nov" data-reassign="'+h.id+'" data-month="11">→ Nov</button>';
     /* ⭐⭐ STUCK HERE ([[SCH-100]]). One press pins this house to the day you are looking at,
@@ -80501,6 +80592,7 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.stuck){setStuckHere(t.dataset.stuck);return;}
   if(t.dataset.prio){setPriorityFor(t.dataset.prio);return;}
   if(t.dataset.taketiming){setTakedownTiming(t.dataset.takehouse,t.dataset.taketiming);return;}
+  if(t.dataset.editfix){editFixFromSchedule(t.dataset.editfix);return;}
   if(t.dataset.tolist){sendFixToList(t.dataset.tolist);return;}
   if(t.dataset.disband){disbandFixRoute(t.dataset.disband);return;}
   if(t.dataset.buildfix||t.closest('[data-buildfix]')){buildFixRoutes();return;}
@@ -81459,10 +81551,13 @@ function printFixPhotos(day, i){
   mine.forEach(function(h){
     const d = printCustData(h);
     if(!d || !d.needsFix) return;
-    const url = ('' + (d.fixPhotoUrl || '')).trim();
-    if(!url) return;
-    out.push({url: url, number: d.customerNumber || h.cu || '',
-              name: d.name || h.name || '', of: ''});
+    /* [[FIX-08]] every photo, numbered the new-hang way ("2 of 3") — the old note above said to
+       follow that rule the day this became a list, rather than printing the first. */
+    const urls = fixPhotosOf(d);
+    urls.forEach(function(url, k){
+      out.push({url: url, number: d.customerNumber || h.cu || '',
+                name: d.name || h.name || '', of: urls.length > 1 ? ((k + 1) + ' of ' + urls.length) : ''});
+    });
   });
   return out;
 }
