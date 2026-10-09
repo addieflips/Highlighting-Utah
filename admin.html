@@ -25081,6 +25081,8 @@ const FIXED_ERRORS = [
     note: 'Admin. Dax, on these very rows: "we dont use twillo at all thats a bug" ([[QT-48]]). sendSms and twilioSendRaw are gone from the server and nothing anywhere posts to Twilio now. Dated the day the SERVER half went, not 2026-09-12 when the quote button stopped calling it: QT-48 records that the 9/15 row came from an admin tab left open since before that, so the earlier date would leave it uncleared.' },
   { match: 'cloud_name is disabled', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-18',
     note: 'Admin. The Cloudinary account had been switched off and nothing warned anybody first ([[PROC-34]]). It has been upgraded since — Plus plan, checked through the usage API — and cloudinaryUsageWatch now reads that usage every morning and leaves one Inbox note at 80%, one at 95%, and one on the day the account is off. ⚠ THE NEEDLE CARRIES NO DIGITS on purpose: errorKeyFor collapses every run of them to #, so a needle naming the 401 would be comparing # against # and would match far more than this.' },
+  { match: 'Fix placement failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-09',
+    note: 'Admin. placeFixesFromCustomers made a new fixer-route day with no _date and then labelled it, so dlabel read .getDay() off undefined — every fix raised since 7deb303 (2026-10-06) failed to reach the schedule. The new day carries its pin as its date now. A row after this date is a different fault and survives.' },
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
 ];
@@ -79737,16 +79739,22 @@ function placeFixesFromCustomers(){
     });
     if(!day){
       const pinDate = new Date(wantIso + 'T00:00:00');
+      /* ⛔ `_date` IS SET HERE, NOT LEFT FOR computeDates (2026-10-09). A day pushed onto
+         SEASON has no `_date` until computeDates runs, and that only runs at the END of
+         this function — so the dlabel(dayDate(day)) below read `.getDay()` off undefined
+         and threw "Fix placement failed" for every fix whose date had no fixer route yet,
+         which was every fix raised since 7deb303. A fixer route's date IS its pin
+         (computeDates says so in one line), so setting it here is the same answer early. */
       day = {id: 'fr' + (fixRouteSeq++), isFixRoute: true,
              base: daysBetween(pinDate, BASE_START), cascade: 0,
-             pin: pinDate, houses: []};
+             pin: pinDate, houses: [], _date: new Date(pinDate)};
       SEASON.push(day);
     }
     const h = houseFromCustomer(item);
     h.isFix = true;
     h.issue = d.fixNote || '';
     h.details = 'FIX: ' + (d.fixNote || '');
-    const lab = dlabel(dayDate(day));
+    const lab = dlabel(dayDate(day) || new Date(day.pin));
     h.autoDay = lab.wd + ' ' + lab.full;
     h.autoReason = 'raised in Customers';
     day.houses.push(h);
