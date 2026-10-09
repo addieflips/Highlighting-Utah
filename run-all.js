@@ -66151,3 +66151,49 @@ suite('373. Every Street View photo of the house, by season and year');
   check('S373', 'the list is refreshed whenever the panorama changes', /rmPano\.addListener\('pano_changed', rmRefreshPhotoDates\)/.test(admin));
   check('S373', 'and picking a photo moves the panorama to it, the same way the arrow keys do', /rmPano\.setPano\(sel\.value\)/.test(admin));
 }
+
+/* ---------------------------------------------------------------------------
+ * 374. A FIX RAISED IN CUSTOMERS REACHES A FIXER ROUTE (2026-10-09). Every fix raised
+ * since 7deb303 failed with "Fix placement failed: Cannot read properties of undefined
+ * (reading 'getDay')": the new fixer-route day had no _date until computeDates ran, and
+ * that only ran at the end. RUN, not matched — the fault was an ordering one a regex
+ * over the source cannot see.
+ * --------------------------------------------------------------------------- */
+suite('374. A fix raised in Customers reaches a fixer route');
+{
+  const names = ['placeFixesFromCustomers', 'fixedHouseCustomerIds', 'dlabel', 'isoOf', 'dayDate'];
+  const parts = names.map(n => extractFn(admin, n));
+  check('S374', 'the fix placement and its helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const pre = 'let SEASON = [], fixRouteSeq = 0, computeCalls = 0;' +
+      'const BASE_START = new Date(2026, 9, 1);' +
+      "const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; const MO = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];" +
+      'function daysBetween(a, b){ return Math.round((a - b) / 864e5); }' +
+      /* the real computeDates sets a fixer route's _date from its pin; this is that one line */
+      'function computeDates(){ computeCalls++; SEASON.filter(d => d.isFixRoute).forEach(d => { d._date = new Date(d.pin); }); }' +
+      'function planCustomerFor(h){ return h.custId ? {id: h.custId} : null; }' +
+      "function houseFromCustomer(item){ return {id: 'cust-' + item.id, custId: item.id, name: item.data.name}; }" +
+      "function nextFixSaturdayIso(){ return '2026-10-10'; }";
+    const run = (jobs, season) => new Function('jobAddresses', 'seed',
+      pre + parts.join('\n') + 'SEASON = seed; const placed = placeFixesFromCustomers(); return {placed, SEASON, computeCalls};')(jobs, season || []);
+    let r, threw = '';
+    try {
+      r = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixNote: 'front peak out', fixScheduleDate: '2026-10-17'}},
+               {id: 'b', data: {name: 'Bo', needsFix: true}},
+               {id: 'c', data: {name: 'Cy', needsFix: true, fixScheduleDate: '2026-10-17'}},
+               {id: 'd', data: {name: 'Di'}}]);
+    } catch (e) { threw = String(e && e.message || e); }
+    check('S374', 'a fix whose date has no fixer route yet is placed rather than throwing', !threw && r && r.placed.length === 3, threw);
+    if (r) {
+      const fr = r.SEASON.filter(d => d.isFixRoute);
+      check('S374', 'two fixes asked for one date share one fixer route', fr.length === 2 &&
+        fr.find(d => d.houses.length === 2 && d.houses.every(h => h.isFix)), fr.map(d => d.houses.length).join(','));
+      const ann = fr.flatMap(d => d.houses).find(h => h.custId === 'a');
+      check('S374', 'the house is labelled with the day it was put on', ann && ann.autoDay === 'Sat Oct 17', ann && ann.autoDay);
+      check('S374', 'and a customer not flagged for a fix is left alone', !fr.flatMap(d => d.houses).some(h => h.custId === 'd'));
+      let again;
+      try { again = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixScheduleDate: '2026-10-17'}}], r.SEASON); } catch (e) { again = null; }
+      check('S374', 'a fix already on a fixer route is not placed a second time', again && again.placed.length === 0);
+    }
+  }
+}

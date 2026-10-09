@@ -8654,6 +8654,15 @@ timer. It builds a fixer-route house through `houseFromCustomer` (the same build
 install uses) and pins it to that date, or to the next Saturday if none was ever saved;
 two fixes asked for the same date land on one fixer-route day together.
 
+⛔ **It did not work from 2026-10-06 to 2026-10-09.** Every fix whose date had no fixer
+route yet threw "Fix placement failed: Cannot read properties of undefined (reading
+'getDay')": the new day was labelled before `computeDates` had given it a date. The live
+plan was checked afterwards and held `fixRouteSeq: 0`, so no fix raised in those three days
+reached the schedule, and none left a broken day behind either. Fixed by giving the new day
+its pin as its date when it is made; run-all.js Suite 374 runs it. Any fix raised in those
+days is placed on the first sync after the fix ships, because the sweep looks for flagged
+customers with no fixer-route house, not for new flags.
+
 ⚠ **This is additive, not the Job 4 migration.** `derivedDoneFor`'s own comment has said
 since Job 3 that "today a fix reaches the plan through FIXLIST, which is plan-only; nothing
 in the Schedule module writes `needsFix` to a customer at all" — true until this change.
