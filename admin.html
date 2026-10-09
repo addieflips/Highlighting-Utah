@@ -2424,7 +2424,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="colorchange">Colour change &mdash; waiting on the warehouse</option><option value="building">Being built &mdash; new hang waiting on the warehouse</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="colorchange">Colour change &mdash; waiting on the warehouse</option><option value="requote">Re-quote &mdash; sides changed, waiting on the new price</option><option value="building">Being built &mdash; new hang waiting on the warehouse</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option><option value="no">No</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -40640,6 +40640,8 @@ function seasonBadgeKey(d){
      ([[SCH-85]]): a Confirmed customer is never left off a day; somebody who genuinely should not be
      scheduled stops being Confirmed. */
   if(typeof isWaitingOnColorChange === 'function' && isWaitingOnColorChange(d)) return 'colorchange';
+  /* [[SCH-125]] a sides re-quote still open is not Confirmed — see isWaitingOnSidesRequote. */
+  if(typeof isWaitingOnSidesRequote === 'function' && isWaitingOnSidesRequote(d)) return 'requote';
   /* [[SCH-110]] a new hang whose lights are not built yet is not Confirmed — see isWaitingOnBuild.
      [[SCH-117]] nor is a house waiting on a timer job on the Build tab — see isWaitingOnTimer. */
   if(typeof isWaitingOnTimer === 'function' && isWaitingOnTimer(d)) return 'building';
@@ -40700,7 +40702,45 @@ function isWaitingOnTimer(d){ return !!(d && (d.needsTimerOnly === true || d.nee
    or by deleting the row, so the hold ends exactly when the list lets go of them. */
 function isWaitingOnRecycle(d){ return !!(d && d.needsLightRecycle === true); }
 function isInWarehouse(d){ return isWaitingOnBuild(d) || isWaitingOnTimer(d) || isWaitingOnColorChange(d) || isWaitingOnRecycle(d); }
-function isOffTheSchedule(d){ return isOutForSeason(d) || isInWarehouse(d); }
+/* ⭐⭐ [[SCH-125]] A SIDES RE-QUOTE HOLDS A CUSTOMER OFF THE SCHEDULE UNTIL IT IS ANSWERED (2026-10-09). Addie: "if I
+   changes sides for someone like I add back on sides of house then that should send person to requote and unschedule that
+   person". The re-quote half was already true ([[OPT-05]], [[OPT-06]]); this is the unschedule half.
+   ⚠ THROUGH THE BADGE, LIKE EVERY OTHER HOLD ([[SCH-105]], [[SCH-117]]): they read Re-quote, not Confirmed, so the
+   headline rule ([[SCH-85]]) still holds, and the five-minute sync drops them from any open day and places them again
+   once the badge goes back to Confirmed.
+   ⚠ DERIVED FROM THE QUOTE, NEVER STORED ON THE CUSTOMER. Both doors that raise one — Edit Customer and the member
+   portal — write `changed.what: 'sides'` on a quote naming `existingCustomerId`, and every way a quote ends (applied,
+   declined, archived, deleted) already makes quoteStage answer 'closed' or removes it. A flag on the customer would need
+   a writer on each of those exits, and a flag with a way in and no way out is the sticky-field bug this repo has shipped
+   before.
+   ⚠ SIDES ONLY. Her words name sides; a feet, address or price re-quote does not hold anybody until she says so.
+   ⚠ IT FAILS TOWARDS SCHEDULING: no quotes loaded, or a record it cannot match to its id, answers false. Being on a
+   day that should have been held is visible and recoverable; being held off for good is what the headline forbids. */
+let sidesRequoteMemo = null;
+function sidesRequoteOpenIds(){
+  const qc = (typeof quotesCache !== 'undefined' && Array.isArray(quotesCache)) ? quotesCache : [];
+  if(sidesRequoteMemo && sidesRequoteMemo.q === qc && sidesRequoteMemo.n === qc.length) return sidesRequoteMemo.ids;
+  const ids = new Set();
+  qc.forEach(function(q){
+    const qd = (q && q.data) || {};
+    if(!qd.existingCustomerId || !qd.changed || qd.changed.what !== 'sides') return;
+    if(quoteStage(qd) === 'closed') return;
+    ids.add(String(qd.existingCustomerId));
+  });
+  sidesRequoteMemo = {q: qc, n: qc.length, ids: ids};
+  return ids;
+}
+function isWaitingOnSidesRequote(d){
+  if(!d) return false;
+  const ids = sidesRequoteOpenIds();
+  if(!ids.size || typeof custById === 'undefined') return false;
+  for(const id of ids){
+    const c = custById.get(id);
+    if(c && c.data === d) return true;
+  }
+  return false;
+}
+function isOffTheSchedule(d){ return isOutForSeason(d) || isInWarehouse(d) || isWaitingOnSidesRequote(d); }
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -57777,6 +57817,8 @@ function renderAllCustomersTable(){
       ? '<span class="status-pill" style="background:#E3F1FB; color:#185A86; font-weight:700;" title="A new hang whose lights are still in the warehouse queue — not scheduled until the bundle is marked done, then placed on the next Recalculate">Being built</span>'+unpaidPill
       : badgeKey === 'colorchange'
       ? '<span class="status-pill" style="background:#F3ECF8; color:#5B3A86; font-weight:700;" title="On the warehouse colour-change list — not scheduled until the new set is marked done, then placed on the next Recalculate">Colour change</span>'+unpaidPill
+      : badgeKey === 'requote'
+      ? '<span class="status-pill" style="background:#FFF0E6; color:#9A4A12; font-weight:700;" title="Their sides changed and the re-quote is still open — not scheduled until it is answered, then placed again on the next sync">Re-quote</span>'+unpaidPill
       : badgeKey === 'pending'
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
