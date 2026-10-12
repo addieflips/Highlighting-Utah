@@ -1769,7 +1769,7 @@ console.log('--- wiring ---');
 
 /* ⭐ A LOST REPLY IS NOT CALLED SAVED (2026-10-12). Billing on the Firebase project was off
    from 8 October and every portalRsvp call was refused before our code ran. The browser
-   reports that as `internal`, the same code a lost response gives, and fourteen rows told
+   reports that as `internal`, the same code a lost response gives, and twelve rows told
    the office "this one has probably gone through" about answers that never arrived.
    ⚠ READ OFF THE STRING LITERALS, NOT THE FILE: the comment above the wording quotes the
    retired sentence in order to explain it, and a plain search finds that and fails a

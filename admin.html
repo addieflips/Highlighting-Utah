@@ -1427,6 +1427,12 @@
     <button type="button" onclick="errCatchClear()" style="border:1px solid #ccc; background:#fff; border-radius:8px; padding:10px 14px; cursor:pointer;">Clear</button>
   </div>
 </div>
+<!-- THE SERVER IS NOT ANSWERING. Hidden unless pingServer finds the Cloud Functions
+     refusing calls twice running. See serverHealthStep in the module script. -->
+<div id="serverDownBanner" role="alert" style="display:none; position:fixed; top:0; left:0; right:0; z-index:99998; background:#B91C1C; color:#fff; padding:10px 16px; font:600 13.5px/1.45 system-ui,sans-serif; box-shadow:0 4px 14px rgba(0,0,0,.3);">
+  <span id="serverDownText"></span>
+  <button type="button" id="serverDownRetry" style="margin-left:10px; border:1px solid #fff; background:transparent; color:#fff; border-radius:8px; padding:4px 12px; cursor:pointer; font:600 13px system-ui,sans-serif;">Check again</button>
+</div>
 <script>
 (function(){
   var caught = [];
@@ -25170,6 +25176,8 @@ const FIXED_ERRORS = [
      never cleared, so if the guess is wrong the next one stays in the badge and says so. */
   { match: 'Unhandled promise: Missing or insufficient permissions', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-24',
     note: 'Admin. Never traced to a write. savePrefs was the one floating write a signed-in person could be refused and it was guarded in 5bbbb92 (signed-out check, uid cleared on sign-out, its own catch); the rows stopped that week. A row after this date means that was not the cause, which is news and survives.' },
+  { match: 'fix photo destroy call failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-12',
+    note: 'Admin. Not a fault in the page: billing on the Firebase project was off from 8 to 12 October and Google refused destroyFixPhoto before it ran (its Cloud Run log line for 9 October says so). Billing was restored on the 12th. A row after this date is a different cause and survives. The photo it failed to remove is still in Cloudinary.' },
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
 ];
@@ -26181,7 +26189,7 @@ const SYSTEM_NOTICE_TOPICS = [
   WIRE_PICK_TOPIC,
   'Routes Kept Up To Date', 'Moved To Another Day', 'A Route Sheet Is Out Of Date',
   'Lights Changed After Assignment', 'Rejoined After Recycling', 'Customer Number Needs Fixing',
-  'A Background Check Has Stopped', 'Carried Debt Written Off', 'Add-On Declined',
+  'A Background Check Has Stopped', 'The Server Is Not Answering', 'Carried Debt Written Off', 'Add-On Declined',
   'Cannot Be Billed', 'Maybe Next Year — New Record', 'Payment With No Bill',
   'Re-quote Declined', 'Referral Taken Back', FIX_NOTICE_TOPIC,
   /* ⭐ SOMEBODY ANSWERING THE RSVP WITH A NO ([[RS-59]], 2026-09-11). Addie: "can we have
@@ -72274,7 +72282,149 @@ async function bgJobFailed(key, label, consequence, err){
     console.error('[HU] and the note about ' + label + ' could not be saved either', noteErr);
   }
 }
+/* ⭐ THE SERVER IS NOT ANSWERING, SAID ON SCREEN (2026-10-12). Billing on the Firebase
+   project lapsed on the evening of 8 October and Google refused every Cloud Function call
+   for four days: portal sign-in, RSVP answers, the 9 AM RSVP batch, nightly invoices.
+   Nobody knew. The only trace was a dozen Member Error rows reading "internal", each of
+   which looked like one customer's bad luck. Addie: "build the server is down banner".
+
+   ⚠ FIRESTORE STAYED UP THE WHOLE TIME, which is why the admin page looked healthy — it
+   reads and writes the database directly and never noticed. So the check has to CALL a
+   function. `publicConfig` is the cheapest read-only one there is: one document read, no
+   write, already public.
+
+   ⚠ TWO IN A ROW, NEVER ONE. A single failed call is a cold start or a blip on her Wi-Fi,
+   and a red bar across the page for that is the cries-wolf failure this file names in a
+   dozen places. The first failure books ONE re-check a minute later, so a real outage
+   shows in about a minute rather than at the next ten-minute tick.
+
+   ⚠ ANY ANSWER COUNTS AS UP, a refusal included. `permission-denied` or `not-found` is our
+   own code replying. Only the codes the callable CLIENT raises when nothing came back, or
+   when Google turned the request away before our code ran, count against the server.
+   `resource-exhausted` is in the list on purpose: that is the "Rate exceeded" the project
+   answered with for half an hour on the day billing came back.
+
+   ⚠ IT RIDES THE EXISTING TEN-MINUTE HEALTH TICK and adds no timer of its own —
+   connections.test.js names every long-lived timer in this page, and the one-off re-check
+   below is a setTimeout, not an interval.
+
+   ⚠ AND IT DOES NOT HAMMER A SERVER THAT IS DOWN. While the banner is up it checks on the
+   ordinary tick and on the button, nothing faster. On 2026-10-12 a functions deploy
+   minutes after billing returned used up the project's capacity for eleven minutes; a
+   page that polls hard during a recovery is part of the problem. */
+const SERVER_DOWN_AFTER = 2;
+const SERVER_RECHECK_MS = 60 * 1000;
+const SERVER_NOTE_REPEAT_HOURS = 6;
+const SERVER_DOWN_TOPIC = 'The Server Is Not Answering';
+const SERVER_NO_ANSWER_CODES = ['internal', 'unavailable', 'deadline-exceeded', 'resource-exhausted'];
+let serverHealth = { fails: 0, down: false, lastOkAt: null, firstFailAt: null, lastCode: '' };
+let serverPingBusy = false;
+let serverRecheckBooked = false;
+/* ⚠ BUILT WHEN CALLED, NOT AT LOAD. run-all.js Suite 7 lifts this whole stretch of the page
+   into a bare sandbox to run the Health Check engine, and a callable made at the top
+   level threw "httpsCallable is not defined" there and took that suite with it. */
+function serverPingFn(){
+  return httpsCallable(fbFunctions, 'publicConfig', { timeout: 20000 })();
+}
+
+/* 'ok' when the server replied at all, 'noanswer' when it did not. */
+function serverPingOutcome(err){
+  if(!err) return 'ok';
+  const code = String(err.code || err.status || '').toLowerCase().replace('functions/', '');
+  return SERVER_NO_ANSWER_CODES.indexOf(code) !== -1 ? 'noanswer' : 'ok';
+}
+/* PURE, so server-down.test.js can run it: the state after one more result, plus
+   `changed` — 'down' on the result that raises the banner, 'up' on the one that clears
+   it, null otherwise. Nothing here reads a clock or the page. */
+function serverHealthStep(state, outcome, now, code){
+  const s = Object.assign({}, state, { changed: null });
+  if(outcome === 'ok'){
+    s.changed = state.down ? 'up' : null;
+    s.fails = 0; s.down = false; s.lastOkAt = now; s.firstFailAt = null; s.lastCode = '';
+    return s;
+  }
+  s.fails = (state.fails || 0) + 1;
+  if(!state.firstFailAt) s.firstFailAt = now;
+  s.lastCode = String(code || '');
+  if(!state.down && s.fails >= SERVER_DOWN_AFTER){ s.down = true; s.changed = 'down'; }
+  return s;
+}
+function serverDownBannerText(state){
+  const since = state.firstFailAt ? new Date(state.firstFailAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : '';
+  return 'The website’s server is not answering' + (since ? ' (since ' + since + ')' : '') +
+    '. Customers cannot sign in to their portal, answer an RSVP or pay, and the morning ' +
+    'RSVP emails and nightly invoices will not run. First thing to check: Google billing ' +
+    'for the project, at console.cloud.google.com/billing.';
+}
+function renderServerDownBanner(){
+  const bar = document.getElementById('serverDownBanner');
+  const txt = document.getElementById('serverDownText');
+  if(!bar || !txt) return;
+  if(!serverHealth.down){ bar.style.display = 'none'; return; }
+  txt.textContent = serverDownBannerText(serverHealth);
+  bar.style.display = 'block';
+}
+/* Has an outage note already been left recently, by this tab or another? Two people are
+   in admin every day; without this each open tab leaves its own. */
+function serverNoteAlreadyLeft(now){
+  if(!Array.isArray(allMessages)) return false;
+  const cutoff = now - SERVER_NOTE_REPEAT_HOURS * 3600 * 1000;
+  return allMessages.some(function(m){
+    const d = (m && m.data) || {};
+    if(d.topic !== SERVER_DOWN_TOPIC) return false;
+    const t = toJsDate(d.createdAt);
+    return !t || t.getTime() >= cutoff;
+  });
+}
+/* ONE System notice per outage, so there is a record for whoever was not looking at the
+   screen. A direct Firestore write: the database is the half that is still up. */
+async function noteServerDown(state, now){
+  if(serverNoteAlreadyLeft(now)) return false;
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: SERVER_DOWN_TOPIC, folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      message: 'The website’s server stopped answering at about ' +
+        new Date(state.firstFailAt || now).toLocaleString() + ' (' + (state.lastCode || 'no answer') + ').\n\n' +
+        'While it is down customers cannot sign in to their portal, answer an RSVP or pay, ' +
+        'and the morning RSVP emails and nightly invoices do not run. Any RSVP answered in ' +
+        'that time is probably NOT saved, whatever the Member Error row says.\n\n' +
+        'On 8 October 2026 the cause was Google billing: the card on the Cloud billing ' +
+        'account had expired. Check console.cloud.google.com/billing first.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+    return true;
+  }catch(noteErr){
+    console.error('[HU] the server is not answering, and the note about it could not be saved', noteErr);
+    return false;
+  }
+}
+/* Never rejects: it is called bare from the health tick and from a button. */
+async function pingServer(){
+  if(HU_SIGNED_OUT || serverPingBusy) return;
+  /* ⚠ HER WI-FI BEING OFF IS NOT THE SERVER BEING DOWN. A failed fetch reads as
+     `internal` either way, so a browser that says it is offline is not asked. */
+  if(typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  serverPingBusy = true;
+  let err = null;
+  try{ await serverPingFn(); }catch(e){ err = e; }
+  serverPingBusy = false;
+  const now = Date.now();
+  const outcome = serverPingOutcome(err);
+  serverHealth = serverHealthStep(serverHealth, outcome, now,
+    err ? String(err.code || err.status || '').replace('functions/', '') : '');
+  renderServerDownBanner();
+  if(serverHealth.changed === 'down') noteServerDown(serverHealth, now);
+  if(outcome === 'noanswer' && !serverHealth.down && !serverRecheckBooked){
+    serverRecheckBooked = true;
+    setTimeout(whileSignedIn(function(){ serverRecheckBooked = false; pingServer(); }), SERVER_RECHECK_MS);
+  }
+}
 function runHealthCheckAuto(){
+  /* Ahead of the cache guard on purpose: whether the server answers has nothing to do
+     with whether the customer list has loaded. */
+  pingServer();
   if(!hcCachesReady()) return;
   try{
     hcLastChecks = hcRunChecks();
@@ -72320,6 +72470,10 @@ function startHealthCheckAuto(){
 }
 (function(){
   const btn = document.getElementById('runHealthCheckBtn');
+  /* The server-down bar's own button, wired here beside the other health control so
+     nothing in the block above touches the page at load (see serverPingFn). */
+  const retry = document.getElementById('serverDownRetry');
+  if(retry) retry.addEventListener('click', function(){ pingServer(); });
   if(btn) btn.addEventListener('click', runHealthCheck);
   const hide = document.getElementById('hcHideClean');
   if(hide) hide.addEventListener('change', hcRender);
