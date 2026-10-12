@@ -325,12 +325,28 @@ check('a report with no date survives',
     'admin error|' + String(first.match).toLowerCase(), null).data) === null,
   'serverTimestamp reads back null on the writing tab\'s own first snapshot');
 
-/* ⛔ THE INSTRUMENTED-NOT-FIXED CASE, NAMED. */
-check('"Missing or insufficient permissions" is NOT treated as fixed',
+/* ⛔ THE INSTRUMENTED-NOT-FIXED CASE, NAMED — AND REVERSED 2026-10-12 ([[MSG-32]]).
+   This asserted the permissions rows were never cleared. Addie, shown that none had arrived
+   in the eighteen days since savePrefs was guarded: "yes clear the permissions rows". The
+   cause was never proven, so the half that matters now is the SECOND check: a row after
+   the floor must survive, or a wrong guess deletes its own evidence. */
+check('the old "Missing or insufficient permissions" rows are cleared',
   api.errorFixedBy(row('p', ADMIN_TOPIC,
-    'admin error|unhandled promise: missing or insufficient permissions',
+    'admin error|unhandled promise: missing or insufficient permissions.',
+    daysBefore('2026-09-18', 4)).data) !== null,
+  'the five rows from 9/8 to 9/18 are still in the badge');
+
+check('but one written after the floor survives',
+  api.errorFixedBy(row('p', ADMIN_TOPIC,
+    'admin error|unhandled promise: missing or insufficient permissions.',
+    daysAfter('2026-09-24', 1)).data) === null,
+  'the cause was never proven — a new row is the only thing that would say the guess was wrong');
+
+check('and a member-side row of the same wording is left alone',
+  api.errorFixedBy(row('p', MEMBER_TOPIC,
+    'admin error|unhandled promise: missing or insufficient permissions.',
     daysBefore('2026-09-18', 4)).data) === null,
-  'that was instrumented on 2026-09-18, not fixed — clearing it destroys the reports the fix is waiting for');
+  'the entry is scoped to the office reporter');
 
 /* ⚠ REPOINTED, NOT WEAKENED (2026-09-19). This check used Edit Customer's own crash as its
    example office error — and that fault now has an entry of its own, so the row it built is
@@ -455,9 +471,10 @@ const sweepChecks = (async function () {
  * DELETE. The key each row carries is what `errorKeyFor` builds — topic, pipe,
  * lowercased, digits collapsed — so these go in as that function leaves them.
  *
- * ⛔ AND THE CHECK THAT EARNS THE BLOCK IS THE LAST ONE. "Unhandled promise:
- * Missing or insufficient permissions." is the one fault here that is NOT fixed
- * — it was only instrumented — and two of these four entries are about reads
+ * ⛔ AND THE CHECK THAT EARNS THE BLOCK IS THE LAST PAIR. "Unhandled promise:
+ * Missing or insufficient permissions." was the one fault here NOT fixed — only
+ * instrumented — until it got an entry of its own on 2026-10-12 ([[MSG-32]]),
+ * and two of these four entries are about reads
  * that were refused for exactly that reason. A needle that reached it would
  * delete the only evidence anybody has of the open bug, silently, and the
  * folder would look reassuringly empty. It is asserted per entry, not once.
@@ -491,13 +508,20 @@ const sweepChecks = (async function () {
       'an admin-scoped entry reached a member report');
   }
 
-  /* ⛔ THE OPEN BUG. Nothing in the list may touch it, whatever the date. */
-  const STILL_OPEN = 'Unhandled promise: Missing or insufficient permissions.';
-  check('and nothing clears the permissions fault that is still open',
+  /* ⛔ THE PERMISSIONS FAULT. Until 2026-10-12 nothing in the list could touch it; it has
+     ONE entry of its own now ([[MSG-32]]). The claim that survives is the one that
+     mattered: none of the OTHER entries reaches it at any date, and no entry at all
+     clears a row written after its floor. */
+  const PERMS = 'Unhandled promise: Missing or insufficient permissions.';
+  const reaching = api.FIXED_ERRORS.filter(e =>
+    api.errorFixedBy(row('x', ADMIN_TOPIC, key(PERMS), daysBefore('2026-09-01', 1)).data, [e]) !== null);
+  check('exactly one entry clears the old permissions rows, and it is the one that names them',
+    reaching.length === 1 && /unhandled promise/i.test(String(reaching[0].match)),
+    'another needle is broad enough to reach them, or the entry itself has gone');
+  check('and nothing clears a permissions row written after the floor',
     api.FIXED_ERRORS.every(e =>
-      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysAfter('2026-09-30', 1)).data, [e]) === null &&
-      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysBefore('2026-09-01', 1)).data, [e]) === null),
-    'one of the entries reaches the unhandled-promise rows, which are the evidence for a bug nobody has diagnosed');
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(PERMS), daysAfter('2026-09-30', 1)).data, [e]) === null),
+    'a new row is the evidence that the 9/24 guard was not the cause');
 }
 
 /* ---------------------------------------------------------------------------

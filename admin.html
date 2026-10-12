@@ -25069,7 +25069,12 @@ function errorAlreadyReported(topic, key){
    index.html's builds `doing|reason` and does neither — so both sides go through
    `fixedErrorNeedle` before they are compared rather than either being trusted. A row with
    no `errorKey` predates the field and is left alone.
-   ⛔ WHAT IS DELIBERATELY NOT IN THE LIST, so nobody adds it: "Unhandled promise: Missing
+   ⛔ SUPERSEDED 2026-10-12 → [[MSG-32]]: THE ENTRY IS IN THE LIST NOW, dated 2026-09-24.
+   Addie, shown that the rows had stopped for eighteen days: "yes clear the permissions
+   rows". The paragraphs below are kept because they are still true about what was and was
+   not established — the cause was never named, and they are why the entry carries a floor
+   rather than a claim.
+   ⛔ WHAT WAS DELIBERATELY NOT IN THE LIST until then: "Unhandled promise: Missing
    or insufficient permissions". That was INSTRUMENTED on 2026-09-18, not fixed —
    `rejectionWhere()` now appends the first frame from our own files so the NEXT one can be
    traced. Clearing it would throw away the very reports that fix is waiting for. It goes
@@ -25158,6 +25163,13 @@ const FIXED_ERRORS = [
     note: 'Admin. The Cloudinary account had been switched off and nothing warned anybody first ([[PROC-34]]). It has been upgraded since — Plus plan, checked through the usage API — and cloudinaryUsageWatch now reads that usage every morning and leaves one Inbox note at 80%, one at 95%, and one on the day the account is off. ⚠ THE NEEDLE CARRIES NO DIGITS on purpose: errorKeyFor collapses every run of them to #, so a needle naming the 401 would be comparing # against # and would match far more than this.' },
   { match: 'Fix placement failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-09',
     note: 'Admin. placeFixesFromCustomers made a new fixer-route day with no _date and then labelled it, so dlabel read .getDay() off undefined — every fix raised since 7deb303 (2026-10-06) failed to reach the schedule. The new day carries its pin as its date now. A row after this date is a different fault and survives.' },
+  /* ⚠ CLEARED ON ADDIE'S SAY-SO, NOT ON A PROVEN CAUSE ([[MSG-32]], 2026-10-12). Five rows
+     between 9/8 and 9/18, one every two to five days; 5bbbb92 guarded savePrefs on 9/24 and
+     none has arrived in the eighteen days since. That is evidence, not a diagnosis — nothing
+     ever named the write. What makes it safe is the floor: a row written after 9/24 is
+     never cleared, so if the guess is wrong the next one stays in the badge and says so. */
+  { match: 'Unhandled promise: Missing or insufficient permissions', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-24',
+    note: 'Admin. Never traced to a write. savePrefs was the one floating write a signed-in person could be refused and it was guarded in 5bbbb92 (signed-out check, uid cleared on sign-out, its own catch); the rows stopped that week. A row after this date means that was not the cause, which is news and survives.' },
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
 ];

@@ -4773,9 +4773,12 @@ reach an admin row. Look in system-map.md before concluding a fault cannot be id
 weakened: the "a portal entry does not clear an office error" check used Edit Customer's own crash
 as its example office error, which is now legitimately cleared. Its fixture is a null dereference
 nobody has fixed now; the claim it makes is unchanged.
-⛔ **"Unhandled promise: Missing or insufficient permissions" is deliberately NOT in the list.**
-That was INSTRUMENTED on 2026-09-18, not fixed — `rejectionWhere()` names the frame so the next
-one can be traced — and clearing it would throw away the very reports that fix is waiting for.
+⭐ **"Unhandled promise: Missing or insufficient permissions" IS in the list as of 2026-10-12**
+([[MSG-32]]), with a floor of 2026-09-24. It was kept out on purpose until then, because it had
+only been instrumented, not fixed. Five rows arrived between 9/8 and 9/18; the sidebar-and-
+favourites save was guarded on 9/24 and none has arrived since. Addie, shown that: *"yes clear
+the permissions rows."* ⚠ **The cause was never proven.** If one of these appears again it is
+dated after the floor, so it stays in the badge — and it means the 9/24 guard was not the answer.
 `fixed-errors.test.js` holds all of it: 42 checks, weighted towards what must SURVIVE rather
 than what goes, and 20 sabotages red-checked. The two that were not caught are no-ops and are
 labelled as such in the code.
@@ -5174,6 +5177,19 @@ Inbox row now say the reply may already be saved. The old wording is **kept** fo
 is still true of — a refused write, a stale link, anything that failed before the write —
 because a real loss reading as a maybe is how an answer nobody has is never chased. The caller
 says which it is.
+
+⚠ **But the Inbox row no longer says "probably gone through" (2026-10-12).** Billing on the
+Firebase project was off from the evening of 8 October, and Google refused every call before
+`portalRsvp` ran. The browser reports that as `internal` — the same code a lost confirmation
+gives — so fourteen rows told the office an answer had probably saved when the server had never
+been reached. The row now says both outcomes look the same from the website and that the
+customer's record is the only thing that tells them apart.
+
+**If several "Answering Yes … internal" rows arrive close together, check the server before
+ringing anybody:** Firebase console → Functions → Logs. A line reading *"The request failed
+because billing is disabled for this project"* means every function is down — portal sign-in,
+RSVP answers, the 9 AM RSVP batch and nightly invoicing — and the fix is in Google's billing
+page, not in the code.
 
 ⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
 read **every** `scheduledRoutes` document ever written and threw most of them away on the next
