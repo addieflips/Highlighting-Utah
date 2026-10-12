@@ -342,6 +342,20 @@ check('but one written after the floor survives',
     daysAfter('2026-09-24', 1)).data) === null,
   'the cause was never proven — a new row is the only thing that would say the guess was wrong');
 
+/* The photo-destroy call that Google refused while billing was off (8–12 October 2026).
+   The fixture is the row as it was stored. */
+check('the fix-photo destroy row from the billing outage is cleared',
+  api.errorFixedBy(row('f', ADMIN_TOPIC,
+    'admin error|[hu] fix photo destroy call failed internal',
+    daysBefore('2026-10-12', 3)).data) !== null,
+  'the 9 October row is still in the badge after billing came back');
+
+check('but a destroy failure after billing came back survives',
+  api.errorFixedBy(row('f', ADMIN_TOPIC,
+    'admin error|[hu] fix photo destroy call failed internal',
+    daysAfter('2026-10-12', 1)).data) === null,
+  'with billing on, that is a different cause and nobody has looked at it');
+
 check('and a member-side row of the same wording is left alone',
   api.errorFixedBy(row('p', MEMBER_TOPIC,
     'admin error|unhandled promise: missing or insufficient permissions.',

@@ -5181,7 +5181,7 @@ says which it is.
 ⚠ **But the Inbox row no longer says "probably gone through" (2026-10-12).** Billing on the
 Firebase project was off from the evening of 8 October, and Google refused every call before
 `portalRsvp` ran. The browser reports that as `internal` — the same code a lost confirmation
-gives — so fourteen rows told the office an answer had probably saved when the server had never
+gives — so twelve rows told the office an answer had probably saved when the server had never
 been reached. The row now says both outcomes look the same from the website and that the
 customer's record is the only thing that tells them apart.
 
@@ -5190,6 +5190,17 @@ ringing anybody:** Firebase console → Functions → Logs. A line reading *"The
 because billing is disabled for this project"* means every function is down — portal sign-in,
 RSVP answers, the 9 AM RSVP batch and nightly invoicing — and the fix is in Google's billing
 page, not in the code.
+
+⭐ **And the admin page now says so itself (2026-10-12).** Every ten minutes, and a few seconds
+after login, admin calls one read-only function on the server (`publicConfig`). If two calls in
+a row get no answer, a red bar appears across the top of the page saying the server is down,
+what has stopped working, and to check Google billing first. One reply takes the bar away.
+A System notice titled **The Server Is Not Answering** is left once per outage, so there is a
+record for whoever was not looking. ⚠ **It only watches while an admin tab is open** — it is
+not a text or an email, so an outage that starts at night is seen when somebody next opens
+admin. ⚠ **A refusal counts as the server being up**; only "no answer at all" counts against it,
+and a browser that is offline is not asked. `pingServer` / `serverHealthStep` in admin.html;
+`server-down.test.js` (`npm run test:serverdown`).
 
 ⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
 read **every** `scheduledRoutes` document ever written and threw most of them away on the next
