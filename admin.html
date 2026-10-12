@@ -4301,6 +4301,8 @@
             <div class="form-row"><label>Send it to</label><input type="email" id="invTestTo" placeholder="you@example.com"></div>
           </div>
           <button type="button" class="btn btn-gold" id="invTestSendBtn">Send me this invoice</button>
+          <button type="button" class="btn btn-outline" id="invRealSendBtn" style="margin-left:8px;">Send it to the customer</button>
+          <p style="font-size:12.5px; color:var(--slate); margin:10px 0 0;"><strong>Send me this invoice</strong> is a test copy with a note at the top. <strong>Send it to the customer</strong> sends the same invoice to the address in the box as their real invoice &mdash; no test note &mdash; and marks their bill as given by hand so the 7 PM run does not email it again.</p>
           <div id="invTestStatus" style="font-size:13px; margin-top:10px;"></div>
         </div>
         <div id="invPreviewDoc" style="margin-top:20px;"><div class="empty-note">Check one or more customers above to see their invoices.</div></div>
@@ -8382,6 +8384,7 @@ const HISTORY_STEPS = [
      the first, which reads as proof of something it does not prove. */
   { field: 'invoicedAt',               from: 'inv',   what: 'Invoice raised' },
   { field: 'invoiceEmailSentAt',       from: 'cust',  what: 'Invoice emailed to them' },
+  { field: 'invoiceSentByHandAt',      from: 'cust',  what: 'Invoice given to them by hand (marked in Invoices)' },
   { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged (' + fmtMoney(NEW_MEMBER_FEE) + ')' }
 ];
 /* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
@@ -11470,6 +11473,7 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     // A customer with no email can never be billed at all — that is a lost bill,
     // not a postponed one, so it is never folded into the generic skip counts.
     if(r.skippedNoEmail) msg += ', ' + r.skippedNoEmail + ' could NOT be billed (no email address)';
+    if(r.sentByHandCount) msg += ', ' + r.sentByHandCount + ' not emailed (already given by hand)';
     /* ⭐ NAMED, NOT COUNTED (2026-09-28). The two skip counts above say how many bills
        were held and nothing about whose, so a payer whose lights are up and whose bill
        is stuck behind one unfinished house read as an ordinary skip. heldNames only
@@ -11810,6 +11814,9 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
       await Promise.all(chunk.map(function(a){
         return updateDoc(doc(db,'jobAddresses', a.id), {
           completed: false, invoiceEmailSent: false, scheduled: false, scheduledDate: null, assignedCrew: null,
+          /* The by-hand tick is about THIS season's invoice (EM-28). Left standing it
+             would stop next season's bill being emailed to them, silently and for ever. */
+          invoiceSentByHand: false, invoiceSentByHandAt: null,
           /* ⭐ A TAKEDOWN IS THIS SEASON'S WORK, SO IT RESETS WITH THE REST (2026-08-29).
              Addie, asked directly: "Oh so if we removed lights from someone's house that
              should reset for new season."
@@ -12127,6 +12134,7 @@ async function loadNightlyInvoiceLog(){
         ((r.skippedNeedsFix||0) ? ', '+r.skippedNeedsFix+' skipped (needs fix)' : '')+
         ((r.skippedNotDone||0) ? ', '+r.skippedNotDone+' skipped (not completed)' : '')+
         ((r.skippedNoEmail||0) ? ', <span style="color:var(--ember);">'+r.skippedNoEmail+' could NOT be billed (no email address)</span>' : '')+
+        ((r.sentByHandCount||0) ? ', '+r.sentByHandCount+' not emailed (already given by hand)' : '')+
         ((r.errorCount||0) ? ', <span style="color:var(--ember);">'+r.errorCount+' error(s)</span>' : '')+
         ((r.skippedNoEmail||0) && Array.isArray(r.noEmailNames) && r.noEmailNames.length
           ? '<div style="font-size:12px; color:var(--slate); margin-top:3px;">No email: '+esc(r.noEmailNames.join(', '))+'</div>' : '')+
@@ -23141,7 +23149,13 @@ function invoiceEmailPlace(body, block){
   return body.slice(0, at) + block + body.slice(at);
 }
 /* invoice-email-block:end */
-async function invTestSend(){
+async function invTestSend(toCustomer){
+  /* ⭐ THE SAME EMAIL, TWO BUTTONS (EM-28, 2026-10-12). Addie: "If I send it to someone
+     manually it also shouldn't show test copy at the top." toCustomer === true is the
+     real send: no test note, addressed to them by name, and the bill is ticked as given
+     by hand afterwards so the 7 PM run does not email it a second time.
+     ⚠ === true, NEVER TRUTHY — the plain button's click handler passes an event. */
+  const real = toCustomer === true;
   const statusEl = document.getElementById('invTestStatus');
   const say = function(msg, bad){
     statusEl.innerHTML = '<span style="color:'+(bad?'#9A2A1F':'#2E6B3E')+'; font-weight:600;">'+esc(msg)+'</span>';
@@ -23187,6 +23201,26 @@ async function invTestSend(){
     if(tplName !== standard){ tplName = standard; tpl = findTemplateByName(tplName); }
   }
   if(!tpl) return say('No template matching "'+tplName+'" could be found. The templates it can see are: '+billingTemplateNames()+'. Either rename one to match, or create it under Templates > Billing.', true);
+  if(real){
+    /* ⚠ ASKED BEFORE ANYTHING IS SENT, naming who and where — this one reaches a
+       customer and cannot be taken back. And it says what the 7 PM run will still
+       add, because a bill handed over before the run has billed them can be short. */
+    const owedLater = [];
+    const onBill = billedHousesFor(key);
+    if(!inv.newMemberFeeApplied && onBill.some(function(h){ return h.data && h.data.chargeNewMemberFee === true; })){
+      owedLater.push('the ' + fmtMoney(NEW_MEMBER_FEE) + ' installation fee');
+    }
+    if(onBill.some(function(h){ return (Number(h.data && h.data.carryoverCharge) || 0) > 0; })){
+      owedLater.push('a charge carried over from last season');
+    }
+    if(!confirm('Send this invoice to ' + (d.name || 'this customer') + ' at ' + sendTo + '?\n\n' +
+      'It goes out as their real invoice, with no test note, showing ' + fmtMoney(amountDue) + ' due. ' +
+      'Their bill is then marked as given by hand, so the 7 PM run will not email it again.' +
+      (owedLater.length ? ('\n\nNOT ON THIS COPY YET: ' + owedLater.join(' and ') +
+        '. The 7 PM run adds it to their bill the night their house is marked Done, and will not email them about it.') : ''))){
+      return say('Nothing was sent.', true);
+    }
+  }
   if(!window.emailjs) return say('The email service did not load - check your internet connection.', true);
   const serviceId = document.getElementById('emailjsServiceId').value.trim();
   const templateId = document.getElementById('emailjsTemplateId').value.trim();
@@ -23240,11 +23274,22 @@ async function invTestSend(){
     body = body.split('{{due_date}}').join(niceDate(invoiceDueDate(issuedOn)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
-    body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
+    /* The test note is for the office's own copy ONLY. A customer who is sent their
+       invoice by hand must never read "Test copy" above it. */
+    if(!real) body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
       '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
       '</div>' + body;
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: real ? (d.name || '') : 'Test', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
+    if(real){
+      /* The send has gone; the tick is what stops a second copy at 7 PM. A failed tick
+         must be SAID — silently, the customer gets the same bill twice. */
+      const ticked = await setInvoiceSentByHand(key, true, null, {quiet: true});
+      logActivity('Sent an invoice to the customer by hand', 'invoices', key);
+      return say('Handed to the mail service for ' + sendTo + ' as ' + (d.name || 'the customer') + '\'s real invoice — amount due ' + fmtMoney(amountDue) + ', no test note. ' +
+        (ticked ? 'Their bill is marked as given by hand, so the 7 PM run will not email it again.'
+                : 'BUT their bill could NOT be marked as given by hand, so the 7 PM run may email it again — tick "Invoice given by hand" on their row in the Invoice List.'), !ticked);
+    }
     /* ⚠ "HANDED TO", NOT "SENT TO". EmailJS accepting the request says the request
        was well formed, and nothing about whether the address exists. Claiming
        delivery is what sent somebody looking for a bug in the invoice code when the
@@ -23255,7 +23300,8 @@ async function invTestSend(){
     say('Send failed: ' + msg, true);
   }
 }
-if(document.getElementById('invTestSendBtn')) document.getElementById('invTestSendBtn').addEventListener('click', invTestSend);
+if(document.getElementById('invTestSendBtn')) document.getElementById('invTestSendBtn').addEventListener('click', function(){ invTestSend(false); });
+if(document.getElementById('invRealSendBtn')) document.getElementById('invRealSendBtn').addEventListener('click', function(){ invTestSend(true); });
 /* Every box a person types an email address into, watched from load. */
 emailTypoWatchAll();
 function invRenderRecipientList(){
@@ -29342,6 +29388,78 @@ function syncInvFilterControls(){
   const sum = document.getElementById('invFilterSummary');
   if(sum) sum.textContent = parts.length ? '(Filtered: '+parts.join(', ')+')' : '';
 }
+/* ⭐ "THEY ALREADY HAVE THEIR INVOICE" — A TICK ON THE INVOICE ROW (EM-28, 2026-10-12).
+   Addie: "can we make a place in invoice were we can check mark if someone got there
+   invoice manually as well in case we did that seperate from the report".
+   ⚠ IT LIVES ON THE HOUSES, NOT THE INVOICE. The 7 PM run decides who to email from
+   invoiceEmailSent on the customer records, so that is where it has to be read; and
+   Start New Season resets the customer flags while keeping the invoice document.
+   ⚠ EVERY HOUSE ON THE BILL, through billedHousesFor — the run asks whether ANY house
+   on the bill is still waiting, so ticking only the payer would leave a sibling to
+   trigger the email anyway.
+   ⛔ IT STOPS THE EMAIL, NEVER THE BILLING. The run still raises the invoice and adds
+   any fee; see the matching branch in runInvoiceBatch (functions/index.js). */
+function invoiceHandState(invoiceKey){
+  const houses = billedHousesFor(invoiceKey);
+  const hand = houses.find(function(h){ return h.data && h.data.invoiceSentByHand === true; });
+  const emailed = houses.find(function(h){ return h.data && h.data.invoiceEmailSent === true && h.data.invoiceEmailSentAt; });
+  return {
+    houses: houses,
+    byHand: !!hand,
+    byHandAt: hand ? toJsDate(hand.data.invoiceSentByHandAt) : null,
+    emailedAt: emailed ? toJsDate(emailed.data.invoiceEmailSentAt) : null
+  };
+}
+function invoiceByHandRowHtml(invoiceKey){
+  const st = invoiceHandState(invoiceKey);
+  /* No customer behind this invoice (an archived one): there is nothing the 7 PM run
+     could email, so a tick would record nothing. Say nothing rather than offer it. */
+  if(!st.houses.length) return '';
+  const note = st.byHand
+    ? ('Marked as given by hand' + (st.byHandAt ? ' ' + niceDate(st.byHandAt) : '') + ' — the 7 PM run will not email it')
+    : (st.emailedAt ? ('Emailed by the 7 PM run ' + niceDate(st.emailedAt)) : 'Not sent yet');
+  return '<div class="rtext" style="margin-top:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'+
+    '<label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:600;">'+
+      '<input type="checkbox" data-invbyhand="'+esc(invoiceKey)+'"'+(st.byHand ? ' checked' : '')+' style="width:auto;">'+
+      'Invoice given by hand</label>'+
+    '<span style="color:var(--slate); font-size:12px;">'+esc(note)+'</span>'+
+  '</div>';
+}
+async function setInvoiceSentByHand(invoiceKey, on, box, opts){
+  const houses = billedHousesFor(invoiceKey);
+  if(!houses.length){
+    if(box) box.checked = !on;
+    if(!(opts && opts.quiet)) toast('No customer is on this bill, so there was nothing to mark.');
+    return false;
+  }
+  const fields = on
+    ? { invoiceSentByHand: true, invoiceSentByHandAt: serverTimestamp() }
+    : { invoiceSentByHand: false, invoiceSentByHandAt: null };
+  try{
+    for(const h of houses){ await updateDoc(doc(db,'jobAddresses', h.id), fields); }
+  }catch(err){
+    console.error('Could not save the by-hand tick:', err);
+    if(box) box.checked = !on;
+    if(!(opts && opts.quiet)) toast('Could not save that — ' + ((err && err.message) || err));
+    return false;
+  }
+  /* The list repaints from the cache, not from Firestore. */
+  houses.forEach(function(h){
+    const live = jobAddresses.find(function(a){ return a.id === h.id; });
+    if(live && live.data){
+      live.data.invoiceSentByHand = on;
+      live.data.invoiceSentByHandAt = on ? new Date() : null;
+    }
+  });
+  if(!(opts && opts.quiet)){
+    const who = invoiceDisplayName(invoiceKey, '') || 'This bill';
+    toast(on ? (who + ' marked as given by hand — the 7 PM run will not email it.')
+             : (who + ' is no longer marked as given by hand.'));
+  }
+  logActivity(on ? 'Marked an invoice as given by hand' : 'Un-marked an invoice as given by hand', 'invoices', invoiceKey);
+  renderInvoicesList();
+  return true;
+}
 function renderInvoicesList(){
   /* One billing grouping for the whole draw — see billingGroupsMemo. */
   billingGroupsMemo.depth++;
@@ -29407,6 +29525,7 @@ function renderInvoicesList(){
         (d.tipTotal ? '<div class="rtext" style="color:#2E6B3E;">&#128179; Tip received: '+fmtMoney(d.tipTotal)+(d.lastPaymentMethod === 'paypal' ? ' (via PayPal)' : '')+'</div>' : '')+
         (d.lastPaymentMethod === 'paypal' && !d.tipTotal ? '<div class="rtext" style="color:var(--slate); font-size:12px;">Last payment: PayPal'+(d.lastPaymentAt && d.lastPaymentAt.toDate ? ', '+fmtDate(d.lastPaymentAt) : '')+'</div>' : '')+
         billedNote+
+        invoiceByHandRowHtml(item.id)+
         '<div id="invoiceeditpanel-'+item.id+'" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);"></div>'+
       '</div>'+
       '<div class="row-actions">'+
@@ -29435,6 +29554,9 @@ function renderInvoicesList(){
         setTimeout(function(){ btn.classList.remove('copied'); }, 1500);
       });
     });
+  });
+  list.querySelectorAll('[data-invbyhand]').forEach(function(cb){
+    cb.addEventListener('change', function(){ setInvoiceSentByHand(cb.dataset.invbyhand, cb.checked, cb); });
   });
   list.querySelectorAll('[data-approveprice]').forEach(function(btn){
     btn.addEventListener('click', function(){

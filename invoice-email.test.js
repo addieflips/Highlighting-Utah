@@ -156,7 +156,7 @@ function orderedCalls(body, place, block, rows, feet) {
   const p = body.indexOf('body = ' + place + '('), f = body.indexOf(feet);
   return p !== -1 && f !== -1 && p < f && body.indexOf(block + '(') !== -1 && body.indexOf(rows + '(') !== -1;
 }
-const testSend = stripComments(between(adminSrc, 'async function invTestSend(){', "getElementById('invTestSendBtn')"));
+const testSend = stripComments(between(adminSrc, 'async function invTestSend(toCustomer){', "getElementById('invTestSendBtn')"));
 check('the test copy places the invoice, before any code is filled in',
   orderedCalls(testSend, 'invoiceEmailPlace', 'invoiceEmailBlock', 'invoiceEmailRows', "body.split('{{feet_line}}')"));
 check('the test copy reads the houses the bill was summed from', testSend.indexOf('billedHouseIds') !== -1);

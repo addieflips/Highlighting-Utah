@@ -824,6 +824,62 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
         raw.indexOf('>Bill to</div>') === -1 && raw.includes('10 Main St'),
         'the same lines twice on one bill reads as being charged twice');
     }
+    /* ---- 6c. ALREADY GIVEN BY HAND (EM-28, 2026-10-12) -------------------
+       Addie: "can we make a place in invoice were we can check mark if someone got
+       there invoice manually as well in case we did that seperate from the report".
+       The tick writes invoiceSentByHand on the houses; this is what the run does with it.
+       ⛔ THE CHECK THAT EARNS THE BLOCK IS THE FEE. The tick means "do not email them",
+       never "do not bill them" — a branch placed above the billing writes passes every
+       other check here and quietly waives the join fee for anybody handed paper. */
+    {
+      const { res, sent, db } = await runBatch({ h1: priced({
+        name: 'Hand Delivered', phone: '8015550777', email: 'hand@x.com', address: '7 Oak St',
+        customerNumber: '301', chargeNewMemberFee: true, invoiceSentByHand: true }) });
+      const inv = db.store.invoices['8015550777'];
+      const cust = db.store.jobAddresses && db.store.jobAddresses.h1;
+      check('a bill marked as given by hand is NOT emailed',
+        sent.length === 0 && res.sentCount === 0 && res.errorCount === 0,
+        'sent=' + sent.length + ' errors=' + JSON.stringify(res.errors));
+      check('but it IS billed: the invoice exists with the join fee on it',
+        !!inv && Number(inv.install) === 400 + NEW_MEMBER_FEE && inv.newMemberFeeApplied === true,
+        'install=' + (inv && inv.install) + '. The tick is about paper, not money.');
+      check('and the bill is marked as gone, so tomorrow night does not pick it up again',
+        !!cust && cust.invoiceEmailSent === true, JSON.stringify(cust));
+      check('and nothing claims it was EMAILED',
+        !!cust && !cust.invoiceEmailSentAt,
+        'the customer history prints that date as "Invoice emailed to them"');
+      check('and the run counts and names it',
+        res.sentByHandCount === 1 && Array.isArray(res.sentByHandNames) && res.sentByHandNames[0] === 'Hand Delivered',
+        JSON.stringify([res.sentByHandCount, res.sentByHandNames]));
+    }
+    {
+      /* Any house on the bill carrying the mark covers the bill — the office ticks the
+         bill, and a later-added sibling must not trigger the email. */
+      const book = JSON.parse(JSON.stringify(groupBook));
+      book.cabin.invoiceSentByHand = true;
+      ['payer', 'kid', 'cabin'].forEach(function (k) { book[k].completedAt = groupBook[k].completedAt; });
+      const { res, sent, db } = await runBatch(book);
+      const all = db.store.jobAddresses || {};
+      check('one marked house on a shared bill holds the email for the whole bill',
+        sent.length === 0 && res.sentByHandCount === 1
+          && ['payer', 'kid', 'cabin'].every(function (k) { return all[k] && all[k].invoiceEmailSent === true; }),
+        'sent=' + sent.length + ' byHand=' + res.sentByHandCount);
+    }
+    {
+      /* The customer this is most for: no email anywhere, handed a printed invoice. */
+      const { res, sent } = await runBatch({ h1: priced({
+        name: 'Phone Only', phone: '8015550888', email: '', address: '8 Pine St',
+        customerNumber: '302', invoiceSentByHand: true, cannotBillNoEmail: true }) });
+      check('a phone-only customer handed their invoice stops being reported as unbillable',
+        sent.length === 0 && (res.skippedNoEmail || 0) === 0 && res.sentByHandCount === 1,
+        'skippedNoEmail=' + res.skippedNoEmail + ' byHand=' + res.sentByHandCount);
+    }
+    {
+      const { res, sent } = await runBatch({ h1: priced({
+        name: 'Ordinary', phone: '8015550999', email: 'o@x.com', address: '9 Fir St', customerNumber: '303' }) });
+      check('an unmarked bill is emailed exactly as before',
+        sent.length === 1 && res.sentCount === 1 && (res.sentByHandCount || 0) === 0);
+    }
     {
       /* ⚠ STRIPPED **AND COUNTED**. rsvp-text-wording's own lesson from the literal
          {{photo}}: the token being wrong was never the fault — nothing counting what it

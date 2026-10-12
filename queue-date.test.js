@@ -1100,6 +1100,7 @@ const PATH_STEPS = [
   ['they are marked maybe next year', 'maybeNextYearAt',       'admin.html'],
   ['their old set comes back',     'lightsRecycledAt',         'admin.html'],
   ['the invoice email goes out',   'invoiceEmailSentAt',       'functions/index.js'],
+  ['the invoice is given by hand', 'invoiceSentByHandAt',      'admin.html'],
   ['they are re-quoted',           'requotedAt',               'admin.html'],
   /* ⚠ THESE SEVEN WERE ALREADY ON THE HISTORY OR ON THE PICTURE AND ON NO PATH, which is
      how they came to be reported as "strangers" by both of the other censuses for weeks

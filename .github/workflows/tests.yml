@@ -348,6 +348,11 @@ jobs:
       # stopped matching, rather than a generic npm test failure.
       - name: The invoice inside the invoice email
         run: npm run test:invoice-email
+      # The by-hand mark stops the 7 PM run emailing a bill the office already handed over.
+      # Named because its two failures are opposite and both silent: a mark the run ignores
+      # sends a customer the same bill twice, and a mark read too early waives their fee.
+      - name: Invoice given by hand
+        run: npm run test:invoice-by-hand
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
