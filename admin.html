@@ -76877,7 +76877,12 @@ function serialize(){
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
-      frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():null,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):null,
+      frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():null,/* ⛔ ONE MAP PER CREW, NEVER A LIST INSIDE A LIST (2026-10-12). Firestore refuses a nested array outright
+         ("Nested arrays are not supported"), and it refuses the WHOLE write — so from the day the split was first
+         frozen (SCH-106, 2026-09-30) every save made while any day was locked failed, which is every save once the
+         customers have loaded. A Recalculate lived on the screen that pressed it and nowhere else. In memory the
+         split stays a list of lists; only what is written changes, and hydrate reads either shape back. */
+      frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>({ids:(Array.isArray(c)?c:[]).slice()})):null,
       printedAt:d.printedAt||null,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
@@ -80170,7 +80175,7 @@ function hydrate(o){
   /* [[SCH-124]] never move it BACKWARDS: a snapshot from another computer that predates this morning's press must not re-arm it */
   if(o.lastRecalcOn&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.lastRecalcOn))&&String(o.lastRecalcOn)>String(LAST_RECALC_ON||'')) LAST_RECALC_ON=String(o.lastRecalcOn);
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
-    frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>c.slice()):undefined,
+    frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>Array.isArray(c)?c.slice():((c&&Array.isArray(c.ids))?c.ids.slice():[])):undefined,
     printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
@@ -80179,7 +80184,7 @@ function hydrate(o){
   try{ refreshLockedDates(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
 }
-function scheduleSave(){clearTimeout(saveTimer);RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
+function scheduleSave(){clearTimeout(saveTimer);savePending=true;RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
 /* ⭐ SCHEDULE V2 ([[SCH-102]]): EVERY SAVED PLAN IS MIRRORED ONTO THE CUSTOMER RECORDS, so a
    day moved by the five-minute sync, a pin, a new customer placed, or a house moved by hand
    reaches the customer's own record (and their portal) without anybody pressing anything.
@@ -80199,6 +80204,12 @@ function mirrorStampsSoon(){clearTimeout(stampMirrorTimer);stampMirrorTimer=setT
    ⚠ KEYS ARE SORTED before comparing: Firestore does not hand a map's fields back in the order
    they were written, and a false "it changed" here would bounce the plan between machines. */
 let planSyncedKey=null, planLiveStop=null;
+/* ⭐ "UNSAVED" MEANS A SAVE IS ACTUALLY ON ITS WAY (2026-10-12). The listener used to keep this device's plan whenever
+   it merely DIFFERED from the last agreed one. But the five-minute sync freezes the printed days in memory and, with
+   nothing else to report, returns without saving — so an idle computer differed for ever, refused every Recalculate
+   from the other one with a console line nobody reads, and then saved its stale plan over it on the next click.
+   A difference with no save queued is this device's own derived state, not somebody's edit, and the incoming plan wins. */
+let savePending=false;
 function planKey(o){
   return JSON.stringify(o, function(k,v){
     if(v && typeof v==='object' && !Array.isArray(v)){ const out={}; Object.keys(v).sort().forEach(function(x){ out[x]=v[x]; }); return out; }
@@ -80218,7 +80229,7 @@ function followPlanLive(){
       /* ⚠ A REAL EDIT OF OURS IS ABOUT TO SAVE (or a press is mid-flight). It goes out in a
          moment and wins, exactly as the last write always has — taking the other computer's
          plan now would throw away a move made a second ago. */
-      if(mine!==planSyncedKey || recalcRunning){ console.warn('[HU] Schedule changed on another computer while this one had unsaved changes — keeping these'); return; }
+      if((mine!==planSyncedKey && savePending) || recalcRunning){ console.warn('[HU] Schedule changed on another computer while this one had unsaved changes — keeping these'); return; }
       const keep={s:selSchedule,f:selFix,t:selTake};
       try{ hydrate(data); }
       catch(e){ console.error('[HU] could not take the plan saved on another computer', e); return; }
@@ -80238,11 +80249,37 @@ function followPlanLive(){
   }catch(e){ console.error('[HU] could not follow the schedule live', e); }
 }
 async function saveNow(){
+  savePending=false;
   const data=serialize(), k=planKey(data);
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
-  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){planSyncedKey=prev;RT.getElementById('saveNote').textContent='save failed — check connection';}
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;mirrorStampsSoon();}catch(e){planSyncedKey=prev;
+    /* ⛔ SAID, AND WITH THE REAL REASON (2026-10-12). This read "check connection" whatever went wrong and logged
+       nothing, so a plan Firestore was REFUSING — not a network fault at all — failed in five grey words for twelve
+       days while each computer went on showing its own schedule. planSaveProblem names the field when it is ours. */
+    const why=planSaveProblem(data)||((e&&e.message)||'check connection');
+    console.error('[HU] the schedule could not be saved — other computers are NOT seeing these changes:',why,e);
+    RT.getElementById('saveNote').textContent='⚠ NOT SAVED — other computers cannot see these changes ('+why+')';
+    if(!saveFailTold){saveFailTold=true;toast('The schedule could not be saved, so other computers will not see these changes — '+why);}
+  }
+}
+/* What in a plan Firestore will refuse, as a path a person can find — or '' when nothing is wrong with it.
+   Two things only: a list directly inside a list, and an undefined value. Pure, so schedule-v2.test.js runs it. */
+let saveFailTold=false;
+function planSaveProblem(o){
+  let found='';
+  (function walk(v,path,inArray){
+    if(found) return;
+    if(v===undefined){ found=path+' is undefined'; return; }
+    if(Array.isArray(v)){
+      if(inArray){ found=path+' is a list inside a list'; return; }
+      v.forEach(function(x,i){ walk(x,path+'['+i+']',true); });
+    }else if(v && typeof v==='object' && !(v instanceof Date)){
+      Object.keys(v).forEach(function(k){ walk(v[k],path?path+'.'+k:k,false); });
+    }
+  })(o,'',false);
+  return found;
 }
 function showDashboard(){RT.getElementById('importBox').classList.add('hide');RT.getElementById('dashboard').classList.remove('hide');}
 function showImport(msg){RT.getElementById('dashboard').classList.add('hide');RT.getElementById('importBox').classList.remove('hide');if(msg)RT.getElementById('importErr').textContent=msg;}
@@ -82059,7 +82096,11 @@ function exportCSV(){
     if(!loaded) return 0;   // nothing to sync into yet
     /* ⭐ [[SCH-106]] the same two printed days the press uses, worked out afresh each tick (a day
        passes at midnight) and frozen before any sweep below runs. */
-    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+    /* ⭐ A FREEZE IS PART OF THE PLAN, SO IT IS SAVED (2026-10-12). This tick usually finds nothing else to report and
+       returns early below, which left the frozen split in memory only — and a device whose plan differs from the saved
+       one with nothing queued is exactly what the live listener cannot tell from an edit. saveNow writes nothing when
+       the plan is unchanged, so this costs nothing on a quiet tick. */
+    try{ refreshLockedDates(); if(freezePrintedDays()) scheduleSave(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
     let moved=[];
     try{ moved=syncHousesFromCustomers(); }catch(err){ console.error("Schedule sync failed:",err); return 0; }
     /* ⭐ [[FIX-07]], 2026-10-06 — ANY NEWLY RAISED FIX GOES STRAIGHT ONTO A FIXER ROUTE.

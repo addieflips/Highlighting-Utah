@@ -34,7 +34,9 @@ module.exports = function makeHarness(liftDeep){
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
     'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
-    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer'],
+    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
+    /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
+    'serialize', 'hydrate', 'planSaveProblem'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -61,6 +63,8 @@ module.exports = function makeHarness(liftDeep){
     '__D.UTC = __RealDate.UTC; __D.parse = __RealDate.parse;',
     'var Date = __D;',
     'function serverTimestamp(){ return null; }',
+    /* declared mid-statement in the page (let fixOpen=true, FIXLIST=[], fixRouteSeq=0, …), which the lifter cannot see */
+    'var FIXLIST = [], fixRouteSeq = 0;',
     gridSrc.replace(/^import[^;]+;/gm, ''),
     moneySrc,
     'var gridPlanBlocks = planBlocks;',
@@ -119,7 +123,8 @@ module.exports = function makeHarness(liftDeep){
     '        sweepGoneDaysForward: sweepGoneDaysForward, scheduleTodayStr: scheduleTodayStr, hangDayOn: hangDayOn,',
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
-    '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead}',
+    '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, frozenCrewSplit: frozenCrewSplit}',
     '};'
   ].join('\n');
 
