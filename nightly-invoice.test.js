@@ -73,7 +73,7 @@ function lift(name) {
    records having been caught by ten times — so the count is asserted below and a
    deliberate change to it is a deliberate edit here. */
 const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
-  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer',
+  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
   'clearHeldBill', 'toMillis', 'logNightlyInvoiceRun',
@@ -800,13 +800,17 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
                 + '{{pay_button}}{{venmo_button}}\n\nThanks';
       const { res, sent } = await runBatch(groupBook, { template: tpl });
       const raw = String(sent[0] && sent[0].body || '');
-      const box = raw.indexOf('Your invoice</td>');
+      const box = raw.indexOf('>Bill to</div>');
       check('a short template still carries the itemised invoice',
         res.sentCount === 1 && box !== -1
           && ['10 Main St', '22 Second St', '99 Hill Dr'].every(x => raw.includes(x)),
         'raw=' + JSON.stringify(raw));
       check('and it sits ABOVE the pay button, so the bill is read before it is paid',
         box !== -1 && box < raw.indexOf('Pay Your Invoice'));
+      check('and it is the invoice DOCUMENT, not a summary: number, Bill to, status, how to pay',
+        /HU-\d{4}-0444/.test(raw) && raw.includes('Dana Payer') && raw.includes('Covers 3 properties')
+          && raw.includes('Payment status') && raw.includes('How to pay'),
+        'Addie, shown a small box of line items: "This is not the invoice we agreed on."');
       check('and its Amount due is the bill',
         /Amount due<\/td><td[^>]*>\$1000\.00/.test(raw), 'raw=' + JSON.stringify(raw));
       check('and the table was not torn apart by the newline-to-<br> pass',
@@ -817,7 +821,7 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
         { template: 'Hi {{name}},<br>{{feet_line}}<br>Due: {{amount_due}}<br>{{pay_button}}' });
       const raw = String(sent[0] && sent[0].body || '');
       check('a template that already itemises is NOT given the lines a second time',
-        raw.indexOf('Your invoice</td>') === -1 && raw.includes('10 Main St'),
+        raw.indexOf('>Bill to</div>') === -1 && raw.includes('10 Main St'),
         'the same lines twice on one bill reads as being charged twice');
     }
     {

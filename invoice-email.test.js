@@ -36,13 +36,13 @@ check('admin.html carries the block', adminBlock.length > 500);
 check('functions/index.js carries the block', fnsBlock.length > 500);
 check('each file carries it exactly once',
   adminSrc.split(START).length === 2 && fnsSrc.split(START).length === 2);
-const unServer = s => s.replace(/function (invoiceEmail(?:Rows|Block|Place))Server\(/g, 'function $1(');
+const unServer = s => s.replace(/function (invoiceEmail(?:Rows|Block|Place|Number))Server\(/g, 'function $1(');
 check('the two copies are the same text', adminBlock && adminBlock === unServer(fnsBlock),
   'change one, change the other — the test copy and the 7 PM run must draw the same bill');
 
 function load(block, suffix) {
   return new Function(block + '\nreturn { rows: invoiceEmailRows' + suffix +
-    ', block: invoiceEmailBlock' + suffix + ', place: invoiceEmailPlace' + suffix + ' };')();
+    ', block: invoiceEmailBlock' + suffix + ', place: invoiceEmailPlace' + suffix + ', number: invoiceEmailNumber' + suffix + ' };')();
 }
 let A = null, S = null;
 try { A = load(adminBlock, ''); S = load(fnsBlock, 'Server'); }
@@ -51,13 +51,17 @@ catch (err) { check('both copies load and run', false, String(err)); }
 if (A && S) {
   const bills = [
     { name: 'one house, unpaid', rows: { rate: 2, houses: [{ address: '1 Elm St', feet: 125, price: 250 }] },
-      total: 250, paid: 0, amountDue: 250, status: 'Unpaid', issued: 'Oct 12, 2026', due: 'Feb 28, 2027' },
+      total: 250, paid: 0, amountDue: 250, status: 'Unpaid', issued: 'Oct 12, 2026', due: 'Feb 28, 2027',
+      season: 2026, invoiceNo: 'HU-2026-2235', properties: 1, venmo: 'HighLightingUtah',
+      billTo: { name: 'Test <Person>', address: '209 S 850 W, Lehi, UT', phone: '3853912235' },
+      biz: { phone: '(801) 901-0011', email: 'office@example.com', site: 'highlightingutah.com' } },
     { name: 'two houses, fee, change fee, credit, part paid',
       rows: { rate: 2.5, houses: [{ address: '1 Elm St', feet: 160, price: 400 }, { address: '2 Oak <Ave> & Co', feet: 0, price: 350 }],
               removal: 0, newMemberFee: 25, feeNotes: [{ reason: 'Light change', amount: 30 }], creditNotes: [{ reason: 'Referral', amount: 25 }] },
-      total: 780, paid: 100, amountDue: 680, status: 'Partial Payment', issued: 'Oct 12, 2026', due: 'Feb 28, 2027' },
+      total: 780, paid: 100, amountDue: 680, status: 'Partial Payment', issued: 'Oct 12, 2026', due: 'Feb 28, 2027', properties: 2 },
     { name: 'paid in full', rows: { rate: 0, houses: [{ address: '', feet: 90, price: 300 }], removal: 40 },
-      total: 340, paid: 340, amountDue: 0, status: 'Paid in Full', issued: 'Oct 12, 2026', due: 'Feb 28, 2027' },
+      total: 340, paid: 340, amountDue: 0, status: 'Paid in Full', issued: 'Oct 12, 2026', due: 'Feb 28, 2027',
+      paidOn: 'Oct 20, 2026', venmo: 'HighLightingUtah', biz: { site: 'highlightingutah.com' } },
     { name: 'nothing to itemise', rows: { houses: [] }, total: 0, paid: 0, amountDue: 0, status: 'Unpaid' }
   ];
   const out = {};
@@ -78,6 +82,18 @@ if (A && S) {
   check('one house: says Amount due and the due date',
     one.html.indexOf('Amount due') !== -1 && one.html.indexOf('Due Feb 28, 2027') !== -1 && one.html.indexOf('Unpaid') !== -1);
   check('one house: no Payment received line when nothing was paid', one.html.indexOf('Payment received') === -1);
+  /* ⛔ THE DOCUMENT, NOT A SUMMARY. The first version was a small box of line items and
+     Addie put it beside the Invoices tab's invoice: "This is not the invoice we agreed on."
+     Every section of that document is asserted here by name. */
+  check('one house: the business header is on it',
+    ['Highlighting Utah', 'Christmas Lights Installation', '(801) 901-0011', 'office@example.com', 'highlightingutah.com'].every(function (t) { return one.html.indexOf(t) !== -1; }));
+  check('one house: the season, the invoice number and the issue date are on it',
+    one.html.indexOf('Invoice for 2026 season') !== -1 && one.html.indexOf('HU-2026-2235') !== -1 && one.html.indexOf('Issued Oct 12, 2026') !== -1);
+  check('one house: Bill to names them, escaped, with address and phone',
+    one.html.indexOf('Bill to') !== -1 && one.html.indexOf('Test &lt;Person&gt;') !== -1 && one.html.indexOf('209 S 850 W, Lehi, UT') !== -1 && one.html.indexOf('3853912235') !== -1);
+  check('one house: Description / Amount, Payment status and How to pay are all there',
+    ['>Description<', '>Amount<', 'Payment status', 'How to pay', 'Venmo — @HighLightingUtah', 'Cheque — payable to Highlighting Utah'].every(function (t) { return one.html.indexOf(t) !== -1; }));
+  check('one house: a single house does not say Covers', one.html.indexOf('Covers') === -1);
 
   const two = out['two houses, fee, change fee, credit, part paid'];
   check('two houses: each address is its own row', two.rows.length === 5 &&
@@ -95,6 +111,18 @@ if (A && S) {
   check('paid: says Amount paid, never Amount due, and gives no due date',
     paidBill.html.indexOf('Amount paid') !== -1 && paidBill.html.indexOf('Amount due') === -1 && paidBill.html.indexOf('Due ') === -1);
   check('paid: removal is its own row', paidBill.rows.some(function (r) { return r.label === 'Removal service' && r.amount === 40; }));
+  check('two houses: says how many properties it covers', two.html.indexOf('Covers 2 properties') !== -1);
+  check('paid: says when, and never tells a settled customer how to pay',
+    paidBill.html.indexOf('Paid Oct 20, 2026') !== -1 && paidBill.html.indexOf('How to pay') === -1);
+  /* The number the 7 PM run prints must be the one the office's printed invoice shows. */
+  const nf = adminSrc.indexOf('function invoiceNumberFor(');
+  const officeNumber = nf === -1 ? null : new Function(adminSrc.slice(nf, adminSrc.indexOf('\nfunction addDays(', nf)) + '\nreturn invoiceNumberFor;')();
+  check('the office invoice-number rule was found', typeof officeNumber === 'function');
+  ['3853912235', '8015550444', 'dana@x.com', 'a@b.co', '12', '', 'ZZ-99x'].forEach(function (k) {
+    check('invoice number for ' + JSON.stringify(k) + ' matches the printed invoice, in both copies',
+      officeNumber && A.number(k, 2026) === officeNumber(k, 2026) && S.number(k, 2026) === officeNumber(k, 2026),
+      A.number(k, 2026) + ' / ' + S.number(k, 2026) + ' / ' + (officeNumber && officeNumber(k, 2026)));
+  });
   check('nothing to itemise draws nothing at all', out['nothing to itemise'].html === '');
 
   /* Where it goes. */

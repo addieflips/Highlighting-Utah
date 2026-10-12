@@ -23020,41 +23020,106 @@ function invoiceEmailRows(v){
   });
   return rows;
 }
+/* The invoice number, worked out the way the printed invoice works it out
+   (`invoiceNumberFor` in admin.html) — written here so the 7 PM run can print the SAME
+   number the office sees. invoice-email.test.js runs the two side by side. */
+function invoiceEmailNumber(key, year){
+  var k = String(key || '');
+  var tail = k.replace(/\D/g, '').slice(-4);
+  if(tail.length < 4){
+    var h = 0;
+    for(var i = 0; i < k.length; i++){ h = ((h << 5) - h + k.charCodeAt(i)) | 0; }
+    tail = Math.abs(h).toString(36).toUpperCase().slice(0, 4);
+    while(tail.length < 4) tail = '0' + tail;
+  }
+  return 'HU-' + year + '-' + tail;
+}
+/* ⛔ THIS IS THE INVOICE DOCUMENT, NOT A SUMMARY OF IT (2026-10-12, the same day). The
+   first version drew a small box of line items; Addie put it beside the invoice on the
+   Invoices tab: "This is not the invoice we agreed on. Its supposed to be the right one
+   that sends." So it is laid out as that document is — the business header, the invoice
+   number and dates, Bill to, Description / Amount, the totals, Payment status, How to
+   pay — section for section. If `buildInvoiceDocHtml` gains or loses a section, this
+   does too. */
 function invoiceEmailBlock(v){
   v = v || {};
   function e(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function m(n){ return '$' + (Number(n) || 0).toFixed(2); }
   var rows = Array.isArray(v.rows) ? v.rows : [];
-  /* Nothing to itemise is nothing to draw: an empty box headed Invoice reads as a bill for nothing. */
+  /* Nothing to itemise is nothing to draw: an empty invoice reads as a bill for nothing. */
   if(!rows.length) return '';
+  var biz = v.biz || {};
+  var who = v.billTo || {};
   var paid = Number(v.paid) || 0;
   var isPaid = v.status === 'Paid in Full';
-  var font = 'font-family:Arial,sans-serif;';
-  var cell = 'padding:9px 0; border-bottom:1px solid #E5E0D2; font-size:14px; color:#1E2A22; ' + font;
-  var tot = 'padding:5px 0; font-size:14px; color:#6E6858; ' + font;
-  var big = 'padding:10px 0 0; border-top:1px solid #E5E0D2; font-size:17px; font-weight:bold; color:#1E2A22; ' + font;
+  var houses = Number(v.properties) || 0;
+  var font = 'font-family:Arial,Helvetica,sans-serif;';
+  var ink = '#1E3B2C', slate = '#6E6858', line = '#E3E8DA';
+  var small = 'font-size:12.5px; color:' + slate + '; ' + font;
+  var cap = 'font-size:11.5px; font-weight:bold; letter-spacing:0.5px; text-transform:uppercase; color:' + slate + '; ' + font;
+  var cell = 'padding:12px 0; border-bottom:1px solid ' + line + '; font-size:14px; color:' + ink + '; ' + font;
+  var tot = 'padding:6px 0; font-size:14px; color:' + slate + '; ' + font;
+  var big = 'padding:10px 0 0; border-top:1px solid ' + line + '; font-size:18px; font-weight:bold; color:' + ink + '; ' + font;
   var open = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"';
-  var dates = [];
-  if(v.issued) dates.push('Issued ' + e(v.issued));
-  if(!isPaid && v.due) dates.push('Due ' + e(v.due));
-  var html = open + ' style="margin:14px 0 18px; border:1px solid #E5E0D2; border-radius:10px; background:#FFFFFF;"><tr><td style="padding:16px 18px;">';
+  function p(style, text){ return text ? '<div style="' + style + '">' + text + '</div>' : ''; }
+  var html = open + ' style="margin:14px 0 18px; border:1px solid ' + line + '; border-radius:14px; background:#FFFBF3;"><tr><td style="padding:26px 24px;">';
+  /* The business, and which invoice this is. */
   html += open + '><tr>' +
-    '<td style="font-size:16px; font-weight:bold; color:#1E3B2C; ' + font + '">Your invoice</td>' +
-    '<td align="right" style="font-size:12.5px; color:#6E6858; ' + font + '">' + dates.join(' &middot; ') + '</td>' +
-    '</tr></table>';
-  html += open + ' style="margin-top:8px;">';
+    '<td valign="top">' +
+      p('font-family:Georgia,serif; font-size:22px; font-weight:bold; color:' + ink + ';', 'Highlighting Utah') +
+      p('font-size:13px; color:' + slate + '; padding:2px 0 6px; ' + font, 'Christmas Lights Installation') +
+      p(small, e(biz.phone)) + p(small, e(biz.email)) + p(small, e(biz.site)) +
+    '</td>' +
+    '<td valign="top" align="right">' +
+      p('font-size:13px; color:' + slate + '; ' + font, v.season ? ('Invoice for ' + e(v.season) + ' season') : 'Invoice') +
+      p('font-size:13px; font-weight:bold; color:' + ink + '; padding:3px 0; ' + font, e(v.invoiceNo)) +
+      p('font-size:13px; color:' + slate + '; ' + font, v.issued ? ('Issued ' + e(v.issued)) : '') +
+      (isPaid
+        ? p('font-size:13px; font-weight:bold; color:#3E7A5B; padding-top:2px; ' + font, 'Paid' + (v.paidOn ? (' ' + e(v.paidOn)) : ''))
+        : p('font-size:13px; font-weight:bold; color:' + ink + '; padding-top:2px; ' + font, v.due ? ('Due ' + e(v.due)) : '')) +
+      p(small + ' padding-top:4px;', houses > 1 ? ('Covers ' + houses + ' properties') : '') +
+    '</td></tr></table>';
+  html += '<div style="border-top:1px solid ' + line + '; margin:20px 0; font-size:0; line-height:0;">&nbsp;</div>';
+  /* Bill to. */
+  html += p(cap + ' padding-bottom:8px;', 'Bill to') +
+    p('font-size:15px; font-weight:bold; color:' + ink + '; padding-bottom:4px; ' + font, e(who.name || '')) +
+    p('font-size:13px; color:' + slate + '; ' + font, e(who.address)) +
+    p('font-size:13px; color:' + slate + '; padding-top:4px; ' + font, e(who.phone));
+  /* What it is for. */
+  html += open + ' style="margin-top:22px;"><tr>' +
+    '<td style="padding:8px 0; border-bottom:1px solid ' + line + '; ' + cap + '">Description</td>' +
+    '<td align="right" style="padding:8px 0; border-bottom:1px solid ' + line + '; ' + cap + '">Amount</td></tr>';
   rows.forEach(function(r){
-    var colour = r.credit ? ' color:#2E6B3E;' : '';
-    html += '<tr><td style="' + cell + colour + '">' + e(r.label) +
-      (r.sub ? '<div style="font-size:12.5px; color:#6E6858;">' + e(r.sub) + '</div>' : '') + '</td>' +
+    var colour = r.credit ? ' color:#3E7A5B;' : '';
+    html += '<tr><td style="' + cell + colour + '">' +
+      (r.sub ? '<div style="font-weight:bold;">' + e(r.label) + '</div><div style="font-size:12.5px; color:' + slate + ';">' + e(r.sub) + '</div>' : e(r.label)) + '</td>' +
       '<td align="right" valign="top" style="' + cell + colour + ' white-space:nowrap;">' + (r.credit ? '−' : '') + m(r.amount) + '</td></tr>';
   });
-  html += '<tr><td style="' + tot + ' padding-top:12px;">Total</td><td align="right" style="' + tot + ' padding-top:12px;">' + m(v.total) + '</td></tr>';
-  if(paid > 0) html += '<tr><td style="' + tot + '">Payment received</td><td align="right" style="' + tot + '">−' + m(paid) + '</td></tr>';
-  html += '<tr><td style="' + big + '">' + (isPaid ? 'Amount paid' : 'Amount due') + '</td>' +
-    '<td align="right" style="' + big + '">' + m(isPaid ? paid : v.amountDue) + '</td></tr>';
   html += '</table>';
-  if(v.status) html += '<div style="margin-top:12px; font-size:13px; font-weight:bold; color:' + (isPaid ? '#2E6B3E' : '#9A2A1F') + '; ' + font + '">' + e(v.status) + '</div>';
+  /* The totals, on the right as the printed invoice has them. */
+  html += open + ' style="margin-top:14px;"><tr><td width="45%">&nbsp;</td><td>' + open + '>' +
+    '<tr><td style="' + tot + '">Total</td><td align="right" style="' + tot + '">' + m(v.total) + '</td></tr>' +
+    (paid > 0 ? '<tr><td style="' + tot + '">Payment received' + (v.paidOn ? (' — ' + e(v.paidOn)) : '') + '</td><td align="right" style="' + tot + ' white-space:nowrap;">−' + m(paid) + '</td></tr>' : '') +
+    '<tr><td style="' + big + '">' + (isPaid ? 'Amount paid' : 'Amount due') + '</td>' +
+    '<td align="right" style="' + big + '">' + m(isPaid ? paid : v.amountDue) + '</td></tr>' +
+    '</table></td></tr></table>';
+  /* Payment status. */
+  if(v.status){
+    html += open + ' style="margin-top:20px;"><tr><td style="background:' + (isPaid ? '#E6F2EA' : '#F1F5EB') + '; border-radius:10px; padding:14px 16px;">' +
+      p(cap + ' padding-bottom:6px;', 'Payment status') +
+      p('font-size:14px; font-weight:bold; color:' + (isPaid ? '#2E6B3E' : (v.status === 'Partial Payment' ? '#D89F3D' : '#E0574B')) + '; ' + font,
+        e(v.status) + (isPaid && v.paidOn ? (' — ' + e(v.paidOn)) : '')) +
+      '</td></tr></table>';
+  }
+  /* How to pay — nothing here once the balance is settled. */
+  if(!isPaid){
+    var how = 'font-size:13px; color:' + ink + '; padding-bottom:4px; ' + font;
+    html += '<div style="border-top:1px solid ' + line + '; margin:20px 0 16px; font-size:0; line-height:0;">&nbsp;</div>' +
+      p(cap + ' padding-bottom:8px;', 'How to pay') +
+      p(how, biz.site ? ('Online — ' + e(biz.site) + ', sign in to your member portal') : '') +
+      p(how, v.venmo ? ('Venmo — @' + e(v.venmo)) : '') +
+      p(how, 'Cheque — payable to Highlighting Utah');
+  }
   html += '</td></tr></table>';
   return html;
 }
@@ -23157,7 +23222,14 @@ async function invTestSend(){
         creditNotes: inv.creditNotes
       }),
       total: Math.max(0, total - credits), paid: deposit, amountDue: amountDue, status: status,
-      issued: niceDate(issuedOn), due: niceDate(invoiceDueDate(issuedOn))
+      issued: niceDate(issuedOn), due: niceDate(invoiceDueDate(issuedOn)),
+      season: issuedOn.getFullYear(),
+      invoiceNo: invoiceEmailNumber(key, issuedOn.getFullYear()),
+      properties: billHouses.length,
+      billTo: { name: d.name, address: d.address, phone: d.phone },
+      biz: { phone: siteContentCache.phoneDisplay || '(801) 901-0011', email: siteContentCache.email || 'service@highlightingutah.com', site: PORTAL_ADDRESS },
+      venmo: VENMO_HANDLE,
+      paidOn: toJsDate(inv.lastPaymentAt) ? niceDate(toJsDate(inv.lastPaymentAt)) : ''
     }));
     body = body.split('{{feet_line}}').join(feetLine);
     body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? ('Installation fee = ' + fmtMoney(NEW_MEMBER_FEE)) : '');
