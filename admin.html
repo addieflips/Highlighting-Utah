@@ -73270,6 +73270,14 @@ let HANG_DAY = null;
    ⚠ IT NEEDS THE PAGE OPEN. The scheduler lives in this page, not on the server, so "a morning" is the first time
    anybody has Routes open from that hour on (the five-minute timer covers a tab left open overnight). */
 const MORNING_RECALC_HOUR = 5;
+/* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-127]] — IT NEVER RUNS ITSELF. Addie, three days after the block above shipped:
+   "never recalculate unless we push button recalculate." A Recalculate re-lays every day from tomorrow on, so a press
+   nobody made moves several hundred customers' dates with nobody having decided to — and on the morning this was said
+   it had just done exactly that. The switch is the whole of it: maybeMorningRecalc returns before it reads anything.
+   ⚠ KEPT, NOT DELETED, with the reasoning above intact: Dax's measurement is still true (a missed house waits far
+   longer without a press), and it is why a missed day is the moment to press the button. Turning this back on is a
+   new ruling from Addie or Dax, never a tidy-up. LAST_RECALC_ON is still stamped by every press and still saved. */
+const AUTO_MORNING_RECALC = false;
 let LAST_RECALC_ON = null;
 function morningRecalcDue(nowParts, lastOn){
   if(!nowParts || !nowParts.date) return false;
@@ -82294,6 +82302,7 @@ function exportCSV(){
   /* [[SCH-124]] press Recalculate everything for the office once a morning. Through the button, so it waits for the forecast,
      refuses while the customer list is loading or a press is running, and reports exactly as a press does. */
   function maybeMorningRecalc(){
+    if(!AUTO_MORNING_RECALC) return false;   // [[SCH-127]] only a person pressing the button recalculates
     if(!loaded) return false;
     if(typeof jobAddresses==='undefined'||!jobAddresses.length) return false;
     if(recalcRunning) return false;

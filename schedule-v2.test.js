@@ -1509,8 +1509,19 @@ suite('SCH-123 Two weeks of real presses and syncs: the next two days never move
   check('23.2 nobody on Build, Timer, Color Change or Recycle is on any day, after a sync or a Recalculate', failB.length === 0, failB.slice(0, 4).join(' | '));
   check('23.3 and the next Recalculate puts everybody taken off a list back on a day', failC.length === 0, failC.slice(0, 4).join(' | '));
 }
-suite('SCH-124 Recalculate everything runs itself once a morning, so a missed house is on a new day by the next morning');
+suite('SCH-124 / SCH-127 Recalculate everything never runs itself — a press each morning still rescues every missed house');
 {
+  /* ⛔ [[SCH-127]], 2026-10-12, SUPERSEDES SCH-124's automatic run. Addie: "never recalculate unless we push button
+     recalculate." The mechanism below is still checked (the stamp, the saved date) because every press still uses it;
+     what changed is that nothing presses the button for anybody. */
+  {
+    const c0 = admin.split('\r\n').join('\n');
+    const at = c0.indexOf('function maybeMorningRecalc(){');
+    const first = at === -1 ? '' : c0.slice(at + 'function maybeMorningRecalc(){'.length).trim();
+    check('24.0 the automatic morning run is switched off, and the switch is the first thing it asks',
+      c0.indexOf('const AUTO_MORNING_RECALC = false;') !== -1 &&
+      first.indexOf('if(!AUTO_MORNING_RECALC) return false;') === 0);
+  }
   const M = lift(['morningRecalcDue'], 'const MORNING_RECALC_HOUR = 5;', 'return {due: morningRecalcDue};');
   check('24.1 not before five in the morning', M.due({date: '2026-10-12', hour: 4, minute: 59}, '2026-10-09') === false);
   check('24.2 from five on, once the date has moved on since the last press', M.due({date: '2026-10-12', hour: 5, minute: 0}, '2026-10-09') === true);
