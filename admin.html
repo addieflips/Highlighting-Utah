@@ -80254,7 +80254,7 @@ async function saveNow(){
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
-  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';mirrorStampsSoon();}catch(e){planSyncedKey=prev;
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;mirrorStampsSoon();}catch(e){planSyncedKey=prev;
     /* ⛔ SAID, AND WITH THE REAL REASON (2026-10-12). This read "check connection" whatever went wrong and logged
        nothing, so a plan Firestore was REFUSING — not a network fault at all — failed in five grey words for twelve
        days while each computer went on showing its own schedule. planSaveProblem names the field when it is ours. */
