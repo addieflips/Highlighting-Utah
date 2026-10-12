@@ -79,7 +79,7 @@ function lift(name) {
    having been caught by ten times — so the list is asserted and a change to it is a
    deliberate edit here. */
 const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
-  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer',
+  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'toMillis', 'logNightlyInvoiceRun',
   /* ⚠ ADDED ON THE MERGE OF 2026-10-06, and this is the extraction-list trap for the
