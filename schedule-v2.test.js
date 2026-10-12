@@ -224,7 +224,20 @@ suite('1.1 The Schedule is the only install-date authority');
      reaches the others instead of being saved over by their stale copy. */
   check('a loaded plan follows Firestore live', /hydrate\(s\.data\(\)\);planSyncedKey=planKey\(s\.data\(\)\);[^\n]*followPlanLive\(\)/.test(noComments) &&
     /function followPlanLive\(\)\{[\s\S]*?onSnapshot\(PLAN_REF\(\)/.test(noComments));
-  check('a save with nothing new is not written', /if\(k===planSyncedKey\)\{[^\n]*return; \}/.test(noComments));
+  /* 2026-10-12: "unsaved" has to mean a save is queued. The five-minute sync freezes days in memory and used to
+     return without saving, so an idle computer differed for ever and refused every plan the other one sent. */
+  check('another computer\'s plan is only held off by a save that is really queued',
+    /if\(\(mine!==planSyncedKey && savePending\) \|\| recalcRunning\)/.test(noComments) &&
+    /function scheduleSave\(\)\{clearTimeout\(saveTimer\);savePending=true;/.test(noComments) &&
+    /async function saveNow\(\)\{\s*savePending=false;/.test(noComments));
+  check('a sync tick that only froze the printed days still saves them', (function(){
+    const i = noComments.indexOf('window.scheduleSyncFromCustomers=function');
+    const j = noComments.indexOf('syncHousesFromCustomers()', i);
+    return i > 0 && j > i && noComments.slice(i, j).indexOf('if(freezePrintedDays()) scheduleSave();') !== -1;
+  })());
+  check('a failed save says so, with the reason, and is logged',
+    /catch\(e\)\{planSyncedKey=prev;[\s\S]{0,400}planSaveProblem\(data\)[\s\S]{0,400}console\.error\([\s\S]{0,300}NOT SAVED/.test(noComments));
+  check('a save with nothing new is not written',/if\(k===planSyncedKey\)\{[^\n]*return; \}/.test(noComments));
   check('"is this day real" asks the Schedule, not the crew-routes calendar', (function(){
     const s = extractFn(admin, 'scheduledDayIsReal') || '';
     return s.indexOf('window.schedulePlanBookings()') !== -1 && s.indexOf('window.schedulePlanBookings()') < s.indexOf('scheduledRoutesCache');
@@ -1567,6 +1580,39 @@ suite('SCH-126 Every crew drives the shortest route, and who is on which crew do
   check('25.1 the run had routes small enough to check exactly', checked >= 3, String(checked));
   check('25.2 every one of them is driven in the shortest possible order, yard to yard', over.length === 0, over.slice(0, 4).join(' | '));
   /* (the order-independent crew split is proved by 25.2: undone, routes come back longer than the shortest — measured) */
+}
+/* ======================================================================================= */
+suite('The plan Firestore is handed can actually be saved (2026-10-12)');
+{
+  /* ⛔ WHY THIS EXISTS. From SCH-106 (2026-09-30) a locked day's crew split was written as a list of
+     lists, which Firestore refuses — and it refuses the whole document. Every save made once the
+     customers had loaded failed in five grey words, so a Recalculate existed on the computer that
+     pressed it and nowhere else, for twelve days, with every gate green: nothing here ever looked at
+     the plan as it is WRITTEN. This runs the real press and reads the real serialize(). */
+  const book = makeBook(120, 110);
+  H.setNow(TODAY); H.load(book, {}); H.press();
+  H.load(book, {season: H.season()}); H.press();
+  const out = H.api.serialize();
+  const frozen = out.days.filter(function(d){ return Array.isArray(d.frozenCrews); });
+  check('26.0 the press froze at least one day, so the checks below have something to read', frozen.length >= 1, String(frozen.length));
+  check('26.1 nothing in the written plan is a list inside a list, or undefined', H.api.planSaveProblem(out) === '', H.api.planSaveProblem(out));
+  check('26.2 each crew of a frozen split is written as its own map of ids',
+    frozen.every(function(d){ return d.frozenCrews.every(function(c){ return c && !Array.isArray(c) && Array.isArray(c.ids); }); }));
+  check('26.3 the checker itself bites: a list inside a list and an undefined are both named',
+    /list inside a list/.test(H.api.planSaveProblem({days: [{frozenCrews: [['a']]}]})) &&
+    H.api.planSaveProblem({days: [{x: undefined}]}) === 'days[0].x is undefined' &&
+    H.api.planSaveProblem({days: [{ids: ['a'], m: {k: [1]}}], n: null}) === '');
+  /* The round trip, through JSON as Firestore would hand it back: same split, same houses on the same crew. */
+  const before = H.season().map(function(d){ const s = H.api.frozenCrewSplit(d); return s ? s.map(function(c){ return c.map(function(h){ return String(h.id); }); }) : null; });
+  H.api.hydrate(JSON.parse(JSON.stringify(out)));
+  const after = H.season().map(function(d){ const s = H.api.frozenCrewSplit(d); return s ? s.map(function(c){ return c.map(function(h){ return String(h.id); }); }) : null; });
+  check('26.4 a frozen split comes back exactly as it was saved', before.some(Boolean) && JSON.stringify(before) === JSON.stringify(after));
+  check('26.5 and saving it again writes the same plan (no bounce between two computers)', JSON.stringify(H.api.serialize().days) === JSON.stringify(out.days));
+  /* A plan in the old shape can only exist in memory on a page left open, but hydrate must not choke on one. */
+  const old = JSON.parse(JSON.stringify(out));
+  old.days.forEach(function(d){ if(d.frozenCrews) d.frozenCrews = d.frozenCrews.map(function(c){ return c.ids; }); });
+  H.api.hydrate(old);
+  check('26.6 the old list-of-lists shape is still read', JSON.stringify(H.api.serialize().days) === JSON.stringify(out.days));
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
