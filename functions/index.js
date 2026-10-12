@@ -5923,8 +5923,9 @@ function invoiceEmailBlockServer(v){
     html += '<div style="border-top:1px solid ' + line + '; margin:20px 0 16px; font-size:0; line-height:0;">&nbsp;</div>' +
       p(cap + ' padding-bottom:8px;', 'How to pay') +
       p(how, biz.site ? ('Online — ' + e(biz.site) + ', sign in to your member portal') : '') +
-      p(how, v.venmo ? ('Venmo — @' + e(v.venmo)) : '') +
-      p(how, 'Cheque — payable to Highlighting Utah');
+      /* ⛔ NO CHEQUE LINE (EM-30, 2026-10-12). Addie: "Should not show this on invoice.
+         Cheque — payable to Highlighting Utah". Online and Venmo are the two ways. */
+      p(how, v.venmo ? ('Venmo — @' + e(v.venmo)) : '');
   }
   html += '</td></tr></table>';
   return html;

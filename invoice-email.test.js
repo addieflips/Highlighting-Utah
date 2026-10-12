@@ -92,7 +92,11 @@ if (A && S) {
   check('one house: Bill to names them, escaped, with address and phone',
     one.html.indexOf('Bill to') !== -1 && one.html.indexOf('Test &lt;Person&gt;') !== -1 && one.html.indexOf('209 S 850 W, Lehi, UT') !== -1 && one.html.indexOf('3853912235') !== -1);
   check('one house: Description / Amount, Payment status and How to pay are all there',
-    ['>Description<', '>Amount<', 'Payment status', 'How to pay', 'Venmo — @HighLightingUtah', 'Cheque — payable to Highlighting Utah'].every(function (t) { return one.html.indexOf(t) !== -1; }));
+    ['>Description<', '>Amount<', 'Payment status', 'How to pay', 'Venmo — @HighLightingUtah', 'sign in to your member portal'].every(function (t) { return one.html.indexOf(t) !== -1; }));
+  /* EM-30. Addie: "Should not show this on invoice. Cheque — payable to Highlighting Utah". */
+  check('no invoice offers a cheque: not the email, not the printable one',
+    !/cheque/i.test(one.html) && adminSrc.indexOf("payable to Highlighting Utah'") === -1
+      && adminSrc.indexOf('payable to Highlighting Utah</p>') === -1 && fnsSrc.indexOf("payable to Highlighting Utah'") === -1);
   check('one house: a single house does not say Covers', one.html.indexOf('Covers') === -1);
 
   const two = out['two houses, fee, change fee, credit, part paid'];
