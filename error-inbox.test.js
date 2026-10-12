@@ -1767,6 +1767,30 @@ console.log('--- wiring ---');
     'that one is about a page failing right now, not about a season of history');
 }
 
+/* ⭐ A LOST REPLY IS NOT CALLED SAVED (2026-10-12). Billing on the Firebase project was off
+   from 8 October and every portalRsvp call was refused before our code ran. The browser
+   reports that as `internal`, the same code a lost response gives, and fourteen rows told
+   the office "this one has probably gone through" about answers that never arrived.
+   ⚠ READ OFF THE STRING LITERALS, NOT THE FILE: the comment above the wording quotes the
+   retired sentence in order to explain it, and a plain search finds that and fails a
+   correct file. */
+{
+  const at = index.indexOf('(opts && opts.maybeSaved');
+  const end = at === -1 ? -1 : index.indexOf(": 'They were shown an apology", at);
+  const branch = (at === -1 || end === -1) ? '' : index.slice(at, end);
+  const said = (branch.match(/'(?:[^'\\]|\\.)*'/g) || []).join(' ');
+  check('the maybe-saved wording was found',
+    said.length > 100,
+    'the anchors moved, so the two checks below would pass on nothing');
+  check('a reply we got no answer for is never reported as probably saved',
+    !/probably gone through|has gone through|is saved\b/i.test(said),
+    'no answer back cannot tell a lost confirmation from a request that never reached us');
+  check('and it still sends the office to the record, and says both outcomes',
+    /CHECK THE RECORD BEFORE ACTING/.test(said) && /never reached us/.test(said) &&
+    /only the confirmation was lost/.test(said),
+    'softened to nothing, a real loss reads as a maybe and is never chased');
+}
+
 seedChecks.then(() => {
   console.log('');
   console.log('=== When something goes wrong, somebody is told ===');

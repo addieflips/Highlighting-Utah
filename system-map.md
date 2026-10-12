@@ -5175,6 +5175,19 @@ is still true of — a refused write, a stale link, anything that failed before 
 because a real loss reading as a maybe is how an answer nobody has is never chased. The caller
 says which it is.
 
+⚠ **But the Inbox row no longer says "probably gone through" (2026-10-12).** Billing on the
+Firebase project was off from the evening of 8 October, and Google refused every call before
+`portalRsvp` ran. The browser reports that as `internal` — the same code a lost confirmation
+gives — so fourteen rows told the office an answer had probably saved when the server had never
+been reached. The row now says both outcomes look the same from the website and that the
+customer's record is the only thing that tells them apart.
+
+**If several "Answering Yes … internal" rows arrive close together, check the server before
+ringing anybody:** Firebase console → Functions → Logs. A line reading *"The request failed
+because billing is disabled for this project"* means every function is down — portal sign-in,
+RSVP answers, the 9 AM RSVP batch and nightly invoicing — and the fix is in Google's billing
+page, not in the code.
+
 ⭐ **And the route sweep stopped reading the whole season.** `removeCustomerFromUpcomingRoutes`
 read **every** `scheduledRoutes` document ever written and threw most of them away on the next
 line. It now asks for `date >= today`. That runs inside `portalRsvp` after the answer is written
