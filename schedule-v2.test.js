@@ -735,7 +735,12 @@ suite('9 Simulated seasons: small, medium, full, adversarial');
     rnd.sort(function(a, b){ return a - b; });
     const rmed = rnd.length ? rnd[Math.floor(rnd.length / 2)] : 0;
     check(label + ': crew sheets are geographically grouped (median widest pair ' + med.toFixed(1) + ' mi vs ' + rmed.toFixed(1) + ' mi at random)',
-      rnd.length === 0 || med <= rmed * (book.length >= 500 ? 0.3 : 0.7), med.toFixed(1) + ' vs ' + rmed.toFixed(1));
+      /* [[SCH-128]], 2026-10-12: REPOINTED, NOT WEAKENED FOR THE REAL BOOK. The full season keeps its 0.3 bar (measured
+         4.0 -> 5.0 mi, against 34 at random). A season of 100 moved 8.4 -> 12.6 mi and its bar goes 0.7 -> 0.85: no crew
+         may go out under ten now, so a short run is joined to the nearest one instead of standing alone, and a day
+         under twenty is one crew holding all of it. A season of 20 is one or two such days — there is no grouping left
+         to judge, so it is printed and not scored. */
+      rnd.length === 0 || book.length < 50 || med <= rmed * (book.length >= 500 ? 0.3 : 0.85), med.toFixed(1) + ' vs ' + rmed.toFixed(1));
     /* ⚠ WHY THE BAR MOVES WITH SIZE: a season of 20 or 100 is one to three days, and the owner's rule is a FULL
        day before a tidy one ("we want to prioritize everyday having 40 houses") — so a small season's sheets
        must span towns. A real-sized book has the density to be tight, and there the bar is 30% of random. */
@@ -1098,10 +1103,21 @@ suite('13 Individual customer priority');
     .sort(function(a, b){ return dayIndex['cust-' + b.id] < dayIndex['cust-' + a.id] ? -1 : 1; });   // latest-placed first
   /* 13.2 / 13.4 / 13.7: priority on → earlier, near other work, one house moves */
   {
-    const c = lateAny[0];
+    /* [[SCH-128]], 2026-10-12: the latest-placed customer used to sit on a thin day at the end and always had an
+       emptier day to move to. Those thin days are gone, so the latest one may be on a day with nothing earlier that has
+       room. The claim is unchanged — a priority customer who CAN be moved earlier is, near other work, and alone — so
+       it is asked of the latest-placed customer for whom there is somewhere to go. */
+    let c = null, r = null;
+    for(let k = 0; k < lateAny.length && k < 60 && !c; k++){
+      const cand = lateAny[k];
+      cand.data.rushInstall = true;
+      const rr = H.api.advancePriorityHouses();
+      if(rr.moved.some(function(m){ return m.name === cand.data.name; })){ c = cand; r = rr; }
+      else cand.data.rushInstall = false;
+    }
+    check('13.4: there is a late-placed customer with somewhere earlier to go', !!c);
+    if(!c){ c = lateAny[0]; r = {moved: []}; }
     const was = dayIndex['cust-' + c.id];
-    c.data.rushInstall = true;
-    const r = H.api.advancePriorityHouses();
     const now = dayOfCust(c.id);
     const moved = r.moved.filter(function(m){ return m.name === c.data.name; })[0];
     check('13.4: a priority customer is moved EARLIER', now < was, was + ' → ' + now);
@@ -1578,15 +1594,23 @@ suite('SCH-126 Every crew drives the shortest route, and who is on which crew do
   };
   check('25.0 the yard resolves, so every tour below is a real round trip', !!(yard && typeof yard.lat === 'number'));
   let checked = 0; const over = [];
-  H.api.installDays().forEach(function(d){
+  const scan = function(){ H.api.installDays().forEach(function(d){
     H.api.crewIndexes().forEach(function(i){
       const hs = H.api.crewHousesFor(i, d) || [];
-      if(hs.length < 4 || hs.length > 12) return;
+      /* 15, not 12, since [[SCH-128]]: no crew goes out under ten, so the runs small enough to solve exactly are 10-15. */
+      if(hs.length < 4 || hs.length > 15) return;
       const P = hs.map(ptOfH); if(P.some(function(p){ return !p || typeof p.lat !== 'number'; })) return;
       checked++;
       const a = tour(P), e = exact(P);
       if(a > e + 0.05) over.push(H.api.isoOf(H.api.dayDate(d)) + ' crew ' + (i + 1) + ' ' + a.toFixed(2) + ' vs ' + e.toFixed(2));
     });
+  }); };
+  scan();
+  /* [[SCH-128]]: a full season no longer has short runs to solve exactly, so three small seasons supply them —
+     each is a day or two of ten to fifteen houses a crew, ordered by the same code. */
+  [[26, 201], [30, 202], [34, 203]].forEach(function(spec){
+    H.setNow(new Date(2026, 9, 9, 7, 0)); H.load(makeBook(spec[0], spec[1]), {}); H.press();
+    scan();
   });
   check('25.1 the run had routes small enough to check exactly', checked >= 3, String(checked));
   check('25.2 every one of them is driven in the shortest possible order, yard to yard', over.length === 0, over.slice(0, 4).join(' | '));
@@ -1653,6 +1677,61 @@ suite('A kept day in the future holds its own date, not the whole calendar (2026
   H.load(book, {season: H.season()}); H.press();
   const late2 = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
   check('27.4 a further press keeps it that way', late2.length === 0 && daysOf().filter(function(d){ return d.ds === '2026-11-02'; }).length === 1);
+}
+/* ======================================================================================= */
+suite('SCH-128 No crew goes out for fewer than ten houses');
+{
+  /* Addie, 2026-10-12: "there should be at least 10 houses for each day for each crew" — a crew may run a few over
+     twenty, a day holds forty at most, a stuck date wins, and the late leftovers share one day. Run on the REAL press,
+     over three different books, because every claim is about where a house ends up. */
+  const crewCounts = function(){
+    return H.api.installDays().map(function(d){
+      const ds = H.api.isoOf(H.api.dayDate(d));
+      const runs = H.api.crewIndexes().map(function(i){ return (H.api.crewHousesFor(i, d) || []).length; }).filter(function(n){ return n > 0; });
+      return {ds: ds, total: (d.houses || []).length, runs: runs, day: d};
+    }).filter(function(x){ return x.total > 0; });
+  };
+  [[400, 128], [600, 129], [240, 130]].forEach(function(spec, k){
+    const book = makeBook(spec[0], spec[1]);
+    H.setNow(TODAY); H.load(book, {}); H.press();
+    H.load(book, {season: H.season()}); H.press();
+    const days = crewCounts();
+    const shortCrew = days.filter(function(x){ return x.total >= 10 && x.runs.some(function(n){ return n < 10; }); });
+    check('28.' + k + 'a book ' + spec[1] + ': on a day of ten or more, every crew out has at least ten', shortCrew.length === 0,
+      shortCrew.slice(0, 5).map(function(x){ return x.ds + ' ' + x.runs.join('/'); }).join(' | '));
+    const tiny = days.filter(function(x){ return x.total < 10; });
+    check('28.' + k + 'b book ' + spec[1] + ': at most two days in the whole season are left under ten (a named day or a window nothing else may share)', tiny.length <= 2,
+      tiny.map(function(x){ return x.ds + ' ' + x.total; }).join(' | '));
+    const over = days.filter(function(x){ return x.total > 40 || x.runs.some(function(n){ return n > 24; }); });
+    check('28.' + k + 'c book ' + spec[1] + ': no day over forty and no crew over twenty-four', over.length === 0,
+      over.slice(0, 5).map(function(x){ return x.ds + ' ' + x.total + ' ' + x.runs.join('/'); }).join(' | '));
+    const v = H.api.validateSeasonPlan({});
+    check('28.' + k + 'd book ' + spec[1] + ': and every placement rule still holds (month, deadline, away, nobody lost)', v.length === 0, JSON.stringify(v.slice(0, 2)));
+    const late = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
+    check('28.' + k + 'e book ' + spec[1] + ': nobody who asked for October was pushed into November to fill a day', late.length === 0, String(late.length));
+  });
+  /* a stuck date wins, even alone */
+  {
+    const book = makeBook(200, 131);
+    const stuck = book.filter(function(b){ return b.data.installPreference === 'Normal Schedule'; })[0];
+    stuck.data.stuckOnDate = '2026-12-04';
+    H.setNow(TODAY); H.load(book, {}); H.press();
+    H.load(book, {season: H.season()}); H.press();
+    check('28.9 a customer stuck on a date keeps it, even when that makes a day of one', dayOfCust(stuck.id) === '2026-12-04', dayOfCust(stuck.id));
+  }
+  /* the split inside a day */
+  {
+    const mk = function(n, town, tag){ const a = []; for(let i = 0; i < n; i++) a.push({id: tag + i, name: tag + i, address: i + ' St', city: town}); return a; };
+    H.setNow(TODAY); H.load([], {});
+    const d14 = {id: 't1', base: 40, cascade: 0, pin: null, houses: mk(9, 'Lehi', 'a').concat(mk(5, 'Orem', 'b'))};
+    H.setSeason([d14]);
+    const s14 = H.api.dayCrewHouses(d14).map(function(c){ return c.length; }).filter(Boolean);
+    check('28.10 fourteen houses in two towns is ONE crew holding all fourteen, not seven-ish and seven-ish', s14.length === 1 && s14[0] === 14, s14.join('/'));
+    const d23 = {id: 't2', base: 41, cascade: 0, pin: null, houses: mk(17, 'Lehi', 'c').concat(mk(6, 'Provo', 'd'))};
+    H.setSeason([d23]);
+    const s23 = H.api.dayCrewHouses(d23).map(function(c){ return c.length; }).filter(Boolean).sort(function(x, y){ return x - y; });
+    check('28.11 twenty-three houses split seventeen and six is re-divided so both crews have ten or more', s23.length === 2 && s23[0] >= 10 && s23[0] + s23[1] === 23, s23.join('/'));
+  }
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};

@@ -64760,7 +64760,17 @@ function planNewCrewDays(waiting, taken, opts){
         blockedOn: function(id, ds){ return houseFrozen(wById[id], ds); }
       })
     : gathered;
-  return renumberCrewsByDate(evened, taken || {});
+  /* ⭐ [[SCH-128]]: and last of all, no crew is left out for fewer than ten. After the evening, so a run the evening
+     could top up is not taken apart first. Guarded like the passes above — a suite that lifts this builder without it
+     gets the season exactly as it was. */
+  const minned = (o.minCrew !== false && typeof enforceCrewMinimum === 'function')
+    ? enforceCrewMinimum(evened, {
+        cap: cap, crews: crews, dayShape: o.dayShape,
+        house: function(id){ return wById[id] || null; },
+        blockedOn: function(id, ds){ return houseFrozen(wById[id], ds); }
+      })
+    : evened;
+  return renumberCrewsByDate(minned, taken || {});
 }
 /* ⭐ A HOUSE WAY OUT OF THE WAY GOES ON THE DAY THE CREW IS ALREADY IN ITS AREA
    ([[SCH-96]], Dax, 2026-09-24): "on the schedule I noticed we do a house in Lehi way
@@ -65249,6 +65259,255 @@ function evenCrewDates(days, opts){
    house ever lands before the day it is allowed on.
 
    PURE: crew-days in, crew-days out. {date, crew, city, towns, ids}. */
+/* ⭐⭐ [[SCH-128]] NO CREW GOES OUT FOR FEWER THAN TEN HOUSES (Addie, 2026-10-12): "there should be at least 10 houses
+   for each day for each crew." Asked what gives way: a crew may run "a few over" twenty to absorb a short day, a day
+   still holds forty at most ("Can go up to 40 but 10 for each crew minimum"), a customer stuck on a date keeps it
+   ("Stuck date wins"), and the late leftovers share one day rather than three tiny ones ("Combine into one day").
+   ⚠ THIS SUPERSEDES THE ONE-MAN DAY AS SOMETHING THE BUILDER MAKES ON PURPOSE (2026-08-20, "8 or fewer = one man",
+   and the wasted-morning rescue that fired only below nine). Those are kept where they stand: a short day can still
+   EXIST — a stuck date, a date the office marked, a house too far from everybody — and it is still one person's work.
+   What changed is that the builder now takes every short crew-day apart where its houses have somewhere legal to go.
+
+   ① DISSOLVE. A crew-day under the minimum hands every house to another crew-day: never before a house's first
+     allowed day, never past its last, never while they are away; into a crew of at most cap + CREW_OVERFLOW_HOUSES and
+     a date of at most crews × cap; the nearest crew first (within MIN_CREW_REACH_MILES of a house already on that run,
+     or the same town where there is no pin), then an earlier date over a later one. ALL OR NONE, as the tail sweep is:
+     half a dissolved crew-day is the same morning for fewer houses.
+   ② COMBINE. Dates whose WHOLE total is still under the minimum are folded together where every house may legally
+     ride the other date and the two are within reach. That is the season's tail.
+   ⚠ WHAT IT CANNOT FIX IS RETURNED IN `short`, so the button names it instead of looking as if the rule did not run.
+   ⚠ A DATE THE OFFICE SHAPED (one man / one crew) IS NEVER TOUCHED, as source or target: that size was asked for.
+   PURE: crew-days in, crew-days out ({date, crew, city, towns, areas, ids}). */
+const MIN_CREW_HOUSES = 10;
+const CREW_OVERFLOW_HOUSES = 4;
+const MIN_CREW_REACH_MILES = 30;
+function enforceCrewMinimum(days, opts){
+  const o = opts || {};
+  const house = typeof o.house === 'function' ? o.house : function(){ return null; };
+  const cap = o.cap || MAX_STOPS_PER_ROUTE;
+  const crews = o.crews || (typeof CREWS_PER_DAY === 'number' ? CREWS_PER_DAY : 2);
+  const min = o.min || MIN_CREW_HOUSES;
+  const over = o.overflow == null ? CREW_OVERFLOW_HOUSES : o.overflow;
+  const reach = o.reach == null ? MIN_CREW_REACH_MILES : o.reach;
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const canMeasure = typeof haversine === 'function';
+  const pinOf = function(id){
+    const w = house(id), st = w && w.stop;
+    return (canMeasure && st && typeof st.lat === 'number' && typeof st.lng === 'number' &&
+            isFinite(st.lat) && isFinite(st.lng)) ? st : null;
+  };
+  const townOf = function(id){ const w = house(id); return (w && w.city) || ''; };
+  const mayRide = function(id, ds){
+    const w = house(id);
+    const lo = (w && w.from) || '', hi = (w && w.until) || '';
+    if(lo && ds < lo) return false;
+    if(hi && ds > hi) return false;
+    if(typeof houseAwayOn === 'function' && w && houseAwayOn(w, ds)) return false;
+    if(typeof o.blockedOn === 'function' && o.blockedOn(id, ds)) return false;
+    return true;
+  };
+  /* The same hurry rule as gatherStrayHouses and evenCrewDates: nobody the plan is hurrying is pushed LATER to tidy a
+     day. Earlier is always allowed. */
+  const mayWait = function(id){
+    const w = house(id);
+    if(!w) return false;
+    const pr = (typeof w.priority === 'number') ? w.priority : 40;
+    return pr >= 20 && pr % 10 === 0 && !w.missed && !w.rush && !w.named;
+  };
+  const laterMax = (typeof STRAY_LATER_MAX_DAYS === 'number') ? STRAY_LATER_MAX_DAYS : 7;
+  const daysApart = function(a, b){
+    return Math.round((Date.UTC(+b.slice(0,4), +b.slice(5,7) - 1, +b.slice(8,10)) -
+                       Date.UTC(+a.slice(0,4), +a.slice(5,7) - 1, +a.slice(8,10))) / 86400000);
+  };
+  /* Miles from a house to a run: to the nearest pinned house on it. With no pin to measure, 0 when the run already
+     works that town and otherwise unknown — and unknown is never close enough. */
+  const milesTo = function(id, cd){
+    const p = pinOf(id);
+    if(p){
+      let best = Infinity;
+      cd.ids.forEach(function(x){
+        const q = pinOf(x);
+        if(!q) return;
+        const d = haversine(p.lat, p.lng, q.lat, q.lng);
+        if(d < best) best = d;
+      });
+      if(best < Infinity) return best;
+    }
+    const t = townOf(id);
+    return (t && ((cd.towns || []).indexOf(t) !== -1 || cd.city === t)) ? 0 : Infinity;
+  };
+  const list = (days || []).filter(function(cd){ return cd && cd.ids && cd.ids.length; });
+  const dateTotal = function(ds){
+    let n = 0;
+    list.forEach(function(cd){ if(cd.date === ds) n += cd.ids.length; });
+    return n;
+  };
+  const retown = function(cd){
+    const left = {};
+    cd.ids.forEach(function(x){ const t = townOf(x); if(t) left[t] = (left[t] || 0) + 1; });
+    const names = Object.keys(left).sort(function(x, y){ return left[y] - left[x] || (x < y ? -1 : 1); });
+    if(Array.isArray(cd.towns)) cd.towns = names.slice();
+    if(names.length && !left[cd.city]) cd.city = names[0];
+    if(Array.isArray(cd.areas)){
+      const a = [];
+      cd.ids.forEach(function(x){ const w = house(x); if(w && w.area && a.indexOf(w.area) === -1) a.push(w.area); });
+      if(a.length) cd.areas = a;
+    }
+  };
+  const moved = [], combined = [];
+  /* ① dissolve, latest date first, so a house tends to move EARLIER onto a day already going out */
+  const order = list.slice().sort(function(a, b){
+    if(a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return a.ids.length - b.ids.length;
+  });
+  order.forEach(function(src){
+    if(!src.ids.length || src.ids.length >= min) return;
+    if(dayShape(src.date)) return;
+    const plan = [], addTo = new Map(), addDate = {};
+    for(let k = 0; k < src.ids.length; k++){
+      const id = src.ids[k];
+      let best = null;
+      list.forEach(function(tgt){
+        if(tgt === src || !tgt.ids.length) return;
+        /* never into another short run on a different date: that is ②, which moves a date whole */
+        if(tgt.ids.length < min && tgt.date !== src.date) return;
+        if(dayShape(tgt.date)) return;
+        if(!mayRide(id, tgt.date)) return;
+        if(tgt.date > src.date && (!mayWait(id) || daysApart(src.date, tgt.date) > laterMax)) return;
+        if(tgt.ids.length + (addTo.get(tgt) || 0) >= cap + over) return;
+        if(tgt.date !== src.date && dateTotal(tgt.date) + (addDate[tgt.date] || 0) >= crews * cap) return;
+        const miles = milesTo(id, tgt);
+        if(!(miles <= reach)) return;
+        const c = {tgt: tgt, miles: Math.round(miles), later: tgt.date > src.date ? 1 : 0};
+        let better;
+        if(!best) better = true;
+        else if(c.miles !== best.miles) better = c.miles < best.miles;          /* the nearest crew, to the mile */
+        else if(c.later !== best.later) better = c.later < best.later;          /* then earlier over later */
+        else if(c.later) better = tgt.date < best.tgt.date;                     /* then the closest date */
+        else better = tgt.date > best.tgt.date;
+        if(better) best = c;
+      });
+      if(!best) break;
+      addTo.set(best.tgt, (addTo.get(best.tgt) || 0) + 1);
+      if(best.tgt.date !== src.date) addDate[best.tgt.date] = (addDate[best.tgt.date] || 0) + 1;
+      plan.push({id: id, tgt: best.tgt});
+    }
+    if(plan.length !== src.ids.length) return;
+    plan.forEach(function(p){
+      p.tgt.ids.push(p.id);
+      moved.push({id: p.id, from: src.date, to: p.tgt.date});
+    });
+    src.ids = [];
+    plan.forEach(function(p){ retown(p.tgt); });
+  });
+  let live = list.filter(function(cd){ return cd.ids.length; });
+  /* ② combine the dates whose whole total is still under the minimum */
+  for(let guard = 0; guard < 200; guard++){
+    const dates = [];
+    live.forEach(function(cd){ if(dates.indexOf(cd.date) === -1) dates.push(cd.date); });
+    dates.sort();
+    const tot = function(ds){
+      let n = 0;
+      live.forEach(function(cd){ if(cd.date === ds) n += cd.ids.length; });
+      return n;
+    };
+    const shortDates = dates.filter(function(ds){ return tot(ds) < min && !dayShape(ds); });
+    let done = false;
+    for(let a = 0; a < shortDates.length && !done; a++){
+      for(let b = 0; b < shortDates.length && !done; b++){
+        if(a === b) continue;
+        const from = shortDates[a], to = shortDates[b];
+        const riders = live.filter(function(cd){ return cd.date === from; });
+        const hosts = live.filter(function(cd){ return cd.date === to; });
+        const ids = riders.reduce(function(x, cd){ return x.concat(cd.ids); }, []);
+        if(!ids.every(function(id){ return mayRide(id, to); })) continue;
+        if(to > from && !ids.every(mayWait)) continue;
+        if(tot(from) + tot(to) > cap + over) continue;
+        if(!ids.every(function(id){ return hosts.some(function(h){ return milesTo(id, h) <= reach; }); })) continue;
+        const host = hosts[0];
+        ids.forEach(function(id){ host.ids.push(id); moved.push({id: id, from: from, to: to}); });
+        hosts.slice(1).forEach(function(h){ h.ids.forEach(function(id){ host.ids.push(id); }); h.ids = []; });
+        riders.forEach(function(cd){ cd.ids = []; });
+        retown(host);
+        combined.push({from: from, to: to, houses: ids.length});
+        done = true;
+      }
+    }
+    live = live.filter(function(cd){ return cd.ids.length; });
+    if(!done) break;
+  }
+  /* ③ TOP UP. A date still under the minimum borrows the nearest houses from fuller runs on other dates until it has
+     ten: 48 houses in one town is 20, 20 and 8, and the 8 has nowhere to dissolve to (the first date is full at forty)
+     and nobody to combine with — so it takes two back.
+     ⚠ ONLY WHAT THE MINIMUM NEEDS, AND NO MORE. "Nothing is trimmed to make the leftover look better" (2026-08-20:
+     seventeen and fifteen was tried and overruled) still stands for every day already at ten; a full early day gives
+     up a house only where the alternative is a crew sent out for fewer than ten.
+     ⚠ A donor run never drops below the minimum itself, a house only rides a date it is allowed on, nobody the plan is
+     hurrying is moved later, and it is all or none: a date that cannot reach ten is left exactly as it was. */
+  {
+    const dates = [];
+    live.forEach(function(cd){ if(dates.indexOf(cd.date) === -1) dates.push(cd.date); });
+    dates.sort();
+    dates.forEach(function(ds){
+      if(dayShape(ds)) return;
+      const mine = live.filter(function(cd){ return cd.date === ds && cd.ids.length; });
+      if(!mine.length) return;
+      let have = 0;
+      mine.forEach(function(cd){ have += cd.ids.length; });
+      if(have >= min) return;
+      const host = mine.slice().sort(function(a, b){ return b.ids.length - a.ids.length; })[0];
+      const taken = [], left = new Map();
+      for(let need = min - have; need > 0; need--){
+        let best = null;
+        live.forEach(function(src){
+          if(src.date === ds || dayShape(src.date)) return;
+          const remaining = src.ids.length - (left.get(src) || 0);
+          if(remaining - 1 < min) return;
+          src.ids.forEach(function(id){
+            if(taken.some(function(t){ return t.id === id; })) return;
+            if(!mayRide(id, ds)) return;
+            if(ds > src.date && (!mayWait(id) || daysApart(src.date, ds) > laterMax)) return;
+            let miles = Infinity;
+            mine.forEach(function(cd){ const m = milesTo(id, cd); if(m < miles) miles = m; });
+            taken.forEach(function(t){
+              const a = pinOf(id), b = pinOf(t.id);
+              if(a && b){ const d = haversine(a.lat, a.lng, b.lat, b.lng); if(d < miles) miles = d; }
+            });
+            if(!(miles <= reach)) return;
+            if(!best || miles < best.miles) best = {id: id, src: src, miles: miles};
+          });
+        });
+        if(!best) break;
+        taken.push(best);
+        left.set(best.src, (left.get(best.src) || 0) + 1);
+      }
+      if(have + taken.length < min) return;
+      taken.forEach(function(t){
+        t.src.ids = t.src.ids.filter(function(x){ return x !== t.id; });
+        host.ids.push(t.id);
+        moved.push({id: t.id, from: t.src.date, to: ds});
+        retown(t.src);
+      });
+      retown(host);
+    });
+  }
+  /* What is left: a date whose whole total is under the minimum. A date at or over it is one crew, or re-divides
+     itself into crews of ten or more when it is drawn (dayCrewCount / dayCrewHouses). */
+  const short = [], seen = {};
+  live.forEach(function(cd){
+    if(seen[cd.date]) return;
+    seen[cd.date] = true;
+    let n = 0;
+    live.forEach(function(x){ if(x.date === cd.date) n += x.ids.length; });
+    if(n < min && !dayShape(cd.date)) short.push({date: cd.date, houses: n});
+  });
+  live.evened = days && days.evened;
+  live.uneven = days && days.uneven;
+  live.minMoved = moved;
+  live.minCombined = combined;
+  live.short = short;
+  return live;
+}
 /* Crew numbers, closed up. A crew-day that moved off a date can leave the one
    behind it labelled "crew 2" with no crew 1 — the number is only a label, but
    a gap in it reads as a crew that did not turn up.
@@ -66165,6 +66424,9 @@ async function reconcileUpcomingRoutes(){
          sent out in the cold is how they start disagreeing about one town. */
       const sweepTempFor = (typeof forecastHighFor === 'function') ? forecastHighFor : function(){ return null; };
       const newDays = planNewCrewDays(waiting, taken, {
+        /* [[SCH-128]] the ten-a-crew minimum belongs to the Schedule. This sweep is retired
+           (RECONCILE_SWEEP_ENABLED) and is left building exactly as it did. */
+        minCrew: false,
         maxDays: MAX_NEW_DAYS_PER_SWEEP,
         tempFor: sweepTempFor,
         coldBelow: (typeof COLD_DAY_MAX_F === 'number' ? COLD_DAY_MAX_F : 31),
@@ -74277,7 +74539,12 @@ function dayCrewHouses(day){
        been put in driving order by generateDayRoutes, and re-grouping it by town
        would hand the one person a sheet that criss-crosses. */
     const assigned = out.reduce(function(a, b){ return a.concat(b); }, []);
-    const all = (typeof isOneManDay === 'function' && isOneManDay(day))
+    /* ⭐ [[SCH-128]] AND SO DOES A DAY THE MINIMUM MADE ONE CREW. Under twenty houses nobody else is coming out that
+       day, so a house left off this sheet is a house on nobody's ([[SCH-67]]). A date the office marked one crew by
+       hand keeps the old rule: that is a choice about a day that may hold forty. */
+    const byMinimum = (day.houses || []).length < 2 * ((typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10) &&
+                      !(typeof dayLimitFor === 'function' && dayLimitFor(day));
+    const all = ((typeof isOneManDay === 'function' && isOneManDay(day)) || byMinimum)
       ? (day.houses || []).slice()
       : assigned;
     for(let i = 0; i < out.length; i++) out[i] = [];
@@ -74487,6 +74754,43 @@ function dayCrewHouses(day){
         if(pick === -1 || pickCost > (gap > hardGap ? hardReach : softReach)) break;
         out[small].push(out[big].splice(pick, 1)[0]);
       }
+    }
+  }
+  /* ⭐ [[SCH-128]] AND NO CREW IS LEFT UNDER TEN. dayCrewCount only asks for two crews when the day holds twenty, so
+     there is always enough to go round; a crew still short after the evening above (it stops at its reach limits, and
+     moves nothing it cannot measure) is given houses from the fullest crew until it has ten. The house cheapest for the
+     short crew where that can be measured, otherwise the last on the big crew's list — a count the rule requires is
+     worth a blind move, which a preference was not.
+     ⚠ A crew holding NOTHING is not out that day and is not filled; and a donor is never taken below ten itself. */
+  {
+    const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+    const canMeasure = typeof houseStopPoint === 'function' && typeof customerForHouse === 'function' &&
+                       typeof houseGeoPoint === 'function' && typeof haversine === 'function';
+    const pt = function(h){
+      const q = canMeasure ? houseStopPoint(h) : null;
+      return (q && typeof q.lat === 'number' && typeof q.lng === 'number' && isFinite(q.lat) && isFinite(q.lng)) ? q : null;
+    };
+    for(let g = 0; g < 200; g++){
+      let small = -1, big = -1;
+      out.forEach(function(list, i){
+        if(!list.length) return;
+        if(list.length < minCrew && (small === -1 || list.length < out[small].length)) small = i;
+        if(big === -1 || list.length > out[big].length) big = i;
+      });
+      if(small === -1 || big === -1 || big === small) break;
+      if(out[big].length - 1 < minCrew) break;
+      let pick = out[big].length - 1, best = Infinity;
+      out[big].forEach(function(h, k){
+        const a = pt(h);
+        if(!a) return;
+        out[small].forEach(function(other){
+          const b = pt(other);
+          if(!b) return;
+          const d = haversine(a.lat, a.lng, b.lat, b.lng);
+          if(d < best){ best = d; pick = k; }
+        });
+      });
+      out[small].push(out[big].splice(pick, 1)[0]);
     }
   }
   return out;
@@ -79318,6 +79622,15 @@ function dayCrewCount(day){
      ⚠ IT IS ASKED BEFORE THE TOWN COUNT, not folded into it, so the thing being
      overruled stays visible as the branch it is. */
   if(typeof isOneManDay === 'function' && isOneManDay(day)) return 1;
+  /* ⭐ [[SCH-128]] A DAY THAT CANNOT GIVE TWO CREWS TEN EACH IS ONE CREW (Addie, 2026-10-12: "at least 10 houses for
+     each day for each crew"). Under twenty houses there is no way to send two crews out with ten apiece, so the town
+     count below is not asked at all.
+     ⚠ THIS SUPERSEDES THE 2026-08-20 CLAUSE BELOW for a light day: thirteen houses in two towns that are not neighbours
+     used to be two crews of one town each. It is one crew now. The builder is what keeps such a day from being made
+     (enforceCrewMinimum only joins houses within reach); this decides only how many sheets a day already made prints. */
+  const dayN = ((day && day.houses) || []).length;
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  if(dayN < 2 * minCrew) return 1;
   const held = dayAssignedHouses(day);
   if(!held.length) return 1;
   /* ⚠ NEVER MORE CREWS THAN THERE ARE. Everything below asks how many the day WANTS;
@@ -79343,7 +79656,28 @@ function dayCrewCount(day){
      Two crews, one town each, is the correct answer for a pair like that — even though
      thirteen houses would fit on one sheet. */
   else byTowns = townsAreNeighbours(towns[0], towns[1], day) ? 1 : 2;
-  return Math.min(most, Math.max(1, bySize, byTowns));
+  /* and never more crews than can have ten each, whatever the towns ask for */
+  return Math.min(most, Math.max(1, Math.floor(dayN / minCrew)), Math.max(1, bySize, byTowns));
+}
+/* ⭐ [[SCH-128]] WHAT IS STILL UNDER TEN, SAID OUT LOUD. The builder dissolves, combines and tops up; what it could not
+   fix is a day somebody is stuck on, a date the office marked, or houses with nobody near enough to join. Asked of the
+   plan as it stands (the split every sheet reads), from the schedule's today on, so the button names the days rather
+   than leaving the rule looking as if it did not run. Reports, never repairs. */
+function crewDaysUnderMinimum(){
+  const out = [];
+  if(typeof installDays !== 'function') return out;
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  installDays().forEach(function(day){
+    const dt = dayDate(day);
+    if(!dt) return;
+    const ds = isoOf(dt);
+    if(ds < today) return;
+    const runs = crewIndexes().map(function(i){ return (crewHousesFor(i, day) || []).length; }).filter(function(n){ return n > 0; });
+    if(!runs.length) return;
+    if(runs.some(function(n){ return n < minCrew; })) out.push({date: ds, runs: runs});
+  });
+  return out;
 }
 function isOneCrewDay(day){
   return dayCrewCount(day) === 1 && !isOneManDay(day) && ((day && day.houses) || []).length > 0;
@@ -80669,6 +81003,13 @@ RT.addEventListener('click',e=>{const t=e.target;
     }
     /* [[SCH-119]] said, so a list that suddenly got shorter is explained rather than alarming. */
     if(hiddenDone) parts.push(hiddenDone+' finished house'+(hiddenDone===1?'':'s')+' cleared off the day lists (still counted as done)');
+    /* [[SCH-128]] the days the ten-a-crew rule could not fix, by date */
+    try{
+      const under=crewDaysUnderMinimum();
+      if(under.length) parts.push(under.length+' day'+(under.length===1?'':'s')+' still under 10 a crew ('+
+        under.slice(0,5).map(function(u){ return u.date.slice(5)+': '+u.runs.join('/'); }).join(', ')+(under.length>5?', …':'')+
+        ') — a stuck date, a printed day, a marked day, or nobody near enough to join');
+    }catch(err){ console.error('[HU] could not count the days under ten a crew',err); }
     if(r.pulledBack) parts.push(r.pulledBack+' customer'+(r.pulledBack===1?'':'s')+' moved earlier to stay inside their last allowed day: '+(r.pulledBackNames||[]).join(', ')+(r.pulledBack>5?' and others':''));
     if(r.pastLastDay) parts.push('⚠ '+r.pastLastDay+' customer'+(r.pastLastDay===1?' is':'s are')+' still after their last allowed day because no earlier day has room — add a crew day or pin them: '+(r.pastLastDayNames||[]).join(', ')+(r.pastLastDay>5?' and others':''));
     if(r.priorityMoved) parts.push(r.priorityMoved+' priority customer'+(r.priorityMoved===1?'':'s')+' moved to an earlier day beside other work: '+(r.priorityMovedNames||[]).join(', ')+(r.priorityMoved>5?' and others':''));
