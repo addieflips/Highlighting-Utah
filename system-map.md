@@ -4773,9 +4773,12 @@ reach an admin row. Look in system-map.md before concluding a fault cannot be id
 weakened: the "a portal entry does not clear an office error" check used Edit Customer's own crash
 as its example office error, which is now legitimately cleared. Its fixture is a null dereference
 nobody has fixed now; the claim it makes is unchanged.
-⛔ **"Unhandled promise: Missing or insufficient permissions" is deliberately NOT in the list.**
-That was INSTRUMENTED on 2026-09-18, not fixed — `rejectionWhere()` names the frame so the next
-one can be traced — and clearing it would throw away the very reports that fix is waiting for.
+⭐ **"Unhandled promise: Missing or insufficient permissions" IS in the list as of 2026-10-12**
+([[MSG-32]]), with a floor of 2026-09-24. It was kept out on purpose until then, because it had
+only been instrumented, not fixed. Five rows arrived between 9/8 and 9/18; the sidebar-and-
+favourites save was guarded on 9/24 and none has arrived since. Addie, shown that: *"yes clear
+the permissions rows."* ⚠ **The cause was never proven.** If one of these appears again it is
+dated after the floor, so it stays in the badge — and it means the 9/24 guard was not the answer.
 `fixed-errors.test.js` holds all of it: 42 checks, weighted towards what must SURVIVE rather
 than what goes, and 20 sabotages red-checked. The two that were not caught are no-ops and are
 labelled as such in the code.
