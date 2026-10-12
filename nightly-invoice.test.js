@@ -820,9 +820,23 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
       const { sent } = await runBatch(groupBook,
         { template: 'Hi {{name}},<br>{{feet_line}}<br>Due: {{amount_due}}<br>{{pay_button}}' });
       const raw = String(sent[0] && sent[0].body || '');
-      check('a template that already itemises is NOT given the lines a second time',
-        raw.indexOf('>Bill to</div>') === -1 && raw.includes('10 Main St'),
-        'the same lines twice on one bill reads as being charged twice');
+      /* EM-31: it used to be left alone, which is how a Paid Receipt went out with no
+         invoice. Now the invoice takes the place of the template's own lines — once. */
+      check('a template that lists its own lines gets the invoice in their place, and each house ONCE',
+        raw.indexOf('>Bill to</div>') !== -1 && raw.split('10 Main St').length === 3
+          && raw.split('22 Second St').length === 2 && !/\{\{/.test(raw),
+        '10 Main St appears twice (Bill to, and its own row) and no more; the same lines twice on one bill reads as being charged twice. raw=' + JSON.stringify(raw).slice(0, 600));
+    }
+    {
+      /* The receipt is the email that prompted it: paid in full, and still an invoice. */
+      const { res, sent } = await runBatch({ p1: priced({
+        name: 'Paid Up', phone: '8015550666', email: 'paid@x.com', address: '6 Elm St', customerNumber: '300' }) },
+        { invoices: { '8015550666': { install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 400 } } });
+      const raw = String(sent[0] && sent[0].body || '');
+      check('a PAID customer still gets the invoice in their receipt',
+        res.sentCount === 1 && raw.indexOf('>Bill to</div>') !== -1 && raw.includes('Paid in Full')
+          && raw.includes('Amount paid') && !raw.includes('How to pay'),
+        'Addie: "I know its paid but invoice needs to be sent to everyone." raw=' + JSON.stringify(raw).slice(0, 500));
     }
     /* ---- 6c. ALREADY GIVEN BY HAND (EM-28, 2026-10-12) -------------------
        Addie: "can we make a place in invoice were we can check mark if someone got

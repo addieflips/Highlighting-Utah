@@ -136,8 +136,23 @@ if (A && S) {
     ['Venmo first {{venmo_button}} then {{pay_button}}', 'Venmo first <BLOCK>{{venmo_button}} then {{pay_button}}'],
     ['Paid, thank you. {{view_portal_button}}', 'Paid, thank you. <BLOCK>{{view_portal_button}}'],
     ['No buttons at all.', 'No buttons at all.<BLOCK>'],
-    ['Already itemised\n{{feet_line}}\n{{pay_button}}', 'Already itemised\n{{feet_line}}\n{{pay_button}}']
+    /* ⛔ EM-31: EVERY invoice email carries the invoice. A template that lists its own
+       lines used to be left alone, which is how the standard Paid Receipt went out with
+       no invoice at all — Addie: "invoice needs to be sent to everyone." The invoice goes
+       where {{feet_line}} was, and the template's other line codes are left out so
+       nothing is printed twice. */
+    ['Lists its own lines\n{{feet_line}}\n{{pay_button}}', 'Lists its own lines\n<BLOCK>\n{{pay_button}}'],
+    ['Hi {{name}},\n\nPaid in full.\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount paid: {{amount_paid}}\n\nThanks',
+     'Hi {{name}},\n\nPaid in full.\n\n<BLOCK>\n\nAmount paid: {{amount_paid}}\n\nThanks'],
+    ['Hi,<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br>{{pay_button}}',
+     'Hi,<br><br><BLOCK><br><br>Amount due: {{amount_due}}<br>{{pay_button}}'],
+    ['Fee line only {{new_member_fee_line}} then {{pay_button}}', 'Fee line only  then <BLOCK>{{pay_button}}']
   ];
+  check('with no invoice to place, the template keeps its own line codes',
+    A.place('x {{feet_line}} {{credit_lines}}', '') === 'x {{feet_line}} {{credit_lines}}',
+    'the codes are only dropped when the invoice that replaces them is really there');
+  check('the sentence codes are never touched by placing',
+    /\{\{amount_due\}\}.*\{\{amount_paid\}\}.*\{\{due_date\}\}/.test(A.place('{{feet_line}} {{amount_due}} {{amount_paid}} {{due_date}}', B)));
   places.forEach(function (p, i) {
     check('placing #' + (i + 1) + ': both copies agree', A.place(p[0], B) === S.place(p[0], B));
     check('placing #' + (i + 1) + ': lands where it should', A.place(p[0], B) === p[1], JSON.stringify(A.place(p[0], B)));
