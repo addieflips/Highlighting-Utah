@@ -6017,6 +6017,8 @@ function applyLightChangeServer(o) {
 async function runInvoiceBatch(triggeredBy) {
   const todayStr = todayStrInDenver();
   let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
+  let sentByHandCount = 0;
+  const sentByHandNames = [];
   // Payers with an installed house and no email address anywhere in their
   // group. They cannot be invoiced at all, so they are named in the run log
   // rather than silently passed over.
@@ -6413,6 +6415,36 @@ async function runInvoiceBatch(triggeredBy) {
            season. A phone-only signup is the ordinary case for a phone enquiry,
            so this is not rare. Counted and named now, and Health Check has a
            matching "Customer with no email address" row. */
+        /* ⭐ THE OFFICE ALREADY GAVE THEM THIS INVOICE BY HAND (EM-28, 2026-10-12).
+           Addie: "can we make a place in invoice were we can check mark if someone got
+           there invoice manually as well in case we did that seperate from the report".
+           The tick on the Invoices list (and a by-hand send from the Invoices tab) writes
+           invoiceSentByHand on every house on the bill, and this is the one place the run
+           reads it: NO EMAIL GOES OUT, and the bill is marked as having gone, so it is
+           not counted or chased again.
+           ⛔ IT SITS HERE, BELOW EVERY BILLING WRITE, AND MUST STAY THERE. The tick means
+           "do not email them", never "do not bill them": the invoice, the join fee, a
+           carried charge and a carryover credit have all landed above. Skipping out
+           earlier would waive real money because of a checkbox about paper.
+           ⚠ ABOVE the no-email branch on purpose — a phone-only customer handed their
+           invoice is exactly who this is for, and they must stop being named nightly.
+           ⚠ invoiceEmailSentAt IS NOT STAMPED: nothing was emailed by this run, and the
+           history line built from that date says "Invoice emailed to them". */
+        if (active.some(function (h) { return h.data.invoiceSentByHand === true; })) {
+          for (const h of active) {
+            await h.ref.update({ invoiceEmailSent: true });
+          }
+          if (payer.data.cannotBillNoEmail) {
+            await tryFirestore('by-hand clears the no-email flag', () =>
+              db.collection('jobAddresses').doc(payer.id).update({
+                cannotBillNoEmail: false, cannotBillNoEmailAt: null
+              }));
+          }
+          sentByHandCount++;
+          sentByHandNames.push(payer.data.name || payer.data.address || payer.id);
+          continue;
+        }
+
         if (!email) {
           skippedNoEmail++;
           noEmailNames.push(payer.data.name || payer.data.address || payer.id);
@@ -6680,6 +6712,7 @@ async function runInvoiceBatch(triggeredBy) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
+      sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
       errorCount, errors: errors.slice(0, 10), triggeredBy
     };
     await logNightlyInvoiceRun(result);
@@ -6688,6 +6721,7 @@ async function runInvoiceBatch(triggeredBy) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
+      sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
       errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
       triggeredBy
     };
