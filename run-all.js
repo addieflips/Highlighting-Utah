@@ -12170,7 +12170,10 @@ suite('22. Building the crew-days the season needs');
     const messy = placed(8, 'Murray').concat(
       placed(4, 'Midvale'), placed(8, 'Holladay'), placed(4, 'Cottonwood Hts'),
       placed(3, 'Payson'), placed(2, 'Santaquin'));
-    const built = api.plan(messy, {}, { floorDate: '2026-10-01', dist: milesMap });
+    /* minCrew:false since [[SCH-128]] (2026-10-12): these checks are about the town rules the builder and the tail
+       sweep keep. The ten-a-crew pass runs after both and joins a short run to the nearest one by DISTANCE, so it can
+       put a third town on a run on purpose — that pass is proved on the real press in schedule-v2.test.js suite 28. */
+    const built = api.plan(messy, {}, { floorDate: '2026-10-01', dist: milesMap, minCrew: false });
 
     check('build', 'no date is built with more than four towns',
       worstDay(built).towns.length <= 4,
@@ -12248,8 +12251,18 @@ suite('22. Building the crew-days the season needs');
       sizesOf(api.plan(who(28, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,8',
       'the eight is not a bug — it is the end of the town, and it grows on its own ' +
       'from whatever the crews do not finish');
-    check('build', 'and a town of 48 is 20, 20 and 8',
-      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,20,8');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — this asserted '20,20,8'. Addie: "there should be at least 10 houses
+       for each day for each crew." The eight is a crew sent out for fewer than ten, with nowhere to dissolve to (the
+       first date is full at forty), so it takes back exactly the two it needs and no more. The line below still holds
+       for every day already at ten: nothing ELSE is trimmed. */
+    /* ⚠ 24,24 AND NOT 20,18,10: in this fixture two crews are never sent to one town on one date, so 48 is three DATES
+       (20, 20, 8) and the eight rides the two days already going there, four each — "a few over" twenty, which she
+       allowed, and no date over forty. */
+    check('build', 'and a town of 48 is 24 and 24 — the leftover eight rides the two days already going there',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '24,24',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })));
+    check('build', 'with the minimum switched off it is still 20, 20 and 8',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01', minCrew: false })) === '20,20,8');
     check('build', 'nothing is trimmed to make the leftover look better',
       sizesOf(api.plan(who(32, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,12',
       'seventeen and fifteen was tried and overruled');
@@ -13536,7 +13549,10 @@ suite('Suite 27. Short crew-days reach into nearby towns');
                          stop: { lat: at[city][0], lng: at[city][1] } });
         }
       });
-      const days = api.plan(waiting, {}, Object.assign({ floorDate: '2026-10-01', maxDays: 40 }, opts || {}));
+      /* minCrew:false since [[SCH-128]]: this suite is the tail sweep's own invariants (twenty a crew, one other town).
+         The ten-a-crew pass that runs after it may take a crew to twenty-four on purpose; suite 28 of
+         schedule-v2.test.js holds that pass to its own limits. */
+      const days = api.plan(waiting, {}, Object.assign({ floorDate: '2026-10-01', maxDays: 40, minCrew: false }, opts || {}));
       const byDate = {};
       days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
       return { days, byDate, dates: Object.keys(byDate).sort(),
@@ -13840,10 +13856,13 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
         return !!first && first.houses.some(h => h.city === 'Lehi' && !h.done);
       })(),
       'eighteen left in Lehi has to outrank five in Orem');
-    check('S28', 'a new day is added when the leftovers will not fit anywhere',
-      pd.filter(d => d.houses.some(h => !h.done)).length >= 2 &&
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted West Jordan's three got a day of their own. Addie: "there
+       should be at least 10 houses for each day for each crew." Three houses are not a day any more: they ride one that
+       is going out, and what is checked is that they are still scheduled and no day is left under ten. */
+    check('S28', 'the leftovers join a day that is going out — none is left under ten, and nobody is dropped',
+      pd.filter(d => d.houses.some(h => !h.done)).every(d => d.houses.filter(h => !h.done).length >= 10) &&
       all.filter(h => h.city === 'West Jordan').length === 3,
-      'West Jordan is near nothing else here, so it has to get a day of its own');
+      'days still to do: ' + pd.filter(d => d.houses.some(h => !h.done)).map(d => d.houses.filter(h => !h.done).length).join(','));
     check('S28', 'and nothing is lost doing it', all.length === worked.length + rest.length);
 
     const oneTown = { houses: Array.from({ length: 12 }, () => ({ city: 'Alpine' })) };
@@ -18516,7 +18535,10 @@ suite('Suite 51. The dribble at the end of the season');
       /gatherStrayHouses\(packed\.days, \{/.test(admin) &&
       /: packed\.days;\r?\n/.test(admin) &&
       /evenCrewDates\(gathered, \{/.test(admin) &&
-      /: gathered;\r?\n  return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(admin));
+      /: gathered;\r?\n/.test(admin) &&
+      /* [[SCH-128]], 2026-10-12: the ten-a-crew pass runs last, on the evened plan, before the numbering. */
+      /enforceCrewMinimum\(evened, \{/.test(admin) &&
+      /: evened;\r?\n  return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(admin));
 
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
@@ -25321,9 +25343,13 @@ suite('Suite 100. One crew days, and who works them');
        other, so a light day spread over THREE towns still needs two crews however few
        houses are on it. Merging it would hand one crew exactly the sheet the town rule
        exists to prevent, and would undo the fix that came before this. */
-    check('S100', 'a light day over three towns still needs two crews',
-      crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2,
-      'got one — one crew cannot legally drive three towns');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — this asserted TWO crews. Addie: "there should be at least 10 houses
+       for each day for each crew." Twelve houses cannot give two crews ten each, so it is one crew whatever the towns
+       are. The reasoning above is kept because it is still why the BUILDER must not make such a day. */
+    check('S100', 'a light day over three towns is one crew — two would each be under ten',
+      crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 1);
+    check('S100', 'and a day of twenty-four over three towns is still two crews',
+      crews(day(24, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2);
     /* ⭐ AND THE TWO HAVE TO BE NEIGHBOURS, not merely two (fixed 2026-08-20). The
        owner caught this on the live book: 18 November came out badged ONE CREW holding
        Draper and Springville — forty miles apart, thirteen houses, one sheet. Two is
@@ -25334,10 +25360,10 @@ suite('Suite 100. One crew days, and who works them');
        office's list, exactly as it does live. */
     check('S100', 'a light day over two NEIGHBOURING towns is one crew',
       crews(day(12, ['Lehi', 'Orem']), {0: ['Lehi'], 1: ['Orem']}) === 1);
-    check('S100', 'but two towns that are not neighbours are two crews',
-      crews(day(12, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 2,
-      'thirteen houses would fit on one sheet, and that sheet would send a crew ' +
-      'forty miles down the freeway in the middle of its round');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] for a day under twenty (it asserted two crews for twelve houses). */
+    check('S100', 'two towns that are not neighbours are one crew under twenty houses, two from twenty on',
+      crews(day(12, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 1 &&
+      crews(day(24, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 2);
 
     check('S100', 'a fixer route is never asked to be two crews',
       crews(Object.assign(day(30), {isFixRoute: true}), solo) === 1,
@@ -25392,9 +25418,11 @@ suite('Suite 100. One crew days, and who works them');
        has to keep being able to see it; sweeping it onto the solo sheet would hide a
        stop nobody has agreed to drive to. */
     const stray = split({houses: light.houses.concat(mk(1, 'Levan'))}, towns);
-    check('S100', 'a house in neither town is not swept onto the one sheet',
-      stray[0].length === 12 && stray[1].length === 0,
-      'got ' + stray[0].length + ' — it must stay visible as unassigned');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] (and by [[SCH-67]] before it: nobody is left off a sheet). It asserted the
+       stray was left OFF. Under twenty houses there is one crew out that day and nobody else to carry it. */
+    check('S100', 'a house in neither town rides the one sheet — there is no other crew out that day',
+      stray[0].length === 13 && stray[1].length === 0,
+      'got ' + stray[0].length);
 
     /* A full day is untouched by any of this. */
     const full = split({houses: mk(20, 'Lehi').concat(mk(20, 'Orem'))}, towns);
@@ -56705,11 +56733,11 @@ suite('304. As many crews as she has, named');
        what this fixture holds. With pins the crews are evened as far as the houses sit
        close enough — Suite 365. */
     const uneven = split({houses: many(30, 'Lehi').concat(many(4, 'Payson'), many(1, 'Logan'))}, t3);
-    check('S304', 'it stops at the cap rather than levelling the day out',
-      uneven.map((x) => x.length).join('/') === '20/9/6' ||
-      uneven[0].length === 20,
-      'got ' + uneven.map((x) => x.length).join('/') + ' — a leveller would drag ' +
-      'thirteen houses over a town line');
+    /* ⛔ NARROWED AGAIN 2026-10-12 BY [[SCH-128]]: it asserted 20/9/6. No crew goes out under ten, so the two short
+       crews are brought up to ten and the big one keeps the rest — still not levelled to twelve apiece. */
+    check('S304', 'the short crews are brought up to ten, and the day is not levelled past that',
+      uneven.map((x) => x.length).join('/') === '15/10/10',
+      'got ' + uneven.map((x) => x.length).join('/'));
 
     /* ---- how many crews a day wants, capped at how many exist ---- */
     const crews = (day, townsByCrew, perDay) => new Function('day', 'townsByCrew', 'CREWS_PER_DAY', 'MAX_STOPS_PER_ROUTE',
@@ -56734,8 +56762,9 @@ suite('304. As many crews as she has, named');
       crews({houses: many(20, 'Lehi').concat(many(20, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
     check('S304', 'a twelve-house day in one town is still one',
       crews({houses: many(12, 'Lehi')}, {0: ['Lehi'], 1: []}, 2) === 1);
-    check('S304', 'a light day over two towns that are not neighbours is still two',
-      crews({houses: many(6, 'Lehi').concat(many(6, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted two crews of six. */
+    check('S304', 'a light day over two towns that are not neighbours is one crew — six each is under ten',
+      crews({houses: many(6, 'Lehi').concat(many(6, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 1);
     check('S304', 'an empty day is still one',
       crews({houses: []}, {0: ['Lehi'], 1: ['Payson']}, 2) === 1);
 
@@ -59831,10 +59860,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
        The two stranded towns are carried now. What this check exists for is the other
        half — that a crew-sized day is not collapsed onto one sheet by the one-man rule
        — and that is untouched. */
-    check('S314', 'but a crew-sized day is not absorbed onto one sheet',
-      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 0,
-      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
-      'twelve houses is a crew, and the town rule is exactly about them');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted TWO crews for these twelve houses. Two crews of twelve are
+       both under ten, so it is one crew; what still matters is that nobody is stranded. */
+    check('S314', 'a twelve-house day is one crew with nobody stranded',
+      sb314.count(oneCrew) === 1 && strandedCount(oneCrew) === 0,
+      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded');
 
     /* ---- the forecast beside the map -------------------------------------- */
     /* ⭐ Dax, 2026-09-09: "also everday it should show the forecasted temperature
@@ -65512,7 +65542,7 @@ suite('361. A stray house joins the day the crew is in its area');
       /* ⚠ REPOINTED 2026-09-26 ([[SCH-97]]): the gathered plan is evened before it is
          numbered, so what reaches renumberCrewsByDate is `evened`, built FROM it. */
       /evenCrewDates\(gathered, \{/.test(plan) &&
-      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
+      /enforceCrewMinimum\(evened, \{/.test(plan) && /return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(plan) &&
       plan.indexOf('gatherStrayHouses(packed.days,') > plan.indexOf('packTailCrewDays(out,'));
     check('S361', 'and hands it each house’s own dates and pin, not a copy',
       /house: function\(id\)\{ return wById\[id\] \|\| null; \}/.test(plan));
@@ -65653,7 +65683,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
     const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
     check('S365', 'the builder evens the crews after gathering strays, before numbering',
       /evenCrewDates\(gathered, \{/.test(plan) &&
-      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
+      /enforceCrewMinimum\(evened, \{/.test(plan) && /return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(plan) &&
       plan.indexOf('evenCrewDates(gathered,') > plan.indexOf('gatherStrayHouses(packed.days,'));
     check('S365', 'and it can be switched off for a measurement',
       /o\.even !== false && typeof evenCrewDates === 'function'/.test(plan));
