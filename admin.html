@@ -23133,22 +23133,41 @@ function invoiceEmailBlock(v){
   html += '</td></tr></table>';
   return html;
 }
-/* WHERE IT GOES. Above the first pay button when the wording has one, so the bill is
-   read before it is paid; otherwise at the end.
-   ⛔ A TEMPLATE THAT ALREADY ITEMISES IS LEFT ALONE. One carrying {{feet_line}} prints
-   its own breakdown, and the same lines twice on one bill reads as being charged twice.
-   ⚠ SO IT MUST RUN BEFORE ANY CODE IS FILLED IN — it reads the codes to decide. */
+/* WHERE IT GOES, AND THAT IT ALWAYS GOES (EM-31, 2026-10-12).
+   ⛔ EVERY INVOICE EMAIL CARRIES THE INVOICE — paid receipts included. The first rule
+   here left a template alone when it already listed its own lines ({{feet_line}}), and
+   the standard Paid Receipt is such a template; Addie, reading one: "Invoice isn't
+   showing I know its paid but invoice needs to be sent to everyone."
+   Where: in place of {{feet_line}} when the wording has one (that is where the template
+   itself put the breakdown); otherwise above the first pay button, so the bill is read
+   before it is paid; otherwise at the end.
+   ⛔ AND THE TEMPLATE'S OWN LINE CODES ARE THEN LEFT OUT. The invoice lists the houses,
+   the fee, the light-change fees and the credits, and the same lines twice on one bill
+   reads as being charged twice. {{amount_due}} / {{amount_paid}} / {{due_date}} stay —
+   those are sentences, not line items.
+   ⚠ SO IT MUST RUN BEFORE ANY CODE IS FILLED IN — it reads the codes to decide.
+   ⚠ The blank lines the removed codes leave behind are closed up, in both spellings a
+   template can use (a real newline, or <br>). */
 function invoiceEmailPlace(body, block){
   body = String(body == null ? '' : body);
   if(!block) return body;
-  if(body.indexOf('{{feet_line}}') !== -1) return body;
-  var at = -1;
-  ['{{pay_button}}', '{{venmo_button}}', '{{view_portal_button}}'].forEach(function(code){
-    var i = body.indexOf(code);
-    if(i !== -1 && (at === -1 || i < at)) at = i;
+  var out;
+  var feet = body.indexOf('{{feet_line}}');
+  if(feet !== -1){
+    out = body.slice(0, feet) + block + body.slice(feet + '{{feet_line}}'.length);
+  } else {
+    var at = -1;
+    ['{{pay_button}}', '{{venmo_button}}', '{{view_portal_button}}'].forEach(function(code){
+      var i = body.indexOf(code);
+      if(i !== -1 && (at === -1 || i < at)) at = i;
+    });
+    out = at === -1 ? (body + block) : (body.slice(0, at) + block + body.slice(at));
+  }
+  ['{{feet_line}}', '{{new_member_fee_line}}', '{{setup_fee_line}}', '{{fee_lines}}', '{{credit_lines}}'].forEach(function(code){
+    out = out.split(code).join('');
   });
-  if(at === -1) return body + block;
-  return body.slice(0, at) + block + body.slice(at);
+  out = out.replace(/(?:[ \t]*\r?\n){3,}/g, '\n\n').replace(/(?:\s*<br\s*\/?>\s*){3,}/gi, '<br><br>');
+  return out;
 }
 /* invoice-email-block:end */
 async function invTestSend(toCustomer){
