@@ -23281,7 +23281,7 @@ async function invTestSend(toCustomer){
        What still tells the two buttons apart is what they WRITE: only the customer
        send ticks the bill. The status line under the button says which one happened. */
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: d.name || '', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: emailGreetingName(d.name), subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
     if(real){
       /* The send has gone; the tick is what stops a second copy at 7 PM. A failed tick
          must be SAID — silently, the customer gets the same bill twice. */

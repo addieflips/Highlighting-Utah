@@ -157,7 +157,7 @@ const twoHouses = () => [
     !/Test copy/.test(send) && !/Test copy\./.test(stripComments(adminSrc)),
     'the office copy is exactly what the customer would get');
   check('and both greet the customer by name, never "Test"',
-    send.includes("to_name: d.name || ''") && !/to_name:[^,]*'Test'/.test(send));
+    send.includes("to_name: emailGreetingName(d.name)") && !/to_name:[^,]*'Test'/.test(send));
   check('the plain button still writes NOTHING: the tick is behind the real send only',
     /if\(real\)\{\s*const ticked = await setInvoiceSentByHand\(key, true/.test(send)
       && send.split('setInvoiceSentByHand(').length === 2,
