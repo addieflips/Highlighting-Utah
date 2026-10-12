@@ -343,6 +343,11 @@ jobs:
       # October, November, the two Thanksgiving timings — to exactly what it decided before.
       - name: Their own calendar (away dates and wanted window)
         run: npm run test:awaycal
+      # The itemised invoice inside the invoice email is one block written twice — the
+      # office test copy and the 7 PM run. Named so a red build says the two bills have
+      # stopped matching, rather than a generic npm test failure.
+      - name: The invoice inside the invoice email
+        run: npm run test:invoice-email
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

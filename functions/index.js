@@ -5787,6 +5787,101 @@ const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
    date, and for why July splits the seasons, is in js/money.js; it is not
    repeated here, because two copies of the reasoning drift exactly the way two
    copies of the rule would. */
+/* invoice-email-block:start
+   ⭐ THE INVOICE ITSELF, INSIDE THE INVOICE EMAIL (2026-10-12, [[EM-27]]). Addie, reading
+   a test copy that held two sentences and two buttons: "On invoice it didn't send the
+   real invoice", then "attached invoice isnt showing when it sends." Nothing had ever
+   been attached — the email was the template's wording and nothing else, and the boxed
+   invoice on the Invoices tab was a preview that went nowhere. Asked how it should
+   travel, she chose: inside the email, under her wording.
+   ⛔ THIS BLOCK IS WRITTEN TWICE, WORD FOR WORD — here and in the other file (admin.html
+   draws the test copy, functions/index.js the 7 PM run) — and invoice-email.test.js
+   compares the two and RUNS both over the same bills. Change one, change the other.
+   ⚠ SELF-CONTAINED ON PURPOSE: its own escaping and its own money formatting, because
+   esc/escServer and fmtMoney/toFixed do not agree with each other across the two files.
+   ⚠ NO NEWLINES IN WHAT IT RETURNS — both senders turn every newline into a <br> after
+   this has been placed, which would tear a table apart.
+   ⚠ TABLES AND HEX COLOURS ONLY. Outlook ignores flex and CSS variables. */
+function invoiceEmailRowsServer(v){
+  v = v || {};
+  var rate = Number(v.rate) || 0;
+  var houses = Array.isArray(v.houses) ? v.houses : [];
+  var multi = houses.length > 1;
+  var rows = [];
+  houses.forEach(function(h){
+    var feet = Number(h.feet) || 0;
+    var what = (feet && rate)
+      ? ('Installation service — ' + feet + ' ft @ $' + rate.toFixed(2) + '/ft')
+      : 'Installation service';
+    if(multi) rows.push({ label: h.address || 'Property', sub: what, amount: Number(h.price) || 0 });
+    else rows.push({ label: what, amount: Number(h.price) || 0 });
+  });
+  if((Number(v.removal) || 0) > 0) rows.push({ label: 'Removal service', amount: Number(v.removal) });
+  if((Number(v.newMemberFee) || 0) > 0) rows.push({ label: 'Installation fee', amount: Number(v.newMemberFee) });
+  (Array.isArray(v.feeNotes) ? v.feeNotes : []).forEach(function(f){
+    rows.push({ label: (f && f.reason) || 'Light change fee', amount: Number(f && f.amount) || 0 });
+  });
+  (Array.isArray(v.creditNotes) ? v.creditNotes : []).forEach(function(c){
+    rows.push({ label: (c && c.reason) || 'Credit', amount: Number(c && c.amount) || 0, credit: true });
+  });
+  return rows;
+}
+function invoiceEmailBlockServer(v){
+  v = v || {};
+  function e(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function m(n){ return '$' + (Number(n) || 0).toFixed(2); }
+  var rows = Array.isArray(v.rows) ? v.rows : [];
+  /* Nothing to itemise is nothing to draw: an empty box headed Invoice reads as a bill for nothing. */
+  if(!rows.length) return '';
+  var paid = Number(v.paid) || 0;
+  var isPaid = v.status === 'Paid in Full';
+  var font = 'font-family:Arial,sans-serif;';
+  var cell = 'padding:9px 0; border-bottom:1px solid #E5E0D2; font-size:14px; color:#1E2A22; ' + font;
+  var tot = 'padding:5px 0; font-size:14px; color:#6E6858; ' + font;
+  var big = 'padding:10px 0 0; border-top:1px solid #E5E0D2; font-size:17px; font-weight:bold; color:#1E2A22; ' + font;
+  var open = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"';
+  var dates = [];
+  if(v.issued) dates.push('Issued ' + e(v.issued));
+  if(!isPaid && v.due) dates.push('Due ' + e(v.due));
+  var html = open + ' style="margin:14px 0 18px; border:1px solid #E5E0D2; border-radius:10px; background:#FFFFFF;"><tr><td style="padding:16px 18px;">';
+  html += open + '><tr>' +
+    '<td style="font-size:16px; font-weight:bold; color:#1E3B2C; ' + font + '">Your invoice</td>' +
+    '<td align="right" style="font-size:12.5px; color:#6E6858; ' + font + '">' + dates.join(' &middot; ') + '</td>' +
+    '</tr></table>';
+  html += open + ' style="margin-top:8px;">';
+  rows.forEach(function(r){
+    var colour = r.credit ? ' color:#2E6B3E;' : '';
+    html += '<tr><td style="' + cell + colour + '">' + e(r.label) +
+      (r.sub ? '<div style="font-size:12.5px; color:#6E6858;">' + e(r.sub) + '</div>' : '') + '</td>' +
+      '<td align="right" valign="top" style="' + cell + colour + ' white-space:nowrap;">' + (r.credit ? '−' : '') + m(r.amount) + '</td></tr>';
+  });
+  html += '<tr><td style="' + tot + ' padding-top:12px;">Total</td><td align="right" style="' + tot + ' padding-top:12px;">' + m(v.total) + '</td></tr>';
+  if(paid > 0) html += '<tr><td style="' + tot + '">Payment received</td><td align="right" style="' + tot + '">−' + m(paid) + '</td></tr>';
+  html += '<tr><td style="' + big + '">' + (isPaid ? 'Amount paid' : 'Amount due') + '</td>' +
+    '<td align="right" style="' + big + '">' + m(isPaid ? paid : v.amountDue) + '</td></tr>';
+  html += '</table>';
+  if(v.status) html += '<div style="margin-top:12px; font-size:13px; font-weight:bold; color:' + (isPaid ? '#2E6B3E' : '#9A2A1F') + '; ' + font + '">' + e(v.status) + '</div>';
+  html += '</td></tr></table>';
+  return html;
+}
+/* WHERE IT GOES. Above the first pay button when the wording has one, so the bill is
+   read before it is paid; otherwise at the end.
+   ⛔ A TEMPLATE THAT ALREADY ITEMISES IS LEFT ALONE. One carrying {{feet_line}} prints
+   its own breakdown, and the same lines twice on one bill reads as being charged twice.
+   ⚠ SO IT MUST RUN BEFORE ANY CODE IS FILLED IN — it reads the codes to decide. */
+function invoiceEmailPlaceServer(body, block){
+  body = String(body == null ? '' : body);
+  if(!block) return body;
+  if(body.indexOf('{{feet_line}}') !== -1) return body;
+  var at = -1;
+  ['{{pay_button}}', '{{venmo_button}}', '{{view_portal_button}}'].forEach(function(code){
+    var i = body.indexOf(code);
+    if(i !== -1 && (at === -1 || i < at)) at = i;
+  });
+  if(at === -1) return body + block;
+  return body.slice(0, at) + block + body.slice(at);
+}
+/* invoice-email-block:end */
 function invoiceSeasonYearServer(issued) {
   if (!issued) return null;
   const y = issued.getFullYear();
@@ -6375,17 +6470,37 @@ async function runInvoiceBatch(triggeredBy) {
         const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
         const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
 
-        body = body.split('{{name}}').join(payer.data.name || 'there');
-        body = body.split('{{feet_line}}').join(feetLine);
-        body = body.split('{{new_member_fee_line}}').join(newMemberLine);
-        body = body.split('{{credit_lines}}').join(creditLines);
-        body = body.split('{{fee_lines}}').join(feeLines);
         // The same calendar the printed invoice and the Overdue flag read, worked
         // out from the invoice's own timestamp so all three always agree. This is
         // the date the CUSTOMER is told, so it is the one that matters most.
         const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
                        : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
         const dueOn = invoiceDueDateServer(issuedOn);
+        const niceDay = function (dt) { return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+        /* The invoice itself, under the wording (EM-27) — the block admin.html's test
+           copy draws, from the figures this run just billed. ⚠ BEFORE any code is
+           filled in: the placing rule reads the codes. `active` is the list the total
+           was summed from, so the rows and the amount cannot drift. */
+        body = invoiceEmailPlaceServer(body, invoiceEmailBlockServer({
+          rows: invoiceEmailRowsServer({
+            rate: perFootRate,
+            houses: active.map(function (h) {
+              return { address: h.data.address || h.data.street || '', feet: h.data.measuredFeet, price: h.data.housePrice };
+            }),
+            removal: inv.removal,
+            newMemberFee: isNewMember ? NEW_MEMBER_FEE : 0,
+            feeNotes: inv.changeFeeNotes,
+            creditNotes: inv.creditNotes
+          }),
+          total: Math.max(0, total - credits), paid: paid, amountDue: amountDue, status: status,
+          issued: niceDay(issuedOn), due: niceDay(dueOn)
+        }));
+
+        body = body.split('{{name}}').join(payer.data.name || 'there');
+        body = body.split('{{feet_line}}').join(feetLine);
+        body = body.split('{{new_member_fee_line}}').join(newMemberLine);
+        body = body.split('{{credit_lines}}').join(creditLines);
+        body = body.split('{{fee_lines}}').join(feeLines);
         body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
