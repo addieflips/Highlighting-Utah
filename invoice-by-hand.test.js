@@ -151,11 +151,17 @@ const twoHouses = () => [
   const send = stripComments(between(adminSrc, 'async function invTestSend(toCustomer){', "getElementById('invRealSendBtn')"));
   check('the send knows a real send only by === true', /const real = toCustomer === true;/.test(send),
     'the plain button\'s click handler passes an event, which is truthy');
-  check('the test note is drawn ONLY on the office\'s own copy',
-    /if\(!real\) body = '<div[^']*'\+\s*'<strong>Test copy\.<\/strong>/.test(send),
-    'Addie: "If I send it to someone manually it also shouldn\'t show test copy at the top."');
-  check('a real send is addressed to the customer by name, not to "Test"',
-    send.includes("to_name: real ? (d.name || '') : 'Test'"));
+  /* ⛔ NO TEST NOTE ON EITHER BUTTON (EM-29). It was first kept on the office's own copy;
+     Addie: "why still show this?", then "Dont show test on that anyore". */
+  check('neither button draws a test note any more',
+    !/Test copy/.test(send) && !/Test copy\./.test(stripComments(adminSrc)),
+    'the office copy is exactly what the customer would get');
+  check('and both greet the customer by name, never "Test"',
+    send.includes("to_name: d.name || ''") && !/to_name:[^,]*'Test'/.test(send));
+  check('the plain button still writes NOTHING: the tick is behind the real send only',
+    /if\(real\)\{\s*const ticked = await setInvoiceSentByHand\(key, true/.test(send)
+      && send.split('setInvoiceSentByHand(').length === 2,
+    'with the note gone, what the two buttons write is the only difference left between them');
   const iConfirm = send.indexOf('if(!confirm('), iSend = send.indexOf('emailjs.send('), iTick = send.indexOf('setInvoiceSentByHand(key, true');
   check('a real send asks first, sends, THEN ticks the bill — all three present and in that order',
     iConfirm !== -1 && iSend !== -1 && iTick !== -1 && iConfirm < iSend && iSend < iTick);

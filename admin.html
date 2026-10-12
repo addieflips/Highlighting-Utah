@@ -4302,7 +4302,7 @@
           </div>
           <button type="button" class="btn btn-gold" id="invTestSendBtn">Send me this invoice</button>
           <button type="button" class="btn btn-outline" id="invRealSendBtn" style="margin-left:8px;">Send it to the customer</button>
-          <p style="font-size:12.5px; color:var(--slate); margin:10px 0 0;"><strong>Send me this invoice</strong> is a test copy with a note at the top. <strong>Send it to the customer</strong> sends the same invoice to the address in the box as their real invoice &mdash; no test note &mdash; and marks their bill as given by hand so the 7 PM run does not email it again.</p>
+          <p style="font-size:12.5px; color:var(--slate); margin:10px 0 0;">Both buttons send exactly the email the customer would get, to the address in the box. <strong>Send me this invoice</strong> changes nothing on their record. <strong>Send it to the customer</strong> also marks their bill as given by hand, so the 7 PM run does not email it again.</p>
           <div id="invTestStatus" style="font-size:13px; margin-top:10px;"></div>
         </div>
         <div id="invPreviewDoc" style="margin-top:20px;"><div class="empty-note">Check one or more customers above to see their invoices.</div></div>
@@ -23214,7 +23214,7 @@ async function invTestSend(toCustomer){
       owedLater.push('a charge carried over from last season');
     }
     if(!confirm('Send this invoice to ' + (d.name || 'this customer') + ' at ' + sendTo + '?\n\n' +
-      'It goes out as their real invoice, with no test note, showing ' + fmtMoney(amountDue) + ' due. ' +
+      'It goes out as their real invoice, showing ' + fmtMoney(amountDue) + ' due. ' +
       'Their bill is then marked as given by hand, so the 7 PM run will not email it again.' +
       (owedLater.length ? ('\n\nNOT ON THIS COPY YET: ' + owedLater.join(' and ') +
         '. The 7 PM run adds it to their bill the night their house is marked Done, and will not email them about it.') : ''))){
@@ -23274,19 +23274,20 @@ async function invTestSend(toCustomer){
     body = body.split('{{due_date}}').join(niceDate(invoiceDueDate(issuedOn)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
-    /* The test note is for the office's own copy ONLY. A customer who is sent their
-       invoice by hand must never read "Test copy" above it. */
-    if(!real) body = '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; font-family:Arial,sans-serif; font-size:13px; margin-bottom:16px;">'+
-      '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
-      '</div>' + body;
+    /* ⛔ NO TEST NOTE ON EITHER BUTTON (EM-29, 2026-10-12). The office's own copy used
+       to open with a yellow box saying it was a test; Addie, twice in one afternoon:
+       "why still show this?", then "Dont show test on that anyore". So the copy she
+       sends herself is byte for byte what the customer would get — greeting included.
+       What still tells the two buttons apart is what they WRITE: only the customer
+       send ticks the bill. The status line under the button says which one happened. */
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: real ? (d.name || '') : 'Test', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: d.name || '', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
     if(real){
       /* The send has gone; the tick is what stops a second copy at 7 PM. A failed tick
          must be SAID — silently, the customer gets the same bill twice. */
       const ticked = await setInvoiceSentByHand(key, true, null, {quiet: true});
       logActivity('Sent an invoice to the customer by hand', 'invoices', key);
-      return say('Handed to the mail service for ' + sendTo + ' as ' + (d.name || 'the customer') + '\'s real invoice — amount due ' + fmtMoney(amountDue) + ', no test note. ' +
+      return say('Handed to the mail service for ' + sendTo + ' as ' + (d.name || 'the customer') + '\'s real invoice — amount due ' + fmtMoney(amountDue) + '. ' +
         (ticked ? 'Their bill is marked as given by hand, so the 7 PM run will not email it again.'
                 : 'BUT their bill could NOT be marked as given by hand, so the 7 PM run may email it again — tick "Invoice given by hand" on their row in the Invoice List.'), !ticked);
     }
