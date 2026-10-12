@@ -1626,6 +1626,35 @@ suite('The plan Firestore is handed can actually be saved (2026-10-12)');
   check('26.6 the old list-of-lists shape is still read', JSON.stringify(H.api.serialize().days) === JSON.stringify(out.days));
 }
 /* ======================================================================================= */
+suite('A kept day in the future holds its own date, not the whole calendar (2026-10-12)');
+{
+  /* ⛔ THE REAL BOOK, 2026-10-12. One house was stuck on 1 November, so the "next two scheduled days" after
+     13 October were 1 and 2 November. The floor for new days was the day after the LAST kept day, so every
+     new day began on 3 November: 14-30 October stood empty and 67 October customers were laid out in
+     November — and the lock re-froze the same two days on every press, so the gap kept itself alive. */
+  const book = makeBook(160, 127);
+  const stuck = book.filter(function(b){ return b.data.installPreference === 'November'; })[0];
+  stuck.data.stuckOnDate = '2026-11-02';
+  H.setNow(TODAY); H.load(book, {}); H.press();
+  /* The state the office was in: no day with work between tomorrow and November, so the two days the lock
+     freezes as "the next two scheduled days" are November ones. Everybody dropped here is a customer with no
+     day, and the press has to put them back. */
+  const novOnly = H.season().filter(function(d){ if(d.isTakedown || d.isFixRoute) return true; const dt = H.api.dayDate(d); return dt && H.api.isoOf(dt) >= '2026-11-02'; });
+  H.load(book, {season: novOnly}); H.press();
+  const days = daysOf();
+  const oct = days.filter(function(d){ return d.ds >= '2026-10-01' && d.ds <= '2026-10-31'; });
+  check('27.0 the stuck house is on its November day, so there IS a kept day in the future', dayOfCust(stuck.id) === '2026-11-02', dayOfCust(stuck.id));
+  check('27.1 October still fills: new days are built before the kept November day', oct.length >= 3, oct.map(function(d){ return d.ds; }).join(','));
+  const late = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
+  check('27.2 nobody who asked for October is laid out in November', late.length === 0, late.length + ' of them, e.g. ' + late.slice(0, 3).map(function(b){ return dayOfCust(b.id); }).join(','));
+  const onKept = days.filter(function(d){ return d.ds === '2026-11-02'; });
+  check('27.3 and the kept day is one day, not two — nothing new was built on top of it', onKept.length === 1, String(onKept.length));
+  /* third press: the plan is stable, the gap does not come back */
+  H.load(book, {season: H.season()}); H.press();
+  const late2 = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
+  check('27.4 a further press keeps it that way', late2.length === 0 && daysOf().filter(function(d){ return d.ds === '2026-11-02'; }).length === 1);
+}
+/* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){
   process.on('exit', function(){

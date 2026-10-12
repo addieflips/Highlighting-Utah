@@ -77922,14 +77922,25 @@ function rebuildSeasonDays(){
   const tomorrow=new Date(realToday.getFullYear(), realToday.getMonth(), realToday.getDate()+1);
   const nextFree=nextWorkingDay(tomorrow);
   if(nextFree>floor) floor=nextFree;
+  /* ⛔ A KEPT DAY HOLDS ITS OWN DATE, NEVER THE FLOOR (2026-10-12). This loop used to push the floor to the day after the
+     LAST kept day. SCH-121 took done houses out of that; a LOCKED or pinned day in the future was still in it. On the real
+     book the next two scheduled days after 13 October were 1 and 2 November (one house stuck on the 1st), so every new
+     day started on 3 November — 14 to 30 October stood empty and 67 customers who asked for October were laid out in
+     November, on every press, for good: the lock is "the next two days with work", so the gap kept itself alive.
+     A kept day from the floor on is handed to the builder as a date with every crew already out (`taken`), which is
+     all "do not build on top of it" ever needed. One before the floor cannot be built on anyway. */
+  const keptTaken={};
+  const floorStr=isoOf(floor);
   keep.forEach(function(d){
     if(d.isFixRoute||d.isTakedown) return;
     const dt=dayDate(d);
     if(!dt) return;
-    const after=nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()+1));
-    if(after>floor) floor=after;
+    const ds=isoOf(dt);
+    if(ds<floorStr) return;
+    const town=((d.houses||[]).map(function(h){ return extractCleanCity(h.city); }).filter(Boolean)[0])||'(kept day)';
+    const slots=keptTaken[ds]=keptTaken[ds]||{};
+    for(let cr=1; cr<=12; cr++) slots[String(cr)]=town;
   });
-  const floorStr=isoOf(floor);
   /* ⭐ AND THE DATES SOMEBODY IS AWAY GO IN WITH IT. This is the whole point of the
      control on the day panel: the office marks the 10th, presses Recalculate
      everything, and the 10th comes back holding one crew's worth while everything
@@ -77949,7 +77960,7 @@ function rebuildSeasonDays(){
      ⚠ GUARDED, like dayShapeOn's neighbours above: several suites lift this function
      on its own, and there it must behave like the day the forecast did not exist. */
   const tempFor=(typeof forecastHighFor==='function')?forecastHighFor:function(){ return null; };
-  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400,
+  const built=planNewCrewDays(placeable, keptTaken, {floorDate:floorStr, maxDays:400, horizonDays:400,
                                               dayShape:dayShapeOn, tempFor:tempFor,
                                               coldBelow:(typeof COLD_DAY_MAX_F==='number'?COLD_DAY_MAX_F:31),
                                               chillyBelow:(typeof COLD_DAY_CHILLY_F==='number'?COLD_DAY_CHILLY_F:35),
