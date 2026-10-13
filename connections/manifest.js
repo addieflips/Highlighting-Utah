@@ -17,7 +17,6 @@ const NOT_WATCHED = [
      on which day inside the Schedule — and the crew-routes documents fix and removal
      routes are still saved to. */
   ['scheduledRoutes', 'the saved fix and removal routes, and the Schedule plan itself (the hang day on a customer IS watched)'],
-  ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
   /* ⭐ THE FIVE DATES ADDED 2026-08-28, AND WHY THEY ARE HERE RATHER THAN ON THE GRID.
    * Addie asked whether this page had picked them up. It had not, and writing the spines
    * is how the real reason surfaced: R-010 refuses a spine with a writer and no reader,
@@ -1655,6 +1654,59 @@ module.exports = [
       { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the list is drawn or filtered' },
       { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
       { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' }
+    ]
+  },
+  /* ⭐ BATCH 4 (2026-10-13): the house photos — the last field on the original
+   * NOT_WATCHED list. On a new hang the crew sheet prints the house's photo so the crew
+   * can find the right house; this season they work off paper alone.
+   * ⛔ THE `only` RULE: THE LIST AND ITS MIRROR ARE WRITTEN TOGETHER. `housePhotos` is the
+   * list and photo #1 is mirrored onto `housePhotoUrl` / `housePhotoOriginal` /
+   * `housePhotoMarkup`, which the portal's house map, the invoice map and older saved
+   * routes still read. `customerPhotoUpdates` (and its server twin
+   * `quotePhotosAsCustomerServer`, on a convert) builds all four from one list, so they
+   * cannot disagree. A new place writing any of the four by hand goes red.
+   * ⚠ ADD CUSTOMER IS ALLOWED, AND IT IS THE ONE PLACE THE TWO CAN DIFFER: it takes the
+   * list from customerPhotoUpdates but writes the mirror from its own main-photo box. If
+   * the main photo is removed while extra photos stay, the list holds the extras and the
+   * mirror is blank. That is left as it is on purpose — the outlined sections were drawn on
+   * the MAIN photo, and promoting an extra into the mirror would draw them on the wrong
+   * picture. Recorded here rather than "fixed". */
+  {
+    field: 'housePhotos',
+    areas: ['Customers'], record: 'cust',
+    title: 'House photos',
+    plain: 'The pictures of the house — the first one is what the crew sheet prints for a new hang.',
+    states: [
+      ['Photos on file', 'Photo #1 is mirrored onto the single-photo fields older screens read'],
+      ['A new hang with a photo', 'Printed on the crew sheet so the crew finds the house'],
+      ['No photo', 'Nothing printed — never an empty frame']
+    ],
+    sets: [
+      { file: 'admin', fn: 'customerPhotoUpdates', where: 'Customers › All Customers', when: 'a photo is added, removed or reordered',
+        rules: ['Builds the list AND the mirror from one list, so they cannot disagree.'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'server', fn: 'quotePhotosAsCustomerServer', where: 'Quote Requests', when: 'a quote becomes a customer',
+        rules: ['The quote’s photos travel to the customer — same shape as customerPhotoUpdates.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'customerPhotoList', where: 'Schedule › Printing', when: 'the crew sheet, the record and the route card show photos',
+        rules: ['THE reader: the list when there is one, else the old single photo. The new-hang crew sheet reads through it.'] }
+    ],
+    only: [
+      {
+        rule: 'The photo list and its photo-#1 mirror are only ever written together.',
+        where: 'Customers › All Customers',
+        /* An object key after { or , — or an ASSIGNMENT after a dot. `d.housePhotoMarkup :`
+           is the far side of a ternary (customerPhotoList), so a dot only counts with `=`;
+           and neither a local `const housePhotos =` nor `? housePhotos :` can match. */
+        pattern: '[{,]\\s*(?:housePhotos|housePhotoUrl|housePhotoOriginal|housePhotoMarkup)\\s*:|\\.(?:housePhotos|housePhotoUrl|housePhotoOriginal|housePhotoMarkup)\\s*=(?!=)',
+        why: 'writes a house photo field by hand — the list and the photo-#1 mirror can drift apart, and the portal map, the invoice map and old routes read the mirror',
+        allow: [
+          { file: 'admin', fn: 'customerPhotoUpdates', why: 'Builds all four together.' },
+          { file: 'server', fn: 'quotePhotosAsCustomerServer', why: 'The server twin, on a convert.' },
+          { file: 'admin', el: 'routeAddressForm', why: 'Add Customer — see the note above this spine.' }
+        ]
+      }
     ]
   },
 ];

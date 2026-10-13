@@ -1,5 +1,5 @@
 {
- "watched": 28,
+ "watched": 29,
  "red": 0,
  "breaks": [],
  "unguarded": [
@@ -17,11 +17,11 @@
   "newMemberFeeAppliedAt",
   "customerNumber",
   "gateCode",
-  "difficulty"
+  "difficulty",
+  "housePhotos"
  ],
  "notWatched": [
-  "scheduledRoutes",
-  "quotePhotos → housePhotos"
+  "scheduledRoutes"
  ],
  "rulings": 648,
  "builtFrom": "2026-10-13"
