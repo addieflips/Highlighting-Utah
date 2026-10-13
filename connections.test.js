@@ -205,6 +205,64 @@ check('every declared connection is still made by the code',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1c. RULES WRITTEN TWICE (2026-10-13). connections/twins.js names every rule the office
+ * page and the server each carry a copy of, and which test compares them. Two copies drift
+ * silently, so the list is a CENSUS: any pair in the code that is on neither list fails.
+ * ------------------------------------------------------------------------- */
+{
+  const { TWINS, NOT_TWINS } = require('./connections/twins');
+  /* The scanner's own view of each file — comments and strings blanked, HTML outside the
+     scripts blanked — so a name mentioned in a comment is never read as a function. */
+  const { index: scanIndex } = require('./connections/scan');
+  const office = scanIndex(path.join(ROOT, 'admin.html')).blanked + '\n' +
+                 scanIndex(path.join(ROOT, 'js', 'money.js')).blanked;
+  const server = scanIndex(path.join(ROOT, 'functions', 'index.js')).blanked;
+  const names = (src, topOnly) => new Set([...src.matchAll(topOnly
+    ? /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_]\w*)\s*\(/gm
+    : /function\s+([A-Za-z_]\w*)\s*\(/g)].map(m => m[1]));
+  const oAll = names(office, false), sAll = names(server, false);
+  const oTop = names(office, true), sTop = names(server, true);
+  const found = [];
+  sAll.forEach(n => { if (/Server$/.test(n) && oAll.has(n.replace(/Server$/, ''))) found.push([n.replace(/Server$/, ''), n]); });
+  sTop.forEach(n => { if (oTop.has(n)) found.push([n, n]); });
+  const listed = (o, sv) => TWINS.some(t => t.office === o && t.server === sv) || (o === sv && NOT_TWINS[o]);
+  const unlisted = found.filter(([o, sv]) => !listed(o, sv));
+  check('every rule written twice is on the twins list — or said not to be one', unlisted.length === 0,
+    unlisted.map(p => p[0] + ' / ' + p[1]).join(', ') +
+    '\n        A rule the office and the server each carry a copy of. Add it to TWINS in ' +
+    'connections/twins.js with the test that compares the two — or null, which the page shows ' +
+    'as nothing comparing them — or to NOT_TWINS with the reason it is not one rule.');
+  check('the census found the pairs it exists for', found.length >= 30,
+    'found ' + found.length + ' — a matcher that has stopped matching demands nothing at all');
+
+  const gone = TWINS.filter(t => !oAll.has(t.office) || !sAll.has(t.server));
+  check('every pair on the twins list still exists on both sides', gone.length === 0,
+    gone.map(t => t.office + ' / ' + t.server).join(', ') + ' — renamed or removed; repoint or take it off');
+  const staleNot = Object.keys(NOT_TWINS).filter(n => !oTop.has(n) || !sTop.has(n));
+  check('nothing is excused as not-a-twin that is no longer on both sides', staleNot.length === 0, staleNot.join(', '));
+
+  let chain = '';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    chain = String(pkg.scripts.test || '').split('&&').map(x => x.trim().replace(/^npm run /, ''))
+      .map(k => pkg.scripts[k] || k).join(' ');
+  } catch (e) { chain = ''; /* reported by the check below */ }
+  const badTest = [];
+  TWINS.filter(t => t.test).forEach(t => {
+    const p = path.join(ROOT, t.test);
+    if (!fs.existsSync(p)) return badTest.push(t.office + ' → ' + t.test + ' does not exist');
+    if (chain.indexOf(t.test) === -1) return badTest.push(t.office + ' → ' + t.test + ' is not in npm test');
+    const txt = fs.readFileSync(p, 'utf8');
+    const has = n => new RegExp('\\b' + n + '\\b').test(txt);
+    if (!has(t.office) || (!t.byBlock && !has(t.server))) badTest.push(t.office + ' → ' + t.test + ' does not name both copies');
+  });
+  check('every test said to compare a pair exists, runs, and names both copies', chain.length > 200 && badTest.length === 0,
+    badTest.join('; ') || 'could not read the npm test chain');
+  note('rules written twice: ' + TWINS.length + ', of which ' + TWINS.filter(t => !t.test).length +
+    ' have nothing comparing the two copies — shown on the page as such.');
+}
+
+/* ---------------------------------------------------------------------------
  * 2. Every anchor still resolves.
  *
  * Separate from the check above on purpose. "The function was renamed" and "the function
