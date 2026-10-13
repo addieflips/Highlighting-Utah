@@ -125,6 +125,7 @@ function build(opts) {
      one level in it has always been. What changed is how you get there. */
   const journey = require('./journey.js');
   const { AUTOMATION } = require('./automation.js');
+  const { TWINS } = require('./twins.js');
   const JSTEPS = {};
   journey.STEPS.forEach(s => { JSTEPS[s.id] = s; });
   const JSTARTS = journey.STEPS.filter(s => s.start).map(s => s.id);
@@ -180,6 +181,23 @@ function build(opts) {
         ? '<p class="autotouch">Writes to ' + a.touches.map(t => '<code>' + esc(t) + '</code>').join(' ') + '</p>'
         : '<p class="autotouch dim">Reads only — it changes nothing.</p>') +
       '<p class="autostop"><b>If it stopped:</b> ' + esc(a.ifItStopped) + '</p>' +
+      '</div>').join('') + '</div>' +
+    /* ⭐ RULES WRITTEN TWICE (2026-10-13). The office page and the server each carry a copy
+       of these, because functions/index.js cannot import from admin.html. A copy nothing
+       compares can drift, and the bill the office sees and the bill the 7 PM run sends start
+       to disagree with nothing going red. See connections/twins.js. */
+    '<h2 class="autohead">Rules written twice</h2>' +
+    '<p class="note">' + TWINS.length + ' rules live in both the office page and the server. ' +
+      TWINS.filter(t => !t.test).length + ' of them have <b>nothing comparing the two copies</b> \u2014 ' +
+      'said plainly, because a pair nobody compares can drift apart with every test green.</p>' +
+    '<div class="autolist">' + TWINS.slice().sort((x, y) => (x.test ? 1 : 0) - (y.test ? 1 : 0)).map(t =>
+      '<div class="autorow' + (t.test ? '' : ' unwatched') + '">' +
+      '<div class="autotop"><b>' + esc(t.what) + '</b>' +
+        '<span class="autowatch">' + (t.test ? 'compared' : 'not compared') + '</span></div>' +
+      '<p class="autowhere"><code>' + esc(t.office) + '</code> in the office \u00b7 <code>' + esc(t.server) + '</code> on the server</p>' +
+      '<p class="autotouch' + (t.test ? '' : ' dim') + '">' + (t.test
+        ? 'Held by <code>' + esc(t.test) + '</code>, which runs on every build.'
+        : 'Each side is tested on its own, if at all \u2014 nothing runs the two side by side.') + '</p>' +
       '</div>').join('') + '</div>' +
     '<p class="note" style="margin-top:18px;">Counts last rebuilt at ' +
       (builtFrom() || 'rebuild date unknown') + '.</p>' +
