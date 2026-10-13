@@ -198,10 +198,105 @@ check('every declared connection is still made by the code',
         !!mirror && mirror.length >= 1,
         mirror ? 'planted a hand-written housePhotoUrl and nothing went red — the list and its mirror can drift'
                : 'the housePhotos spine is gone');
+      /* ⭐ BATCH 5 (2026-10-13): the amber itself. Every writer of the warehouse and season
+         fields is now declared, so amber on them reads zero — and a census at zero cannot
+         tell "clean" from "stopped looking". So a new writer is planted and must SHOW; and the
+         three ways amber was narrowed (named tables, quiet anchors, the ternary) are each
+         planted from the other side so none of them can widen into a blanket excuse. */
+      const amberOf = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0];
+      };
+      const newWriter = amberOf('needsLightBuild', realAdmin.replace(anchor,
+        'function huNewBuildDoor(u){ u.needsLightBuild = true; }\n' + anchor));
+      check('a new, undeclared writer of Needs Building shows as amber',
+        newWriter.undeclared.some(u => /^admin · huNewBuildDoor · set/.test(u)),
+        'planted u.needsLightBuild = true in a new function and amber did not name it');
+      const realBuild = amberOf('needsLightBuild', realAdmin);
+      check('and with the real files, every writer of Needs Building is declared',
+        !realBuild.undeclared.some(u => / · set/.test(u)),
+        'undeclared writers: ' + realBuild.undeclared.filter(u => / · set/.test(u)).join('; '));
+      const otherTable = amberOf('housePrice', realAdmin.replace(anchor,
+        'const HU_UNNAMED_TABLE = {housePrice: 400};\n' + anchor));
+      check('a table of field names is only excused when it is NAMED in TABLES',
+        otherTable.undeclared.some(u => /^admin · \(a handler\) · set/.test(u)),
+        'an unnamed object carrying housePrice as a key was excused — the table exemption has become a blanket one');
+      const tern = amberOf('housePhotos', realAdmin.replace(anchor,
+        'function huTern(n, housePhotos){ return n ? housePhotos : []; }\n' + anchor));
+      check('a name between the halves of a ternary is not counted as a writer',
+        !tern.undeclared.some(u => /^admin · huTern · set/.test(u)),
+        'n ? housePhotos : [] was read as an object key and counted as a write');
+      const hp = manifestAll.find(s => s.field === 'rsvpStatus');
+      fs.writeFileSync(path.join(dir, 'a.html'), realAdmin);
+      const lost = runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') },
+        [Object.assign({}, hp, { quiet: [{ file: 'admin', near: 'HU_NOTHING_MATCHES_THIS', where: 'Customers › All Customers', why: 'planted' }] })])[0];
+      check('a quiet anchor that has drifted off its code goes red, never silent',
+        lost.rows.some(x => !x.found && /quiet anchor matches nothing/.test(x.why)),
+        'a quiet entry pointing at nothing was dropped quietly — it would excuse whatever moved in next');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1c. RULES WRITTEN TWICE (2026-10-13). connections/twins.js names every rule the office
+ * page and the server each carry a copy of, and which test compares them. Two copies drift
+ * silently, so the list is a CENSUS: any pair in the code that is on neither list fails.
+ * ------------------------------------------------------------------------- */
+{
+  const { TWINS, NOT_TWINS } = require('./connections/twins');
+  /* The scanner's own view of each file — comments and strings blanked, HTML outside the
+     scripts blanked — so a name mentioned in a comment is never read as a function. */
+  const { index: scanIndex } = require('./connections/scan');
+  const office = scanIndex(path.join(ROOT, 'admin.html')).blanked + '\n' +
+                 scanIndex(path.join(ROOT, 'js', 'money.js')).blanked;
+  const server = scanIndex(path.join(ROOT, 'functions', 'index.js')).blanked;
+  const names = (src, topOnly) => new Set([...src.matchAll(topOnly
+    ? /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_]\w*)\s*\(/gm
+    : /function\s+([A-Za-z_]\w*)\s*\(/g)].map(m => m[1]));
+  const oAll = names(office, false), sAll = names(server, false);
+  const oTop = names(office, true), sTop = names(server, true);
+  const found = [];
+  sAll.forEach(n => { if (/Server$/.test(n) && oAll.has(n.replace(/Server$/, ''))) found.push([n.replace(/Server$/, ''), n]); });
+  sTop.forEach(n => { if (oTop.has(n)) found.push([n, n]); });
+  const listed = (o, sv) => TWINS.some(t => t.office === o && t.server === sv) || !!NOT_TWINS[o];
+  const unlisted = found.filter(([o, sv]) => !listed(o, sv));
+  check('every rule written twice is on the twins list — or said not to be one', unlisted.length === 0,
+    unlisted.map(p => p[0] + ' / ' + p[1]).join(', ') +
+    '\n        A rule the office and the server each carry a copy of. Add it to TWINS in ' +
+    'connections/twins.js with the test that compares the two — or null, which the page shows ' +
+    'as nothing comparing them — or to NOT_TWINS with the reason it is not one rule.');
+  check('the census found the pairs it exists for', found.length >= 30,
+    'found ' + found.length + ' — a matcher that has stopped matching demands nothing at all');
+
+  const gone = TWINS.filter(t => !oAll.has(t.office) || !sAll.has(t.server));
+  check('every pair on the twins list still exists on both sides', gone.length === 0,
+    gone.map(t => t.office + ' / ' + t.server).join(', ') + ' — renamed or removed; repoint or take it off');
+  const staleNot = Object.keys(NOT_TWINS).filter(n => !oAll.has(n) || !(sAll.has(n) || sAll.has(n + 'Server')));
+  check('nothing is excused as not-a-twin that is no longer on both sides', staleNot.length === 0, staleNot.join(', '));
+
+  let chain = '';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    chain = String(pkg.scripts.test || '').split('&&').map(x => x.trim().replace(/^npm run /, ''))
+      .map(k => pkg.scripts[k] || k).join(' ');
+  } catch (e) { chain = ''; /* reported by the check below */ }
+  const badTest = [];
+  TWINS.filter(t => t.test).forEach(t => {
+    const p = path.join(ROOT, t.test);
+    if (!fs.existsSync(p)) return badTest.push(t.office + ' → ' + t.test + ' does not exist');
+    if (chain.indexOf(t.test) === -1) return badTest.push(t.office + ' → ' + t.test + ' is not in npm test');
+    const txt = fs.readFileSync(p, 'utf8');
+    const has = n => new RegExp('\\b' + n + '\\b').test(txt);
+    if (!has(t.office) || (!t.byBlock && !has(t.server))) badTest.push(t.office + ' → ' + t.test + ' does not name both copies');
+  });
+  check('every test said to compare a pair exists, runs, and names both copies', chain.length > 200 && badTest.length === 0,
+    badTest.join('; ') || 'could not read the npm test chain');
+  note('rules written twice: ' + TWINS.length + ', of which ' + TWINS.filter(t => !t.test).length +
+    ' have nothing comparing the two copies — shown on the page as such.');
 }
 
 /* ---------------------------------------------------------------------------
@@ -758,6 +853,7 @@ if (amberTotal) {
       areas > 0, 'no area cards at all, so nothing below proves anything');
 
     let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
+    const held = { test: 0, code: 0, words: 0, none: 0 };
     for (let i = 0; i < areas; i++) {
       subtab('rules').click();
       const back = v.querySelector('.back'); if (back) back.click();
@@ -776,8 +872,25 @@ if (amberTotal) {
         const last = now[now.length - 1];
         const body = last && last.querySelector('.body .rl li');
         if (!body) emptyBody++;
+        const prov = last && last.querySelector('.prov');
+        const pt = prov ? prov.textContent : '';
+        if (/by a test that runs on every build — .*(Suite \d+|\.(test|spec)\.js)/.test(pt)) held.test++;
+        else if (/no test holds it/.test(pt)) held.code++;
+        else if (/not checkable/.test(pt)) held.words++;
+        else held.none++;
       }
     }
+
+    /* ⭐ EACH RULING SAYS HOW IT IS HELD (2026-10-13, [[PROC-39]]). Run against the real
+       map through the real renderer: a block that names a test must SHOW the test, and
+       one with code but no test must say nothing would go red. Counted, because the
+       claim is about every block, and a renderer that dropped one level would still draw
+       the other two. */
+    check('every opened ruling says how it is held — by a test, by code only, or not at all',
+      held.none === 0 && held.test > 100 && held.code > 50,
+      'test ' + held.test + ', code only ' + held.code + ', not checkable ' + held.words +
+      ', said nothing ' + held.none + ' — a ruling the page claims nothing about is the ' +
+      'same as one it claims everything about');
 
     check('every rule block opens when it is clicked',
       tried > 0 && opened === tried,

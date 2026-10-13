@@ -84,7 +84,11 @@ function hits(ix, field) {
        broke twenty real declarations at once — every `updates.field = value` in the app
        became a read. Kept as a comment because the fix looks obviously right both ways
        round and is only correct one of them. */
-    else if (/^\s*:/.test(after)) kind = isProp ? 'read' : 'set';
+    /* ⚠ AND SO IS A BARE NAME STRAIGHT AFTER A `?`. `n ? housePhotos : []` puts a local
+       variable named after the field between the two halves of a ternary, and the colon
+       after it read as an object key — a phantom writer of the photo list on the one panel
+       that really does write it. An object key is never preceded by `?`. */
+    else if (/^\s*:/.test(after)) kind = (isProp || /\?\s*$/.test(s.slice(Math.max(0, m.index - 4), m.index))) ? 'read' : 'set';
     else if (isProp) kind = 'read';
     /* ⚠ A LOCAL DECLARATION IS NOT A WRITE TO THE RECORD. `const completed = !!d.completed`
        reads the field and names a local after it; `let deposit = 0` names one after a field
@@ -261,9 +265,35 @@ function onlyRows(ix, spine, rows, declared) {
   });
 }
 
+/* ⭐ A TABLE OF FIELD NAMES IS NOT A WRITE (2026-10-13). `RB_LEDGER_FIELD_RANK = {housePrice:2,
+   measuredFeet:3, …}`, the portal's change labels and the invoice self-test's expected
+   statuses all spell field names as object keys, so each read as a writer of half a dozen
+   watched fields — amber that sends somebody hunting a write that is only a word. The
+   manifest NAMES each such table (TABLES); a hit inside one is skipped for every field.
+   ⚠ NAMED, NEVER INFERRED: a rule like "any top-level const object" would also swallow a
+   real defaults object that IS written to a record, which is the false green this page
+   exists to refuse. */
+function tableRanges(I, names) {
+  const out = [];
+  (names || []).forEach(n => {
+    const m = new RegExp('\\b(?:const|let|var)\\s+' + n + '\\s*=\\s*[[{]').exec(I.blanked);
+    if (!m) return;
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    for (let i = open; i < I.blanked.length; i++) {
+      const ch = I.blanked[i];
+      if (ch === '{' || ch === '[') depth++;
+      else if ((ch === '}' || ch === ']') && --depth === 0) { out.push([m.index, i]); break; }
+    }
+  });
+  return out;
+}
+
 function check(files, manifest) {
   const ix = {};
   Object.keys(files).forEach(k => { ix[k] = index(files[k]); });
+  const tables = {};
+  Object.keys(ix).forEach(k => { tables[k] = tableRanges(ix[k], manifest.TABLES); });
   return manifest.map(spine => {
     const rows = [];
     const declared = {};
@@ -313,12 +343,28 @@ function check(files, manifest) {
       });
     });
     onlyRows(ix, spine, rows, declared);
+    /* ⭐ `quiet` — READ, AND NOT A CONNECTION (2026-10-13). A test-record tool that really
+       does write this field on the real record, from an anonymous handler `ignore` cannot
+       name. Each entry carries a `why`, and an anchor that matches nothing FAILS the spine
+       rather than being silently dropped — a quiet that has drifted off its code would
+       otherwise hide whatever moves in next to it. */
+    (spine.quiet || []).forEach(q => {
+      const I = ix[q.file];
+      const ranges = I ? anchorRanges(I, q) : [];
+      if (!ranges.length) {
+        rows.push({ side: 'sets', where: q.where, when: 'a quiet anchor is checked', file: q.file, anchor: 'near "' + String(q.near || q.fn || '').slice(0, 40) + '"',
+          rules: [], found: false, why: 'a quiet anchor matches nothing — ' + (q.why || '') });
+        return;
+      }
+      declared[q.file] = (declared[q.file] || []).concat(ranges);
+    });
     /* Anything touching the field outside every declared anchor. */
     const extra = {};
     Object.keys(ix).forEach(fk => {
       const dr = declared[fk] || [];
       hits(ix[fk], spine.field).forEach(h => {
         if (inAny(dr, h.pos)) return;
+        if (inAny(tables[fk], h.pos)) return;
         if ((spine.ignore || []).some(rx => new RegExp(rx).test(enclosing(ix[fk], h.pos) || ''))) return;
         if (otherRecord(ix, ix[fk], h.pos, spine)) return;
         const key = fk + ' · ' + (enclosing(ix[fk], h.pos) || '(a handler)') + ' · ' + h.kind;
@@ -339,4 +385,4 @@ function check(files, manifest) {
   });
 }
 
-module.exports = { check, hits, anchorRanges, otherRecord };
+module.exports = { check, hits, anchorRanges, otherRecord, tableRanges };

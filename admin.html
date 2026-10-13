@@ -9627,7 +9627,12 @@ document.getElementById('ledgerBackfillRunBtn')?.addEventListener('click', onceA
    are saved; see findByPhone / findByEmail in functions/index.js. */
 function contactIndexFields(d){
   const out = {};
-  if(d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/D/g,'');
+  /* ⛔ \D, NOT D (fixed 2026-10-13). From 23 Sep this read /D/g — a backslash lost in an edit
+     — which strips the LETTER D and keeps every bracket, space and dash, so "(801) 555-0123"
+     was indexed as itself. The server's copy was always right, and the two disagreeing is what
+     twin-parity.test.js now catches. A record saved in that window is repaired by the
+     sign-in shortcuts tool below, which compares against THIS function. */
+  if(d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/\D/g,'');
   if(d.email !== undefined) out.emailLower = String(d.email || '').toLowerCase().trim();
   if(d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
   return out;
@@ -14091,6 +14096,57 @@ let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
+/* ⭐ THE SEND TEXT SUB-SECTION OF AWAITING RESPONSE ([[QT-54]], 2026-10-13). Addie: "can we
+   have a text section that says send text than we mark as texted?", "maybe sub section in
+   awaiting response", "Once texted goes back to awaiting response", "It will send nudge email
+   10 days after text." 'all' is Awaiting Response as it always was, minus anyone owed a text;
+   'text' is just the people owed one. */
+let quoteSendSub = 'all';
+let quoteTextWaitDays = 10;   // follows settings/quoteNudgeAutomation.waitDays once loaded
+/* Days since a quote FIRST went out — the same clock the server's ladder and 30-day archive
+   read ([[QT-52]], [[QT-53]]): quoteFirstSentAt, else the earlier of the two send dates. */
+function quoteFirstSentDays(d){
+  if(d && d.quoteFirstSentAt) return daysSince(d.quoteFirstSentAt);
+  const ds = [daysSince(d && d.quoteSentAt), daysSince(d && d.quoteManuallySentAt)].filter(function(x){ return x !== null; });
+  return ds.length ? Math.max.apply(null, ds) : null;
+}
+/* Who is owed a text: still unanswered, quiet for the wait since the quote email first went
+   out, not yet texted, and not already past the text rung (the automatic email has gone).
+   ⚠ AN APPROVED QUOTE WAITING ON ITS FORM IS NOT OWED ONE — they answered. */
+/* ⭐ MARK AS TEXTED ([[QT-54]]). Writes quoteNudgeTextedAt — the server's ladder sends the
+   automatic nudge email that many days after it — and the rung-one stamp if the 10 AM run
+   never wrote it, so the ladder knows the text step is done whether or not the automation
+   was on when it fell due. The mirror is updated first so the row moves back to Awaiting
+   response at once rather than waiting for the listener. */
+async function markQuoteTexted(id, btn){
+  const item = quotesCache.find(function(q){ return q.id === id; });
+  if(!item) return;
+  const statusEl = document.getElementById('qTextStatus');
+  if(btn) btn.disabled = true;
+  const upd = {quoteNudgeTextedAt: serverTimestamp()};
+  if(!item.data.quoteNudgeTextAskedAt) upd.quoteNudgeTextAskedAt = serverTimestamp();
+  try{
+    await updateDoc(doc(db,'quotes', id), upd);
+    /* Shaped like a Timestamp — daysSince calls .toDate() on it. (quoteSentNowStamp is
+       scoped inside the quote list's handlers and cannot be reached from here.) */
+    const nowStamp = {toDate: function(){ return new Date(); }};
+    item.data.quoteNudgeTextedAt = nowStamp;
+    if(!item.data.quoteNudgeTextAskedAt) item.data.quoteNudgeTextAskedAt = nowStamp;
+    toast((item.data.name || 'They') + ' marked as texted \u2014 back in Awaiting response.');
+    renderQuotesList();
+  } catch(err){
+    console.error('[HU] mark as texted failed', err);
+    if(btn) btn.disabled = false;
+    if(statusEl){ statusEl.style.color = 'var(--ember)'; statusEl.textContent = 'Could not save \u2014 ' + ((err && err.message) || 'try again') + '.'; }
+  }
+}
+function quoteNeedsText(d){
+  if(!d || quoteStage(d) !== 'send') return false;
+  if((d.approvalStatus || 'pending') !== 'pending') return false;
+  if(d.quoteNudgeTextedAt || d.quoteNudgeEmailedAt) return false;
+  const days = quoteFirstSentDays(d);
+  return days !== null && days >= quoteTextWaitDays;
+}
 /* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
    list - so the button you just pressed, and the box the confirmation was
    written into, are both gone by the time the send finishes. These survive the
@@ -14119,6 +14175,34 @@ let showArchivedQuotes = false; // Closed tab: swap between converted and archiv
    would leave it filed under Quotes for ever with nothing left to press. */
 function quoteWasSentOut(d){
   return !!(d && (d.quoteSentAt || d.quoteManuallySent));
+}
+/* ⭐ WHEN THE QUOTE FIRST WENT OUT ([[QT-52]], 2026-10-13). Addie: "Awaiting responses in
+   quotes should go in archive after 30 days of sending first email." quoteSentAt cannot
+   answer that — the office's own Nudge button rewrites it, and so does every re-send — so
+   the FIRST send is stamped once and never moved. Every door that sends or marks a quote
+   sent spreads this in; it returns nothing when the stamp is already there.
+   ⚠ A RE-QUOTE CLEARS IT, with quoteSentAt: a new price is a new quote to answer. */
+function quoteFirstSentStamp(d){
+  if(d && d.quoteFirstSentAt) return {};
+  /* A quote that went out before this stamp existed already carries its real first send in
+     quoteSentAt / quoteManuallySentAt — a re-send must not record itself as the first. */
+  const known = quoteFirstSentFromHistory(d);
+  return known.quoteFirstSentAt ? known : {quoteFirstSentAt: serverTimestamp()};
+}
+/* ⛔ A NUDGE IS NEVER THE FIRST SEND ([[QT-55]], 2026-10-13). Addie: "shouldn't Chad weichers
+   be archived since more than 30 days since we reached out". Both office Nudge buttons spread
+   quoteFirstSentStamp in, so a quote sent BEFORE that stamp existed had its first send
+   recorded as the moment it was nudged — the very day the clock was meant to be running
+   from weeks earlier — and the nudge rewrites quoteSentAt in the same write, so the real
+   date was lost twice over. A nudge stamps the EARLIEST send already on the record (read
+   before this write overwrites it), and nothing at all if there is none: an unknown first
+   send must never be invented as today, which only ever pushes the archive later. */
+function quoteFirstSentFromHistory(d){
+  if(!d || d.quoteFirstSentAt) return {};
+  const prior = [d.quoteSentAt, d.quoteManuallySentAt].filter(function(t){ return t && toJsDate(t); });
+  if(!prior.length) return {};
+  prior.sort(function(a, b){ return toJsDate(a) - toJsDate(b); });
+  return {quoteFirstSentAt: prior[0]};
 }
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
@@ -14688,11 +14772,11 @@ async function nudgeEveryoneShown(){
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
-      await updateDoc(doc(db,'quotes', item.id), {
+      await updateDoc(doc(db,'quotes', item.id), Object.assign({
         quoteSentAt: serverTimestamp(),
         quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
         quoteLastNudgedAt: serverTimestamp()
-      });
+      }, quoteFirstSentFromHistory(d)));
       sent++;
     } catch(err){
       failures.push((d.name || d.email) + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
@@ -14735,7 +14819,41 @@ function renderQuoteStageControls(){
   const el = document.getElementById('quoteStageControls');
   if(!el) return;
   if(quoteStageFilter === 'send'){
-    el.innerHTML =
+    const owed = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send' && quoteNeedsText(q.data); });
+    const sendAll = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send'; }).length - owed.length;
+    const subTabs =
+      '<div style="display:flex; gap:8px; margin-bottom:10px;">'+
+        '<button type="button" class="btn btn-sm '+(quoteSendSub === 'all' ? 'btn-gold' : 'btn-outline')+'" data-quotesendsub="all">Awaiting response ('+sendAll+')</button>'+
+        '<button type="button" class="btn btn-sm '+(quoteSendSub === 'text' ? 'btn-gold' : 'btn-outline')+'" data-quotesendsub="text">Send text ('+owed.length+')</button>'+
+      '</div>';
+    if(quoteSendSub === 'text'){
+      /* ⭐ THE TEXT LIST ([[QT-54]]). A person sends the text from their own phone — the app
+         sends no SMS here — so each row is the number to text and a button to say it was. */
+      el.innerHTML = subTabs +
+        '<div style="background:#EEF4FF; border:1px solid #C7D7F5; border-radius:10px; padding:11px 14px; font-size:13px;">'+
+          '<div style="font-weight:700; color:#23406E; margin-bottom:4px;">Text these people about their quote</div>'+
+          '<div style="font-size:12px; color:#3B5B8C; margin-bottom:8px;">No reply '+quoteTextWaitDays+' days after the quote email first went out. Text them, then press <b>Mark as texted</b> &mdash; they go back to Awaiting response, and the automatic nudge email goes '+quoteTextWaitDays+' days after the text if there is still nothing.</div>'+
+          (owed.length ? owed.map(function(q){
+            const d = q.data, ph = String(d.phone || '').replace(/[^0-9+]/g, '');
+            return '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px solid #DCE6F7;">'+
+              '<b style="min-width:140px;">'+esc(d.name || '(no name)')+'</b>'+
+              (ph ? '<a href="sms:'+esc(ph)+'">'+esc(d.phone)+'</a>' : '<em>no phone on file</em>')+
+              '<span style="color:#3B5B8C;">'+(typeof d.quotedPrice === 'number' ? fmtMoney(d.quotedPrice)+' \u00b7 ' : '')+quoteFirstSentDays(d)+' days</span>'+
+              (ph ? '<a class="btn btn-outline btn-sm" href="sms:'+esc(ph)+'">Send text</a>' : '')+
+              '<button type="button" class="btn btn-gold btn-sm" data-marktexted="'+esc(q.id)+'" style="margin-left:auto;">Mark as texted</button>'+
+            '</div>';
+          }).join('') : '<div style="color:#3B5B8C;">Nobody is owed a text right now.</div>')+
+        '</div>'+
+        '<div id="qTextStatus" class="rtext" style="margin-top:8px;"></div>';
+      el.querySelectorAll('[data-quotesendsub]').forEach(function(b){
+        b.addEventListener('click', function(){ quoteSendSub = b.dataset.quotesendsub; renderQuotesList(); });
+      });
+      el.querySelectorAll('[data-marktexted]').forEach(function(b){
+        b.addEventListener('click', function(){ markQuoteTexted(b.dataset.marktexted, b); });
+      });
+      return;
+    }
+    el.innerHTML = subTabs +
       '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--paper); border-radius:10px; padding:10px 14px; font-size:13px;">'+
         '<strong style="font-size:12.5px;">Show only people quiet for</strong>'+
         '<input type="number" id="qQuietDaysInput" min="0" step="1" value="'+quoteQuietDays+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">'+
@@ -14752,6 +14870,9 @@ function renderQuoteStageControls(){
     el.querySelector('#qQuietTenBtn').addEventListener('click', function(){ quoteQuietDays = 10; renderQuotesList(); });
     el.querySelector('#qQuietClearBtn').addEventListener('click', function(){ quoteQuietDays = 0; renderQuotesList(); });
     el.querySelector('#qNudgeAllBtn').addEventListener('click', nudgeEveryoneShown);
+    el.querySelectorAll('[data-quotesendsub]').forEach(function(b){
+      b.addEventListener('click', function(){ quoteSendSub = b.dataset.quotesendsub; renderQuotesList(); });
+    });
     return;
   }
   if(quoteStageFilter === 'closed'){
@@ -15154,6 +15275,7 @@ async function loadQuoteNudgeSettings(){
     const d = snap.exists() ? snap.data() : {};
     document.getElementById('qNudgeAutoOn').checked = d.enabled === true;
     if(d.waitDays) document.getElementById('qNudgeWaitDays').value = d.waitDays;
+    if(Number(d.waitDays) > 0) quoteTextWaitDays = Number(d.waitDays);
     /* ⛔ maxNudges is no longer read or offered — see the card above ([[QT-49]]). */
     renderQuoteNudgeStatus(d);
   } catch(err){ /* not set up yet */ }
@@ -16090,6 +16212,11 @@ function renderQuotesList(){
         return days !== null && days >= quoteQuietDays;
       });
     }
+    /* ⭐ QT-54: somebody owed a text sits under Send text, not Awaiting Response, until it
+       is marked done — then they come back here. One rule decides both halves. */
+    filtered = filtered.filter(function(item){
+      return (quoteSendSub === 'text') === quoteNeedsText(item.data);
+    });
   }
   /* Closed holds two different things: real conversions and archived
      no-thank-yous. Archived is off to the side rather than deleted, so an
@@ -18617,9 +18744,9 @@ function renderQuoteRows(filtered){
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
-      await updateDoc(doc(db,'quotes', id), {
+      await updateDoc(doc(db,'quotes', id), Object.assign({
         quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-      });
+      }, quoteFirstSentStamp(d)));
       quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.' +
         (quoteUsedBuiltInBody ? ' Used the built-in ' + (isRequote(d) ? 're-quote' : 'quote') + ' wording \u2014 there is no template called \u201C' + tmplName + '\u201D. Pick one in Quote email settings to use your own.' : '')});
       followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
@@ -18763,16 +18890,16 @@ function renderQuoteRows(filtered){
           button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
-          await updateDoc(doc(db,'quotes', id), {
+          await updateDoc(doc(db,'quotes', id), Object.assign({
             quoteSentAt: serverTimestamp(),
             quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
             quoteLastNudgedAt: serverTimestamp()
-          });
+          }, quoteFirstSentFromHistory(d)));
           toast('Nudge sent using the ' + tmplName + ' template.');
         } else {
-          await updateDoc(doc(db,'quotes', id), {
+          await updateDoc(doc(db,'quotes', id), Object.assign({
             quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-          });
+          }, quoteFirstSentStamp(d)));
           followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
           toast('Sent using the ' + tmplName + ' template.');
         }
@@ -19008,7 +19135,7 @@ function renderQuoteRows(filtered){
       if(!token) token = generatePortalToken();
       if(statusEl) statusEl.textContent = 'Saving…';
       try{
-        const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
+        const updates = Object.assign({quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()}, quoteFirstSentStamp(item.data));
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
         followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp(), approvalStatus: updates.approvalStatus || item.data.approvalStatus});
@@ -19212,6 +19339,7 @@ function renderQuoteRows(filtered){
              that has not been sent at all - blaming the customer for silence on
              a number they have never seen. */
           quoteSentAt: null,
+          quoteFirstSentAt: null,
           quoteNudgeCount: 0,
           /* Live work again - comes back out of Closed and out of the archive,
              whichever of the two it was sitting in. */
@@ -19349,7 +19477,9 @@ function renderQuoteRows(filtered){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.marksent;
       try{
-        await updateDoc(doc(db,'quotes', id), {quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()});
+        const markedItem = quotesCache.find(q => q.id === id);
+        await updateDoc(doc(db,'quotes', id), Object.assign({quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()},
+          quoteFirstSentStamp(markedItem && markedItem.data)));
         followQuoteToItsStage(id, {quoteManuallySent: true});
         toast('Marked as sent.');
       } catch(err){
@@ -41408,6 +41538,16 @@ function isOutForSeason(d){
   }
   return false;
 }
+/* ⭐ SAID NO OR BACK NEXT YEAR, BY EITHER ROUTE ([[RS-81]], 2026-10-13). The main app's copy of
+   the Schedule widget's takedownSaidNo — the widget is a sealed IIFE, so the Routes tab cannot
+   call into it (the reliability suite fails if the main app tries). The two are compared side by
+   side in twin-parity.test.js. Reads the flag the office sets AND the status the RSVP link
+   writes; reading the flag alone missed everybody who answered by link. */
+function saidNoOrBackNextYear(d){
+  d = d || {};
+  const s = String(d.rsvpStatus == null ? '' : d.rsvpStatus).trim().toLowerCase();
+  return s === 'no' || s === 'backnextyear' || d.maybeNextYear === true;
+}
 /* ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Addie, having
    asked how she can tell a paid-up customer from a held one: "how do we measure if
    someone paid for last year so than they can be marked approved for the year and be
@@ -44003,6 +44143,13 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
        main reason anyone imports a payment file. And it SET the deposit rather
        than adding to it, so a $200 card payment followed by a $315 Venmo row
        became $315 and $200 of real money vanished. Both fixed here. */
+    /* ⛔ /D/ HERE IS WRONG AND MUST STAY (2026-10-13). It strips the LETTER D rather than
+       every non-digit — the same lost backslash contactIndexFields had. But this value is only
+       the "already imported" tag, and every tag already saved on an invoice was built this
+       way. "Fixing" it changes the tag for every formatted phone, so re-importing a file that
+       already went in would no longer be recognised and its payments would be ADDED AGAIN.
+       A tag only has to be stable, and this one is. Change it only together with a check that
+       accepts both spellings of the tag. */
     const thisRowTag = rowTag(rowIdx, String(phone).replace(/D/g,''), amount);
     const seen = Array.isArray(d.importedPayments) ? d.importedPayments : [];
     if(seen.indexOf(thisRowTag) !== -1){ alreadyDone++; continue; }
@@ -51425,7 +51572,10 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !a.data.maybeNextYear);
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
+       somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -67951,7 +68101,10 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
+       somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
   const startText = document.getElementById('fixStartInput').value.trim();
@@ -67972,7 +68125,10 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !a.data.maybeNextYear);
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
+       somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const startText = document.getElementById('removalStartInput').value.trim();
   let startPoint = null;
@@ -84305,8 +84461,15 @@ function exportCSV(){
 function bpmMapsOf(d){
   return (d && Array.isArray(d.blueprintMaps)) ? d.blueprintMaps.filter(function(m){ return m && typeof m === 'object'; }) : [];
 }
+/* ⚠ A COUNTER, NOT ONLY CHANCE (2026-10-13). Five random base-36 characters — fewer when
+   Math.random() lands on a short fraction — collided inside one millisecond often enough to
+   fail blueprint-maps.test.js's 500-id check in CI. The id is the print key AND the update
+   target, so two maps sharing one would overwrite each other. The counter makes ids made in
+   one session distinct by construction; the time and random part keep two computers apart. */
 function bpmNewMapId(){
-  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  /* Held on the function itself so a test can lift it alone. */
+  bpmNewMapId.seq = ((bpmNewMapId.seq || 0) + 1) % 1679616;
+  return 'm' + Date.now().toString(36) + bpmNewMapId.seq.toString(36) + (Math.random().toString(36) + '000000').slice(2, 8);
 }
 /* ⚠ THE SAVED COUNT NEVER READS AS ZERO. A house saved at 0 would load already
    printing nothing, which is indistinguishable from one somebody had unchecked, and

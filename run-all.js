@@ -5585,7 +5585,10 @@ suite('8. Quote decline / maybe next year');
      for real). The install generator moved to the helper on 2026-08-15 when
      the RSVP gate came off, and this check exists to protect the GUARANTEE,
      not one way of writing it. */
-  const honoursMaybe = l => l.includes('!a.data.maybeNextYear') || l.includes('!isOutForSeason(a.data)');
+  /* ⭐ AND saidNoOrBackNextYear (2026-10-13, RS-81): the fix and removal generators ask it
+     because it reads the RSVP-link status as well as the flag — the same guarantee, stronger. */
+  const honoursMaybe = l => l.includes('!a.data.maybeNextYear') || l.includes('!isOutForSeason(a.data)') ||
+    l.includes('!saidNoOrBackNextYear(a.data)');
   check('quoteresp', 'every route list excludes Maybe Next Year',
     routeLists.length >= 4 && routeLists.every(honoursMaybe),
     'found ' + routeLists.length + ' route lists, ' +

@@ -7138,6 +7138,67 @@ can differ (main photo removed, extras kept → list holds the extras, mirror bl
 left alone on purpose because the outlined sections belong to the MAIN photo. Only
 `scheduledRoutes` is left on the not-watched list.
 
+⭐ **WORKING THROUGH THE AMBER, MONEY FIRST (2026-10-13).** Every reader of `deposit` was
+checked for computing a balance as install + removal + changeFees − credits − deposit; none gets
+it wrong (the ones that look short only add up payments, or call the shared helper). Every reader
+of `billToPhone` was checked for finding a bill BOTH ways — bill-to first, then the house's own
+key — and all do. The `changeFees` row was retitled **Fees on a bill**: it was declared as the $30
+colour-change fee alone, but the carried-over unpaid balance and the 1 April late fee sum into the
+same field, which is why its three undeclared writers read as strangers. Amber on the three money
+fields went 59 → 39, all of it display or payment-summing.
+⭐ **AND [[RS-81]] (Q-036):** the Routes tab's Generate Fix Route, its count and Generate Removal
+Route ask `saidNoOrBackNextYear` now — a main-app copy of the Schedule's own `takedownSaidNo`
+([[SCH-90]]), compared by `twin-parity.test.js` — so somebody who said Back Next Year through the
+RSVP link is no longer offered either route.
+⭐ **AND THE WAREHOUSE AND SEASON FIELDS (2026-10-13).** Every undeclared WRITER of a watched
+field was read, and none was wrong: the Mark Done object, a request taken by phone, the wire
+picked off a System Message, a Maybe-Next-Year quote becoming a sitting-out customer, a payment
+approving somebody who had said nothing ([[RS-77]]), Not needed on the build list, waiving a
+carried charge, and the Schedule mirror stamping `assignedCrewAt` (the map still only named the
+retired doors — [[SCH-102]]). All are declared, so amber on those fields is readers only. Three
+things the map used to count as writers and were not: tables of field NAMES (`TABLES` in the
+manifest, named one by one), test-record tools (`quiet`, each with its reason, red if its anchor
+ever stops matching), and a name between the halves of a ternary. `connections.test.js` plants
+each from the other side so none can widen into a blanket excuse.
+
+⭐ **A NUDGE IS NOT THE FIRST SEND ([[QT-55]], 2026-10-13).** Both office Nudge buttons used to
+stamp an old quote's first send as the moment of the nudge (and overwrite `quoteSentAt` in the
+same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory` keeps the
+earliest send already on the record. Quotes nudged before this have lost that date; archive
+them by hand from the quote card.
+
+⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
+`admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
+that runs both copies side by side, and **Connections › Where things go › Rules written
+twice** shows them, the uncompared ones first. `connections.test.js` fails on any pair in the
+code that is on neither list. `twin-parity.test.js` runs the pure same-name pairs side by side,
+and **its first run found a real bug**: the office copy of `contactIndexFields` read `/D/g`
+instead of `/\D/g` (from 23 Sep 2026), so a customer saved in the office with a formatted
+phone got a `phoneDigits` key with its brackets and dashes still in — and the server's
+"is this quote from a member?" lookup, which reads that key with no fallback, could not find
+them. ⚠ REPAIR: Import Center › Make customer sign-in fast › Check First, then Fill in the
+sign-in shortcuts. ⚠ The payment importer's `rowTag` carries the same `/D/g` and is
+deliberately LEFT — it is only an "already imported" tag, and changing it would make a
+re-imported file add its payments a second time.
+
+⭐ **CHASING A QUOTE, AS OF 2026-10-13 ([[QT-52]], [[QT-53]], [[QT-54]]).** Ten days after
+the quote email FIRST went out (`quoteFirstSentAt`), an unanswered quote moves to
+**Quotes › Awaiting Response › Send text**: a person texts them from their own phone and
+presses **Mark as texted**, which puts them back under Awaiting Response. Ten days after the
+text, the 10 AM run sends the one automatic nudge email. Thirty days after the first email,
+an unanswered quote goes to the archive — every morning, whether or not the nudge automation
+is switched on. Approved quotes waiting on their form are never texted or archived. The
+read-only digest (`nightly-digest.js`, §6) reports the switch, the last run and the
+unanswered quotes by age; on 2026-10-13 it showed the automation had never run.
+
+⭐ **EVERY RULING SAYS WHAT HOLDS IT ([[PROC-40]]).** On the Rules view each ruling now reads
+**held by a test** (and names it), **no test holds it** (the code is named, but nothing
+would go red if it stopped being true), or **not checkable**; the headline counts how many
+are held by a test, and each area card counts the ones with no test. `questions-map.test.js`
+fails when a standing ruling cites a test that no longer exists, is marked RETIRED, or is
+not in the `npm test` chain — the first run found `rejoin-build.test.js` (WH-24) passing but
+never run, now in the chain, and RS-75 citing a retired suite, now repointed.
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field
