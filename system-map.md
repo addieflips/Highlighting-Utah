@@ -7136,6 +7136,20 @@ can differ (main photo removed, extras kept → list holds the extras, mirror bl
 left alone on purpose because the outlined sections belong to the MAIN photo. Only
 `scheduledRoutes` is left on the not-watched list.
 
+⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
+`admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
+that runs both copies side by side, and **Connections › Where things go › Rules written
+twice** shows them, the uncompared ones first. `connections.test.js` fails on any pair in the
+code that is on neither list. `twin-parity.test.js` runs the pure same-name pairs side by side,
+and **its first run found a real bug**: the office copy of `contactIndexFields` read `/D/g`
+instead of `/\D/g` (from 23 Sep 2026), so a customer saved in the office with a formatted
+phone got a `phoneDigits` key with its brackets and dashes still in — and the server's
+"is this quote from a member?" lookup, which reads that key with no fallback, could not find
+them. ⚠ REPAIR: Import Center › Make customer sign-in fast › Check First, then Fill in the
+sign-in shortcuts. ⚠ The payment importer's `rowTag` carries the same `/D/g` and is
+deliberately LEFT — it is only an "already imported" tag, and changing it would make a
+re-imported file add its payments a second time.
+
 ⭐ **CHASING A QUOTE, AS OF 2026-10-13 ([[QT-52]], [[QT-53]], [[QT-54]]).** Ten days after
 the quote email FIRST went out (`quoteFirstSentAt`), an unanswered quote moves to
 **Quotes › Awaiting Response › Send text**: a person texts them from their own phone and
