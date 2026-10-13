@@ -118,7 +118,7 @@ module.exports = function makeHarness(liftDeep){
     '        advancePriorityHouses: advancePriorityHouses, placeJoinedHouses: placeJoinedHouses,',
     '        validateSeasonPlan: validateSeasonPlan, lockedDaySnapshot: lockedDaySnapshot, placementReasons: placementReasons,',
     '        houseSchedulingProfile: houseSchedulingProfile, bestEarlierDayFor: bestEarlierDayFor, milesFromDay: milesFromDay,',
-    '        pullBackPastDeadline: pullBackPastDeadline, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
+    '        pullBackPastDeadline: pullBackPastDeadline, enforceFiveMileCrews: enforceFiveMileCrews, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
     '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs,',
     '        sweepGoneDaysForward: sweepGoneDaysForward, scheduleTodayStr: scheduleTodayStr, hangDayOn: hangDayOn,',
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',

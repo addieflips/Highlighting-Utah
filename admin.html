@@ -19388,7 +19388,24 @@ function renderQuoteRows(filtered){
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
-    sel.addEventListener('change', function(){
+    sel.addEventListener('change', async function(){
+      /* ⭐ [[QT-52]] CLOSING AN APPROVED RE-QUOTE APPLIES IT (2026-10-13). Dax: "figure out why not all the requotes
+         went to the build list". Choosing Closed here wrote status:'closed' and nothing else — so a re-quote the
+         customer had APPROVED was filed away without ever being applied, and applying is the only thing that tells the
+         warehouse (build, top-up or recycle). Miko Johnson's went that way. An approved re-quote on a live customer now
+         opens the same Apply step as the button; anything else closes as before. */
+      if(sel.value === 'closed'){
+        const item = (typeof quotesCache !== 'undefined' ? quotesCache : []).filter(function(q){ return q.id === sel.dataset.id; })[0];
+        const qd = item && item.data;
+        const live = qd && qd.existingCustomerId && (typeof jobAddresses !== 'undefined') &&
+          jobAddresses.some(function(a){ return a.id === qd.existingCustomerId; });
+        if(qd && isRequote(qd) && qd.approvalStatus === 'approved' && !qd.convertedToCustomerAt && live){
+          sel.value = qd.status || 'new';
+          toast('They approved this re-quote — apply it so the warehouse is told. Closing it alone would skip the build list.');
+          showConvertQuoteChoice(sel.dataset.id, qd);
+          return;
+        }
+      }
       updateDoc(doc(db,'quotes',sel.dataset.id), {status: sel.value});
     });
   });
@@ -65790,7 +65807,8 @@ function evenCrewDates(days, opts){
    PURE: crew-days in, crew-days out ({date, crew, city, towns, areas, ids}). */
 const MIN_CREW_HOUSES = 10;
 const CREW_OVERFLOW_HOUSES = 4;
-const MIN_CREW_REACH_MILES = 30;
+/* [[SCH-131]] (2026-10-13) was 30 under [[SCH-128]]; Dax: every consecutive house within "5 at most". */
+const MIN_CREW_REACH_MILES = 5;
 function enforceCrewMinimum(days, opts){
   const o = opts || {};
   const house = typeof o.house === 'function' ? o.house : function(){ return null; };
@@ -79221,6 +79239,13 @@ function rebuildSeasonDays(){
   let shortMerged = {merged: []};
   try{ if(typeof mergeShortOpenDays === 'function') shortMerged = mergeShortOpenDays(); }
   catch(err){ console.error('Could not fold the short days into the nearest run:', err); }
+  /* [[SCH-131]] last: every crew in one small area — strays to a close crew, else the end of November. */
+  let fiveMile = {moved: [], tail: [], keptOutlier: []};
+  try{ if(typeof enforceFiveMileCrews === 'function') fiveMile = enforceFiveMileCrews(); }
+  catch(err){ console.error('Could not keep every crew within five miles:', err); }
+  /* moving strays can leave a short day that now has a run within five miles — fold it in, and check the crews again */
+  try{ if(typeof mergeShortOpenDays === 'function'){ const m2 = mergeShortOpenDays(); if(m2 && m2.merged && m2.merged.length){ shortMerged.merged = shortMerged.merged.concat(m2.merged); const f2 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f2.moved); fiveMile.tail = fiveMile.tail.concat(f2.tail); fiveMile.keptOutlier = f2.keptOutlier; } } }
+  catch(err){ console.error('Could not fold the short days in after the five-mile pass:', err); }
   /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
      Addie: "if anyone has a confirmed tag they should be scheduled somehow no
      exceptions." Asked here rather than only on the button, because this is the moment
@@ -79271,7 +79296,7 @@ function rebuildSeasonDays(){
              `missed` and `rushed` are counted off the pool this rebuild laid out —
              they are the houses that were MOVED UP, not the whole season's history. */
           coldDays:coldDays,
-          closedUp:closed.moved.length, closedUpDates:closed.filledDates.slice(0,5), tightened:tightened.swapped.length, shortMerged:shortMerged.merged.length,
+          closedUp:closed.moved.length, closedUpDates:closed.filledDates.slice(0,5), tightened:tightened.swapped.length, shortMerged:shortMerged.merged.length, fiveMileMoved:fiveMile.moved.length, fiveMileTail:fiveMile.tail.length, fiveMileTailNames:fiveMile.tail.slice(0,5).map(function(x){return x.name;}), fiveMileKept:fiveMile.keptOutlier.length, fiveMileKeptNames:fiveMile.keptOutlier.slice(0,5).map(function(x){return x.name+" ("+x.day+")";}),
           missed:placeable.filter(function(w){return w.missed;}).length,
           rushed:placeable.filter(function(w){return w.rush;}).length,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
@@ -80134,6 +80159,187 @@ function geoRelayoutOpenDays(){
    MIN_CREW_REACH_MILES, every one of its houses legal there — the earliest on a tie. A day nothing can take stays, and
    is a one-man day Recalculate names (a stuck date, a window nothing else shares, a house too far from everybody).
    ⛔ Locked and printed days are never touched; a pinned house never moves. */
+/* ⭐⭐ [[SCH-131]] A CREW STAYS IN ONE SMALL AREA, OR THE HOUSE GOES TO THE END OF NOVEMBER (2026-10-13). Dax, reading a
+   printed Oct 19: "houses need to be close to each other there is probably a 20 mile gap between the two farthest houses
+   which is way to far apart vineyard to salem or riverton to orem should never happen all 20 houses should be close with
+   every consecutive house being within around a mile of each other and 5 at most if theres ever more than that push them
+   back to the end of November", then "but all Oct houses need to be hung in October still".
+   So, on every open day, for each crew: the houses that hang together by hops of at most MAX_CREW_HOP_MILES are kept (the
+   biggest such group), and of those only the ones within MAX_CREW_RADIUS_MILES of the group's middle house. Everybody
+   else is moved: first to the earliest legal open day where a crew already works within five miles of them (and the
+   middle of that crew is within the radius); failing that, a house with NO last day goes to the end of November (the
+   working days after Thanksgiving), which this rule leaves alone — that tail is where the overflow waits. A house WITH a
+   last day (October, Before Thanksgiving, an office date) is never sent past it: if nothing close exists before its
+   deadline it stays where it is and is reported. Locked, printed, pinned, done, fix and takedown houses never move.
+   Supersedes [[SCH-128]]'s 30-mile reach: a short crew is better than a 20-mile one. */
+const MAX_CREW_HOP_MILES = 5;
+const MAX_CREW_RADIUS_MILES = 5;
+function crewTailDates(year){
+  /* the working days after Thanksgiving — "the end of November" — where a house with no crew near it waits */
+  const out = [];
+  const tg = (typeof thanksgivingDate === 'function') ? thanksgivingDate(year) : null;
+  if(!tg) return out;
+  /* and on into December up to the 23rd: once those November days have gone, whatever is still waiting is done next */
+  for(let d = new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1); d.getMonth() === 10 || (d.getMonth() === 11 && d.getDate() <= 23); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)){
+    if(typeof isWorkingDay !== 'function' || isWorkingDay(d)) out.push(isoOf(d));
+  }
+  return out;
+}
+/* [[SCH-131]] the houses of one crew that may stay together: the biggest group joined by hops of at most
+   MAX_CREW_HOP_MILES, trimmed to MAX_CREW_RADIUS_MILES around its middle house. ptOf(h) gives {lat,lng} or null. */
+function crewFiveMileKeep(crew, ptOf){
+  const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : 0; };
+  let pool = crew.filter(function(h){ return ptOf(h); });
+  for(let guard = 0; guard < 6; guard++){
+    const seen = new Set(); let best = [];
+    pool.forEach(function(h){
+      if(seen.has(h)) return;
+      const comp = [h]; seen.add(h);
+      for(let i = 0; i < comp.length; i++) pool.forEach(function(x){ if(!seen.has(x) && mi(comp[i], x) <= MAX_CREW_HOP_MILES){ seen.add(x); comp.push(x); } });
+      if(comp.length > best.length) best = comp;
+    });
+    let mid = null, midSum = Infinity;
+    best.forEach(function(h){ const t = best.reduce(function(a, x){ return a + mi(h, x); }, 0); if(t < midSum){ midSum = t; mid = h; } });
+    const inR = best.filter(function(h){ return !mid || mi(h, mid) <= MAX_CREW_RADIUS_MILES; });
+    if(inR.length === pool.length) return new Set(inR);
+    pool = inR;
+  }
+  return new Set(pool);
+}
+/* [[SCH-131]] would the day still hold together — every crew in one small area — with house h added? Leaves the day as it was. */
+function dayHoldsWithHouse(day, h){
+  const live = function(x){ return x && !x.done && !x.hiddenDone && !x.isFix && !x.isTakedown; };
+  const ptOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(x, (c && c.data) || {}) : null; return (p && typeof p.lat === 'number') ? p : null; };
+  day.houses.push(h);
+  let ok = true;
+  try{ ok = (dayCrewHouses(day) || []).every(function(c){ const cs = (c || []).filter(live); return crewFiveMileKeep(cs, ptOf).size === cs.filter(function(x){ return ptOf(x); }).length; }); }
+  catch(e){ ok = false; }
+  day.houses.splice(day.houses.lastIndexOf(h), 1);
+  return ok;
+}
+function enforceFiveMileCrews(){
+  /* repeated: a house moved onto another day re-splits that day's crews and can strand somebody else */
+  const all = {moved: [], tail: [], keptOutlier: []};
+  for(let round = 0; round < 4; round++){
+    const r = enforceFiveMileOnce();
+    all.moved = all.moved.concat(r.moved); all.tail = all.tail.concat(r.tail);
+    all.keptOutlier = r.keptOutlier;
+    if(!r.moved.length && !r.tail.length) break;
+  }
+  return all;
+}
+function enforceFiveMileOnce(){
+  const res = {moved: [], tail: [], keptOutlier: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const tail = crewTailDates(seasonStartDate().getFullYear());
+  const tailSet = new Set(tail);
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8; if(lim === 'crew') return cap; return cap * crewsN; };
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const isOpen = function(d){ const ds = dsOf(d); return ds && ds > today && !d.isFixRoute && !d.isTakedown && !d.printedAt && !routeDayIsLocked(ds); };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, custOf(h)) : null; ptMemo.set(h, (p && typeof p.lat === 'number') ? p : null); } return ptMemo.get(h); };
+  const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : 0; };
+  const movable = function(h){ return live(h) && !('' + (h.stuck || '')).trim() && ptOf(h); };
+  /* the houses of one crew that may stay: the biggest 5-mile-hop group, trimmed to the radius around its middle house */
+  const keepOf = function(crew){ return crewFiveMileKeep(crew, ptOf); };
+  const crewMemo = new Map();
+  const crewsOf = function(d){ if(!crewMemo.has(d)){ let cs; try{ cs = (dayCrewHouses(d) || []).map(function(c){ return (c || []).filter(live); }); }catch(e){ cs = [d.houses.filter(live)]; } crewMemo.set(d, cs); } return crewMemo.get(d); };
+  const tailDay = function(ds){
+    let d = SEASON.filter(function(x){ return !x.isFixRoute && !x.isTakedown && dsOf(x) === ds; })[0];
+    if(!d){
+      const taken = new Set(SEASON.map(function(x){ return x.id; }));
+      let n = 0; while(taken.has('nv' + n)) n++;
+      d = {id: 'nv' + n, base: daysBetween(new Date(ds.slice(0, 4) * 1, ds.slice(5, 7) * 1 - 1, ds.slice(8, 10) * 1), BASE_START), cascade: 0, pin: null, houses: []};
+      SEASON.push(d); computeDates();
+      /* the layout keeps one day per date in order, so a new day can be pushed off the date asked for — then it is no use */
+      if(dsOf(d) !== ds){ SEASON.splice(SEASON.indexOf(d), 1); computeDates(); return null; }
+    }
+    return d;
+  };
+  /* 0. nothing waits past the overflow: a house laid out after its last day goes onto the first overflow day with room */
+  const lastTail = tail.length ? tail[tail.length - 1] : '';
+  if(lastTail) SEASON.filter(function(d){ return isOpen(d) && dsOf(d) > lastTail; }).forEach(function(d){
+    d.houses.slice().forEach(function(h){
+      if(!live(h) || ('' + (h.stuck || '')).trim()) return;
+      for(let i = 0; i < tail.length; i++){
+        const ds = tail[i]; if(ds <= today || (typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds))) continue;
+        if(!houseMayGoOn(h, custOf(h), ds, startStr).ok) continue;
+        const t = tailDay(ds);
+        if(!t || t === d || t.printedAt || t.houses.filter(live).length >= capFor(ds)) continue;
+        d.houses.splice(d.houses.indexOf(h), 1); h.fiveMileTail = ds; t.houses.push(h); res.tail.push({name: h.name || '(no name)', from: dsOf(d), to: ds}); return;
+      }
+    });
+  });
+  /* 1. take the strays off every open day (the end-of-November tail is the overflow and is left alone) */
+  const strays = [];
+  SEASON.forEach(function(d){
+    if(!isOpen(d) || tailSet.has(dsOf(d))) return;
+    crewsOf(d).forEach(function(crew){
+      const keep = keepOf(crew);
+      crew.forEach(function(h){ if(!keep.has(h) && movable(h)) strays.push({h: h, from: d}); });
+    });
+  });
+  if(!strays.length) return res;
+  /* a stray is taken off its day only once somewhere better is found — so a house that has to stay never overfills it */
+  const takeOff = function(s){ const i = s.from.houses.indexOf(s.h); if(i !== -1) s.from.houses.splice(i, 1);
+    (crewMemo.get(s.from) || []).forEach(function(c){ const j = c.indexOf(s.h); if(j !== -1) c.splice(j, 1); }); };
+  /* most urgent first, so the close places go to them */
+  strays.sort(function(a, b){
+    const pa = houseInstallPriority(a.h, custOf(a.h), {today: today}), pb = houseInstallPriority(b.h, custOf(b.h), {today: today});
+    return (typeof pa === 'number' ? pa : 99) - (typeof pb === 'number' ? pb : 99);
+  });
+  const fits = function(h, d, ds){
+    if(!houseMayGoOn(h, custOf(h), ds, startStr).ok) return false;
+    if(d.houses.filter(live).length >= capFor(ds)) return false;
+    return crewsOf(d).filter(function(crew){
+      if(!crew.length || crew.length >= cap) return false;
+      if(!crew.some(function(x){ return ptOf(x) && mi(h, x) <= MAX_CREW_HOP_MILES; })) return false;
+      let mid = null, midSum = Infinity;
+      crew.forEach(function(x){ if(!ptOf(x)) return; const s = crew.reduce(function(a, y){ return a + mi(x, y); }, 0); if(s < midSum){ midSum = s; mid = x; } });
+      return !mid || mi(h, mid) <= MAX_CREW_RADIUS_MILES;
+    })[0] || null;
+  };
+  const byDate = function(){ return SEASON.filter(function(d){ return isOpen(d) && !tailSet.has(dsOf(d)); }).sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; }); };
+  strays.forEach(function(s){
+    const h = s.h, name = h.name || '(no name)';
+    let crewHit = null;
+    /* and only where the day still holds together once its crews are split again with this house on it — otherwise the
+       re-split strands somebody else and the two trade places for ever */
+    const holds = function(d){
+      d.houses.push(h);
+      let ok = true, cs = null;
+      try{ cs = (dayCrewHouses(d) || []).map(function(c){ return (c || []).filter(live); }); }catch(e){ ok = false; }
+      if(ok) ok = cs.every(function(c){ return keepOf(c).size === c.filter(function(x){ return ptOf(x); }).length; });
+      if(ok){ crewMemo.set(d, cs); return true; }
+      d.houses.splice(d.houses.lastIndexOf(h), 1);
+      return false;
+    };
+    const near = byDate().find(function(d){ if(d === s.from) return false; crewHit = fits(h, d, dsOf(d)); return !!crewHit && holds(d); });
+    if(near){ takeOff(s); res.moved.push({name: name, from: dsOf(s.from), to: dsOf(near)}); return; }
+    const until = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
+    if(!until){
+      for(let i = 0; i < tail.length; i++){
+        const ds = tail[i]; if(ds <= today || (typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds))) continue;
+        if(!houseMayGoOn(h, custOf(h), ds, startStr).ok) continue;
+        const d = tailDay(ds);
+        if(!d || d.printedAt || d.houses.filter(live).length >= capFor(ds)) continue;
+        takeOff(s); h.fiveMileTail = ds; d.houses.push(h); res.tail.push({name: name, from: dsOf(s.from), to: ds}); return;
+      }
+    }
+    /* a last day is a promise ("all Oct houses need to be hung in October still") — it stays where it was */
+    res.keptOutlier.push({name: name, day: dsOf(s.from), until: until});
+  });
+  SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || d.printedAt || (d.houses || []).length; });
+  if(typeof GEO_SPLIT_CACHE !== 'undefined' && GEO_SPLIT_CACHE.clear) GEO_SPLIT_CACHE.clear();
+  computeDates();
+  return res;
+}
 function mergeShortOpenDays(){
   const res = {merged: []};
   if(typeof SEASON === 'undefined' || !Array.isArray(SEASON)) return res;
@@ -80355,7 +80561,10 @@ function bestEarlierDayFor(h, custData, currentDs, opts){
     if(!houseMayGoOn(h, custData || {}, ds, startStr).ok) return;
     const miles = milesFromDay(day, pt);
     if(!(miles <= reach)) return;
-    if(!best || ds < best.ds || (ds === best.ds && miles < best.miles)) best = {day: day, ds: ds, miles: miles};
+    if(best && !(ds < best.ds || (ds === best.ds && miles < best.miles))) return;
+    /* [[SCH-131]] never onto a day it would split into a crew stretched past five miles */
+    if(typeof dayHoldsWithHouse === 'function' && !dayHoldsWithHouse(day, h)) return;
+    best = {day: day, ds: ds, miles: miles};
   });
   return best;
 }
@@ -82380,6 +82589,10 @@ RT.addEventListener('click',e=>{const t=e.target;
        or one already worked, so the crew may be holding that sheet — a rebuild cannot
        un-print paper, and pretending otherwise is worse than saying so. */
     if(r.stillSet) parts.push(r.stillSet+' out for the season but still on a day that is set — check those by hand');
+    /* [[SCH-131]] */
+    if(r.fiveMileMoved) parts.push(r.fiveMileMoved+' moved to a crew working within five miles of them');
+    if(r.fiveMileTail) parts.push(r.fiveMileTail+' with no crew near them moved to the end of November ('+r.fiveMileTailNames.join(', ')+(r.fiveMileTail>5?'…':'')+')');
+    if(r.fiveMileKept) parts.push('⚠ '+r.fiveMileKept+' with a last day and no crew within five miles before it — left where they are ('+r.fiveMileKeptNames.join(', ')+(r.fiveMileKept>5?'…':'')+')');
     /* ⭐ [[SCH-88]]–[[SCH-91]] — what the takedown rebuild did, and who it left off by
        her ruling. A hung house with no takedown is lights left on a roof, so those
        names are said out loud rather than dropped. */

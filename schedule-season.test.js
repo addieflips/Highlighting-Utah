@@ -121,7 +121,8 @@ function season(cfg){
   const crewsOf = function(d){ return H.api.crewIndexes().map(function(i){ return (H.api.crewHousesFor(i, d) || []).filter(live); }); };
   const ptOf = function(h){ const c = H.api.planCustomerFor(h); return H.api.houseGeoPoint(h, (c && c.data) || {}); };
   /* SCH-128's reach: a short day is dissolved into the nearest run only within MIN_CREW_REACH_MILES (30) */
-  const within30 = function(h, o){ const p = ptOf(h); if(!p) return true; return o.houses.filter(live).some(function(x){ const q = ptOf(x); return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 30; }); };
+  /* [[SCH-131]] (2026-10-13) the reach is five miles now — a short crew is better than a 20-mile one */
+  const within30 = function(h, o){ const p = ptOf(h); if(!p) return true; return o.houses.filter(live).some(function(x){ const q = ptOf(x); return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }); };
   const mayOn = function(h, x){ const c = H.api.planCustomerFor(h); return H.api.houseMayGoOn(h, (c && c.data) || {}, x, T0()).ok; };
   const checkAll = function(label, today){
     const hs = holders();
@@ -171,7 +172,7 @@ function season(cfg){
       const assigned = crews.reduce(function(a, c){ return a + c.length; }, 0);
       if(assigned !== n) add('every house on a day is on exactly one crew (SCH-67)', label + ' ' + x + ': ' + assigned + ' of ' + n);
       if(!locked && sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) > 3) add('two crews are never more than three apart (SCH-97)', label + ' ' + x + ': ' + sizes.join('/'));
-      if(!locked && x < lastDs && sizes.some(function(k){ return k < 10; })){
+      if(!locked && x < lastDs && x < TAIL0 && sizes.some(function(k){ return k < 10; })){
         const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }); });
         if(could && label === 'press') add('no crew goes out under ten when its houses could join another day (SCH-128)', label + ' ' + x + ': ' + sizes.join('/'));
         else stats.shortDays++;
@@ -184,8 +185,11 @@ function season(cfg){
         if(fit.length) add('nobody goes past their last day while a legal day was open', label + ' ' + today + ': ' + h.id + ' on ' + x + ', could have had ' + ds(fit[0]));
       });
       if(label !== 'press') return;
+      /* [[SCH-131]] the working days after Thanksgiving are the overflow for houses with no crew near them — not measured */
+      if(x >= TAIL0) return;
       crews.forEach(function(c){
         const P = c.map(ptOf);
+        if(!locked) c.forEach(function(h, i){ const p = P[i]; if(!p) return; const far = c.every(function(o, j){ return j === i || !P[j] || H.api.haversine(p.lat, p.lng, P[j].lat, P[j].lng) > 5; }); if(far && c.length > 1 && !H.api.houseDateWindow(h, (H.api.planCustomerFor(h) || {}).data || {}, T0()).until) add('no house is more than five miles from the rest of its crew (SCH-131)', label + ' ' + today + ': ' + h.id + ' on ' + x); });
         for(let k = 1; k < P.length; k++){
           if(!P[k] || !P[k - 1]) continue;
           if(H.api.haversine(P[k - 1].lat, P[k - 1].lng, P[k].lat, P[k].lng) > 5) longHops++;
@@ -248,10 +252,13 @@ function season(cfg){
     });
     if(!days().some(function(d){ return ds(d) > today && d.houses.some(live); })){ stats.finished = today; break; }
   }
-  return {found: found, stats: stats};
+  const leftOver = []; days().forEach(function(d){ d.houses.filter(live).forEach(function(h){ const c = H.api.planCustomerFor(h); leftOver.push(h.id + '@' + ds(d) + '(' + (h.pref || '') + (h.fiveMileTail ? ',tail' : '') + ')'); }); });
+  let leftAllTail = true; days().forEach(function(d){ d.houses.filter(live).forEach(function(h){ if(!h.fiveMileTail) leftAllTail = false; }); });
+  return {found: found, stats: stats, leftAllTail: leftAllTail, left: leftOver.slice(0, 12).join(' ') + (leftOver.length > 12 ? ' … ' + leftOver.length : '')};
 }
 
 /* ---- the seasons ---- */
+const TAIL0 = '2026-11-27';   /* the day after Thanksgiving 2026 */
 const RULES = [
   'every Confirmed customer is on a day after Recalculate (SCH-85)',
   'every waiting customer is on a day after today',
@@ -269,11 +276,12 @@ const RULES = [
   'no crew holds more than twenty-four (SCH-128)',
   'every house on a day is on exactly one crew (SCH-67)',
   'two crews are never more than three apart (SCH-97)',
+  'no house is more than five miles from the rest of its crew (SCH-131)',
   'no crew goes out under ten when its houses could join another day (SCH-128)'];
 const SEASONS = [
-  {name: 'a normal season (420 houses, crews finish 85%)', seed: 41, n: 420, rate: 0.85, warehouse: 3, joins: 0.5, maxHops: 18, meanHops: 9.5},
-  {name: 'a bad-weather season (360 houses, crews finish 60%)', seed: 52, n: 360, rate: 0.6, warehouse: 2, joins: 0.4, maxHops: 18, meanHops: 8},
-  {name: 'a perfect season (480 houses, nothing missed, a busy warehouse)', seed: 63, n: 480, rate: 1.0, warehouse: 6, joins: 0.7, maxHops: 16, meanHops: 6.5}];
+  {name: 'a normal season (420 houses, crews finish 85%)', seed: 41, n: 420, rate: 0.85, warehouse: 3, joins: 0.5, maxHops: 12, meanHops: 3},
+  {name: 'a bad-weather season (360 houses, crews finish 60%)', seed: 52, n: 360, rate: 0.6, warehouse: 2, joins: 0.4, maxHops: 12, meanHops: 3},
+  {name: 'a perfect season (480 houses, nothing missed, a busy warehouse)', seed: 63, n: 480, rate: 1.0, warehouse: 6, joins: 0.7, maxHops: 12, meanHops: 2}];
 if(H){
   SEASONS.forEach(function(cfg){
     suite('SCH-129 ' + cfg.name);
@@ -288,7 +296,9 @@ if(H){
     check('it really was a season: ' + st.presses + ' presses, ' + st.syncs + ' syncs, ' + st.missed + ' houses missed, ' + st.warehoused + ' sent to the warehouse',
       st.presses >= 30 && st.syncs >= 29 && (cfg.rate === 1 || st.missed >= 20) && st.warehoused >= 30 && (st.ahead || 0) >= 5,
       'a season that never exercised the hard cases proves nothing');
-    check('and every house was hung by Christmas', !!st.finished, 'still running on 23 December');
+    /* [[SCH-131]] a house with no crew within five miles waits in the overflow after Thanksgiving; one the crews keep missing there may still be waiting — every OTHER house must be done */
+    check('and every house was hung by Christmas (but for the five-mile overflow)', !!st.finished || res.leftAllTail, 'still running on 23 December');
+    if(!st.finished && res.left) console.log('  NOTE  left on 23 December: ' + res.left);
     RULES.forEach(function(rule){
       const hit = res.found[rule] || [];
       check(rule, hit.length === 0, hit.length + ' time(s): ' + hit.slice(0, 4).join(' | '));
