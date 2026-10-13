@@ -154,6 +154,29 @@ check('every declared connection is still made by the code',
         'function huClears(){ return {scheduled: false, scheduledDate: null, assignedCrew: null}; }\n' + anchor), realServer);
       check('and a writer that only CLEARS a day stays green', clear.length === 0,
         'clearing a booking was reported as a breach: ' + clear.map(x => x.why).join('; '));
+      /* ⭐ BATCH 2 (2026-10-13): the same proof for the two other `only` rules, run
+         through the SAME harness so the reader-census path (`allowDeclared`) is held
+         as well as the writer path. */
+      const plant2 = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        if (!sp) return null;
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0]
+          .rows.filter(x => !x.found && x.wrongValue);
+      };
+      const season = plant2('maybeNextYear', realAdmin.replace(anchor,
+        'function huOwnSeasonTest(d){ return !d.maybeNextYear; }\n' + anchor));
+      check('a new place deciding who is in the season for itself goes red',
+        !!season && season.length >= 1,
+        season ? 'planted a hand-rolled Back Next Year test and nothing went red — the reader census is not running'
+               : 'the maybeNextYear spine is gone');
+      const lock = plant2('lightsLockedUntil', realAdmin.replace(anchor,
+        'function huImporterLock(d){ d.lightsLockedUntil = new Date(); }\n' + anchor));
+      check('a new writer of the 48-hour lock goes red',
+        !!lock && lock.length >= 1,
+        lock ? 'planted a new lightsLockedUntil writer and nothing went red — an importer could lock the whole book'
+             : 'the lightsLockedUntil spine is gone');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

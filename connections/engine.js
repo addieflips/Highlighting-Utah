@@ -197,13 +197,18 @@ function otherRecord(ix, I, pos, spine) {
  * through the same "every declared connection is still made" check as everything else,
  * with `wrongValue` set so the message says a rule is being broken rather than lost.
  * ------------------------------------------------------------------------- */
-function onlyRows(ix, spine, rows) {
+function onlyRows(ix, spine, rows, declared) {
   (spine.only || []).forEach(o => {
     /* ⚠ ONLY THE EXPLICIT ALLOWANCES, NEVER THE SPINE'S DECLARED WRITERS. A declared
        writer is declared for what it does today — `pullCustomerFromSeason` CLEARS a day —
        and letting every declared writer through would let a clearer start booking with
        nothing going red. Caught by the red-check, not by reading. */
     const allowed = {};
+    /* …UNLESS THE RULE ASKS FOR THEM (`allowDeclared`). A READER census — "nobody
+       decides who is in the season for themselves" — is about who LOOKS, not what is
+       written, so every declared reader and writer is an answer already accounted for,
+       and listing each a second time under `allow` would be two lists to keep in step. */
+    if (o.allowDeclared) Object.keys(declared).forEach(fk => { allowed[fk] = declared[fk].slice(); });
     (o.allow || []).forEach(a => {
       const I = ix[a.file];
       const label = a.fn ? a.fn + '()' : a.el ? '#' + a.el : 'near "' + String(a.near).slice(0, 40) + '"';
@@ -216,6 +221,9 @@ function onlyRows(ix, spine, rows) {
         return;
       }
       allowed[a.file] = (allowed[a.file] || []).concat(ranges);
+      /* An allowance IS a declaration — it names the place and says why — so it is not
+         also listed as amber underneath. */
+      declared[a.file] = (declared[a.file] || []).concat(ranges);
       (a.closed || []).forEach(c => {
         const CI = ix[c.file || a.file];
         const cr = CI ? anchorRanges(CI, c) : [];
@@ -292,7 +300,7 @@ function check(files, manifest) {
         rows.push(r);
       });
     });
-    onlyRows(ix, spine, rows);
+    onlyRows(ix, spine, rows, declared);
     /* Anything touching the field outside every declared anchor. */
     const extra = {};
     Object.keys(ix).forEach(fk => {
