@@ -14183,7 +14183,26 @@ function quoteWasSentOut(d){
    sent spreads this in; it returns nothing when the stamp is already there.
    ⚠ A RE-QUOTE CLEARS IT, with quoteSentAt: a new price is a new quote to answer. */
 function quoteFirstSentStamp(d){
-  return (d && d.quoteFirstSentAt) ? {} : {quoteFirstSentAt: serverTimestamp()};
+  if(d && d.quoteFirstSentAt) return {};
+  /* A quote that went out before this stamp existed already carries its real first send in
+     quoteSentAt / quoteManuallySentAt — a re-send must not record itself as the first. */
+  const known = quoteFirstSentFromHistory(d);
+  return known.quoteFirstSentAt ? known : {quoteFirstSentAt: serverTimestamp()};
+}
+/* ⛔ A NUDGE IS NEVER THE FIRST SEND ([[QT-55]], 2026-10-13). Addie: "shouldn't Chad weichers
+   be archived since more than 30 days since we reached out". Both office Nudge buttons spread
+   quoteFirstSentStamp in, so a quote sent BEFORE that stamp existed had its first send
+   recorded as the moment it was nudged — the very day the clock was meant to be running
+   from weeks earlier — and the nudge rewrites quoteSentAt in the same write, so the real
+   date was lost twice over. A nudge stamps the EARLIEST send already on the record (read
+   before this write overwrites it), and nothing at all if there is none: an unknown first
+   send must never be invented as today, which only ever pushes the archive later. */
+function quoteFirstSentFromHistory(d){
+  if(!d || d.quoteFirstSentAt) return {};
+  const prior = [d.quoteSentAt, d.quoteManuallySentAt].filter(function(t){ return t && toJsDate(t); });
+  if(!prior.length) return {};
+  prior.sort(function(a, b){ return toJsDate(a) - toJsDate(b); });
+  return {quoteFirstSentAt: prior[0]};
 }
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
@@ -14757,7 +14776,7 @@ async function nudgeEveryoneShown(){
         quoteSentAt: serverTimestamp(),
         quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
         quoteLastNudgedAt: serverTimestamp()
-      }, quoteFirstSentStamp(d)));
+      }, quoteFirstSentFromHistory(d)));
       sent++;
     } catch(err){
       failures.push((d.name || d.email) + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
@@ -18875,7 +18894,7 @@ function renderQuoteRows(filtered){
             quoteSentAt: serverTimestamp(),
             quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
             quoteLastNudgedAt: serverTimestamp()
-          }, quoteFirstSentStamp(d)));
+          }, quoteFirstSentFromHistory(d)));
           toast('Nudge sent using the ' + tmplName + ' template.');
         } else {
           await updateDoc(doc(db,'quotes', id), Object.assign({
@@ -84229,8 +84248,15 @@ function exportCSV(){
 function bpmMapsOf(d){
   return (d && Array.isArray(d.blueprintMaps)) ? d.blueprintMaps.filter(function(m){ return m && typeof m === 'object'; }) : [];
 }
+/* ⚠ A COUNTER, NOT ONLY CHANCE (2026-10-13). Five random base-36 characters — fewer when
+   Math.random() lands on a short fraction — collided inside one millisecond often enough to
+   fail blueprint-maps.test.js's 500-id check in CI. The id is the print key AND the update
+   target, so two maps sharing one would overwrite each other. The counter makes ids made in
+   one session distinct by construction; the time and random part keep two computers apart. */
 function bpmNewMapId(){
-  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  /* Held on the function itself so a test can lift it alone. */
+  bpmNewMapId.seq = ((bpmNewMapId.seq || 0) + 1) % 1679616;
+  return 'm' + Date.now().toString(36) + bpmNewMapId.seq.toString(36) + (Math.random().toString(36) + '000000').slice(2, 8);
 }
 /* ⚠ THE SAVED COUNT NEVER READS AS ZERO. A house saved at 0 would load already
    printing nothing, which is indistinguishable from one somebody had unchecked, and
