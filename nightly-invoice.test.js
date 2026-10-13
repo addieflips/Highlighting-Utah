@@ -72,7 +72,7 @@ function lift(name) {
    bare ReferenceError out of the middle of a run — the extraction-list trap this repo
    records having been caught by ten times — so the count is asserted below and a
    deliberate change to it is a deliberate edit here. */
-const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
+const LIFTED = ['runInvoiceBatch', 'pauseBetweenInvoices', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
   'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
@@ -98,6 +98,7 @@ const lifted = LIFTED.map(lift).join('\n\n');
    fixtures did to CN_DOUBLE_BIN_FEET. */
 const NEW_MEMBER_FEE = Number((fns.match(/const NEW_MEMBER_FEE = (\d+)/) || [])[1]);
 const BILL_HELD_DAYS = Number((fns.match(/const BILL_HELD_DAYS = (\d+)/) || [])[1]);
+const INVOICE_SEND_GAP_MS = Number((fns.match(/const INVOICE_SEND_GAP_MS = ([0-9]+)/) || [])[1]);
 /* ⛔ AND THE TWO STANDARD TEMPLATE NAMES, READ OUT OF THE SOURCE. Typed here they would
    go on passing against names the app had moved off — the CN_DOUBLE_BIN_FEET lesson. They
    carry an em dash, which is exactly why `findTemplateSnapByName` flattens the name
@@ -188,12 +189,17 @@ ${o.template
 function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
+const INVOICE_SEND_GAP_MS = ${INVOICE_SEND_GAP_MS};
 const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
 const NIGHTLY_UNPAID_TEMPLATE = ${JSON.stringify(NIGHTLY_UNPAID_TEMPLATE)};
 const NIGHTLY_PAID_TEMPLATE = ${JSON.stringify(NIGHTLY_PAID_TEMPLATE)};
-return runInvoiceBatch('test');
+return runInvoiceBatch('test', __runOpts);
 `;
-  const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', sandbox);
+  const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', '__runOpts', sandbox);
+  /* The run pauses between sends (EM-32). The pause is handed in so no check here really
+     waits two seconds, and so what it was asked to wait can be read back. */
+  const pauses = [];
+  const runOpts = Object.assign({ pause: async (ms) => { pauses.push(ms); } }, o.run || {});
   const asked = [];
   const quietConsole = { log: () => {}, error: () => {}, warn: () => {} };
   /* ⛔ THE EMAIL BODY IS KEPT, not thrown away. Every check below about what the CUSTOMER
@@ -205,8 +211,8 @@ return runInvoiceBatch('test');
       try { sent.push(JSON.parse(init.body).template_params); } catch (e) { sent.push({}); }
       return { ok: !o.mailFails, text: async () => 'refused' };
     },
-    quietConsole, asked
-  ).then(res => ({ res: res, db: db, sent: sent, asked: asked }));
+    quietConsole, asked, runOpts
+  ).then(res => ({ res: res, db: db, sent: sent, asked: asked, pauses: pauses }));
 }
 /* The email as a person reads it, so a check can look for a sentence rather than markup. */
 const asText = h => String(h || '').replace(/<br\s*\/?>/gi, '\n')
@@ -893,6 +899,64 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
         name: 'Ordinary', phone: '8015550999', email: 'o@x.com', address: '9 Fir St', customerNumber: '303' }) });
       check('an unmarked bill is emailed exactly as before',
         sent.length === 1 && res.sentCount === 1 && (res.sentByHandCount || 0) === 0);
+    }
+    /* ---- 6d. A PAUSE BETWEEN SENDS, AND A RUN THAT STOPS ITSELF (EM-32) ----
+       Addie, after 81 went out back to back: "I think it could fail in the future cause
+       we send all of them out at once. Can we do delays between sends?" */
+    const three = () => ({
+      a: priced({ name: 'Ann A', phone: '8015551001', email: 'a@x.com', address: '1 A St', customerNumber: '401' }),
+      b: priced({ name: 'Bob B', phone: '8015551002', email: 'b@x.com', address: '2 B St', customerNumber: '402' }),
+      c: priced({ name: 'Cat C', phone: '8015551003', email: 'c@x.com', address: '3 C St', customerNumber: '403' })
+    });
+    {
+      const { res, sent, pauses } = await runBatch(three());
+      check('three invoices go out with a pause between each, and none after the last',
+        res.sentCount === 3 && sent.length === 3 && pauses.length === 2
+          && pauses.every(function (ms) { return ms === INVOICE_SEND_GAP_MS; }),
+        'pauses=' + JSON.stringify(pauses) + ' — the gap is read from the server constant, never typed here');
+      check('the pause is long enough for the mail service and short enough to finish a run',
+        INVOICE_SEND_GAP_MS >= 1000 && INVOICE_SEND_GAP_MS <= 5000,
+        INVOICE_SEND_GAP_MS + ' ms. Under a second is the mail service limit; at thirty a nine-minute run sends sixteen invoices');
+    }
+    {
+      const { pauses } = await runBatch({ a: three().a });
+      check('a run of one invoice never waits at all', pauses.length === 0, JSON.stringify(pauses));
+    }
+    {
+      const { res, pauses } = await runBatch(three(), { mailFails: true });
+      check('a refused send still counts toward the pause — it used the mail service just the same',
+        res.sentCount === 0 && pauses.length === 2, 'pauses=' + pauses.length);
+    }
+    {
+      /* A clock that jumps a minute every time it is read, and a two-minute budget: the
+         run must stop part-way, SAY so, and have written nothing for whoever is left. */
+      let t = 1000000;
+      const first = await runBatch(three(), { run: { budgetMs: 120000, now: function () { t += 60000; return t; } } });
+      const billed = Object.keys(first.db.store.invoices || {});
+      check('a run out of time stops itself and says so',
+        first.res.stoppedEarly === true && first.res.sentCount >= 1 && first.res.sentCount < 3,
+        'sent=' + first.res.sentCount + ' stoppedEarly=' + first.res.stoppedEarly);
+      check('and whoever it did not reach has had NOTHING written — no invoice, no fee, no flag',
+        billed.length === first.res.sentCount,
+        'invoices written: ' + billed.length + ', sent: ' + first.res.sentCount + '. A half-billed customer is the thing to avoid');
+      const full = await runBatch(three());
+      check('with no time limit given, a run never stops early', full.res.stoppedEarly === false && full.res.sentCount === 3);
+    }
+    {
+      /* The limits themselves. The scheduled run had NO timeoutSeconds, which is 60
+         seconds — a night of 81 took 107 by hand and would have been killed part-way
+         on the schedule with nothing in the run log. */
+      const sched = (fns.match(/exports\.sendNightlyInvoices = onSchedule\(\s*(?:\/\*[\s\S]*?\*\/\s*)?\{([^}]*)\}/) || [])[1] || '';
+      const schedLimit = Number((sched.match(/timeoutSeconds: (\d+)/) || [])[1]);
+      const schedBudget = Number((fns.match(/await runInvoiceBatch\('schedule', \{ budgetMs: (\d+) \}\)/) || [])[1]);
+      const manLimit = Number((fns.match(/exports\.sendInvoicesNow = onCall\(\{[^}]*timeoutSeconds: (\d+)/) || [])[1]);
+      const manBudget = Number((fns.match(/await runInvoiceBatch\('manual', \{ budgetMs: (\d+) \}\)/) || [])[1]);
+      check('the 7 PM run is given a real time limit, not the 60-second default',
+        schedLimit >= 300, 'timeoutSeconds=' + schedLimit);
+      check('and it is told to stop itself comfortably inside that limit',
+        schedBudget > 0 && schedBudget <= (schedLimit - 30) * 1000, schedBudget + ' ms inside ' + schedLimit + ' s');
+      check('Send Invoices Now stops itself inside its own limit too',
+        manBudget > 0 && manBudget <= (manLimit - 30) * 1000, manBudget + ' ms inside ' + manLimit + ' s');
     }
     {
       /* ⚠ STRIPPED **AND COUNTED**. rsvp-text-wording's own lesson from the literal

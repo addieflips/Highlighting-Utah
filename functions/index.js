@@ -6034,7 +6034,38 @@ function applyLightChangeServer(o) {
   };
 }
 
-async function runInvoiceBatch(triggeredBy) {
+/* ⭐ A PAUSE BETWEEN INVOICES, AND A RUN THAT STOPS ITSELF BEFORE IT IS CUT OFF (EM-32,
+   2026-10-12). The first real catch-up run sent 81 invoices back to back. Addie: "I
+   think it could fail in the future cause we send all of them out at once. Can we do
+   delays between sends?", then "30 second delays?"
+   ⚠ TWO SECONDS, NOT THIRTY, AND THE REASON IS ARITHMETIC. A function may run for nine
+   minutes at most. At 30 seconds a run could send 16 invoices before being cut off; at
+   2 seconds it sends about 140. The mail service's own limit is one request a second,
+   so two seconds is twice the room it asks for. Thirty would turn one busy night into
+   a week of nights.
+   ⛔ AND THE SCHEDULED RUN HAD NO TIME LIMIT SET AT ALL, which means the default of
+   SIXTY SECONDS. The 81 that went out by hand took 107 — so on the schedule that same
+   night would have been killed part-way with no entry in the run log, the customers
+   after the cut silently waiting for the next night. That was the real way this
+   "could fail in the future", and it is closed in the same change: the schedule is
+   given nine minutes, and the run stops ITSELF with time to spare.
+   ⚠ STOPPING EARLY IS SAID, NEVER SILENT. Whoever was not reached has had nothing
+   written — the check is at the top of the loop, before any billing write — so the
+   next run bills and emails them exactly as if tonight had not happened, and the run
+   log says the run stopped at its time limit. */
+const INVOICE_SEND_GAP_MS = 2000;
+function pauseBetweenInvoices(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+async function runInvoiceBatch(triggeredBy, opts) {
+  const runOpts = opts || {};
+  const sendGapMs = typeof runOpts.sendGapMs === 'number' ? runOpts.sendGapMs : INVOICE_SEND_GAP_MS;
+  const pause = runOpts.pause || pauseBetweenInvoices;
+  const clock = runOpts.now || Date.now;
+  /* No budget given means no early stop — a caller that sets a time limit says so. */
+  const stopAt = typeof runOpts.budgetMs === 'number' ? clock() + runOpts.budgetMs : 0;
+  let emailsTried = 0;
+  let stoppedEarly = false;
   const todayStr = todayStrInDenver();
   let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
   let sentByHandCount = 0;
@@ -6156,6 +6187,8 @@ async function runInvoiceBatch(triggeredBy) {
     }
 
     for (const [invoiceKey, houses] of payerGroups) {
+      /* Out of time: stop HERE, before anything is written for this payer. */
+      if (stopAt && clock() > stopAt) { stoppedEarly = true; break; }
       try {
         /* Who is on this bill at all — see houseIsOnTheBillServer. A house sitting
            the season out is not one of the houses the hold below waits for, because
@@ -6697,6 +6730,11 @@ async function runInvoiceBatch(triggeredBy) {
           }
         }
 
+        /* The pause goes BEFORE every send but the first, so a run of one never waits
+           and nothing waits after the last. Counted on attempts, not successes: a
+           refused send used the mail service just the same. */
+        if (emailsTried > 0 && sendGapMs > 0) await pause(sendGapMs);
+        emailsTried++;
         const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6733,6 +6771,7 @@ async function runInvoiceBatch(triggeredBy) {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
       sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
+      stoppedEarly: stoppedEarly,
       errorCount, errors: errors.slice(0, 10), triggeredBy
     };
     await logNightlyInvoiceRun(result);
@@ -6742,6 +6781,7 @@ async function runInvoiceBatch(triggeredBy) {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
       sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
+      stoppedEarly: stoppedEarly,
       errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
       triggeredBy
     };
@@ -8065,13 +8105,16 @@ exports.runQuoteNudgesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
 });
 
 exports.sendNightlyInvoices = onSchedule(
-  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB' },
+  /* ⛔ timeoutSeconds IS NOT OPTIONAL HERE. Left out it is 60 seconds, and a night of
+     more than about forty invoices is killed part-way with nothing in the run log. Nine
+     minutes, and the run is told to stop itself a minute before that. */
+  { schedule: '0 19 * * *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
       return; // automation turned off — do nothing, don't even log
     }
-    await runInvoiceBatch('schedule');
+    await runInvoiceBatch('schedule', { budgetMs: 480000 });
   }
 );
 
@@ -8086,5 +8129,7 @@ exports.sendInvoicesNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, asyn
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }
-  return await runInvoiceBatch('manual');
+  /* The button's own limit is 300 seconds; stop a minute short of it so the answer
+     comes back as a result rather than as a cut-off. Pressing again carries on. */
+  return await runInvoiceBatch('manual', { budgetMs: 240000 });
 });
