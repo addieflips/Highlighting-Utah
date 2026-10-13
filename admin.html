@@ -7660,6 +7660,88 @@ function quoteCustomerKeys(){
   quoteCustKeyCacheFor = list;
   return keys;
 }
+/* ⭐ A NEW QUOTE THAT MAY BE A MEMBER WHO MOVED (2026-10-13, [[QT-51]]). Addie: "member made a
+   new quote for themselves even though they already existed in the costumers. This seems to
+   happen a lot", then "Because there address changed". quoteAlreadyACustomer needs the ADDRESS
+   and a contact to match, and somebody who moved always types a new address, so it can never
+   catch them — the card read "First time quote" and Convert would have made a second customer.
+   ⛔ PHONE OR EMAIL ALONE, AND IT ONLY ASKS. Seventeen numbers in the book are shared, fourteen
+   of them a parent and a child at two houses, so a contact match is a QUESTION for the office,
+   never a link made on its own. A person presses "It's them" or "Not them".
+   ⚠ Skipped when the quote is already a re-quote, already matches by address, was already
+   converted, or the office said "Not them" to that customer (`notExistingCustomerIds`). */
+let quoteContactMatchCache = null, quoteContactMatchCacheFor = null;
+function quoteContactMatchIndex(){
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  if(quoteContactMatchCacheFor === list && quoteContactMatchCache) return quoteContactMatchCache;
+  const idx = new Map();
+  const add = function(k, c){ if(!k) return; if(!idx.has(k)) idx.set(k, []); idx.get(k).push(c); };
+  list.forEach(function(c){
+    const d = (c && c.data) ? c.data : null;
+    if(!d) return;
+    const ph = String(d.phone || '').replace(/\D/g, '').slice(-10);
+    if(ph.length === 10) add('p' + ph, c);
+    [d.email, d.email2].forEach(function(e){
+      const em = String(e || '').trim().toLowerCase();
+      if(em.indexOf('@') > 0) add('e' + em, c);
+    });
+  });
+  quoteContactMatchCache = idx;
+  quoteContactMatchCacheFor = list;
+  return idx;
+}
+function quotePossibleExistingCustomers(d){
+  if(!d || d.convertedToCustomerAt || d.quoteArchived) return [];
+  if(isRequote(d) || quoteAlreadyACustomer(d)) return [];
+  const idx = quoteContactMatchIndex();
+  const notThem = new Set((Array.isArray(d.notExistingCustomerIds) ? d.notExistingCustomerIds : []).map(String));
+  const seen = new Set(), out = [];
+  const ph = String(d.phone || '').replace(/\D/g, '').slice(-10);
+  const em = String(d.email || '').trim().toLowerCase();
+  [ph.length === 10 ? 'p' + ph : '', em.indexOf('@') > 0 ? 'e' + em : ''].forEach(function(k){
+    (k && idx.get(k) || []).forEach(function(c){
+      if(seen.has(c.id) || notThem.has(String(c.id))) return;
+      seen.add(c.id);
+      out.push(c);
+    });
+  });
+  return out;
+}
+/* "It's them": the quote becomes an ADDRESS-CHANGE re-quote on their record, carrying what
+   the old record knew exactly as a re-quote raised from the portal does. It does NOT clear the
+   price or the answer — they may already have been priced and approved, and Convert then goes
+   through the ordinary apply-a-re-quote path, which updates the one customer and moves them. */
+function quoteLinkToCustomerUpdates(c){
+  const d = (c && c.data) || {};
+  return {
+    existingCustomerId: c.id,
+    existingCustomerNumber: d.customerNumber || '',
+    existingMeasuredFeet: Number(d.measuredFeet) || 0,
+    existingNumberOfBins: Number(d.numberOfBins) || 0,
+    existingLightsDescription: d.lightsDescription || '',
+    existingLightColors: Array.isArray(d.lightColors) ? d.lightColors : [],
+    existingCustomerAddressChange: true,
+    requoteKind: 'address',
+    changed: {what: 'address', oldAddress: d.address || '', oldPrice: Number(d.housePrice) || 0},
+    linkedToCustomerAt: Date.now()
+  };
+}
+function quoteContactMatchHtml(item){
+  const matches = quotePossibleExistingCustomers(item.data);
+  if(!matches.length) return '';
+  return '<div style="margin-top:8px; background:#FFF4DC; border:1px solid #E8C979; border-radius:10px; padding:8px 12px; font-size:13px;">' +
+    '<strong>Possible existing customer \u2014 did they move?</strong> Their ' +
+    (matches.length === 1 ? 'phone or email matches a customer' : 'phone or email matches ' + matches.length + ' customers') +
+    ' at a different address. Check before converting, or you will make a second customer.' +
+    matches.map(function(c){
+      const cd = c.data || {};
+      return '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">' +
+        '<span>' + (cd.customerNumber ? '#' + esc(cd.customerNumber) + ' ' : '') + '<strong>' + esc(cd.name || '(no name)') + '</strong> \u2014 ' + esc(cd.address || 'no address') + '</span>' +
+        '<button type="button" class="btn btn-gold btn-sm" data-quotelinkcust="' + esc(item.id) + '" data-cust="' + esc(c.id) + '">It\u2019s them \u2014 address change</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-quotenotcust="' + esc(item.id) + '" data-cust="' + esc(c.id) + '">Not them</button>' +
+      '</div>';
+    }).join('') + '</div>';
+}
 function quoteAlreadyACustomer(d){
   if(!d) return false;
   if(typeof isRequote === 'function' && isRequote(d)) return false;
@@ -17805,6 +17887,7 @@ function renderQuoteRows(filtered){
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        quoteContactMatchHtml(item)+
         /* ⭐ THE CONTACT DETAILS ARE EDITABLE HERE, AND ONLY HERE. Until
            2026-08-19 a quote card could change the feet, the price, the set-up
            fee and the status - and nothing else. Name, phone and email were
@@ -19328,6 +19411,39 @@ function renderQuoteRows(filtered){
   /* ⭐ EDIT CONTACT. Opens and closes the row without a re-render, the same
      way the pricing panel does - re-rendering would throw away anything half
      typed in the boxes it is about to show. */
+  /* [[QT-51]] — the two answers to "Possible existing customer". */
+  list.querySelectorAll('[data-quotelinkcust]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const qid = btn.dataset.quotelinkcust, cid = btn.dataset.cust;
+      const c = (jobAddresses || []).find(function(x){ return x.id === cid; });
+      if(!c) return toast('That customer is no longer on file.');
+      const cd = c.data || {};
+      if(!confirm('Treat this quote as ' + (cd.name || 'this customer') + (cd.customerNumber ? ' #' + cd.customerNumber : '') +
+        ' moving to the new address?\n\nIt moves to Re-quotes as an address change. Converting it then updates their existing record ' +
+        '\u2014 it does not make a second customer.')) return;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'quotes', qid), quoteLinkToCustomerUpdates(c));
+        toast('Linked to ' + (cd.name || 'their record') + ' \u2014 it is in Re-quotes now.');
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not link the quote to the customer:', err);
+        alert('Could not link it: ' + ((err && err.message) || err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-quotenotcust]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'quotes', btn.dataset.quotenotcust), {notExistingCustomerIds: arrayUnion(btn.dataset.cust)});
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not save "Not them":', err);
+        alert('Could not save that: ' + ((err && err.message) || err));
+      }
+    });
+  });
   list.querySelectorAll('[data-contacttoggle]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const id = btn.dataset.contacttoggle;

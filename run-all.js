@@ -2053,6 +2053,10 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
   eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
   eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
+  /* QT-51: the possible-existing-customer banner, lifted, never stubbed. */
+  global.quoteContactMatchCache = null; global.quoteContactMatchCacheFor = null;
+  ['quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteContactMatchHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -66441,4 +66445,53 @@ suite('378. The Recycle sheet read asks for permission first');
   check('S378', 'the delete prompt no longer claims nothing will say their lights need pulling apart',
     !/Nothing will be left saying their lights need pulling apart/.test(admin) &&
     /They still go to Archive and to the Recycle list on the Warehouse tab/.test(admin));
+}
+/* =====================================================================
+ * Suite 379. A new quote from a member who moved is flagged (2026-10-13,
+ * QT-51). Addie: "member made a new quote for themselves even though they
+ * already existed in the costumers ... Because there address changed".
+ * RUNS the matcher and the link payload against a small book.
+ * ===================================================================== */
+suite('379. A quote from a member who moved is flagged, never linked on its own');
+{
+  const names = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer', 'isRequote',
+    'quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteLinkToCustomerUpdates'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S379', 'the matcher was found', srcs.every(Boolean), names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean)) {
+    const book = [
+      { id: 'megan', data: { name: 'Megan Moore', customerNumber: '993', phone: '(949) 510-0692', email: 'megnmoore1@gmail.com',
+        address: '22 Old Rd, Lehi, UT', measuredFeet: 180, numberOfBins: 1, lightsDescription: 'Warm White', housePrice: 216 } },
+      { id: 'parent', data: { name: 'Pat Parent', phone: '8015550111', address: '1 Elm St, Orem, UT' } },
+      { id: 'child', data: { name: 'Kid Parent', phone: '801-555-0111', address: '2 Oak Ave, Orem, UT' } }
+    ];
+    const F = new Function('jobAddresses', 'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null; let quoteContactMatchCache = null, quoteContactMatchCacheFor = null;' +
+      srcs.join('\n') + ';return { quotePossibleExistingCustomers, quoteLinkToCustomerUpdates };')(book);
+    const moved = { name: 'Megan Moore', phone: '9495100692', email: 'megnmoore1@gmail.com', address: '1461 S 10 E, Salem 84653' };
+    const m = F.quotePossibleExistingCustomers(moved);
+    check('S379', 'a quote at a new address with a member\'s phone and email names that member once', m.length === 1 && m[0].id === 'megan');
+    check('S379', 'the email alone is enough to ask', F.quotePossibleExistingCustomers({ email: 'MegnMoore1@gmail.com ', address: 'x' }).length === 1);
+    check('S379', 'a shared phone lists BOTH households for a person to choose, never one picked silently',
+      F.quotePossibleExistingCustomers({ phone: '18015550111', address: '9 New St' }).map(c => c.id).sort().join() === 'child,parent');
+    check('S379', '"Not them" takes that customer off the question',
+      F.quotePossibleExistingCustomers(Object.assign({ notExistingCustomerIds: ['megan'] }, moved)).length === 0);
+    check('S379', 'a quote already linked, converted or archived asks nothing',
+      F.quotePossibleExistingCustomers(Object.assign({ existingCustomerId: 'megan' }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ convertedToCustomerAt: 1 }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ quoteArchived: true }, moved)).length === 0);
+    check('S379', 'a stranger with no matching contact asks nothing',
+      F.quotePossibleExistingCustomers({ phone: '3855550000', email: 'new@x.com', address: '5 A St' }).length === 0);
+    const up = F.quoteLinkToCustomerUpdates(book[0]);
+    check('S379', '"It\'s them" makes it an address-change re-quote on that record, carrying what the record knew',
+      up.existingCustomerId === 'megan' && up.existingCustomerNumber === '993' && up.requoteKind === 'address' &&
+      up.existingCustomerAddressChange === true && up.existingMeasuredFeet === 180 && up.changed.what === 'address' &&
+      up.changed.oldAddress === '22 Old Rd, Lehi, UT');
+    check('S379', 'and leaves the price and the answer alone', !('quotedPrice' in up) && !('approvalStatus' in up));
+  }
+  const stripped = stripComments(admin);
+  check('S379', 'the card draws the question and both answers are wired',
+    /quoteContactMatchHtml\(item\)\+/.test(stripped) &&
+    /querySelectorAll\('\[data-quotelinkcust\]'\)/.test(stripped) && /querySelectorAll\('\[data-quotenotcust\]'\)/.test(stripped) &&
+    /updateDoc\(doc\(db, 'quotes', qid\), quoteLinkToCustomerUpdates\(c\)\)/.test(stripped) &&
+    /notExistingCustomerIds: arrayUnion\(/.test(stripped));
 }
