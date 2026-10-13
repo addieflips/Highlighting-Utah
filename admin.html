@@ -7128,7 +7128,12 @@ const fbFunctions = getFunctions(app);
    "we dont use twillo at all thats a bug". The Cloud Function and `twilioSendRaw` were
    deleted with it, and the deploy's --force takes the callable off Firebase. We text from
    Google Voice, which has no send API, so nothing in this app can send a text itself. */
-const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
+/* ⚠ THE BROWSER MUST WAIT AS LONG AS THE SERVER MAY RUN (2026-10-12). A callable gives
+   up after 70 seconds unless told otherwise, and this one is allowed 300 on the server.
+   A catch-up run of 81 invoices took 107 seconds: the page said "Send failed —
+   deadline-exceeded" in red while every one of the 81 went out. Addie sent the
+   screenshot. A little over the server's own limit, so the server answers first. */
+const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow', { timeout: 310000 });
 const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
 /* Job 4: the fix photo is destroyed when the fix is done. Server-side because
    destroying needs the Cloudinary API secret, and a secret in this page is a
@@ -11488,7 +11493,15 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     loadNightlyInvoiceLog();
   } catch(err){
     statusEl.style.color = 'var(--ember)';
-    statusEl.textContent = '\u2717 Send failed \u2014 ' + (err.message || 'try again');
+    /* \u26d4 A TIMEOUT IS NOT A FAILURE, AND MUST NOT SAY IT IS. The browser giving up does
+       not stop the server: the run carries on and the invoices go out. "Send failed"
+       there invites a second press and a hunt for a bug that is not one. Say what is
+       known \u2014 it may still be running \u2014 and where the real answer will appear. */
+    const timedOut = /deadline/i.test(String((err && (err.code || '')) + ' ' + (err && err.message || '')));
+    statusEl.textContent = timedOut
+      ? 'This is taking longer than the page waits \u2014 it has NOT failed. The run carries on by itself; its result will appear under "Last 10 nightly runs" below in a minute or two. No need to press again.'
+      : '\u2717 Send failed \u2014 ' + (err.message || 'try again');
+    if(timedOut) setTimeout(function(){ try{ loadNightlyInvoiceLog(); }catch(e){ /* quiet on purpose: a convenience refresh of the run list; the list reloads on its own listener and the message above already says where to look. */ } }, 90000);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Send Invoices Now';
