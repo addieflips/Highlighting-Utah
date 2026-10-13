@@ -26,6 +26,7 @@ const T = (office, server, test, what, extra) => Object.assign({ office, server,
 const TWINS = [
   /* --- money: the bill itself. money-parity sweeps every one of these. --- */
   T('computeInvoiceStatus', 'computeInvoiceStatusServer', 'money-parity.test.js', 'Paid, Partial or Unpaid — and what is owed'),
+  T('centsOf', 'centsOf', 'money-parity.test.js', 'turning a dollar amount into whole cents before any money is compared', { byBlock: true }),
   T('houseIsOnTheBill', 'houseIsOnTheBillServer', 'money-parity.test.js', 'which houses are on a bill at all'),
   T('applyLightChange', 'applyLightChangeServer', 'money-parity.test.js', 'the $30 colour-change fee, the 48-hour window and where the $30 lands'),
   T('arrearsOnInvoice', 'arrearsOnInvoiceServer', 'money-parity.test.js', 'last season’s unpaid balance carried onto this bill'),

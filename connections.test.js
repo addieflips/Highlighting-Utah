@@ -225,7 +225,7 @@ check('every declared connection is still made by the code',
   const found = [];
   sAll.forEach(n => { if (/Server$/.test(n) && oAll.has(n.replace(/Server$/, ''))) found.push([n.replace(/Server$/, ''), n]); });
   sTop.forEach(n => { if (oTop.has(n)) found.push([n, n]); });
-  const listed = (o, sv) => TWINS.some(t => t.office === o && t.server === sv) || (o === sv && NOT_TWINS[o]);
+  const listed = (o, sv) => TWINS.some(t => t.office === o && t.server === sv) || !!NOT_TWINS[o];
   const unlisted = found.filter(([o, sv]) => !listed(o, sv));
   check('every rule written twice is on the twins list — or said not to be one', unlisted.length === 0,
     unlisted.map(p => p[0] + ' / ' + p[1]).join(', ') +
@@ -238,7 +238,7 @@ check('every declared connection is still made by the code',
   const gone = TWINS.filter(t => !oAll.has(t.office) || !sAll.has(t.server));
   check('every pair on the twins list still exists on both sides', gone.length === 0,
     gone.map(t => t.office + ' / ' + t.server).join(', ') + ' — renamed or removed; repoint or take it off');
-  const staleNot = Object.keys(NOT_TWINS).filter(n => !oTop.has(n) || !sTop.has(n));
+  const staleNot = Object.keys(NOT_TWINS).filter(n => !oAll.has(n) || !(sAll.has(n) || sAll.has(n + 'Server')));
   check('nothing is excused as not-a-twin that is no longer on both sides', staleNot.length === 0, staleNot.join(', '));
 
   let chain = '';
