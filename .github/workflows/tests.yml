@@ -394,6 +394,12 @@ jobs:
       - name: The headline rules still hold (Confirmed = scheduled, All Customers = Schedule)
         run: npm run test:headline
 
+      # ⭐⭐ [[SCH-129]] THE WHOLE SEASON, EVERY RULE, EVERY DAY. Plays three seasons through the real Recalculate and
+      # checks every standing schedule rule after every sync and every press. Its own named step so a red here reads
+      # as "the schedule broke a rule" — see schedule-season.test.js. Fix the change, never the season.
+      - name: The schedule keeps every rule over a whole season
+        run: npm run test:season-sim
+
       - name: Run the fast suite
         run: npm test
 

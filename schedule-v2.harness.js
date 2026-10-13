@@ -74,7 +74,7 @@ module.exports = function makeHarness(liftDeep){
   const post = [
     /* the Mountain clock is pinned to the same "today" */
     'window.scheduleHangDay = function(r){ return hangDayOn(r); };',
-    'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: 7, minute: 0}; };',
+    'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: d.getHours(), minute: d.getMinutes()}; };',
     'return {',
     '  setNow: function(d){ __NOW = d.getTime(); },',
     '  load: function(book, opts){',

@@ -66373,6 +66373,21 @@ function scheduleTodayStr(nowParts){
     ? window.scheduleHangDay(real) : null;
   return (hang && hang < real) ? hang : real;
 }
+/* ⭐⭐ [[SCH-129]] A PRESS AFTER THE CREWS ARE IN TREATS TODAY AS WORKED (2026-10-12). Addie: "I only want to recalculate
+   after we finish a day and some houses didn't get scheduled" ([[SCH-127]]) — but today is always locked, so a press
+   that evening kept every missed house on TODAY'S sheet, a day that is already over, and nothing moved them until the
+   next evening's press: a full day on no future day at all, measured in the season simulator on every day of it.
+   From SCHEDULE_DAY_OVER_HOUR (Mountain) the press treats today like any earlier day: the houses ticked done stay as
+   the record, the rest go back in the pool marked missed, and the next two scheduled days after today stay locked.
+   ⚠ ONLY WHEN TODAY IS THE CREW'S DAY. With a hang day in force ([[SCH-116]]) the vans are on an earlier sheet and
+   today has not been worked at all. ⚠ AND ONLY THE PRESS READS THIS — the five-minute sync never re-lays a day. */
+const SCHEDULE_DAY_OVER_HOUR = 17;
+function scheduleDayIsOver(nowParts){
+  const p = nowParts || ((typeof mtnNowParts === 'function') ? mtnNowParts() : null);
+  if(!p || typeof p.hour !== 'number') return false;
+  if(typeof scheduleTodayStr === 'function' && scheduleTodayStr() !== p.date) return false;
+  return p.hour >= SCHEDULE_DAY_OVER_HOUR;
+}
 /* The working day after `dateStr` (weekends and Thanksgiving skipped), as a plain YYYY-MM-DD. */
 function nextWorkingDayStr(dateStr){
   let t = Date.UTC(Number(String(dateStr).slice(0,4)), Number(String(dateStr).slice(5,7)) - 1, Number(String(dateStr).slice(8,10)));
@@ -74102,6 +74117,8 @@ function refreshLockedDates(){
   const upcoming = {}, frozen = {}, printed = {};
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
     if(d.isFixRoute || !(d.houses || []).length) return;
+    /* [[SCH-129]] a date holding only houses already done is not one of the next two days of work */
+    if(!d.printedAt && !(d.houses || []).some(function(h){ return h && !h.done && !h.hiddenDone; })) return;
     const dt = dayDate(d);
     if(!dt) return;
     const ds = isoOf(dt);
@@ -74918,6 +74935,9 @@ function dayCrewTowns(day){
 }
 function crewTownsFor(i,day){
   if(!day) return (CREWS[i]&&CREWS[i].city)?[CREWS[i].city]:(planCities()[i]?[planCities()[i]]:[]);
+  /* [[SCH-129]] when the map split the day, a crew's towns are simply the towns of the houses it was given, most first. */
+  const g=(typeof geoCrewSplit==='function')?geoCrewSplit(day):null;
+  if(g){ const c={}; (g[i]||[]).forEach(function(h){ const t=cityOf(h); if(t) c[t]=(c[t]||0)+1; }); return Object.keys(c).sort(function(a,b){ return (c[b]-c[a])||(a<b?-1:1); }); }
   return dayCrewTowns(day)[i]||[];
 }
 function crewCityFor(i,day){
@@ -74977,6 +74997,115 @@ function markDoneHousesHidden(stamp){
   });
   return n;
 }
+/* ⭐⭐ [[SCH-129]] WHO IS ON WHICH CREW IS DECIDED BY THE MAP, NOT BY TOWN NAMES (2026-10-12). Dax: "geographical location
+   matters more than city labels" and "i have no town rules if you follow the rule i just gave" — the five-mile rule.
+   The town split this replaces ([[SCH-50]], [[SCH-67]], [[SCH-97]]) is what the season simulator caught putting houses on
+   NO crew's sheet (a one-crew day kept only its crew's towns: 12 of 36 houses on 6 November) and sending crews out
+   16 and 10. Here every house on the day is on exactly one crew by construction, the crews are never more than three
+   apart (equal unless leaning by one saves at least a mile), and the line between them is drawn where it costs the
+   least driving: every straight cut across the day's map is tried, then single swaps tidy the edge.
+   ⚠ HOW MANY CREWS is the same rule as before: a limit the office set on the date, a one-man day, or a day too small
+   for two crews of MIN_CREW_HOUSES is one crew (the solo crew the office chose), otherwise two ([[SCH-128]]).
+   ⚠ A HOUSE WITH NO PIN AT ALL hands the day back to the old town split, because there is nothing to measure.
+   ⚠ PURE AND CACHED on the day's houses and pins, so the panel, both sheets and the route order all read one answer. */
+const GEO_SPLIT_CACHE = new Map();
+function geoCrewSplit(day){
+  if(!day || day.isFixRoute || day.isTakedown || !Array.isArray(day.houses)) return null;
+  if(typeof houseGeoPoint !== 'function' || typeof haversine !== 'function') return null;
+  const crews = crewIndexes();
+  if(!crews.length) return null;
+  const hs = day.houses;
+  const out = crews.map(function(){ return []; });
+  if(!hs.length) return out;
+  const pts = hs.map(function(h){
+    const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+    return houseGeoPoint(h, (c && c.data) || {});
+  });
+  if(pts.some(function(p){ return !p || typeof p.lat !== 'number' || !isFinite(p.lat) || !isFinite(p.lng); })) return null;
+  const n = hs.length;
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const limited = (typeof dayLimitFor === 'function') && !!dayLimitFor(day);
+  const oneMan = (typeof isOneManDay === 'function') && isOneManDay(day);
+  const solo = Math.max(0, Math.min((typeof daySoloCrew === 'function') ? (daySoloCrew(day) || 0) : 0, out.length - 1));
+  const oneCrewMax = (typeof oneCrewMaxHouses === 'function') ? oneCrewMaxHouses() : 19;
+  if(limited || oneMan || out.length < 2 || n < 2 * minCrew || n <= oneCrewMax){
+    out[solo] = hs.slice();
+    return out;
+  }
+  const key = hs.map(function(h, i){ return String(h && h.id) + '@' + pts[i].lat.toFixed(5) + ',' + pts[i].lng.toFixed(5); }).join('|') + '#' + out.length;
+  { const c = GEO_SPLIT_CACHE.get(key); if(c) return c.map(function(l){ return l.map(function(i){ return hs[i]; }); }); }
+  const home = (typeof routeHomePoint === 'function') ? routeHomePoint() : null;
+  const D = function(a, b){ return haversine(a.lat, a.lng, b.lat, b.lng); };
+  /* a crew's cost: the nearest-neighbour loop from the yard (an open path with no yard) — cheap, and it ranks cuts
+     the way the real shortest order does */
+  const tour = function(ix){
+    if(!ix.length) return 0;
+    const left = ix.slice(); let cur = home, m = 0;
+    if(!cur) cur = pts[left.shift()];
+    while(left.length){
+      let bi = 0, bd = Infinity;
+      for(let q = 0; q < left.length; q++){ const x = D(cur, pts[left[q]]); if(x < bd){ bd = x; bi = q; } }
+      m += bd; cur = pts[left.splice(bi, 1)[0]];
+    }
+    return m + (home ? D(cur, home) : 0);
+  };
+  /* split a group of indexes into sizeA and the rest along the cheapest straight line, then tidy the edge */
+  const bisect = function(ix, sizeA){
+    let best = null, bestM = Infinity;
+    const lat0 = ix.reduce(function(a, i){ return a + pts[i].lat; }, 0) / ix.length;
+    const kx = Math.cos(lat0 * Math.PI / 180);
+    for(let a = 0; a < 72; a++){
+      const th = a * Math.PI / 36, cx = Math.cos(th), cy = Math.sin(th);
+      const s = ix.slice().sort(function(p, q){
+        const d = (pts[p].lng * kx * cx + pts[p].lat * cy) - (pts[q].lng * kx * cx + pts[q].lat * cy);
+        return d || (p - q);
+      });
+      const A = s.slice(0, sizeA), B = s.slice(sizeA);
+      const m = tour(A) + tour(B);
+      if(m < bestM - 1e-9){ bestM = m; best = [A, B]; }
+    }
+    let A = best[0], B = best[1], cur = bestM;
+    for(let pass = 0; pass < 2; pass++){
+      let moved = false;
+      for(let i = 0; i < A.length; i++){
+        for(let j = 0; j < B.length; j++){
+          const A2 = A.slice(), B2 = B.slice(); const t = A2[i]; A2[i] = B2[j]; B2[j] = t;
+          const m = tour(A2) + tour(B2);
+          if(m < cur - 0.05){ A = A2; B = B2; cur = m; moved = true; }
+        }
+      }
+      if(!moved) break;
+    }
+    return {A: A, B: B, miles: cur};
+  };
+  const all = hs.map(function(h, i){ return i; });
+  const k = Math.min(out.length, Math.max(2, Math.ceil(n / ((typeof crewCap === 'function') ? crewCap() : 20))));
+  let groups;
+  if(k === 2){
+    let pick = null;
+    const crewMax = (typeof crewCap === 'function') ? crewCap() : 20;
+    for(let sA = Math.floor(n / 2); sA >= Math.max(1, minCrew) && n - 2 * sA <= 3 && (n - sA <= crewMax || sA === Math.floor(n / 2)); sA--){
+      const r = bisect(all, sA);
+      const score = r.miles + (n - 2 * sA);
+      if(!pick || score < pick.score - 1e-9) pick = {score: score, r: r};
+    }
+    groups = [pick.r.A, pick.r.B];
+  } else {
+    /* more crews: halve the biggest group until there are enough */
+    groups = [all];
+    while(groups.length < k){
+      groups.sort(function(a, b){ return b.length - a.length; });
+      const g = groups.shift();
+      const r = bisect(g, Math.floor(g.length / 2));
+      groups.push(r.A, r.B);
+    }
+  }
+  groups.sort(function(a, b){ return (b.length - a.length) || (Math.min.apply(null, a) - Math.min.apply(null, b)); });
+  groups.forEach(function(g, gi){ if(gi < out.length) out[gi] = g.slice().sort(function(a, b){ return a - b; }).map(function(i){ return hs[i]; }); });
+  if(GEO_SPLIT_CACHE.size > 400) GEO_SPLIT_CACHE.clear();
+  GEO_SPLIT_CACHE.set(key, out.map(function(l){ return l.map(function(h){ return hs.indexOf(h); }); }));
+  return out;
+}
 function dayCrewHouses(day){
   /* ⭐ [[SCH-106]] a printed day keeps the split the crew was handed — see frozenCrewSplit. */
   if(typeof frozenCrewSplit === 'function'){ const fz = frozenCrewSplit(day); if(fz) return fz; }
@@ -74998,6 +75127,8 @@ function dayCrewHouses(day){
   }
   const out=CREWS.map(function(){ return []; });
   if(!day||!day.houses) return out;
+  /* [[SCH-129]] the map decides; the town split below only answers for a day with an unpinned house. */
+  { const g = (typeof geoCrewSplit === 'function') ? geoCrewSplit(day) : null; if(g) return g; }
   /* ⚠ EXACTLY ONE CREW EACH, WHICH IS THE OTHER HALF OF [[SCH-67]]. Each crew used to
      filter the whole day independently, so a town two crews both hold put its houses on
      BOTH sheets — two trucks to one driveway, and the customer visited twice.
@@ -75743,6 +75874,22 @@ function gasShortestOrder(points, home){
     }
     return r;
   };
+  /* [[SCH-129]] up to fifteen stops the truly shortest order is cheap to find exactly (Held-Karp over the yard loop), so a
+     short route is never even a fraction of a mile off it */
+  if(n <= 15){
+    const FULL = 1 << n, dp = new Float64Array(FULL * n).fill(Infinity), from = new Int8Array(FULL * n).fill(-1);
+    for(let i = 0; i < n; i++) dp[(1 << i) * n + i] = D[Y][i];
+    for(let S = 1; S < FULL; S++) for(let i = 0; i < n; i++){
+      const v = dp[S * n + i]; if(v === Infinity || !(S & (1 << i))) continue;
+      for(let j = 0; j < n; j++){ if(S & (1 << j)) continue; const T = S | (1 << j), w = v + D[i][j]; if(w < dp[T * n + j] - 1e-12){ dp[T * n + j] = w; from[T * n + j] = i; } }
+    }
+    let end = 0, bestE = Infinity;
+    for(let i = 0; i < n; i++){ const w = dp[(FULL - 1) * n + i] + D[i][Y]; if(w < bestE - 1e-12){ bestE = w; end = i; } }
+    const order = []; let S = FULL - 1, cur = end;
+    while(cur >= 0){ order.push(cur); const p = from[S * n + cur]; S &= ~(1 << cur); cur = p; }
+    order.reverse();
+    return order.map(function(i){ return pts[i]; });
+  }
   let best = null, bestM = Infinity;
   const starts = [-1]; for(let i = 0; i < n; i++) starts.push(i);
   starts.forEach(function(s){
@@ -78393,6 +78540,9 @@ function rebuildSeasonDays(){
      priority function, which is lifted alone by three suites and must stay timeless
      unless a caller says otherwise. */
   const todayStr=isoOf(realToday);
+  /* [[SCH-129]] pressed after the crews are in: today is history too (see scheduleDayIsOver). */
+  const todayOver=(typeof scheduleDayIsOver==='function')&&isoOf(today)===todayStr&&scheduleDayIsOver();
+  const isGone=function(dt){ return !!(dt&&(dt<today||(todayOver&&isoOf(dt)===todayStr))); };
   /* Fixes ride along on a day rather than being scheduled by town, so they stay
      where somebody put them. */
   const keep=[], movable=[], riders=[], locked=[];
@@ -78436,7 +78586,7 @@ function rebuildSeasonDays(){
        the two-working-day horizon only stands in before it does (and in suites that lift this alone). */
     const scheduledLock = typeof routeDayIsLocked==='function' && typeof window!=='undefined' && window &&
       typeof window.scheduleLockedDates==='function';
-    const setSoon = dt && dt >= today &&
+    const setSoon = dt && dt >= today && !isGone(dt) &&
       (scheduledLock ? routeDayIsLocked(isoOf(dt))
                      : ((dt <= pinHorizon()) || (typeof routeDayIsLocked==='function' && routeDayIsLocked(isoOf(dt)))));
     if(setSoon){
@@ -78448,7 +78598,7 @@ function rebuildSeasonDays(){
       });
       locked.push(d); keep.push(d); return;
     }
-    const worked=(dt&&dt<today)||houses.some(function(h){return h.done;});
+    const worked=isGone(dt)||houses.some(function(h){return h.done;});
     if(!worked){
       houses.forEach(function(h){ (h.isFix?riders:movable).push(h); });
       return;
@@ -78468,7 +78618,7 @@ function rebuildSeasonDays(){
 
        ⚠ GUARDED, like everything else in here that reaches outside this function:
        several suites lift rebuildSeasonDays on its own. See markHouseMissed. */
-    const dayGone=!!(dt&&dt<today);
+    const dayGone=isGone(dt);
     houses.forEach(function(h){
       if(h.done) return;
       if(dayGone&&typeof markHouseMissed==='function') markHouseMissed(h,isoOf(dt));
@@ -78504,7 +78654,7 @@ function rebuildSeasonDays(){
       dd=nextWorkingDay(new Date(dd.getFullYear(), dd.getMonth(), dd.getDate()+1));
     }
     if(!recordDates.length){
-      doneRecord.forEach(function(r){ const d=SEASON.filter(function(x){ return x.id===r.id; })[0]; if(d){ d.houses=r.houses; keep.push(d); } });
+      doneRecord.forEach(function(r){ const d=SEASON.filter(function(x){ return x.id===r.id; })[0]; if(d){ keep.push(Object.assign({}, d, {houses: r.houses})); } });
     } else {
       recordDates.forEach(function(dd,i){
         const last=i===recordDates.length-1;
@@ -78882,6 +79032,11 @@ function rebuildSeasonDays(){
   selSchedule=installDays()[0]?installDays()[0].id:null;
   /* ⭐ SCHEDULE V2 ([[SCH-104]]): nobody is left on a day past their last allowed day when an
      earlier legal day has room. Before the Confirmed net, which may only ever ADD. */
+  /* [[SCH-129]] lay every open day out again by priority and the map — see geoRelayoutOpenDays. */
+  let relaid = {laid: 0, days: 0};
+  try{ if(typeof geoRelayoutOpenDays === 'function') relaid = geoRelayoutOpenDays(); }
+  catch(err){ console.error('Could not lay the open days out by the map:', err); }
+  void relaid;
   let pulled = {moved: [], stuck: []};
   try{ if(typeof pullBackPastDeadline === 'function') pulled = pullBackPastDeadline(); }
   catch(err){ console.error('Could not pull houses back inside their last day:', err); }
@@ -78890,6 +79045,16 @@ function rebuildSeasonDays(){
   let prio = {moved: [], stayed: []};
   try{ if(typeof advancePriorityHouses === 'function') prio = advancePriorityHouses(); }
   catch(err){ console.error('Could not place the priority customers:', err); }
+  /* [[SCH-129]] fill every day before a later one, nearest houses first — see closeUpShortDays. */
+  let closed = {moved: [], filledDates: []};
+  try{ if(typeof closeUpShortDays === 'function') closed = closeUpShortDays(); }
+  catch(err){ console.error('Could not fill the short days:', err); }
+  let tightened = {swapped: []};
+  try{ if(typeof tightenCrewDays === 'function') tightened = tightenCrewDays(); }
+  catch(err){ console.error('Could not keep the crews within five miles:', err); }
+  let shortMerged = {merged: []};
+  try{ if(typeof mergeShortOpenDays === 'function') shortMerged = mergeShortOpenDays(); }
+  catch(err){ console.error('Could not fold the short days into the nearest run:', err); }
   /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
      Addie: "if anyone has a confirmed tag they should be scheduled somehow no
      exceptions." Asked here rather than only on the button, because this is the moment
@@ -78940,6 +79105,7 @@ function rebuildSeasonDays(){
              `missed` and `rushed` are counted off the pool this rebuild laid out —
              they are the houses that were MOVED UP, not the whole season's history. */
           coldDays:coldDays,
+          closedUp:closed.moved.length, closedUpDates:closed.filledDates.slice(0,5), tightened:tightened.swapped.length, shortMerged:shortMerged.merged.length,
           missed:placeable.filter(function(w){return w.missed;}).length,
           rushed:placeable.filter(function(w){return w.rush;}).length,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
@@ -79400,6 +79566,455 @@ function deadlineSwapFor(h, fromDay, fromDs, until){
     });
   });
   return best;
+}
+/* ⭐⭐ [[SCH-129]] EVERY DAY FILLED BEFORE A LATER ONE IS, AND NEVER WITH A HOUSE MORE THAN FIVE MILES OFF (2026-10-12).
+   Dax: "fill up everyday to 40 so then the days with less than 40 fall at the end", "the farthest any two houses should
+   ever be is 5 miles and try to get it under 1 if possible", and, of the schedule as a whole, "it just needs to be
+   fixed". The builder lays crew-days out area by area, and the season simulator measured what that leaves behind:
+   October days of 24 and 33 while November held Normal-schedule customers who could have gone in them, two whole
+   October working days empty while October customers sat in November, and working days in November with nobody on
+   them between days that were not full.
+   This walks the season one date at a time from the first open day, and fills each date up to a full day by pulling
+   houses EARLIER off later open days: a house within a mile of one already on that date first, then within five, most
+   urgent first inside each band. An empty date is started from the most urgent house that may go on it.
+   ⛔ ONLY EVER EARLIER, so it can never cost anybody a day. ⛔ NEVER A LOCKED OR PRINTED DAY, either way round.
+   ⛔ NEVER OUTSIDE A HOUSE'S WINDOW — houseMayGoOn, the one legality check (month, office date, deadline, away, pin).
+   ⛔ NEVER A DAY UNDER MIN_CREW_HOUSES: a date it cannot get to ten is left as it was ([[SCH-128]]).
+   ⚠ A cold date (forecastIsCold) takes nobody from that town — the builder's cold rule, kept. */
+function closeUpShortDays(){
+  const res = {moved: [], filledDates: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON)) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const isOpen = function(ds){ return ds && ds > today && !routeDayIsLocked(ds); };
+  const capFor = function(ds){
+    const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+    if(lim === 'crew') return cap;
+    return cap * crewsN;
+  };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){
+    if(!ptMemo.has(h)){ const p = houseGeoPoint(h, custOf(h)); ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); }
+    return ptMemo.get(h);
+  };
+  const prio = function(h){ try{ return houseInstallPriority(h, custOf(h), {today: today}); }catch(e){ return 99; } };
+  const install = SEASON.filter(function(d){ return d && !d.isFixRoute && !d.isTakedown && dsOf(d); });
+  const open = install.filter(function(d){ return isOpen(dsOf(d)); });
+  if(!open.length) return res;
+  const last = open.map(dsOf).sort().pop();
+  /* where every movable house is now */
+  const where = new Map();
+  open.forEach(function(d){ (d.houses || []).forEach(function(h){ if(live(h) && !String(h.stuck || '').trim() && ptOf(h)) where.set(h, d); }); });
+  const byDate = {};
+  install.forEach(function(d){ const s = dsOf(d); if(!byDate[s]) byDate[s] = d; });
+  const taken = (typeof uniqueDayIds === 'function') ? uniqueDayIds(SEASON) : new Set(SEASON.map(function(d){ return d.id; }));
+  let seq = 0;
+  const freshId = function(){ while(taken.has('cu' + seq)) seq++; const id = 'cu' + (seq++); taken.add(id); return id; };
+  let dt = new Date(today + 'T00:00:00');
+  for(let guard = 0; guard < 400; guard++){
+    dt = nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1));
+    const ds = isoOf(dt);
+    if(ds > last) break;
+    if(!isOpen(ds)) continue;
+    let day = byDate[ds] || null;
+    const have = day ? (day.houses || []).filter(live) : [];
+    let room = capFor(ds) - have.length;
+    if(room <= 0) continue;
+    const cands = [];
+    where.forEach(function(d, h){
+      if(dsOf(d) <= ds) return;
+      if(!houseMayGoOn(h, custOf(h), ds, startStr).ok) return;
+      if(typeof forecastIsCold === 'function'){ try{ if(forecastIsCold(cityOf(h), ds)) return; }catch(e){ /* no forecast is no opinion */ } }
+      cands.push(h);
+    });
+    if(!cands.length) continue;
+    const dist = new Map();
+    cands.forEach(function(h){ dist.set(h, Infinity); });
+    const near = function(x){ const p = ptOf(x); if(!p) return; cands.forEach(function(h){ const q = ptOf(h); const m = haversine(p.lat, p.lng, q.lat, q.lng); if(m < dist.get(h)) dist.set(h, m); }); };
+    have.forEach(near);
+    const picked = [];
+    const left = new Set(cands);
+    const curDay = function(h){ return dsOf(where.get(h)); };
+    /* a day only gives houses away while it keeps MIN_CREW_HOUSES, or gives every one it has left (it then goes) */
+    const leftOn = new Map();
+    where.forEach(function(d){ if(!leftOn.has(d)) leftOn.set(d, (d.houses || []).filter(live).length); });
+    const groupOf = function(h){ const d = where.get(h); return Array.from(where.keys()).filter(function(x){ return where.get(x) === d; }); };
+    while(room > 0 && left.size){
+      let best = null, bk = null;
+      left.forEach(function(h){
+        const m = dist.get(h);
+        const rest = leftOn.get(where.get(h)) - 1;
+        if(rest > 0 && rest < minCrew){
+          const g = groupOf(h);
+          if(g.length > room || g.some(function(x){ return !left.has(x) || dist.get(x) > 5; })) return;
+        }
+        if(have.length + picked.length && m > 5) return;
+        const k = (have.length + picked.length) ? [m <= 1 ? 0 : 1, prio(h), m, curDay(h), String(h.id)] : [0, prio(h), 0, curDay(h), String(h.id)];
+        if(!bk) { best = h; bk = k; return; }
+        for(let i = 0; i < k.length; i++){ if(k[i] < bk[i]){ best = h; bk = k; return; } if(k[i] > bk[i]) return; }
+      });
+      if(!best) break;
+      const rest = leftOn.get(where.get(best)) - 1;
+      const take = (rest > 0 && rest < minCrew) ? groupOf(best) : [best];
+      take.forEach(function(x){ left.delete(x); picked.push(x); near(x); room--; leftOn.set(where.get(x), leftOn.get(where.get(x)) - 1); });
+    }
+    if(!picked.length) continue;
+    if(have.length + picked.length < minCrew) continue;
+    if(!day){
+      const base = (typeof daysBetween === 'function' && typeof BASE_START !== 'undefined') ? daysBetween(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()), BASE_START) : 0;
+      day = {id: freshId(), base: base, cascade: 0, pin: null, houses: []};
+      SEASON.push(day); byDate[ds] = day;
+      res.filledDates.push(ds);
+    }
+    picked.forEach(function(h){
+      const from = where.get(h);
+      from.houses = (from.houses || []).filter(function(x){ return x !== h; });
+      day.houses.push(h);
+      where.set(h, day);
+      res.moved.push({name: h.name || '', from: dsOf(from), to: ds});
+    });
+  }
+  /* a later day emptied completely is not a day */
+  for(let i = SEASON.length - 1; i >= 0; i--){
+    const d = SEASON[i];
+    if(d && !d.isFixRoute && !d.isTakedown && !(d.houses || []).length && open.indexOf(d) !== -1) SEASON.splice(i, 1);
+  }
+  if(typeof computeDates === 'function') computeDates();
+  return res;
+}
+/* ⭐⭐ [[SCH-129]] NO CREW DRIVES MORE THAN FIVE MILES TO ITS NEXT HOUSE WHEN A SWAP CAN AVOID IT (2026-10-12). Dax: "theres never
+   a house more than 5 miles away from the house previous unless it is the only next closest house in our entire schedule".
+   The simulator found the commonest way it happened: a day holding 22 houses in one area and 18 in another must lend two
+   to the far crew to keep the crews within three ([[SCH-97]]), and those two cost a 13-mile hop each way. So after the
+   days are filled, every crew's houses are grouped by the five-mile rule; any small group cut off from the crew's main
+   one is a straggler, and each straggler is SWAPPED with a house on another open day that belongs where the straggler
+   was standing — the straggler lands beside houses within five miles, the house it trades with lands within five miles
+   of this crew. Both must be legal on their new day (houseMayGoOn), and ⛔ the house that moves LATER is never the more
+   urgent of the two (houseInstallPriority), so priority still decides the days. Locked and printed days are never touched.
+   ⚠ A house with nobody within five miles anywhere on the schedule is the rule's own exception and is left alone. */
+function tightenCrewDays(){
+  const res = {swapped: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || typeof dayCrewHouses !== 'function') return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = houseGeoPoint(h, custOf(h)); ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); } return ptMemo.get(h); };
+  const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : Infinity; };
+  const prio = function(h){ try{ return houseInstallPriority(h, custOf(h), {today: today}); }catch(e){ return 99; } };
+  const capB = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; const cap = (typeof crewCap === 'function') ? crewCap() : 20; if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8; if(lim === 'crew') return cap; return cap * Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2); };
+  const may = function(h, ds){ return !String(h.stuck || '').trim() && houseMayGoOn(h, custOf(h), ds, startStr).ok; };
+  const days = SEASON.filter(function(d){ const s = d && !d.isFixRoute && !d.isTakedown && dsOf(d); return s && s > today && !routeDayIsLocked(s); });
+  if(days.length < 2) return res;
+  const everyone = [];
+  SEASON.forEach(function(d){ (d.houses || []).forEach(function(h){ if(live(h) && ptOf(h)) everyone.push(h); }); });
+  const lonely = function(h){ return !everyone.some(function(x){ return x !== h && mi(x, h) <= 5; }); };
+  const components = function(list){
+    const seen = new Set(), out = [];
+    list.forEach(function(h){
+      if(seen.has(h)) return;
+      const comp = [h]; seen.add(h);
+      for(let i = 0; i < comp.length; i++) list.forEach(function(x){ if(!seen.has(x) && mi(comp[i], x) <= 5){ seen.add(x); comp.push(x); } });
+      out.push(comp);
+    });
+    return out.sort(function(a, b){ return b.length - a.length; });
+  };
+  for(let round = 0; round < 4; round++){
+    let changed = false;
+    days.forEach(function(A){
+      const dsA = dsOf(A);
+      const crews = dayCrewHouses(A).map(function(l){ return (l || []).filter(function(h){ return live(h) && ptOf(h); }); });
+      crews.forEach(function(list, ci){
+        if(list.length < 2) return;
+        const comps = components(list);
+        if(comps.length < 2) return;
+        const main = comps[0];
+        comps.slice(1).forEach(function(group){
+          group.forEach(function(X){
+            if(String(X.stuck || '').trim() || lonely(X)) return;
+            let best = null;
+            days.forEach(function(B){
+              if(B === A) return;
+              const dsB = dsOf(B);
+              if(!may(X, dsB)) return;
+              const onB = (B.houses || []).filter(function(h){ return live(h) && ptOf(h); });
+              let dx = Infinity;
+              onB.forEach(function(h){ const m = mi(X, h); if(m < dx) dx = m; });
+              if(dx > 5) return;
+              /* B has room: the straggler simply moves (an earlier day first, then the nearest date) */
+              if(onB.length < capB(dsB)){
+                const cost = dx + (dsB < dsA ? 0 : 0.5) + Math.abs(new Date(dsB) - new Date(dsA)) / 864e5 * 0.01;
+                if(!best || cost < best.cost) best = {cost: cost, B: B, Y: null};
+              }
+              onB.forEach(function(Y){
+                if(String(Y.stuck || '').trim() || !may(Y, dsA)) return;
+                let dy = Infinity;
+                main.forEach(function(h){ const m = mi(Y, h); if(m < dy) dy = m; });
+                if(dy > 5) return;
+                /* X must still have a neighbour on B once Y has gone */
+                let dx2 = Infinity;
+                onB.forEach(function(h){ if(h === Y) return; const m = mi(X, h); if(m < dx2) dx2 = m; });
+                if(dx2 > 5) return;
+                const later = dsB > dsA ? X : Y, earlier = later === X ? Y : X;
+                if(prio(later) < prio(earlier)) return;
+                const cost = dx2 + dy;
+                if(!best || cost < best.cost) best = {cost: cost, B: B, Y: Y};
+              });
+            });
+            if(!best) return;
+            const B = best.B, Y = best.Y;
+            if(!Y){
+              A.houses = A.houses.filter(function(h){ return h !== X; });
+              B.houses.push(X);
+              res.swapped.push({name: X.name || '', with: '', from: dsA, to: dsOf(B)});
+              changed = true;
+              return;
+            }
+            A.houses = A.houses.map(function(h){ return h === X ? Y : h; });
+            B.houses = B.houses.map(function(h){ return h === Y ? X : h; });
+            const ix = main.indexOf(X); if(ix !== -1) main.splice(ix, 1);
+            main.push(Y);
+            res.swapped.push({name: X.name || '', with: Y.name || '', from: dsA, to: dsOf(B)});
+            changed = true;
+          });
+        });
+      });
+    });
+    if(!changed) break;
+  }
+  if(typeof computeDates === 'function') computeDates();
+  return res;
+}
+/* ⭐⭐ [[SCH-129]] THE OPEN DAYS ARE LAID OUT BY PRIORITY AND THE MAP, NOT BY TOWN NAMES (2026-10-12). Dax: "every day should
+   be decided by priority", "the farthest any two houses should ever be is 5 miles and try to get it under 1 if possible",
+   and "i have no town rules if you follow the rule i just gave, geographical location matters more than city labels".
+   The town builder above still runs first (pins, the cold rule, the areas), but the season simulator measured what its
+   town-shaped days cost once the areas thin out in late October: crew days stitched from towns twenty and thirty miles
+   apart, ~200 hops over five miles in one season. So every open day (not locked, not printed, after today) is laid out
+   again here, date by date from the first open one. A day starts from the MOST URGENT house that may go on that date
+   (houseInstallPriority: new hangs, missed houses, deadlines running out, October before anyone else) and grows one
+   house at a time, most urgent first among the houses within five miles of a house already on the day, nearest first
+   inside the same priority, until it is a full day. If it stalls with room for another crew, a second area is started
+   the same way. An area that cannot reach MIN_CREW_HOUSES waits for a later date unless its last day is this one.
+   ⛔ NEVER OUTSIDE A HOUSE'S WINDOW (houseMayGoOn). ⛔ NOTHING ON A LOCKED OR PRINTED DAY MOVES, either way.
+   ⛔ A PINNED HOUSE, A HOUSE ALREADY DONE AND A HOUSE WITH NO PIN ON THE MAP stay on the day they are on.
+   ⚠ Nobody is left off (SCH-85): anybody no date could take goes back on the latest open day they may go on. */
+function geoRelayoutOpenDays(){
+  const res = {laid: 0, days: 0};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON)) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const isOpen = function(ds){ return ds && ds > today && !routeDayIsLocked(ds); };
+  const capFor = function(ds){
+    const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8;
+    if(lim === 'crew') return cap;
+    return cap * crewsN;
+  };
+  const custMemo = new Map(), ptMemo = new Map(), prioMemo = new Map(), winMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = houseGeoPoint(h, custOf(h)); ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); } return ptMemo.get(h); };
+  const prio = function(h){ if(!prioMemo.has(h)){ let p = 99; try{ p = houseInstallPriority(h, custOf(h), {today: today}); }catch(e){ p = 99; } prioMemo.set(h, p); } return prioMemo.get(h); };
+  const win = function(h){ if(!winMemo.has(h)) winMemo.set(h, houseDateWindow(h, custOf(h), startStr)); return winMemo.get(h); };
+  const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return haversine(p.lat, p.lng, q.lat, q.lng); };
+  const cmp = function(a, b){ for(let i = 0; i < a.length; i++){ if(a[i] < b[i]) return -1; if(a[i] > b[i]) return 1; } return 0; };
+  const open = SEASON.filter(function(d){ return d && !d.isFixRoute && !d.isTakedown && isOpen(dsOf(d)); });
+  if(!open.length) return res;
+  const pool = [], stays = {};
+  open.forEach(function(d){
+    const s = dsOf(d);
+    d.houses = (d.houses || []).filter(function(h){
+      const free = h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown && !String(h.stuck || '').trim() && ptOf(h);
+      if(free){ pool.push(h); return false; }
+      return true;
+    });
+    stays[s] = (stays[s] || 0) + d.houses.filter(function(h){ return h && !h.done && !h.hiddenDone; }).length;
+  });
+  if(!pool.length) return res;
+  const byDate = {};
+  open.forEach(function(d){ const s = dsOf(d); if(!byDate[s]) byDate[s] = d; });
+  const taken = (typeof uniqueDayIds === 'function') ? uniqueDayIds(SEASON) : new Set(SEASON.map(function(d){ return d.id; }));
+  let seq = 0;
+  const freshId = function(){ while(taken.has('gl' + seq)) seq++; const id = 'gl' + (seq++); taken.add(id); return id; };
+  const left = new Set(pool);
+  let dt = new Date(today + 'T00:00:00');
+  for(let guard = 0; guard < 400 && left.size; guard++){
+    dt = nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1));
+    const ds = isoOf(dt);
+    if(!isOpen(ds)) continue;
+    let room = capFor(ds) - (stays[ds] || 0);
+    if(room <= 0) continue;
+    const avail = new Set();
+    left.forEach(function(h){
+      if(!houseMayGoOn(h, custOf(h), ds, startStr).ok) return;
+      if(typeof forecastIsCold === 'function'){ try{ if(forecastIsCold(cityOf(h), ds)) return; }catch(e){ /* no forecast is no opinion */ } }
+      avail.add(h);
+    });
+    if(!avail.size) continue;
+    const placed = [], areas = [];
+    /* one area per crew on an ordinary day: each crew is given its own patch of map ([[SCH-97]]: "pick an area for both crews") */
+    const perArea = (crewsN >= 2 && capFor(ds) === cap * crewsN) ? cap : room;
+    while(room > 0 && avail.size){
+      let seed = null, sk = null;
+      avail.forEach(function(h){ const k = [prio(h), win(h).from || '', String(h.id)]; if(!sk || cmp(k, sk) < 0){ seed = h; sk = k; } });
+      const area = [seed]; avail.delete(seed);
+      const dist = new Map();
+      avail.forEach(function(h){ dist.set(h, mi(seed, h)); });
+      let r = Math.min(room, perArea) - 1;
+      while(r > 0){
+        let best = null, bk = null;
+        avail.forEach(function(h){
+          const m = dist.get(h);
+          if(m > 5) return;
+          const k = [prio(h), m <= 1 ? 0 : 1, m];
+          if(!bk || cmp(k, bk) < 0){ best = h; bk = k; }
+        });
+        if(!best) break;
+        avail.delete(best); area.push(best); r--;
+        avail.forEach(function(h){ const m = mi(best, h); if(m < dist.get(h)) dist.set(h, m); });
+      }
+      /* its last day is this one, or the next working day is already past it (a deadline on a weekend) */
+      const nextWd = isoOf(nextWorkingDay(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)));
+      const mustGo = area.some(function(h){ const u = win(h).until; return u && u < nextWd; });
+      if(area.length < minCrew && !mustGo){
+        /* too small for a crew: it waits for a later date, unless nothing later can take any of it */
+        const canWait = area.every(function(h){ const u = win(h).until; return !u || u >= nextWd; });
+        if(canWait) continue;
+      }
+      area.forEach(function(h){ placed.push(h); left.delete(h); });
+      areas.push(area);
+      room -= area.length;
+      if(room < minCrew) break;
+    }
+    /* two areas more than three apart would make one crew borrow from the other's patch: the bigger gives its last-added
+       (least urgent, furthest) houses back for a later date until the two are within three */
+    if(areas.length === 2 && perArea === cap){
+      const big = areas[0].length >= areas[1].length ? areas[0] : areas[1], small = big === areas[0] ? areas[1] : areas[0];
+      while(big.length - small.length > 3){
+        const h = big.pop();
+        const u = win(h).until;
+        if(u && u <= ds){ big.push(h); break; }
+        placed.splice(placed.indexOf(h), 1); left.add(h);
+      }
+    }
+    if(!placed.length) continue;
+    let day = byDate[ds];
+    if(!day){
+      day = {id: freshId(), base: daysBetween(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()), BASE_START), cascade: 0, pin: null, houses: []};
+      SEASON.push(day); byDate[ds] = day;
+    }
+    placed.forEach(function(h){ day.houses.push(h); });
+    res.laid += placed.length; res.days++;
+  }
+  /* small areas that never found company. Each group of them within five miles of one another joins the open day with room
+     that works nearest to it — [[SCH-128]], Addie the same day: no crew goes out for fewer than ten, and a short area is
+     dissolved into the nearest run, extra miles accepted. Only a group with no run within MIN_CREW_REACH_MILES gets a run
+     of its own on the earliest free working date it may go on (a one-man day — Levan's case, [[SCH-46]]: "no scheduling rule makes those efficient"), never a crew
+     sheet thirty miles from it. Only if neither exists does it go on the latest open day it may go on (SCH-85). */
+  if(left.size){
+    const reach = (typeof MIN_CREW_REACH_MILES === 'number') ? MIN_CREW_REACH_MILES : 30;
+    const rest = Array.from(left);
+    const seen = new Set(), groups = [];
+    rest.forEach(function(h){ if(seen.has(h)) return; const g = [h]; seen.add(h); for(let i = 0; i < g.length; i++) rest.forEach(function(x){ if(!seen.has(x) && mi(g[i], x) <= 5){ seen.add(x); g.push(x); } }); groups.push(g); });
+    groups.forEach(function(g){
+      const okOn = function(ds){ return g.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; }); };
+      const dates = Object.keys(byDate).sort();
+      let pick = null, pm = Infinity;
+      dates.forEach(function(ds){
+        const d = byDate[ds];
+        if(!okOn(ds) || (d.houses || []).length + g.length > capFor(ds)) return;
+        let m = Infinity; (d.houses || []).forEach(function(x){ if(ptOf(x)) g.forEach(function(h){ const z = mi(h, x); if(z < m) m = z; }); });
+        if(m <= reach && m < pm){ pm = m; pick = d; }
+      });
+      if(!pick){
+        let t = new Date(today + 'T00:00:00');
+        for(let k = 0; k < 400 && !pick; k++){
+          t = nextWorkingDay(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1));
+          const ds = isoOf(t);
+          if(byDate[ds] || !isOpen(ds) || !okOn(ds)) continue;
+          pick = {id: freshId(), base: daysBetween(new Date(t.getFullYear(), t.getMonth(), t.getDate()), BASE_START), cascade: 0, pin: null, houses: []};
+          SEASON.push(pick); byDate[ds] = pick;
+        }
+      }
+      if(!pick){ const ok = dates.filter(okOn); pick = byDate[ok.length ? ok[ok.length - 1] : dates[dates.length - 1]]; }
+      g.forEach(function(h){ pick.houses.push(h); });
+    });
+  }
+  for(let i = SEASON.length - 1; i >= 0; i--){
+    const d = SEASON[i];
+    if(d && !d.isFixRoute && !d.isTakedown && !(d.houses || []).length && isOpen(dsOf(d))) SEASON.splice(i, 1);
+  }
+  if(typeof computeDates === 'function') computeDates();
+  return res;
+}
+/* ⭐⭐ [[SCH-128]] / [[SCH-129]] NO CREW GOES OUT UNDER TEN — THE LAST WORD ON EVERY PRESS (2026-10-12). Addie: "there should be
+   at least 10 houses for each day for each crew", "Combine into one day", and the cost she was shown and accepted: a short
+   day is dissolved into the NEAREST run, extra miles and all. The re-layout and the five-mile passes before this can still
+   leave a short open day (an October area that had to go before its deadline, a straggler group), so this runs last:
+   every open day under MIN_CREW_HOUSES is folded into the open day with room whose houses are nearest to it — within
+   MIN_CREW_REACH_MILES, every one of its houses legal there — the earliest on a tie. A day nothing can take stays, and
+   is a one-man day Recalculate names (a stuck date, a window nothing else shares, a house too far from everybody).
+   ⛔ Locked and printed days are never touched; a pinned house never moves. */
+function mergeShortOpenDays(){
+  const res = {merged: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON)) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const reach = (typeof MIN_CREW_REACH_MILES === 'number') ? MIN_CREW_REACH_MILES : 30;
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8; if(lim === 'crew') return cap; return cap * crewsN; };
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const isOpen = function(ds){ return ds && ds > today && !routeDayIsLocked(ds); };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = houseGeoPoint(h, custOf(h)); ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); } return ptMemo.get(h); };
+  for(let pass = 0; pass < 60; pass++){
+    const open = SEASON.filter(function(d){ return d && !d.isFixRoute && !d.isTakedown && isOpen(dsOf(d)); })
+      .map(function(d){ return {d: d, ds: dsOf(d), live: (d.houses || []).filter(live)}; });
+    const shorts = open.filter(function(x){ return x.live.length > 0 && x.live.length < minCrew && !x.live.some(function(h){ return String(h.stuck || '').trim(); }); })
+      .sort(function(a, b){ return (a.live.length - b.live.length) || (a.ds < b.ds ? -1 : (a.ds > b.ds ? 1 : 0)); });
+    let done = false;
+    for(let i = 0; i < shorts.length && !done; i++){
+      const S = shorts[i];
+      let best = null, bm = Infinity;
+      open.forEach(function(T){
+        if(T.d === S.d || T.live.length + S.live.length > capFor(T.ds)) return;
+        if(!S.live.every(function(h){ return houseMayGoOn(h, custOf(h), T.ds, startStr).ok; })) return;
+        let worst = 0;
+        S.live.forEach(function(h){
+          const p = ptOf(h); if(!p) return;
+          let m = Infinity; T.live.forEach(function(x){ const q = ptOf(x); if(q){ const z = haversine(p.lat, p.lng, q.lat, q.lng); if(z < m) m = z; } });
+          if(m > worst) worst = m;
+        });
+        if(worst > reach) return;
+        if(worst < bm - 1e-9 || (Math.abs(worst - bm) <= 1e-9 && best && T.ds < best.ds)){ bm = worst; best = T; }
+      });
+      if(!best) continue;
+      S.d.houses = (S.d.houses || []).filter(function(h){ return S.live.indexOf(h) === -1; });
+      S.live.forEach(function(h){ best.d.houses.push(h); res.merged.push({name: h.name || '', from: S.ds, to: best.ds}); });
+      if(!S.d.houses.length){ const k = SEASON.indexOf(S.d); if(k !== -1) SEASON.splice(k, 1); }
+      done = true;
+    }
+    if(!done) break;
+  }
+  if(typeof computeDates === 'function') computeDates();
+  return res;
 }
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
