@@ -384,6 +384,16 @@ module.exports = [
         rules: ['A payer who is not a customer is left as a note, never invented.'] }
     ],
     reads: [
+      /* ⭐ DECLARED 2026-10-13, from the amber. Every one was checked to find a bill BOTH ways —
+         billToPhone first, then the house's own key — which is the half this field has been
+         missed by before. */
+      { file: 'admin', fn: 'housePaidThisSeason', where: 'Customers › All Customers', when: 'a house is asked whether its bill is paid' },
+      { file: 'admin', fn: 'houseOwesFromLastSeason', where: 'Customers › All Customers', when: 'a house is asked whether it owes for last season' },
+      { file: 'admin', fn: 'houseArrearsOutstanding', where: 'Invoices › Invoice List', when: 'last season\u2019s unpaid balance is worked out' },
+      { file: 'admin', fn: 'approvePaidThisSeason', where: 'Invoices › Invoice List', when: 'a payment confirms somebody for the season' },
+      { file: 'admin', fn: 'referralBillKey', where: 'Customers › All Customers', when: 'a referral credit is put on a bill' },
+      { file: 'admin', fn: 'waiveLedgerLine', where: 'Invoices › Invoice List', when: 'a fee is waived' },
+      { file: 'admin', fn: 'editCustInvoiceNow', where: 'Customers › All Customers', when: 'Edit Customer shows the bill a house is on' },
       /* ⭐ DECLARED 2026-08-31. */
       { file: 'admin', fn: 'billedHousesFor', where: 'Customers › Who Pays for Whom', when: 'the houses on one bill are found',
         rules: ['A group has two halves: a house with billToPhone set, AND one with none whose invoice key matches. Reading only the first misses half of them.'] },
@@ -423,8 +433,13 @@ module.exports = [
       '^(pibLoadBtn handler|invTestSend|hcFixRow|buildAddressRowHtml|renderBillingGroups|attachAddressRowHandlers)$',
       '^(ibImportBtn handler|rbImportBtn handler|rbSettlePrepaid)$','^ssnBuildSnapshotRows$'],
     areas: ['Invoices'], record: 'inv',
-    title: 'The $30 colour-change fee',
-    plain: 'Added when a member changes their colours outside the free 48 hours.',
+    title: 'Fees on a bill',
+    /* ⚠ RENAMED 2026-10-13 while working through the amber. This field was declared as the $30
+       colour-change fee alone, and it is not: every fee line on a bill sums into it — the
+       colour change, last season's unpaid balance carried forward (ARREARS_KIND), and the
+       1 April late fee. Three undeclared writers were all legitimate and all one of those
+       three; the old title was why they read as strangers. */
+    plain: 'Every fee line on a bill, summed: the $30 colour change, last season\u2019s unpaid balance carried forward, and the late fee.',
     guard: 'money-parity.test.js runs the browser and server copies side by side over ~1,100 combinations — the strongest guard in the repo.',
     states: [
       ['Inside the free 48 hours', 'No fee'],
@@ -450,7 +465,14 @@ module.exports = [
       { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season clears last season\'s fees' },
       { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a fee is entered with a new customer' },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a member changes colours late',
-        rules: ['The office is always asked first. Never charged silently.'] }
+        rules: ['The office is always asked first. Never charged silently.'] },
+      /* ⭐ DECLARED 2026-10-13, from the amber. */
+      { file: 'admin', fn: 'addLightChangeFeeToInvoice', where: 'Customers › All Customers', when: 'the office charges a colour change',
+        rules: ['Re-reads the invoice immediately before adding: a stale read taken at the top of a long save must never be the basis of an addition.'] },
+      { file: 'admin', el: 'arrearsRunBtn', where: 'Invoices › Invoice List', when: 'last season\u2019s unpaid balances are carried onto this season\u2019s bills',
+        rules: ['Appended and re-summed, never assigned — overwriting the field with the arrears alone would delete a real colour-change fee.'] },
+      { file: 'server', fn: 'runLateFeeBatch', where: 'Invoices › Nightly Automation', when: 'the late fee is added',
+        rules: ['Dated from the bill\u2019s own chase date, not "is it April" — a late-issued bill has its own later April.'] }
     ],
     reads: [
       /* ⭐ DECLARED 2026-08-31. */
@@ -468,6 +490,13 @@ module.exports = [
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'a balance is worked out',
         rules: ['The office screen and the nightly run must always agree.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
+      /* ⭐ DECLARED 2026-10-13, from the amber — the readers that DECIDE something with the fee:
+         who is chased, who is red, what a bill totals. Each was checked to count it into the
+         balance (install + removal + changeFees − credits − deposit). */
+      { file: 'admin', fn: 'billTotalAmount', where: 'Invoices › Invoice List', when: 'a bill\u2019s total is worked out' },
+      { file: 'admin', fn: 'houseCardIsRed', where: 'Customers › All Customers', when: 'a house card turns red for money owed' },
+      { file: 'admin', fn: 'textChaseRecipients', where: 'Invoices › Invoice List', when: 'unpaid bills are chased by text' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Invoices › Nightly Automation', when: 'a referral credit is taken back' },
       { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card is charged',
         rules: ['The fee is part of what the card is charged, not an extra afterwards.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed',
@@ -1428,13 +1457,9 @@ module.exports = [
           { file: 'admin', fn: 'townFillCandidates', why: 'Skips houses sitting out when filling a blank town. Harmless either way.' },
           { file: 'admin', near: '{tab: "Yes", label: "confirmed",', why: 'The Yes tab of the master sheet.' },
           { file: 'admin', near: '{tab: "Contact 2027", label: "maybe next year",', why: 'The Contact 2027 tab — reads the flag AND the status.' },
-          { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', why: 'The test-customer RSVP reset. Test records only.' },
-          /* ⚠ THESE THREE ARE FINDINGS, NOT ENDORSEMENTS. They read the FLAG ALONE, so a
-             customer who said Back Next Year through the link (status only) is treated as
-             in. Allowed so the build stays green while Addie decides; see docs/open-questions.md Q-036. */
-          { file: 'admin', fn: 'updateFixAvailableCount', why: 'FINDING: fix routes read the flag alone (Q-036).' },
-          { file: 'admin', el: 'generateFixBtn', why: 'FINDING: fix routes read the flag alone (Q-036).' },
-          { file: 'admin', el: 'generateRemovalBtn', why: 'FINDING: the Routes-tab removal generator skips a HUNG house whose flag is set, so its lights would not be taken down from there (Q-036).' }
+          { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', why: 'The test-customer RSVP reset. Test records only.' }
+          /* The three Routes-tab generators that read the flag alone (Q-036) ask
+             takedownSaidNo now ([[RS-81]]), so they are no longer readers here. */
         ]
       }
     ]
