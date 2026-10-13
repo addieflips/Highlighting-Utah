@@ -84248,8 +84248,15 @@ function exportCSV(){
 function bpmMapsOf(d){
   return (d && Array.isArray(d.blueprintMaps)) ? d.blueprintMaps.filter(function(m){ return m && typeof m === 'object'; }) : [];
 }
+/* ⚠ A COUNTER, NOT ONLY CHANCE (2026-10-13). Five random base-36 characters — fewer when
+   Math.random() lands on a short fraction — collided inside one millisecond often enough to
+   fail blueprint-maps.test.js's 500-id check in CI. The id is the print key AND the update
+   target, so two maps sharing one would overwrite each other. The counter makes ids made in
+   one session distinct by construction; the time and random part keep two computers apart. */
 function bpmNewMapId(){
-  return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  /* Held on the function itself so a test can lift it alone. */
+  bpmNewMapId.seq = ((bpmNewMapId.seq || 0) + 1) % 1679616;
+  return 'm' + Date.now().toString(36) + bpmNewMapId.seq.toString(36) + (Math.random().toString(36) + '000000').slice(2, 8);
 }
 /* ⚠ THE SAVED COUNT NEVER READS AS ZERO. A house saved at 0 would load already
    printing nothing, which is indistinguishable from one somebody had unchecked, and
