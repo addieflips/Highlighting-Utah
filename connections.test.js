@@ -198,6 +198,43 @@ check('every declared connection is still made by the code',
         !!mirror && mirror.length >= 1,
         mirror ? 'planted a hand-written housePhotoUrl and nothing went red — the list and its mirror can drift'
                : 'the housePhotos spine is gone');
+      /* ⭐ BATCH 5 (2026-10-13): the amber itself. Every writer of the warehouse and season
+         fields is now declared, so amber on them reads zero — and a census at zero cannot
+         tell "clean" from "stopped looking". So a new writer is planted and must SHOW; and the
+         three ways amber was narrowed (named tables, quiet anchors, the ternary) are each
+         planted from the other side so none of them can widen into a blanket excuse. */
+      const amberOf = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0];
+      };
+      const newWriter = amberOf('needsLightBuild', realAdmin.replace(anchor,
+        'function huNewBuildDoor(u){ u.needsLightBuild = true; }\n' + anchor));
+      check('a new, undeclared writer of Needs Building shows as amber',
+        newWriter.undeclared.some(u => /^admin · huNewBuildDoor · set/.test(u)),
+        'planted u.needsLightBuild = true in a new function and amber did not name it');
+      const realBuild = amberOf('needsLightBuild', realAdmin);
+      check('and with the real files, every writer of Needs Building is declared',
+        !realBuild.undeclared.some(u => / · set/.test(u)),
+        'undeclared writers: ' + realBuild.undeclared.filter(u => / · set/.test(u)).join('; '));
+      const otherTable = amberOf('housePrice', realAdmin.replace(anchor,
+        'const HU_UNNAMED_TABLE = {housePrice: 400};\n' + anchor));
+      check('a table of field names is only excused when it is NAMED in TABLES',
+        otherTable.undeclared.some(u => /^admin · \(a handler\) · set/.test(u)),
+        'an unnamed object carrying housePrice as a key was excused — the table exemption has become a blanket one');
+      const tern = amberOf('housePhotos', realAdmin.replace(anchor,
+        'function huTern(n, housePhotos){ return n ? housePhotos : []; }\n' + anchor));
+      check('a name between the halves of a ternary is not counted as a writer',
+        !tern.undeclared.some(u => /^admin · huTern · set/.test(u)),
+        'n ? housePhotos : [] was read as an object key and counted as a write');
+      const hp = manifestAll.find(s => s.field === 'rsvpStatus');
+      fs.writeFileSync(path.join(dir, 'a.html'), realAdmin);
+      const lost = runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') },
+        [Object.assign({}, hp, { quiet: [{ file: 'admin', near: 'HU_NOTHING_MATCHES_THIS', where: 'Customers › All Customers', why: 'planted' }] })])[0];
+      check('a quiet anchor that has drifted off its code goes red, never silent',
+        lost.rows.some(x => !x.found && /quiet anchor matches nothing/.test(x.why)),
+        'a quiet entry pointing at nothing was dropped quietly — it would excuse whatever moved in next');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
