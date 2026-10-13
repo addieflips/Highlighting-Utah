@@ -7104,6 +7104,36 @@ planner in a copy of the real files on every run to prove the rule still bites.
 ⚠ It still proves only what it names: a booking written through a helper the rule does not
 know about would not be seen, which is why each new writer has to be added deliberately.
 
+⭐ **BATCH 2, THE SAME DAY: who is in the season, the 48-hour lock and the gate code.**
+**Sitting the season out** (`maybeNextYear`) carries a READER census: every place that reads
+the Back Next Year flag is declared or allowed by name, and a new one is red — the fix is
+almost always to ask `isOutForSeason` (routes, schedule, build queue) or `houseIsOnTheBill`
+(money). Writing it surfaced three places on the Routes tab that read the flag alone
+(Generate Fix Route, its count, and Generate Removal Route); they are allowed by name and
+the question is open as **Q-036**. **Light-change lock (48 hours)** (`lightsLockedUntil`)
+allows six writers and nothing else, so an importer that started locking customers would go
+red. **Gate code** is watched without an `only` rule — its first reader is the printed crew
+sheet (`printGateCode`).
+
+⭐ **BATCH 3: light colours, the timer and the difficulty grade.** **Light colours**
+(`lightsDescription`) carries a census of ONE-FIELD readers: reading the description is red
+unless the same function also reads `lightColors` or asks `houseLightsText`, because an
+ordinary house keeps its colours in the list with the description EMPTY ([[WH-28]]). Writing
+it found four more one-field readers, all fixed in the same change: the re-quote card's
+"on file" line, the buffer-stock picker, the Routes tab stop list, and the portal's
+houses-on-this-bill list (`houseBillingRow`, server). **Timer** and **Difficulty grade** are
+watched without `only` rules; the grade on the QUOTE (`measurement.difficulty`) is a
+different record and is excluded.
+
+⭐ **BATCH 4: the house photos** — the last field on the original not-watched list. The
+photo list (`housePhotos`) and its photo-#1 mirror (`housePhotoUrl` / `housePhotoOriginal` /
+`housePhotoMarkup`, which the portal map, the invoice map and older routes read) may only be
+written together — by `customerPhotoUpdates`, its server twin on a convert, or Add Customer.
+A hand-written photo field anywhere else is red. ⚠ Add Customer is the one place the two
+can differ (main photo removed, extras kept → list holds the extras, mirror blank); that is
+left alone on purpose because the outlined sections belong to the MAIN photo. Only
+`scheduledRoutes` is left on the not-watched list.
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field

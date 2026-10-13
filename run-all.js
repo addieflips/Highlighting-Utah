@@ -6370,8 +6370,11 @@ suite('10f. Portal sign-in reads, and multi-property customers');
          with itself. Its browser twin is proved identical by money-parity. */
       const onBillSrc = extractFn(fns, 'houseIsOnTheBillServer');
       check('multi-house', 'the who-is-on-the-bill rule was found to lift', !!onBillSrc);
+      /* houseLightsTextServer, LIFTED (2026-10-13): houseBillingRow names each house's
+         lights through it, so an ordinary house (colours in the list) is not blank. */
+      const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
       new Function('db',
-        (onBillSrc || '') + '\n' + rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
+        (onBillSrc || '') + '\n' + (lightsTextSrc || '') + '\n' + rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
         'this.byIds = billedHousesByIds; this.byKey = billedHousesByKey;'
       ).call(bh, fakeDb);
 
@@ -22585,7 +22588,9 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
        of those proves nothing about the other, and the whole reason the helper exists is
        that the portal's writer can only ever fill the snapshot with blanks. */
     const onFileFn = (function () {
-      const src = extractFn(admin, 'requoteOnFile');
+      /* houseLightsText is LIFTED, never stubbed (2026-10-13): requoteOnFile asks it now so
+         an ordinary house — colours in lightColors, description empty — shows its lights. */
+      const src = extractFn(admin, 'houseLightsText') + '\n' + extractFn(admin, 'requoteOnFile');
       return new Function('custById', src + '\nreturn requoteOnFile;');
     })();
 
@@ -22622,6 +22627,21 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
       check('S64', 'and it does not claim there is nothing on file when there is',
         !/Nothing on file for this house/.test(html),
         'the red line is for the genuinely unknown case only');
+    }
+
+    // (b2) an ORDINARY house: colours in lightColors, description EMPTY — how the
+    // master-sheet sync writes most of the book. Read through the description alone this
+    // card said nothing about their lights (found by the connections map, 2026-10-13).
+    {
+      const d = { existingCustomerId: 'c2', existingLightsDescription: '' };
+      const idxMap = new Map([['c2', {id: 'c2', data: {customerNumber: '412',
+        measuredFeet: 200, numberOfBins: 1, lightsDescription: '', lightColors: ['Red', 'Green']}}]]);
+      const onFile = onFileFn(idxMap)(d);
+      let html = '';
+      try { html = eval('(' + strip + ')'); } catch (e) { html = 'THREW: ' + e.message; }
+      check('S64', 'and an ordinary house shows the colours it keeps in the list',
+        /Red, Green/.test(html),
+        'the live read must ask houseLightsText, not lightsDescription alone. Got: ' + String(html).slice(0, 140));
     }
 
     // (c) genuinely nothing anywhere: say so rather than reading as an empty record.

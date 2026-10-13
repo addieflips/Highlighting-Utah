@@ -14503,7 +14503,10 @@ function requoteOnFile(d){
     number: live.customerNumber || stored.number,
     feet: Number(live.measuredFeet || 0) || stored.feet,
     bins: Number(live.numberOfBins || 0) || stored.bins,
-    lights: live.lightsDescription || stored.lights
+    /* houseLightsText, not the description alone (2026-10-13): an ordinary house keeps its
+       colours in lightColors with the description EMPTY, so this card said nothing was on
+       file for most of the book. Found by the connections map's colour reader census. */
+    lights: houseLightsText(live) || stored.lights
   };
 }
 function quoteTemplateFor(d, kind){
@@ -55973,7 +55976,9 @@ function whExtraSync(){
     return;
   }
   if(match){
-    const auto = match.data.lightsDescription || '';
+    /* Both colour fields, through the one answer (2026-10-13) — the description alone
+       left the picker blank for every ordinary house. */
+    const auto = houseLightsText(match.data);
     /* Only overwrite the picker while it is still holding what we put there —
        through whSetExtraPattern, so the chips repaint with it rather than the
        hidden value quietly moving underneath them. */
@@ -68043,7 +68048,7 @@ function renderRouteOrderedList(ordered){
       '</div>'+
       (hd.notes ? '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">&#128221; '+esc(hd.notes)+'</div>' : '')+
       (hd.specificOutlet === 'Yes' && hd.specificOutletNotes ? '<div style="font-size:12.5px; color:#4338CA; margin-top:2px;">&#128268; Outlet: '+esc(hd.specificOutletNotes)+'</div>' : '')+
-      (hd.lightsDescription ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(hd.lightsDescription)+'</div>' : '')+
+      (houseLightsText(hd) ? '<div style="font-size:12.5px; color:var(--dusk); font-weight:600; margin-top:2px;">&#127875; Light Colors: '+esc(houseLightsText(hd))+'</div>' : '')+
       '<div style="font-size:12.5px; color:var(--slate); margin-top:2px;">Wire: '+esc(whWireLabel(hd.wireColor))+(hd.outletTimer ? ' &middot; Timer: '+esc(hd.outletTimer) : '')+(hd.useEaves ? ' &middot; Eaves: '+esc(hd.useEaves) : '')+'</div>'+
       (hd.oneTimeNote ? '<div style="font-size:12.5px; color:var(--ember); margin-top:2px;">&#128221; (this visit only) '+esc(hd.oneTimeNote)+'</div>' : '')+
       (needsFix && (hd.fixNote || fixPhotosOf(hd).length) ? (

@@ -1,5 +1,5 @@
 {
- "watched": 22,
+ "watched": 29,
  "red": 0,
  "breaks": [],
  "unguarded": [
@@ -15,17 +15,13 @@
   "assignedCrewAt",
   "fixRaisedAt",
   "newMemberFeeAppliedAt",
-  "customerNumber"
+  "customerNumber",
+  "gateCode",
+  "difficulty",
+  "housePhotos"
  ],
  "notWatched": [
-  "scheduledRoutes",
-  "lightColors / lightsDescription",
-  "difficulty",
-  "quotePhotos → housePhotos",
-  "gateCode",
-  "outletTimer",
-  "maybeNextYear / isOutForSeason",
-  "lightsLockedUntil"
+  "scheduledRoutes"
  ],
  "rulings": 648,
  "builtFrom": "2026-10-13"
