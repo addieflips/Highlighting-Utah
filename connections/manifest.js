@@ -12,7 +12,11 @@
  * cannot drift: the moment something here is really watched, this row has to go.
  */
 const NOT_WATCHED = [
-  ['scheduledRoutes', 'which houses a crew is sent to on a given day'],
+  /* ⚠ NARROWED 2026-10-13. The hang day copied ONTO a customer is watched now (the
+     `scheduledDate` spine). What is still unwatched is the plan itself — which houses sit
+     on which day inside the Schedule — and the crew-routes documents fix and removal
+     routes are still saved to. */
+  ['scheduledRoutes', 'the saved fix and removal routes, and the Schedule plan itself (the hang day on a customer IS watched)'],
   ['lightColors / lightsDescription', 'what colours a house gets'],
   ['difficulty', 'the easy / medium / hard grade'],
   ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
@@ -1245,6 +1249,120 @@ module.exports = [
         rules: ['The lowest customer number pays — the longest-standing account.'] },
       { file: 'admin', fn: 'whWhoLabel', where: 'Warehouse › Build', when: 'a build row is named' },
       { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' }
+    ]
+  },
+
+  /* ⭐⭐ THE HANG DAY — added 2026-10-13, the first spine with an `only` rule.
+   * Addie, choosing where to start expanding this page: "go with your recommendation,
+   * start with the hang day". It was first on NOT_WATCHED in spirit ("which houses a
+   * crew is sent to on a given day") and it is the field both locked headline rules end
+   * at: SCH-86 is about this exact date reaching All Customers.
+   *
+   * ⛔ THE RULE THIS SPINE EXISTS FOR IS [[SCH-102]]: the Schedule is the ONLY thing that
+   * puts a house on a day. `syncInstallStampsFromSchedule` copies the plan onto the
+   * record through `installStampDiffs`, and every other writer of these three fields may
+   * only CLEAR them. Before Schedule V2 the crew-routes sweep was a second writer and the
+   * customer's portal showed its day — a day the office never printed. Nothing went red,
+   * because a second writer was one more amber line.
+   *
+   * ⚠ THREE FIELDS, ONE BOOKING. `scheduled`, `scheduledDate` and `assignedCrew` are
+   * written together everywhere, so the spine is the date (what the customer reads) and
+   * the `only` rules hold all three — a writer that set the flag alone would still be a
+   * second planner.
+   * ⚠ employee.html IS NOT SCANNED by this page. The crew portal is not in use this
+   * season and only ever writes `scheduled:false` (measured 2026-10-13). */
+  {
+    field: 'scheduledDate',
+    areas: ['Schedule', 'Customers'], record: 'cust',
+    title: 'Hang day',
+    plain: 'The day a house is booked to be hung — copied off the Schedule, never decided anywhere else.',
+    guard: 'run-all Suite 347 and headline-rules.test.js (SCH-86), schedule-v2.test.js (SCH-102)',
+    states: [
+      ['On a Schedule day', 'The same day on the customer, in All Customers and in their portal'],
+      ['Moved on the Schedule', 'The mirror rewrites it — nothing else may'],
+      ['Off the Schedule, or out for the season', 'Cleared'],
+      ['Hung and not on the plan', 'Left alone — it is the day they were hung'],
+      ['Start New Season', 'Cleared for everybody']
+    ],
+    sets: [
+      { file: 'admin', fn: 'installStampDiffs', where: 'Schedule › Scheduling', when: 'the Schedule plan is saved, or Recalculate everything runs',
+        rules: ['The ONLY place a hang day is put on a customer (SCH-102). It decides nothing — it copies the plan.',
+                'No plan loaded means "cannot say" and writes nothing; reading it as "nobody is booked" would clear ~950 real days.'] },
+      { file: 'admin', fn: 'scheduledFieldForType', where: 'Schedule › Scheduling', when: 'an old crew-routes door books a house',
+        rules: ['A RETIRED door. It still books fix and removal routes; every caller that could book an install is held shut (see the rule below).'] },
+      { file: 'admin', fn: 'freeUpFieldForType', where: 'Routes › Install', when: 'a stop comes off a saved route',
+        rules: ['Clears only.'] },
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office takes somebody out of the season',
+        rules: ['Clears only.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved as out for the season',
+        rules: ['Clears only.'] },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › Danger Zone', when: 'Start New Season runs',
+        rules: ['Clears everybody — last season’s day must never read as this season’s.'] },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'a customer sits the season out',
+        rules: ['Clears only.'] },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer',
+        rules: ['A new customer starts with no day; the Schedule places them once they are Confirmed.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'nextVisitFor', where: 'Customers › All Customers', when: 'All Customers is drawn',
+        rules: ['Only a fallback for the moment before the plan loads — the Schedule is what that column shows (SCH-86).'] },
+      { file: 'admin', fn: 'validateSeasonPlan', where: 'Schedule › Scheduling', when: 'Recalculate everything checks itself' },
+      { file: 'server', near: "'scheduledDate', 'completed', 'removalDone'", where: 'Member Portal › My Lights', when: 'a customer opens their portal',
+        rules: ['The date only — never the crew and never the stop order.'] },
+      { file: 'server', fn: 'houseBillingRow', where: 'Member Portal › Pay', when: 'the houses on a bill are listed' }
+    ],
+    only: [
+      {
+        rule: 'Only the Schedule puts a house on a day (SCH-102).',
+        where: 'Schedule › Scheduling',
+        pattern: '\\bscheduled\\s*(?::|=(?!=))\\s*true\\b',
+        why: 'something other than the Schedule marks a customer as booked — a second planner, which is what SCH-102 retired',
+        allow: [
+          { file: 'admin', fn: 'installStampDiffs', why: 'The Schedule mirror — the one writer SCH-102 names.' },
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'The retired door; its callers are held shut by the third rule.' }
+        ]
+      },
+      {
+        rule: 'Only the Schedule puts a house on a day (SCH-102).',
+        where: 'Schedule › Scheduling',
+        /* A capture, then `unless`, never a lookahead after \s* — see engine.js. */
+        pattern: '\\b(?:scheduledDate|assignedCrew)\\s*(?::|=(?!=))\\s*[^\\s,;})]+',
+        unless: '[:=]\\s*null$',
+        why: 'something other than the Schedule writes a hang day or a crew onto a customer',
+        allow: [
+          { file: 'admin', fn: 'installStampDiffs', why: 'The Schedule mirror — the one writer SCH-102 names.' },
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'The retired door; its callers are held shut by the third rule.' },
+          { file: 'server', fn: 'houseBillingRow',
+            why: 'Copies the date onto a row the portal draws. Never written back to a record.' }
+        ]
+      },
+      {
+        /* ⭐ THE DOOR CENSUS. scheduledFieldForType can book an install, so every call to
+           it that does not name 'fix' or 'removal' is a door — and each one is green ONLY
+           while the reason it cannot open still holds. A new caller is red. */
+        rule: 'Every old door to an install day is shut (SCH-102).',
+        where: 'Schedule › Scheduling',
+        pattern: '\\bscheduledFieldForType\\(\\s*[^,)]*',
+        unless: '\\(\\s*[\'"](?:fix|removal)[\'"]$',
+        why: 'a new caller of scheduledFieldForType that can book an install day',
+        allow: [
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'Its own declaration.' },
+          { file: 'admin', fn: 'autoScheduleNewCustomer',
+            why: 'Adding a customer used to put them on a crew-routes day. Shut by AUTO_ROUTE_NEW_CUSTOMERS.',
+            closed: [{ near: 'const AUTO_ROUTE_NEW_CUSTOMERS = false;', why: 'AUTO_ROUTE_NEW_CUSTOMERS is no longer false — adding a customer books a crew-routes day again' },
+                     { fn: 'autoScheduleNewCustomer', pattern: 'if\\(!AUTO_ROUTE_NEW_CUSTOMERS\\)\\{\\s*return',
+                       why: 'adding a customer can book them onto a crew-routes day again — a second planner' }] },
+          { file: 'admin', fn: 'reconcileUpcomingRoutes',
+            why: 'The fifteen-minute sweep that built its own days. Shut by RECONCILE_SWEEP_ENABLED; kept because suites still run it.',
+            closed: [{ near: 'const RECONCILE_SWEEP_ENABLED = false;', why: 'RECONCILE_SWEEP_ENABLED is no longer false — the crew-routes sweep books its own days again' },
+                     { fn: 'startReconcileAuto', pattern: 'if\\(!RECONCILE_SWEEP_ENABLED\\) return;',
+                       why: 'the crew-routes sweep can run again — it books its own days onto customers' }] },
+          { file: 'admin', el: 'markScheduledBtn',
+            why: 'Save to Calendar on the Routes tab. Fix and removal routes still save; an install route is refused.',
+            closed: [{ el: 'markScheduledBtn', pattern: 'if\\(currentRouteType === \'install\'\\)\\{\\s*toast\\([^;]*\\);\\s*return;',
+                       why: 'Save to Calendar on the Routes tab can book an install day again' }] }
+        ]
+      }
     ]
   },
 ];

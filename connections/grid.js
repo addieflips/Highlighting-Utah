@@ -24,6 +24,8 @@ const WHERE_TO_DEST = {
   'Customers › All Customers':    'Customers',
   'Customers › Bulk Updates':     'Customers',
   'Customers › Who Pays for Whom':'Customers',
+  /* Added 2026-10-13 with the hang day: Start New Season clears every booking. */
+  'Customers › Danger Zone':      'Customers',
   'Customer Numbers':             'Warehouse',
   'Warehouse › Build':            'Warehouse',
   'Warehouse › Recycle':          'Warehouse',
