@@ -191,6 +191,13 @@ check('every declared connection is still made by the code',
       check('and one that reads both fields stays green',
         !!bothFields && bothFields.length === 0,
         'a reader of both colour fields was reported: ' + (bothFields || []).map(x => x.why).join('; '));
+      /* ⭐ BATCH 4 (2026-10-13): the photo list and its photo-#1 mirror. */
+      const mirror = plant2('housePhotos', realAdmin.replace(anchor,
+        'function huMirrorByHand(u){ return {housePhotoUrl: u}; }\n' + anchor));
+      check('a new hand-written house photo field goes red',
+        !!mirror && mirror.length >= 1,
+        mirror ? 'planted a hand-written housePhotoUrl and nothing went red — the list and its mirror can drift'
+               : 'the housePhotos spine is gone');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

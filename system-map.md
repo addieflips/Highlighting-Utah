@@ -7124,6 +7124,15 @@ houses-on-this-bill list (`houseBillingRow`, server). **Timer** and **Difficulty
 watched without `only` rules; the grade on the QUOTE (`measurement.difficulty`) is a
 different record and is excluded.
 
+⭐ **BATCH 4: the house photos** — the last field on the original not-watched list. The
+photo list (`housePhotos`) and its photo-#1 mirror (`housePhotoUrl` / `housePhotoOriginal` /
+`housePhotoMarkup`, which the portal map, the invoice map and older routes read) may only be
+written together — by `customerPhotoUpdates`, its server twin on a convert, or Add Customer.
+A hand-written photo field anywhere else is red. ⚠ Add Customer is the one place the two
+can differ (main photo removed, extras kept → list holds the extras, mirror blank); that is
+left alone on purpose because the outlined sections belong to the MAIN photo. Only
+`scheduledRoutes` is left on the not-watched list.
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field
