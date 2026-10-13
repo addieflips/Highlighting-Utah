@@ -67,6 +67,25 @@ function toLines(answer) {
   return parts.length ? parts : [String(answer).trim()];
 }
 
+/* ⭐ WHAT A RULING CITES AS ITS PROOF (2026-10-13, [[PROC-39]] — "join each ruling to what
+   enforces it"). The tests named in "Where it's proved": a run-all.js suite, a *.test.js
+   gate, or a browser spec. questions-map.test.js FAILS when a standing ruling cites one that
+   no longer exists or never runs, so a name listed here is one that is really there.
+   ⚠ "Suite 323, 7 sabotages" is ONE suite — the same list rule as that gate. */
+function citedTests(proof) {
+  const out = [];
+  (String(proof).match(/[\w.\/-]+\.(?:test|spec)\.js/g) || []).forEach(f => {
+    const n = f.replace(/^.*\//, '');
+    if (out.indexOf(n) === -1) out.push(n);
+  });
+  const LIST = /\bSuites? (\d+)((?:\s*(?:,|and|&)\s*\d+(?!\s*(?:sabotage|check|of\b|red|passed|more|times|\/)))*)/g;
+  let m;
+  while ((m = LIST.exec(String(proof)))) {
+    (m[0].match(/\d+/g) || []).forEach(n => { if (out.indexOf('Suite ' + n) === -1) out.push('Suite ' + n); });
+  }
+  return out;
+}
+
 function parse(mapPath) {
   const p = mapPath || path.join(__dirname, '..', 'claude', 'questions-map.md');
   if (!fs.existsSync(p)) return { areas: {}, total: 0, unknown: [], missing: true };
@@ -92,11 +111,14 @@ function parse(mapPath) {
          proof column names no code is a claim rather than a proof — the map's own gate
          already reports those, and the card should say so where somebody is deciding
          what to read first. */
-      proof: /`/.test(proof) ? 'code' : 'words',
+      /* ⭐ THREE LEVELS since 2026-10-13: 'test' when a test is named (and the map's gate
+         proves it still runs), 'code' when only code is named, 'words' when neither. */
+      tests: citedTests(proof),
+      proof: citedTests(proof).length ? 'test' : /`/.test(proof) ? 'code' : 'words',
       state: STATE[status] || 'new'
     });
   });
   return { areas: areas, total: total, unknown: unknown, missing: false };
 }
 
-module.exports = { parse, AREAS, STATE };
+module.exports = { parse, AREAS, STATE, citedTests };

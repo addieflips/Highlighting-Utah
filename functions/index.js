@@ -6835,11 +6835,87 @@ function quoteLadderRungDue(q, nowMs, waitDays) {
      that had been emailed would match the text rung again on the next run, because the text
      stamp is what gates it and nothing above ever clears. */
   if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
-  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
-  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
-     quote that was never sent is not waiting on a reply — the caller has already refused
-     those, and a missing stamp answers false here rather than firing on the epoch. */
-  return due(q.quoteSentAt) ? 'text' : null;
+  /* ⭐ THE EMAIL GOES TEN DAYS AFTER THE TEXT ([[QT-54]]). Addie: "It will send nudge email
+     10 days after text." When the office has marked it texted on the Quotes tab, that is
+     the clock; otherwise the day the run asked them to text, as before. */
+  const textMark = q.quoteNudgeTextedAt || q.quoteNudgeTextAskedAt;
+  if (textMark) return due(textMark) ? 'email' : null;
+  /* ⭐ TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT ([[QT-53]], 2026-10-13). Addie, asked
+     when the first nudge comes: "10 days from when quote email is sent". This read
+     quoteSentAt, which the office's own Nudge button and every re-send overwrite, so a
+     re-send quietly pushed the first nudge back another ten days. It reads the FIRST send
+     now — the same stamp the 30-day archive counts from ([[QT-52]]), through the same
+     helper, so the two clocks cannot disagree about when a quote went out.
+     A quote never sent answers 0 here and is not due, never "due since the epoch". */
+  const first = quoteFirstSentMs(q);
+  return (first && (nowMs - first) >= gap) ? 'text' : null;
+}
+/* When a quote FIRST went out. `quoteFirstSentAt` is stamped once by every door that sends
+   ([[QT-52]]); a quote sent before that stamp existed falls back to the EARLIER of its two
+   send dates — both can be rewritten by a later send, so the fallback can only be late. */
+function quoteFirstSentMs(q) {
+  const stamped = toMillis(q && q.quoteFirstSentAt);
+  if (stamped) return stamped;
+  const stamps = [toMillis(q && q.quoteSentAt), toMillis(q && q.quoteManuallySentAt)].filter(Boolean);
+  return stamps.length ? Math.min.apply(null, stamps) : 0;
+}
+
+/* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-52]], 2026-10-13). Addie:
+   "Awaiting responses in quotes should go in archive after 30 days of sending first email."
+   ⚠ IT SITS BESIDE THE LADDER ([[QT-49]]), NOT INSTEAD OF IT. The ladder still asks the
+   office to text at ten days and emails at twenty; its own archive rung only ever fired
+   for a quote that reached rung two, so a quote whose automatic email FAILED (the EmailJS
+   non-browser block, 9 Sep to 12 Oct 2026), or that went to somebody who asked for a phone
+   call, or that has no email address, was never stamped and never archived — it sat in
+   Awaiting Response for ever. This is a clock, not a rung: thirty days from the first send,
+   whatever the chase did or did not manage.
+   ⚠ AWAITING MEANS NOBODY HAS ANSWERED. An APPROVED quote waiting on its detail form also
+   sits in Awaiting Response, but that customer said yes — archiving it would drop a sale.
+   Approved, declined and maybe-next-year are all left alone, as is anything unpriced or
+   never sent.
+   ⚠ THE FIRST SEND IS `quoteFirstSentAt`. Quotes sent before that stamp existed fall back to
+   the EARLIER of quoteSentAt and quoteManuallySentAt — both can be rewritten by a later
+   send or nudge, so the fallback can only ever be LATE, never early: an old quote is
+   archived a little after thirty days rather than before.
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT — every claim here is date arithmetic. */
+const QUOTE_ARCHIVE_DAYS = 30;
+function quoteArchiveDueServer(q, nowMs) {
+  if (!q || q.quoteArchived) return false;
+  if ((q.status || 'new') === 'closed') return false;
+  if ((q.approvalStatus || 'pending') !== 'pending') return false;
+  if (typeof q.quotedPrice !== 'number') return false;
+  const first = quoteFirstSentMs(q);
+  if (!first) return false;
+  return (nowMs - first) >= QUOTE_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
+}
+/* The archive pass on its own, run FIRST in the nudge batch and ahead of its gates: the
+   November stop and the on/off switch are about CHASING people, and archiving chases
+   nobody — her rule has no season and no switch in it. */
+async function archiveStaleQuotes(nowMs) {
+  const snap = await db.collection('quotes').get();
+  let archived = 0;
+  const errors = [];
+  for (const docSnap of snap.docs) {
+    if (!quoteArchiveDueServer(docSnap.data(), nowMs)) continue;
+    try {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply ' + QUOTE_ARCHIVE_DAYS + ' days after the quote was first sent'
+      });
+      archived++;
+    } catch (err) {
+      errors.push(docSnap.id + ': ' + String((err && err.message) || err));
+    }
+  }
+  try {
+    await db.collection('settings').doc('quoteNudgeAutomation').set({
+      lastArchiveRunAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastArchiveRunArchived: archived,
+      lastArchiveRunErrors: errors.slice(0, 10)
+    }, { merge: true });
+  } catch (err) { console.error('[HU] could not record the quote archive run', err); }
+  return { archived: archived, errors: errors };
 }
 
 function prefersNotEmail(contactMethod) {
@@ -6968,6 +7044,8 @@ function quotePhotoEmailHtmlServer(photos) {
 
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
+  /* ⭐ QT-52 first, ahead of every gate below — see archiveStaleQuotes. */
+  const archivePass = await archiveStaleQuotes(now.getTime());
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
   /* November onward the season is underway - stop chasing. */
   if (denverMonth >= 11 || denverMonth <= 1) {
@@ -7177,7 +7255,8 @@ async function runQuoteNudgeBatch(source) {
   }, { merge: true });
 
   return { sent: sent, skipped: skipped, needsHuman: needsHuman,
-           askedToText: askedToText, archived: archived, errors: errors };
+           askedToText: askedToText, archived: archived, errors: errors,
+           archivedAfter30Days: archivePass.archived };
 }
 
 function properNameServer(raw) {

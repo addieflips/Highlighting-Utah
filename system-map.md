@@ -7136,6 +7136,24 @@ can differ (main photo removed, extras kept → list holds the extras, mirror bl
 left alone on purpose because the outlined sections belong to the MAIN photo. Only
 `scheduledRoutes` is left on the not-watched list.
 
+⭐ **CHASING A QUOTE, AS OF 2026-10-13 ([[QT-52]], [[QT-53]], [[QT-54]]).** Ten days after
+the quote email FIRST went out (`quoteFirstSentAt`), an unanswered quote moves to
+**Quotes › Awaiting Response › Send text**: a person texts them from their own phone and
+presses **Mark as texted**, which puts them back under Awaiting Response. Ten days after the
+text, the 10 AM run sends the one automatic nudge email. Thirty days after the first email,
+an unanswered quote goes to the archive — every morning, whether or not the nudge automation
+is switched on. Approved quotes waiting on their form are never texted or archived. The
+read-only digest (`nightly-digest.js`, §6) reports the switch, the last run and the
+unanswered quotes by age; on 2026-10-13 it showed the automation had never run.
+
+⭐ **EVERY RULING SAYS WHAT HOLDS IT ([[PROC-40]]).** On the Rules view each ruling now reads
+**held by a test** (and names it), **no test holds it** (the code is named, but nothing
+would go red if it stopped being true), or **not checkable**; the headline counts how many
+are held by a test, and each area card counts the ones with no test. `questions-map.test.js`
+fails when a standing ruling cites a test that no longer exists, is marked RETIRED, or is
+not in the `npm test` chain — the first run found `rejoin-build.test.js` (WH-24) passing but
+never run, now in the chain, and RS-75 citing a retired suite, now repointed.
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field
