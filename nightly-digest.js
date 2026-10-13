@@ -43,6 +43,7 @@ const admin = require('firebase-admin');
 const MAX_RUNS = 14;          // a fortnight of nights is enough to see a pattern
 const MAX_CUSTOMERS = 5000;
 const MAX_INVOICES = 5000;
+const MAX_QUOTES = 5000;
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -55,6 +56,10 @@ const when = ts => {
 /* An error line can quote a customer name or a template the office typed. The
    template name is the useful half and carries no person, so email-shaped text
    and a trailing "'s bill:" owner are removed and the rest is kept. */
+/* Milliseconds from a Firestore Timestamp, a plain date, or nothing (0). */
+const ms = t => (t && typeof t.toMillis === 'function') ? t.toMillis()
+  : (t && typeof t.seconds === 'number') ? t.seconds * 1000
+  : (t ? (new Date(t).getTime() || 0) : 0);
 const scrub = t => String(t || '')
   .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '(email removed)')
   .replace(/left out of .*?'s bill:/g, "left out of (a customer)'s bill:");
@@ -311,6 +316,62 @@ function groupReceiptFailures(rows) {
       say('     by PayPal), and receiptSentForDeposit is written only on success — so');
       say('     these stay unsent until something is built to send them again.');
     }
+  } catch (e) { say('   could not read it: ' + e.message); }
+  say('');
+
+  /* ---- 6. THE QUOTE NUDGES  (settings/quoteNudgeAutomation, quotes) ------
+     Addie, 2026-10-13: "Also are the nudges working?" The ladder ([[QT-49]]) runs at 10 AM
+     and leaves its last result on settings/quoteNudgeAutomation; the quotes say how far each
+     open one has been chased. ⛔ NAMES NOBODY, the same as everything above: the run's error
+     lines begin with the customer's name, so only the part after it is printed, and the two
+     lists of people (textNudgeList, needsHumanList) are counted, never read out. */
+  say('6. THE QUOTE NUDGES  (settings/quoteNudgeAutomation, quotes)');
+  say('-'.repeat(64));
+  try {
+    const ns = await db.collection('settings').doc('quoteNudgeAutomation').get();
+    const n = ns.exists ? (ns.data() || {}) : null;
+    if (!n) say('   ✗ no settings document at all — the automation has never been switched on or run.');
+    else {
+      say('   switch                           : ' + (n.enabled ? 'ON' : 'OFF — the 10 AM run does nothing'));
+      say('   last run                         : ' + when(n.lastRunAt) + ' (' + (n.lastRunSource || '?') + ')');
+      say('     automatic nudge emails sent    : ' + (n.lastRunSent || 0));
+      say('     office asked to text           : ' + (n.lastRunAskedToText || 0));
+      say('     archived by the ladder         : ' + (n.lastRunArchived || 0));
+      say('     need a person (phone / no email): ' + (n.lastRunNeedsHuman || 0));
+      const errs = Array.isArray(n.lastRunErrors) ? n.lastRunErrors : [];
+      say('     errors                         : ' + errs.length);
+      errs.slice(0, 5).forEach(e => {
+        const msg = String(e || '');
+        const cut = msg.indexOf(': ');
+        say('       ! ' + scrub(cut > -1 ? msg.slice(cut + 2) : msg).slice(0, 200));
+      });
+      if (n.lastArchiveRunAt) say('   30-day archive (QT-51) last ran   : ' + when(n.lastArchiveRunAt) +
+        ', archived ' + (n.lastArchiveRunArchived || 0));
+    }
+    const qs = await db.collection('quotes').limit(MAX_QUOTES).get();
+    const now = Date.now(), day = 24 * 60 * 60 * 1000;
+    const bands = { under10: 0, d10to19: 0, d20to29: 0, d30plus: 0 };
+    let open = 0, textAsked = 0, emailed = 0;
+    qs.forEach(d => {
+      const q = d.data() || {};
+      if (q.quoteArchived || (q.status || 'new') === 'closed') return;
+      if ((q.approvalStatus || 'pending') !== 'pending' || typeof q.quotedPrice !== 'number') return;
+      const stamps = [ms(q.quoteFirstSentAt) || 0].concat(ms(q.quoteFirstSentAt) ? [] : [ms(q.quoteSentAt), ms(q.quoteManuallySentAt)]).filter(Boolean);
+      if (!stamps.length) return;
+      open++;
+      if (q.quoteNudgeTextAskedAt) textAsked++;
+      if (q.quoteNudgeEmailedAt) emailed++;
+      const age = (now - Math.min.apply(null, stamps)) / day;
+      if (age < 10) bands.under10++; else if (age < 20) bands.d10to19++;
+      else if (age < 30) bands.d20to29++; else bands.d30plus++;
+    });
+    say('   quotes sent and still unanswered : ' + open);
+    say('     under 10 days since first sent : ' + bands.under10);
+    say('     10–19 days                     : ' + bands.d10to19);
+    say('     20–29 days                     : ' + bands.d20to29);
+    say('     30 days or more                : ' + bands.d30plus + (bands.d30plus ? '  ← archived on the next 10 AM run (QT-51)' : ''));
+    say('     office has been asked to text  : ' + textAsked);
+    say('     had the automatic nudge email  : ' + emailed);
   } catch (e) { say('   could not read it: ' + e.message); }
   say('');
 

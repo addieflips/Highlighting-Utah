@@ -14038,6 +14038,15 @@ let showArchivedQuotes = false; // Closed tab: swap between converted and archiv
 function quoteWasSentOut(d){
   return !!(d && (d.quoteSentAt || d.quoteManuallySent));
 }
+/* ⭐ WHEN THE QUOTE FIRST WENT OUT ([[QT-51]], 2026-10-13). Addie: "Awaiting responses in
+   quotes should go in archive after 30 days of sending first email." quoteSentAt cannot
+   answer that — the office's own Nudge button rewrites it, and so does every re-send — so
+   the FIRST send is stamped once and never moved. Every door that sends or marks a quote
+   sent spreads this in; it returns nothing when the stamp is already there.
+   ⚠ A RE-QUOTE CLEARS IT, with quoteSentAt: a new price is a new quote to answer. */
+function quoteFirstSentStamp(d){
+  return (d && d.quoteFirstSentAt) ? {} : {quoteFirstSentAt: serverTimestamp()};
+}
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
   if(typeof d.quotedPrice !== 'number') return 'new';
@@ -14606,11 +14615,11 @@ async function nudgeEveryoneShown(){
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
-      await updateDoc(doc(db,'quotes', item.id), {
+      await updateDoc(doc(db,'quotes', item.id), Object.assign({
         quoteSentAt: serverTimestamp(),
         quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
         quoteLastNudgedAt: serverTimestamp()
-      });
+      }, quoteFirstSentStamp(d)));
       sent++;
     } catch(err){
       failures.push((d.name || d.email) + ': ' + (err && (err.text || err.message) ? (err.text || err.message) : 'failed'));
@@ -18534,9 +18543,9 @@ function renderQuoteRows(filtered){
         button_url: 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d),
         button_label: 'View Your Quote'
       });
-      await updateDoc(doc(db,'quotes', id), {
+      await updateDoc(doc(db,'quotes', id), Object.assign({
         quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-      });
+      }, quoteFirstSentStamp(d)));
       quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.' +
         (quoteUsedBuiltInBody ? ' Used the built-in ' + (isRequote(d) ? 're-quote' : 'quote') + ' wording \u2014 there is no template called \u201C' + tmplName + '\u201D. Pick one in Quote email settings to use your own.' : '')});
       followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
@@ -18680,16 +18689,16 @@ function renderQuoteRows(filtered){
           button_label: 'View Your Quote'
         });
         if(kind === 'nudge'){
-          await updateDoc(doc(db,'quotes', id), {
+          await updateDoc(doc(db,'quotes', id), Object.assign({
             quoteSentAt: serverTimestamp(),
             quoteNudgeCount: (Number(d.quoteNudgeCount) || 0) + 1,
             quoteLastNudgedAt: serverTimestamp()
-          });
+          }, quoteFirstSentStamp(d)));
           toast('Nudge sent using the ' + tmplName + ' template.');
         } else {
-          await updateDoc(doc(db,'quotes', id), {
+          await updateDoc(doc(db,'quotes', id), Object.assign({
             quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
-          });
+          }, quoteFirstSentStamp(d)));
           followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
           toast('Sent using the ' + tmplName + ' template.');
         }
@@ -18925,7 +18934,7 @@ function renderQuoteRows(filtered){
       if(!token) token = generatePortalToken();
       if(statusEl) statusEl.textContent = 'Saving…';
       try{
-        const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
+        const updates = Object.assign({quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()}, quoteFirstSentStamp(item.data));
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
         followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp(), approvalStatus: updates.approvalStatus || item.data.approvalStatus});
@@ -19129,6 +19138,7 @@ function renderQuoteRows(filtered){
              that has not been sent at all - blaming the customer for silence on
              a number they have never seen. */
           quoteSentAt: null,
+          quoteFirstSentAt: null,
           quoteNudgeCount: 0,
           /* Live work again - comes back out of Closed and out of the archive,
              whichever of the two it was sitting in. */
@@ -19266,7 +19276,9 @@ function renderQuoteRows(filtered){
     btn.addEventListener('click', async function(){
       const id = btn.dataset.marksent;
       try{
-        await updateDoc(doc(db,'quotes', id), {quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()});
+        const markedItem = quotesCache.find(q => q.id === id);
+        await updateDoc(doc(db,'quotes', id), Object.assign({quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()},
+          quoteFirstSentStamp(markedItem && markedItem.data)));
         followQuoteToItsStage(id, {quoteManuallySent: true});
         toast('Marked as sent.');
       } catch(err){

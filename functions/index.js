@@ -6842,6 +6842,68 @@ function quoteLadderRungDue(q, nowMs, waitDays) {
   return due(q.quoteSentAt) ? 'text' : null;
 }
 
+/* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-51]], 2026-10-13). Addie:
+   "Awaiting responses in quotes should go in archive after 30 days of sending first email."
+   ⚠ IT SITS BESIDE THE LADDER ([[QT-49]]), NOT INSTEAD OF IT. The ladder still asks the
+   office to text at ten days and emails at twenty; its own archive rung only ever fired
+   for a quote that reached rung two, so a quote whose automatic email FAILED (the EmailJS
+   non-browser block, 9 Sep to 12 Oct 2026), or that went to somebody who asked for a phone
+   call, or that has no email address, was never stamped and never archived — it sat in
+   Awaiting Response for ever. This is a clock, not a rung: thirty days from the first send,
+   whatever the chase did or did not manage.
+   ⚠ AWAITING MEANS NOBODY HAS ANSWERED. An APPROVED quote waiting on its detail form also
+   sits in Awaiting Response, but that customer said yes — archiving it would drop a sale.
+   Approved, declined and maybe-next-year are all left alone, as is anything unpriced or
+   never sent.
+   ⚠ THE FIRST SEND IS `quoteFirstSentAt`. Quotes sent before that stamp existed fall back to
+   the EARLIER of quoteSentAt and quoteManuallySentAt — both can be rewritten by a later
+   send or nudge, so the fallback can only ever be LATE, never early: an old quote is
+   archived a little after thirty days rather than before.
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT — every claim here is date arithmetic. */
+const QUOTE_ARCHIVE_DAYS = 30;
+function quoteArchiveDueServer(q, nowMs) {
+  if (!q || q.quoteArchived) return false;
+  if ((q.status || 'new') === 'closed') return false;
+  if ((q.approvalStatus || 'pending') !== 'pending') return false;
+  if (typeof q.quotedPrice !== 'number') return false;
+  let first = toMillis(q.quoteFirstSentAt);
+  if (!first) {
+    const stamps = [toMillis(q.quoteSentAt), toMillis(q.quoteManuallySentAt)].filter(Boolean);
+    first = stamps.length ? Math.min.apply(null, stamps) : 0;
+  }
+  if (!first) return false;
+  return (nowMs - first) >= QUOTE_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
+}
+/* The archive pass on its own, run FIRST in the nudge batch and ahead of its gates: the
+   November stop and the on/off switch are about CHASING people, and archiving chases
+   nobody — her rule has no season and no switch in it. */
+async function archiveStaleQuotes(nowMs) {
+  const snap = await db.collection('quotes').get();
+  let archived = 0;
+  const errors = [];
+  for (const docSnap of snap.docs) {
+    if (!quoteArchiveDueServer(docSnap.data(), nowMs)) continue;
+    try {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply ' + QUOTE_ARCHIVE_DAYS + ' days after the quote was first sent'
+      });
+      archived++;
+    } catch (err) {
+      errors.push(docSnap.id + ': ' + String((err && err.message) || err));
+    }
+  }
+  try {
+    await db.collection('settings').doc('quoteNudgeAutomation').set({
+      lastArchiveRunAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastArchiveRunArchived: archived,
+      lastArchiveRunErrors: errors.slice(0, 10)
+    }, { merge: true });
+  } catch (err) { console.error('[HU] could not record the quote archive run', err); }
+  return { archived: archived, errors: errors };
+}
+
 function prefersNotEmail(contactMethod) {
   return /phone|call|text|sms/i.test(String(contactMethod || ''));
 }
@@ -6968,6 +7030,8 @@ function quotePhotoEmailHtmlServer(photos) {
 
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
+  /* ⭐ QT-51 first, ahead of every gate below — see archiveStaleQuotes. */
+  const archivePass = await archiveStaleQuotes(now.getTime());
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
   /* November onward the season is underway - stop chasing. */
   if (denverMonth >= 11 || denverMonth <= 1) {
@@ -7177,7 +7241,8 @@ async function runQuoteNudgeBatch(source) {
   }, { merge: true });
 
   return { sent: sent, skipped: skipped, needsHuman: needsHuman,
-           askedToText: askedToText, archived: archived, errors: errors };
+           askedToText: askedToText, archived: archived, errors: errors,
+           archivedAfter30Days: archivePass.archived };
 }
 
 function properNameServer(raw) {
