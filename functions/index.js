@@ -6835,11 +6835,29 @@ function quoteLadderRungDue(q, nowMs, waitDays) {
      that had been emailed would match the text rung again on the next run, because the text
      stamp is what gates it and nothing above ever clears. */
   if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
-  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
-  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
-     quote that was never sent is not waiting on a reply — the caller has already refused
-     those, and a missing stamp answers false here rather than firing on the epoch. */
-  return due(q.quoteSentAt) ? 'text' : null;
+  /* ⭐ THE EMAIL GOES TEN DAYS AFTER THE TEXT ([[QT-53]]). Addie: "It will send nudge email
+     10 days after text." When the office has marked it texted on the Quotes tab, that is
+     the clock; otherwise the day the run asked them to text, as before. */
+  const textMark = q.quoteNudgeTextedAt || q.quoteNudgeTextAskedAt;
+  if (textMark) return due(textMark) ? 'email' : null;
+  /* ⭐ TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT ([[QT-52]], 2026-10-13). Addie, asked
+     when the first nudge comes: "10 days from when quote email is sent". This read
+     quoteSentAt, which the office's own Nudge button and every re-send overwrite, so a
+     re-send quietly pushed the first nudge back another ten days. It reads the FIRST send
+     now — the same stamp the 30-day archive counts from ([[QT-51]]), through the same
+     helper, so the two clocks cannot disagree about when a quote went out.
+     A quote never sent answers 0 here and is not due, never "due since the epoch". */
+  const first = quoteFirstSentMs(q);
+  return (first && (nowMs - first) >= gap) ? 'text' : null;
+}
+/* When a quote FIRST went out. `quoteFirstSentAt` is stamped once by every door that sends
+   ([[QT-51]]); a quote sent before that stamp existed falls back to the EARLIER of its two
+   send dates — both can be rewritten by a later send, so the fallback can only be late. */
+function quoteFirstSentMs(q) {
+  const stamped = toMillis(q && q.quoteFirstSentAt);
+  if (stamped) return stamped;
+  const stamps = [toMillis(q && q.quoteSentAt), toMillis(q && q.quoteManuallySentAt)].filter(Boolean);
+  return stamps.length ? Math.min.apply(null, stamps) : 0;
 }
 
 /* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-51]], 2026-10-13). Addie:
@@ -6866,11 +6884,7 @@ function quoteArchiveDueServer(q, nowMs) {
   if ((q.status || 'new') === 'closed') return false;
   if ((q.approvalStatus || 'pending') !== 'pending') return false;
   if (typeof q.quotedPrice !== 'number') return false;
-  let first = toMillis(q.quoteFirstSentAt);
-  if (!first) {
-    const stamps = [toMillis(q.quoteSentAt), toMillis(q.quoteManuallySentAt)].filter(Boolean);
-    first = stamps.length ? Math.min.apply(null, stamps) : 0;
-  }
+  const first = quoteFirstSentMs(q);
   if (!first) return false;
   return (nowMs - first) >= QUOTE_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
 }

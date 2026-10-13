@@ -1283,6 +1283,17 @@ check('the path still has every step in it',
        markers ([[QT-49]]): they say which rung a quote has reached so the next one can be
        measured from it. Drawn as steps they would put the same event on the picture twice.
        The same shape as portalChangeEmailAt below. */
+    /* ⭐ QT-51 / QT-52 (2026-10-13). The SEND is already on the path as quoteSentAt; this is
+       the clock the archive and the first nudge are measured from, kept because the office
+       Nudge rewrites quoteSentAt. One event, two stamps — drawn twice it is the same send on
+       the picture twice. */
+    quoteFirstSentAt: 'the first time the quote went out, kept separately only because a ' +
+      're-send rewrites quoteSentAt — the send itself is already on the path as quoteSentAt',
+    lastArchiveRunAt: 'the daily quote-archive pass\'s own marker on settings/quoteNudgeAutomation, ' +
+      'like lastRunAt — not about any customer',
+    quoteNudgeTextedAt: 'the office ticking "texted" on the Quotes tab text list ([[QT-53]]). ' +
+      'The text itself goes from somebody\'s phone and the app never sees it, so this is our own ' +
+      'note that a person did it — it moves the ladder on, it is not a stage the app witnessed',
     quoteNudgeTextAskedAt: 'when the office was TOLD to text somebody about their quote — ' +
       'rung one of the nudge ladder. Nothing reached the customer, so nothing happened to ' +
       'them: a person sends the text, and that conversation is not something the app sees',

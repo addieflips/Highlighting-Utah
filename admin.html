@@ -14009,6 +14009,57 @@ let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
+/* ⭐ THE SEND TEXT SUB-SECTION OF AWAITING RESPONSE ([[QT-53]], 2026-10-13). Addie: "can we
+   have a text section that says send text than we mark as texted?", "maybe sub section in
+   awaiting response", "Once texted goes back to awaiting response", "It will send nudge email
+   10 days after text." 'all' is Awaiting Response as it always was, minus anyone owed a text;
+   'text' is just the people owed one. */
+let quoteSendSub = 'all';
+let quoteTextWaitDays = 10;   // follows settings/quoteNudgeAutomation.waitDays once loaded
+/* Days since a quote FIRST went out — the same clock the server's ladder and 30-day archive
+   read ([[QT-51]], [[QT-52]]): quoteFirstSentAt, else the earlier of the two send dates. */
+function quoteFirstSentDays(d){
+  if(d && d.quoteFirstSentAt) return daysSince(d.quoteFirstSentAt);
+  const ds = [daysSince(d && d.quoteSentAt), daysSince(d && d.quoteManuallySentAt)].filter(function(x){ return x !== null; });
+  return ds.length ? Math.max.apply(null, ds) : null;
+}
+/* Who is owed a text: still unanswered, quiet for the wait since the quote email first went
+   out, not yet texted, and not already past the text rung (the automatic email has gone).
+   ⚠ AN APPROVED QUOTE WAITING ON ITS FORM IS NOT OWED ONE — they answered. */
+/* ⭐ MARK AS TEXTED ([[QT-53]]). Writes quoteNudgeTextedAt — the server's ladder sends the
+   automatic nudge email that many days after it — and the rung-one stamp if the 10 AM run
+   never wrote it, so the ladder knows the text step is done whether or not the automation
+   was on when it fell due. The mirror is updated first so the row moves back to Awaiting
+   response at once rather than waiting for the listener. */
+async function markQuoteTexted(id, btn){
+  const item = quotesCache.find(function(q){ return q.id === id; });
+  if(!item) return;
+  const statusEl = document.getElementById('qTextStatus');
+  if(btn) btn.disabled = true;
+  const upd = {quoteNudgeTextedAt: serverTimestamp()};
+  if(!item.data.quoteNudgeTextAskedAt) upd.quoteNudgeTextAskedAt = serverTimestamp();
+  try{
+    await updateDoc(doc(db,'quotes', id), upd);
+    /* Shaped like a Timestamp — daysSince calls .toDate() on it. (quoteSentNowStamp is
+       scoped inside the quote list's handlers and cannot be reached from here.) */
+    const nowStamp = {toDate: function(){ return new Date(); }};
+    item.data.quoteNudgeTextedAt = nowStamp;
+    if(!item.data.quoteNudgeTextAskedAt) item.data.quoteNudgeTextAskedAt = nowStamp;
+    toast((item.data.name || 'They') + ' marked as texted \u2014 back in Awaiting response.');
+    renderQuotesList();
+  } catch(err){
+    console.error('[HU] mark as texted failed', err);
+    if(btn) btn.disabled = false;
+    if(statusEl){ statusEl.style.color = 'var(--ember)'; statusEl.textContent = 'Could not save \u2014 ' + ((err && err.message) || 'try again') + '.'; }
+  }
+}
+function quoteNeedsText(d){
+  if(!d || quoteStage(d) !== 'send') return false;
+  if((d.approvalStatus || 'pending') !== 'pending') return false;
+  if(d.quoteNudgeTextedAt || d.quoteNudgeEmailedAt) return false;
+  const days = quoteFirstSentDays(d);
+  return days !== null && days >= quoteTextWaitDays;
+}
 /* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
    list - so the button you just pressed, and the box the confirmation was
    written into, are both gone by the time the send finishes. These survive the
@@ -14662,7 +14713,41 @@ function renderQuoteStageControls(){
   const el = document.getElementById('quoteStageControls');
   if(!el) return;
   if(quoteStageFilter === 'send'){
-    el.innerHTML =
+    const owed = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send' && quoteNeedsText(q.data); });
+    const sendAll = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send'; }).length - owed.length;
+    const subTabs =
+      '<div style="display:flex; gap:8px; margin-bottom:10px;">'+
+        '<button type="button" class="btn btn-sm '+(quoteSendSub === 'all' ? 'btn-gold' : 'btn-outline')+'" data-quotesendsub="all">Awaiting response ('+sendAll+')</button>'+
+        '<button type="button" class="btn btn-sm '+(quoteSendSub === 'text' ? 'btn-gold' : 'btn-outline')+'" data-quotesendsub="text">Send text ('+owed.length+')</button>'+
+      '</div>';
+    if(quoteSendSub === 'text'){
+      /* ⭐ THE TEXT LIST ([[QT-53]]). A person sends the text from their own phone — the app
+         sends no SMS here — so each row is the number to text and a button to say it was. */
+      el.innerHTML = subTabs +
+        '<div style="background:#EEF4FF; border:1px solid #C7D7F5; border-radius:10px; padding:11px 14px; font-size:13px;">'+
+          '<div style="font-weight:700; color:#23406E; margin-bottom:4px;">Text these people about their quote</div>'+
+          '<div style="font-size:12px; color:#3B5B8C; margin-bottom:8px;">No reply '+quoteTextWaitDays+' days after the quote email first went out. Text them, then press <b>Mark as texted</b> &mdash; they go back to Awaiting response, and the automatic nudge email goes '+quoteTextWaitDays+' days after the text if there is still nothing.</div>'+
+          (owed.length ? owed.map(function(q){
+            const d = q.data, ph = String(d.phone || '').replace(/[^0-9+]/g, '');
+            return '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px solid #DCE6F7;">'+
+              '<b style="min-width:140px;">'+esc(d.name || '(no name)')+'</b>'+
+              (ph ? '<a href="sms:'+esc(ph)+'">'+esc(d.phone)+'</a>' : '<em>no phone on file</em>')+
+              '<span style="color:#3B5B8C;">'+(typeof d.quotedPrice === 'number' ? fmtMoney(d.quotedPrice)+' \u00b7 ' : '')+quoteFirstSentDays(d)+' days</span>'+
+              (ph ? '<a class="btn btn-outline btn-sm" href="sms:'+esc(ph)+'">Send text</a>' : '')+
+              '<button type="button" class="btn btn-gold btn-sm" data-marktexted="'+esc(q.id)+'" style="margin-left:auto;">Mark as texted</button>'+
+            '</div>';
+          }).join('') : '<div style="color:#3B5B8C;">Nobody is owed a text right now.</div>')+
+        '</div>'+
+        '<div id="qTextStatus" class="rtext" style="margin-top:8px;"></div>';
+      el.querySelectorAll('[data-quotesendsub]').forEach(function(b){
+        b.addEventListener('click', function(){ quoteSendSub = b.dataset.quotesendsub; renderQuotesList(); });
+      });
+      el.querySelectorAll('[data-marktexted]').forEach(function(b){
+        b.addEventListener('click', function(){ markQuoteTexted(b.dataset.marktexted, b); });
+      });
+      return;
+    }
+    el.innerHTML = subTabs +
       '<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--paper); border-radius:10px; padding:10px 14px; font-size:13px;">'+
         '<strong style="font-size:12.5px;">Show only people quiet for</strong>'+
         '<input type="number" id="qQuietDaysInput" min="0" step="1" value="'+quoteQuietDays+'" style="width:70px; padding:6px 8px; border-radius:8px; border:1px solid var(--line);">'+
@@ -14679,6 +14764,9 @@ function renderQuoteStageControls(){
     el.querySelector('#qQuietTenBtn').addEventListener('click', function(){ quoteQuietDays = 10; renderQuotesList(); });
     el.querySelector('#qQuietClearBtn').addEventListener('click', function(){ quoteQuietDays = 0; renderQuotesList(); });
     el.querySelector('#qNudgeAllBtn').addEventListener('click', nudgeEveryoneShown);
+    el.querySelectorAll('[data-quotesendsub]').forEach(function(b){
+      b.addEventListener('click', function(){ quoteSendSub = b.dataset.quotesendsub; renderQuotesList(); });
+    });
     return;
   }
   if(quoteStageFilter === 'closed'){
@@ -15081,6 +15169,7 @@ async function loadQuoteNudgeSettings(){
     const d = snap.exists() ? snap.data() : {};
     document.getElementById('qNudgeAutoOn').checked = d.enabled === true;
     if(d.waitDays) document.getElementById('qNudgeWaitDays').value = d.waitDays;
+    if(Number(d.waitDays) > 0) quoteTextWaitDays = Number(d.waitDays);
     /* ⛔ maxNudges is no longer read or offered — see the card above ([[QT-49]]). */
     renderQuoteNudgeStatus(d);
   } catch(err){ /* not set up yet */ }
@@ -16017,6 +16106,11 @@ function renderQuotesList(){
         return days !== null && days >= quoteQuietDays;
       });
     }
+    /* ⭐ QT-53: somebody owed a text sits under Send text, not Awaiting Response, until it
+       is marked done — then they come back here. One rule decides both halves. */
+    filtered = filtered.filter(function(item){
+      return (quoteSendSub === 'text') === quoteNeedsText(item.data);
+    });
   }
   /* Closed holds two different things: real conversions and archived
      no-thank-yous. Archived is off to the side rather than deleted, so an

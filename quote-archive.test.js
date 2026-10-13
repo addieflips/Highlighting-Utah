@@ -62,7 +62,7 @@ check('the archive is thirty days, as she said', !!daysConst && daysConst[1] ===
 
 let due = () => false;
 try {
-  due = new Function(msSrc + '\n' + 'const QUOTE_ARCHIVE_DAYS = ' + (daysConst ? daysConst[1] : 30) + ';\n' +
+  due = new Function(msSrc + '\n' + extractFn(fns, 'quoteFirstSentMs') + '\n' + 'const QUOTE_ARCHIVE_DAYS = ' + (daysConst ? daysConst[1] : 30) + ';\n' +
     dueSrc + '\nreturn quoteArchiveDueServer;')();
 } catch (e) { check('the rule runs', false, e.message); }
 
@@ -128,6 +128,29 @@ check('and every one of them stamps the first send', unstamped.length === 0,
   'lines without the stamp: ' + unstamped.map(i => i + 1).join(', '));
 check('a re-quote clears the first-send stamp with the send date — a new price is a new quote',
   /quoteSentAt: null,\r?\n\s*quoteFirstSentAt: null,/.test(admin));
+
+console.log('\n--- The Send text sub-section (QT-53), run ---\n');
+{
+  const names = ['daysSince', 'quoteWasSentOut', 'quoteStage', 'quoteFirstSentDays', 'quoteNeedsText'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('the text rule and what it reads can be lifted', srcs.every(Boolean),
+    'missing: ' + names.filter((n, i) => !srcs[i]).join(', '));
+  let needs = () => false;
+  try { needs = new Function('let quoteTextWaitDays = 10;\n' + srcs.join('\n') + '\nreturn quoteNeedsText;')(); }
+  catch (e) { check('the text rule runs', false, e.message); }
+  const ts = d => ({ toDate: () => new Date(Date.now() - d * DAY) });
+  const q = extra => Object.assign({ quotedPrice: 400, approvalStatus: 'pending', quoteSentAt: ts(12), quoteFirstSentAt: ts(12) }, extra);
+  check('a quote first emailed 12 days ago with no reply is owed a text', needs(q({})) === true);
+  check('one emailed 9 days ago is not yet', needs(q({ quoteSentAt: ts(9), quoteFirstSentAt: ts(9) })) === false);
+  check('marked texted, it goes back to Awaiting response', needs(q({ quoteNudgeTextedAt: ts(0) })) === false);
+  check('past the email rung, it is not owed a text any more', needs(q({ quoteNudgeEmailedAt: ts(1) })) === false);
+  check('an approved quote waiting on its form is never owed a text — they answered',
+    needs(q({ approvalStatus: 'approved' })) === false);
+  check('a re-send does not hide it — the FIRST send decides', needs(q({ quoteSentAt: ts(1) })) === true);
+}
+const markSrc = extractFn(admin, 'markQuoteTexted') || '';
+check('Mark as texted writes the stamp the ladder reads', /quoteNudgeTextedAt: serverTimestamp\(\)/.test(markSrc));
+check('and the list is wired to it', /data-marktexted/.test(admin) && /markQuoteTexted\(b\.dataset\.marktexted/.test(admin));
 
 console.log('\n=== Unanswered quotes go to the archive after 30 days ===\n');
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -57,7 +57,7 @@ console.log('\n=== The nudge ladder ===\n');
    would decide the very arithmetic under test. The extraction-list trap this repo records
    ten times over. */
 const rung = new Function('q', 'nowMs', 'waitDays',
-  'const QUOTE_NUDGE_WAIT_DAYS = 10;\n' + lift(fns, 'toMillis') + '\n' +
+  'const QUOTE_NUDGE_WAIT_DAYS = 10;\n' + lift(fns, 'toMillis') + '\n' + lift(fns, 'quoteFirstSentMs') + '\n' +
   lift(fns, 'quoteLadderRungDue') + '\nreturn quoteLadderRungDue(q, nowMs, waitDays);');
 
 const NOW = Date.UTC(2026, 8, 18);
@@ -69,6 +69,19 @@ const NOW = Date.UTC(2026, 8, 18);
 const daysAgo = n => ({ toDate: () => new Date(NOW - n * 86400000) });
 const R = (q, w) => rung(q, NOW, w || 10);
 
+/* ⭐ QT-52: TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT — the FIRST send. A re-send or an
+   office nudge rewrites quoteSentAt, and reading that pushed the first nudge back each time. */
+/* ⭐ QT-53: THE EMAIL GOES TEN DAYS AFTER THE TEXT the office marked sent. */
+check('the automatic email is due ten days after the office marked it texted (QT-53)',
+  R({ quoteFirstSentAt: daysAgo(30), quoteNudgeTextAskedAt: daysAgo(20), quoteNudgeTextedAt: daysAgo(10) }) === 'email' &&
+  R({ quoteFirstSentAt: daysAgo(30), quoteNudgeTextAskedAt: daysAgo(20), quoteNudgeTextedAt: daysAgo(9) }) === null,
+  'texted 9 days ago must wait, even though the run asked for the text 20 days ago');
+check('the first nudge counts from the FIRST send, not a later re-send (QT-52)',
+  R({ quoteFirstSentAt: daysAgo(12), quoteSentAt: daysAgo(2) }) === 'text' &&
+  R({ quoteFirstSentAt: daysAgo(8), quoteSentAt: daysAgo(8) }) === null,
+  'a quote first emailed 12 days ago and re-sent 2 days ago must be due its first nudge');
+check('an old quote with no first-send stamp counts from the earlier of its two send dates',
+  R({ quoteSentAt: daysAgo(2), quoteManuallySentAt: daysAgo(11) }) === 'text');
 check('a quote sent 9 days ago is not due for anything',
   R({ quoteSentAt: daysAgo(9) }) === null,
   'firing early turns a ten-day ladder into whatever the run interval happens to be');
