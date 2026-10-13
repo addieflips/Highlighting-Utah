@@ -1,5 +1,5 @@
 {
- "watched": 21,
+ "watched": 22,
  "red": 0,
  "breaks": [],
  "unguarded": [
@@ -27,6 +27,6 @@
   "maybeNextYear / isOutForSeason",
   "lightsLockedUntil"
  ],
- "rulings": 421,
- "builtFrom": "2026-09-09"
+ "rulings": 648,
+ "builtFrom": "2026-10-13"
 }

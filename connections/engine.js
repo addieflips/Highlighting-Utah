@@ -171,6 +171,76 @@ function otherRecord(ix, I, pos, spine) {
   return collectionsIn(ix).some(c => c !== mine && new RegExp('\\b' + c + '\\b').test(body));
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ `only` — NOBODY ELSE MAY DO THIS (added 2026-10-13).
+ *
+ * Everything above answers "is the declared connection still there". A rule like the
+ * Schedule V2 one — "the Schedule is the ONLY thing that puts a hang day on a customer"
+ * ([[SCH-102]]) — is the other question: is there a connection that must NOT be there?
+ * Until this existed a second writer showed up as one more amber line among ~200, which
+ * is exactly how the retired crew-routes sweep came to be a second planner: nothing it
+ * did was undeclared-and-red, it was just more amber.
+ *
+ * A spine may carry `only: [{ rule, pattern, unless?, where, why, allow: [...] }]`.
+ *   pattern  a regex matched against the COMMENT-BLANKED source of every scanned file
+ *   unless   a regex tested against the matched text; a match it accepts is not a breach
+ *            (used for "writes null", which is a clear rather than a booking). A capture
+ *            group, never a negative lookahead after `\s*` — that backtracks and accepts
+ *            everything (CLAUDE.md, rsvp-text-link.test.js).
+ *   allow    the ONLY places permitted — the spine's declared writers are not. Each
+ *            one must still exist — an allowance naming a function that has gone is red,
+ *            or the list rots into a list of nothing. An allowance may carry `closed`:
+ *            checks that the door it describes is still SHUT. A permitted writer that is
+ *            only permitted because nothing can reach it is green only while that holds.
+ *
+ * ⚠ A BREACH IS RED, NOT AMBER, and that is the whole point of it. It gates the build
+ * through the same "every declared connection is still made" check as everything else,
+ * with `wrongValue` set so the message says a rule is being broken rather than lost.
+ * ------------------------------------------------------------------------- */
+function onlyRows(ix, spine, rows) {
+  (spine.only || []).forEach(o => {
+    /* ⚠ ONLY THE EXPLICIT ALLOWANCES, NEVER THE SPINE'S DECLARED WRITERS. A declared
+       writer is declared for what it does today — `pullCustomerFromSeason` CLEARS a day —
+       and letting every declared writer through would let a clearer start booking with
+       nothing going red. Caught by the red-check, not by reading. */
+    const allowed = {};
+    (o.allow || []).forEach(a => {
+      const I = ix[a.file];
+      const label = a.fn ? a.fn + '()' : a.el ? '#' + a.el : 'near "' + String(a.near).slice(0, 40) + '"';
+      const base = { side: 'sets', where: o.where, when: 'allowed: ' + (a.why || ''), file: a.file,
+                     anchor: label, rules: [o.rule].concat(a.why ? [a.why] : []), found: true, why: '' };
+      const ranges = I ? anchorRanges(I, a) : [];
+      if (!ranges.length) {
+        rows.push(Object.assign(base, { found: false,
+          why: 'this rule allows ' + label + ', which is no longer in the file — repoint or remove the allowance' }));
+        return;
+      }
+      allowed[a.file] = (allowed[a.file] || []).concat(ranges);
+      (a.closed || []).forEach(c => {
+        const CI = ix[c.file || a.file];
+        const cr = CI ? anchorRanges(CI, c) : [];
+        const shut = cr.length && (!c.pattern || cr.some(r => new RegExp(c.pattern).test(CI.blanked.slice(r[0], r[1]))));
+        if (!shut) rows.push(Object.assign({}, base, { found: false, wrongValue: true,
+          why: c.why || ('the door ' + label + ' was only allowed because it is shut, and it is no longer shut') }));
+      });
+    });
+    const unless = o.unless ? new RegExp(o.unless) : null;
+    Object.keys(ix).forEach(fk => {
+      const I = ix[fk];
+      const re = new RegExp(o.pattern, 'g');
+      let m;
+      while ((m = re.exec(I.blanked))) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        if (unless && unless.test(m[0])) continue;
+        if (inAny(allowed[fk] || [], m.index)) continue;
+        rows.push({ side: 'sets', where: o.where, when: 'nobody else may do this', file: fk,
+          anchor: fk + ' · ' + (enclosing(I, m.index) || '(a handler)'), rules: [o.rule],
+          found: false, wrongValue: true, why: o.why + ' — found: ' + m[0].replace(/\s+/g, ' ').slice(0, 60) });
+      }
+    });
+  });
+}
+
 function check(files, manifest) {
   const ix = {};
   Object.keys(files).forEach(k => { ix[k] = index(files[k]); });
@@ -222,6 +292,7 @@ function check(files, manifest) {
         rows.push(r);
       });
     });
+    onlyRows(ix, spine, rows);
     /* Anything touching the field outside every declared anchor. */
     const extra = {};
     Object.keys(ix).forEach(fk => {
