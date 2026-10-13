@@ -79,7 +79,7 @@ function lift(name) {
    having been caught by ten times — so the list is asserted and a change to it is a
    deliberate edit here. */
 const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
-  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
+  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'pauseBetweenInvoices', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'toMillis', 'logNightlyInvoiceRun',
   /* ⚠ ADDED ON THE MERGE OF 2026-10-06, and this is the extraction-list trap for the
@@ -255,8 +255,9 @@ async function ensureToken(id, d){ return 'tok'; }
 const NEW_MEMBER_FEE = ${NEW_MEMBER_FEE};
 const BILL_HELD_DAYS = ${BILL_HELD_DAYS};
 const HU_RETRY_PAUSE_MS = 0;
+const INVOICE_SEND_GAP_MS = 0;
 ${NIGHTLY_TPL_CONSTS}
-return runInvoiceBatch('test');
+return runInvoiceBatch('test', { pause: async function(){} });
 `;
   /* One check, once: everything this sandbox CALLS that the server defines as a function
      and we never supplied. It is asserted here rather than beside the lift list because

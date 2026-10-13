@@ -11479,6 +11479,8 @@ document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async f
     // not a postponed one, so it is never folded into the generic skip counts.
     if(r.skippedNoEmail) msg += ', ' + r.skippedNoEmail + ' could NOT be billed (no email address)';
     if(r.sentByHandCount) msg += ', ' + r.sentByHandCount + ' not emailed (already given by hand)';
+    /* A run now stops itself before its time limit rather than being cut off (EM-32). */
+    if(r.stoppedEarly) msg += '. STOPPED AT ITS TIME LIMIT — there are more to send. Press Send Invoices Now again to carry on';
     /* ⭐ NAMED, NOT COUNTED (2026-09-28). The two skip counts above say how many bills
        were held and nothing about whose, so a payer whose lights are up and whose bill
        is stuck behind one unfinished house read as an ordinary skip. heldNames only
@@ -12148,6 +12150,7 @@ async function loadNightlyInvoiceLog(){
         ((r.skippedNotDone||0) ? ', '+r.skippedNotDone+' skipped (not completed)' : '')+
         ((r.skippedNoEmail||0) ? ', <span style="color:var(--ember);">'+r.skippedNoEmail+' could NOT be billed (no email address)</span>' : '')+
         ((r.sentByHandCount||0) ? ', '+r.sentByHandCount+' not emailed (already given by hand)' : '')+
+        (r.stoppedEarly ? ', <span style="color:var(--ember);">stopped at its time limit — the rest go on the next run</span>' : '')+
         ((r.errorCount||0) ? ', <span style="color:var(--ember);">'+r.errorCount+' error(s)</span>' : '')+
         ((r.skippedNoEmail||0) && Array.isArray(r.noEmailNames) && r.noEmailNames.length
           ? '<div style="font-size:12px; color:var(--slate); margin-top:3px;">No email: '+esc(r.noEmailNames.join(', '))+'</div>' : '')+
