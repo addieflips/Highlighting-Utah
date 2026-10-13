@@ -111,7 +111,7 @@ function build(opts) {
       const blocks = R.areas[area].blocks.filter(b => b.state === st);
       if (!blocks.length) return;
       secs.push([label, blocks.map(b =>
-        [b.name, b.lines, b.state, b.proof, '', b.when, '', b.id, ruleFingerprint(b)])]);
+        [b.name, b.lines, b.state, b.proof, '', b.when, '', b.id, ruleFingerprint(b), b.tests || []])]);
     });
     if (secs.length) RULES[area] = { sections: secs };
   });

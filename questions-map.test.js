@@ -722,6 +722,90 @@ const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + 
     'what being superseded means — but if one is really still standing, fix its anchor.');
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ EVERY TEST A STANDING RULING CITES STILL EXISTS — AND STILL RUNS (2026-10-13).
+ *
+ * Addie, asked how the connections map should grow, took the recommendation to join each
+ * ruling to what enforces it ([[PROC-39]]). The anchor check above proves a ruling's
+ * CODE still exists. Nothing proved its TEST did — and "Where it's proved" naming a test
+ * is the strongest claim that column makes, so it is the worst one to be false. Measured
+ * the day this was written, two were:
+ *   - WH-24 cited `rejoin-build.test.js`, which exists and passes and was never in the
+ *     `npm test` chain — a proof that has not run on any build since it was written.
+ *   - RS-75 cited Suite 359, which run-all.js itself marks RETIRED (its guarantee moved
+ *     to Suite 360 the same day).
+ *
+ * A cited `*.test.js` must exist AND be in the `npm test` chain; a cited `*.spec.js` must
+ * exist under test/; a cited `Suite N` must be a run-all.js suite — a suite() title, a
+ * check() prefix 'SN', or its header comment — and that header must not say RETIRED.
+ * ⚠ STANDING AND DECIDED ROWS FAIL; superseded and closed rows only note, the same split
+ * as the anchor check, for the same reason.
+ * ⚠ "Suite 323, 7 sabotages red-checked" is ONE suite. A number continues the list only
+ * when it is not followed by sabotage / checks / of / red / passed — found by the first
+ * run of this check, which read that sentence as Suites 323 and 7.
+ * ------------------------------------------------------------------------- */
+{
+  const read = f => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8'); } catch (e) { return ''; } };
+  const runAll = read('run-all.js');
+  let chain = '';
+  try {
+    const pkg = JSON.parse(read('package.json'));
+    chain = String(pkg.scripts.test || '').split('&&').map(x => x.trim().replace(/^npm run /, ''))
+      .map(k => pkg.scripts[k] || k).join(' ');
+  } catch (e) { chain = ''; /* unreadable package.json: the check below reports it */ }
+  check('the npm test chain was read, so a test missing from it means something', chain.length > 200, {
+    problem: 'read ' + chain.length + ' characters of the npm test chain',
+    fix: 'a check that cannot see the chain would call every cited test unrun, or none'
+  });
+  const suiteExists = n => new RegExp("suite\\(\\s*['\"`](?:Suite\\s+)?" + n + "[a-z]?[.\\s]").test(runAll) ||
+    new RegExp("check\\(\\s*['\"]S" + n + "['\"]").test(runAll) ||
+    new RegExp('\\*\\s*Suite ' + n + '\\b').test(runAll);
+  const suiteRetired = n => new RegExp('Suite ' + n + '\\s*[—-]+\\s*RETIRED').test(runAll);
+  const LIST = /\bSuites? (\d+)((?:\s*(?:,|and|&)\s*\d+(?!\s*(?:sabotage|check|of\b|red|passed|more|times|\/)))*)/g;
+  let citedFiles = 0, citedSuites = 0;
+  const broken = [], brokenHistoric = [];
+  rows.forEach(r => {
+    if (r.cells.length !== 6) return;
+    const proof = r.cells[4], status = r.cells[5] || '';
+    const out = /Standing|Decided/.test(status) ? broken : brokenHistoric;
+    (proof.match(/[\w.\/-]+\.(?:test|spec)\.js/g) || []).forEach(f => {
+      citedFiles++;
+      const base = f.replace(/^.*\//, '');
+      const exists = [f, base, 'test/' + base, 'tests/' + base].some(x => fs.existsSync(path.join(__dirname, x)));
+      if (!exists) out.push(r.id + ' → ' + f + ' does not exist');
+      else if (/\.test\.js$/.test(base) && chain.indexOf(base) === -1) out.push(r.id + ' → ' + base + ' is not in npm test, so it never runs');
+    });
+    let m;
+    LIST.lastIndex = 0;
+    while ((m = LIST.exec(proof))) {
+      (m[0].match(/\d+/g) || []).forEach(n => {
+        citedSuites++;
+        if (!suiteExists(n)) out.push(r.id + ' → Suite ' + n + ' is not in run-all.js');
+        else if (suiteRetired(n)) out.push(r.id + ' → Suite ' + n + ' is marked RETIRED in run-all.js');
+      });
+    }
+  });
+  /* ⚠ TWO FLOORS, NOT ONE. With a single total, breaking the Suite matcher left the
+     file citations alone above the floor and the check stayed green — caught by the
+     red-check, which is the only reason this is two lines. */
+  check('the citation scan is finding test files to check', citedFiles > 100, {
+    problem: 'found ' + citedFiles + ' cited test files',
+    fix: 'a matcher that has stopped matching demands nothing at all'
+  });
+  check('the citation scan is finding run-all suites to check', citedSuites > 150, {
+    problem: 'found ' + citedSuites + ' cited suites',
+    fix: 'a matcher that has stopped matching demands nothing at all'
+  });
+  check('every test a standing ruling cites exists and runs', broken.length === 0, {
+    problem: broken.length + ' standing ruling(s) cite a test that is gone or never runs: ' + broken.join('; '),
+    fix: '"Where it\'s proved" naming a test is a claim that the ruling is enforced. Repoint ' +
+         'it at the test that holds it now, or put the file back in the npm test chain.'
+  });
+  note('Rulings cite ' + citedFiles + ' test files and ' + citedSuites + ' run-all suites; every standing one checked.');
+  if (brokenHistoric.length) note(brokenHistoric.length + ' superseded or closed ruling(s) cite a test ' +
+    'that is gone: ' + brokenHistoric.join('; ') + '. Not a failure.');
+}
+
 console.log('\n=== The questions map ===\n');
 console.log('  ' + w('status', 24) + 'rows');
 Object.keys(byStatus).sort().forEach(k => console.log('  ' + w(k, 24) + byStatus[k]));

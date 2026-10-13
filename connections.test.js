@@ -758,6 +758,7 @@ if (amberTotal) {
       areas > 0, 'no area cards at all, so nothing below proves anything');
 
     let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
+    const held = { test: 0, code: 0, words: 0, none: 0 };
     for (let i = 0; i < areas; i++) {
       subtab('rules').click();
       const back = v.querySelector('.back'); if (back) back.click();
@@ -776,8 +777,25 @@ if (amberTotal) {
         const last = now[now.length - 1];
         const body = last && last.querySelector('.body .rl li');
         if (!body) emptyBody++;
+        const prov = last && last.querySelector('.prov');
+        const pt = prov ? prov.textContent : '';
+        if (/by a test that runs on every build — .*(Suite \d+|\.(test|spec)\.js)/.test(pt)) held.test++;
+        else if (/no test holds it/.test(pt)) held.code++;
+        else if (/not checkable/.test(pt)) held.words++;
+        else held.none++;
       }
     }
+
+    /* ⭐ EACH RULING SAYS HOW IT IS HELD (2026-10-13, [[PROC-39]]). Run against the real
+       map through the real renderer: a block that names a test must SHOW the test, and
+       one with code but no test must say nothing would go red. Counted, because the
+       claim is about every block, and a renderer that dropped one level would still draw
+       the other two. */
+    check('every opened ruling says how it is held — by a test, by code only, or not at all',
+      held.none === 0 && held.test > 100 && held.code > 50,
+      'test ' + held.test + ', code only ' + held.code + ', not checkable ' + held.words +
+      ', said nothing ' + held.none + ' — a ruling the page claims nothing about is the ' +
+      'same as one it claims everything about');
 
     check('every rule block opens when it is clicked',
       tried > 0 && opened === tried,

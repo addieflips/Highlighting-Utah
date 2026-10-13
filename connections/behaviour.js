@@ -57,7 +57,7 @@ const LABEL={new:'Not reviewed',ok:'Confirmed',flag:'Flagged as wrong',lapsed:'C
    confirming a block is a separate, later fact — it is never inferred from the map" —
    and the page was inferring it. */
 const S={};Object.keys(RULES).forEach(a=>RULES[a].sections.forEach(s=>s[1].forEach(b=>
- S[a+'|'+b[0]]={s:'new',status:b[2],proof:b[3],by:b[4],d:b[5],hi:b[6],id:b[7],fp:b[8]})));
+ S[a+'|'+b[0]]={s:'new',status:b[2],proof:b[3],by:b[4],d:b[5],hi:b[6],id:b[7],fp:b[8],tests:b[9]||[]})));
 
 /* ---------------- saving her decisions ----------------
    This page is a plain file in an iframe with no database of its own, so the admin page
@@ -98,16 +98,21 @@ function drawRules(){
   const longest=unread.length?fmt(unread[0].split('|')[1])+', never.':'none — every rule has been read.';
   v.innerHTML='<div class="headline" style="border-color:rgba(255,255,255,.14);background:var(--panel)">'
    +'<b>Where to start</b>'+c(all,'flag')+' flagged as wrong · '+unread.length+' never read · '
-   +c(all,'lapsed')+' changed since confirmed. '
+   +c(all,'lapsed')+' changed since confirmed · '
+   +all.filter(k=>S[k].proof==='test').length+' of '+all.length+' held by a test. '
    +'<span style="color:var(--dim)">Longest unread: <b style="color:var(--ink)">'+longest+'</b></span></div>'
    +'<div class="cards">'+Object.keys(RULES).map(a=>{
     const k=ks(a),p=Math.round(c(k,'ok')/k.length*100);
     const wd=k.filter(x=>S[x].proof==='words').length;
+    /* Code named but no test: the ruling can be found in the code, and nothing would go
+       red if it stopped being true. Shown beside "not checkable" so the two read apart. */
+    const co=k.filter(x=>S[x].proof==='code').length;
     return '<button class="areacard" data-a="'+esc(a)+'"><h3>'+esc(a)+'</h3>'
      +'<p class="of">'+c(k,'ok')+' of '+k.length+' confirmed</p><div class="trk"><i style="width:'+p+'%"></i></div>'
      +'<div class="tags">'+(c(k,'new')?'<span class="tg">'+c(k,'new')+' never read</span>':'')
      +(c(k,'lapsed')?'<span class="tg a">'+c(k,'lapsed')+' changed</span>':'')
      +(c(k,'flag')?'<span class="tg r">'+c(k,'flag')+' flagged</span>':'')
+     +(co?'<span class="tg w">'+co+' no test</span>':'')
      +(wd?'<span class="tg w">'+wd+' not checkable</span>':'')+'</div></button>';}).join('')+'</div>';
  } else {
   let h='<button class="back">← All areas</button>';
@@ -120,8 +125,10 @@ function drawRules(){
      +'<span class="n">'+b[1].length+'</span></button>';
     if(o){
      h+='<div class="body"><ul class="rl">'+b[1].map(r=>'<li>'+fmt(r)+'</li>').join('')+'</ul>'
-      +'<div class="prov"><b>Where this came from:</b> read out of the code by Claude, '
-      +(st.proof==='code'?'and checkable — a test can prove it.':'but <b>not checkable</b> — no test can prove it.')
+      +'<div class="prov"><b>How it is held:</b> '
+      +(st.proof==='test'?'by a test that runs on every build — '+st.tests.map(esc).join(', ')+'. If the code stops doing this, the build goes red.'
+       :st.proof==='code'?'the code that does it is named, but <b>no test holds it</b> — it could stop being true and nothing would go red.'
+       :'<b>not checkable</b> — no code or test is named for it.')
       +' Confirming means you checked it, not that you agree with me.</div>'
       +'<div class="rev"><span class="lab">'+LABEL[st.s]+(st.by?' · '+st.by+', '+st.d:'')+'</span>'
       +(st.hi==='high'?'<span class="locked">money rule — say what you checked against</span>':'')
