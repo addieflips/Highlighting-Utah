@@ -19519,7 +19519,7 @@ function renderQuoteRows(filtered){
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
     sel.addEventListener('change', async function(){
-      /* ⭐ [[QT-52]] CLOSING AN APPROVED RE-QUOTE APPLIES IT (2026-10-13). Dax: "figure out why not all the requotes
+      /* ⭐ [[QT-56]] CLOSING AN APPROVED RE-QUOTE APPLIES IT (2026-10-13). Dax: "figure out why not all the requotes
          went to the build list". Choosing Closed here wrote status:'closed' and nothing else — so a re-quote the
          customer had APPROVED was filed away without ever being applied, and applying is the only thing that tells the
          warehouse (build, top-up or recycle). Miko Johnson's went that way. An approved re-quote on a live customer now
