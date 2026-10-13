@@ -6835,23 +6835,23 @@ function quoteLadderRungDue(q, nowMs, waitDays) {
      that had been emailed would match the text rung again on the next run, because the text
      stamp is what gates it and nothing above ever clears. */
   if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
-  /* ⭐ THE EMAIL GOES TEN DAYS AFTER THE TEXT ([[QT-53]]). Addie: "It will send nudge email
+  /* ⭐ THE EMAIL GOES TEN DAYS AFTER THE TEXT ([[QT-54]]). Addie: "It will send nudge email
      10 days after text." When the office has marked it texted on the Quotes tab, that is
      the clock; otherwise the day the run asked them to text, as before. */
   const textMark = q.quoteNudgeTextedAt || q.quoteNudgeTextAskedAt;
   if (textMark) return due(textMark) ? 'email' : null;
-  /* ⭐ TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT ([[QT-52]], 2026-10-13). Addie, asked
+  /* ⭐ TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT ([[QT-53]], 2026-10-13). Addie, asked
      when the first nudge comes: "10 days from when quote email is sent". This read
      quoteSentAt, which the office's own Nudge button and every re-send overwrite, so a
      re-send quietly pushed the first nudge back another ten days. It reads the FIRST send
-     now — the same stamp the 30-day archive counts from ([[QT-51]]), through the same
+     now — the same stamp the 30-day archive counts from ([[QT-52]]), through the same
      helper, so the two clocks cannot disagree about when a quote went out.
      A quote never sent answers 0 here and is not due, never "due since the epoch". */
   const first = quoteFirstSentMs(q);
   return (first && (nowMs - first) >= gap) ? 'text' : null;
 }
 /* When a quote FIRST went out. `quoteFirstSentAt` is stamped once by every door that sends
-   ([[QT-51]]); a quote sent before that stamp existed falls back to the EARLIER of its two
+   ([[QT-52]]); a quote sent before that stamp existed falls back to the EARLIER of its two
    send dates — both can be rewritten by a later send, so the fallback can only be late. */
 function quoteFirstSentMs(q) {
   const stamped = toMillis(q && q.quoteFirstSentAt);
@@ -6860,7 +6860,7 @@ function quoteFirstSentMs(q) {
   return stamps.length ? Math.min.apply(null, stamps) : 0;
 }
 
-/* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-51]], 2026-10-13). Addie:
+/* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-52]], 2026-10-13). Addie:
    "Awaiting responses in quotes should go in archive after 30 days of sending first email."
    ⚠ IT SITS BESIDE THE LADDER ([[QT-49]]), NOT INSTEAD OF IT. The ladder still asks the
    office to text at ten days and emails at twenty; its own archive rung only ever fired
@@ -7044,7 +7044,7 @@ function quotePhotoEmailHtmlServer(photos) {
 
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
-  /* ⭐ QT-51 first, ahead of every gate below — see archiveStaleQuotes. */
+  /* ⭐ QT-52 first, ahead of every gate below — see archiveStaleQuotes. */
   const archivePass = await archiveStaleQuotes(now.getTime());
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
   /* November onward the season is underway - stop chasing. */

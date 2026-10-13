@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* ============================================================================
  * AN UNANSWERED QUOTE GOES TO THE ARCHIVE THIRTY DAYS AFTER IT FIRST WENT OUT
- * `npm run test:quote-archive` — its own file per R-018. [[QT-51]].
+ * `npm run test:quote-archive` — its own file per R-018. [[QT-52]].
  *
  * Addie, 2026-10-13: "Awaiting responses in quotes should go in archive after 30 days of
  * sending first email." The ladder ([[QT-49]]) already archived at its third rung, but only
@@ -129,7 +129,7 @@ check('and every one of them stamps the first send', unstamped.length === 0,
 check('a re-quote clears the first-send stamp with the send date — a new price is a new quote',
   /quoteSentAt: null,\r?\n\s*quoteFirstSentAt: null,/.test(admin));
 
-console.log('\n--- The Send text sub-section (QT-53), run ---\n');
+console.log('\n--- The Send text sub-section (QT-54), run ---\n');
 {
   const names = ['daysSince', 'quoteWasSentOut', 'quoteStage', 'quoteFirstSentDays', 'quoteNeedsText'];
   const srcs = names.map(n => extractFn(admin, n));

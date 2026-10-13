@@ -345,7 +345,7 @@ function groupReceiptFailures(rows) {
         const cut = msg.indexOf(': ');
         say('       ! ' + scrub(cut > -1 ? msg.slice(cut + 2) : msg).slice(0, 200));
       });
-      if (n.lastArchiveRunAt) say('   30-day archive (QT-51) last ran   : ' + when(n.lastArchiveRunAt) +
+      if (n.lastArchiveRunAt) say('   30-day archive (QT-52) last ran   : ' + when(n.lastArchiveRunAt) +
         ', archived ' + (n.lastArchiveRunArchived || 0));
     }
     const qs = await db.collection('quotes').limit(MAX_QUOTES).get();
@@ -369,7 +369,7 @@ function groupReceiptFailures(rows) {
     say('     under 10 days since first sent : ' + bands.under10);
     say('     10–19 days                     : ' + bands.d10to19);
     say('     20–29 days                     : ' + bands.d20to29);
-    say('     30 days or more                : ' + bands.d30plus + (bands.d30plus ? '  ← archived on the next 10 AM run (QT-51)' : ''));
+    say('     30 days or more                : ' + bands.d30plus + (bands.d30plus ? '  ← archived on the next 10 AM run (QT-52)' : ''));
     say('     office has been asked to text  : ' + textAsked);
     say('     had the automatic nudge email  : ' + emailed);
   } catch (e) { say('   could not read it: ' + e.message); }

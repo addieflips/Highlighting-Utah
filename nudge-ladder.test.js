@@ -69,14 +69,14 @@ const NOW = Date.UTC(2026, 8, 18);
 const daysAgo = n => ({ toDate: () => new Date(NOW - n * 86400000) });
 const R = (q, w) => rung(q, NOW, w || 10);
 
-/* ⭐ QT-52: TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT — the FIRST send. A re-send or an
+/* ⭐ QT-53: TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT — the FIRST send. A re-send or an
    office nudge rewrites quoteSentAt, and reading that pushed the first nudge back each time. */
-/* ⭐ QT-53: THE EMAIL GOES TEN DAYS AFTER THE TEXT the office marked sent. */
-check('the automatic email is due ten days after the office marked it texted (QT-53)',
+/* ⭐ QT-54: THE EMAIL GOES TEN DAYS AFTER THE TEXT the office marked sent. */
+check('the automatic email is due ten days after the office marked it texted (QT-54)',
   R({ quoteFirstSentAt: daysAgo(30), quoteNudgeTextAskedAt: daysAgo(20), quoteNudgeTextedAt: daysAgo(10) }) === 'email' &&
   R({ quoteFirstSentAt: daysAgo(30), quoteNudgeTextAskedAt: daysAgo(20), quoteNudgeTextedAt: daysAgo(9) }) === null,
   'texted 9 days ago must wait, even though the run asked for the text 20 days ago');
-check('the first nudge counts from the FIRST send, not a later re-send (QT-52)',
+check('the first nudge counts from the FIRST send, not a later re-send (QT-53)',
   R({ quoteFirstSentAt: daysAgo(12), quoteSentAt: daysAgo(2) }) === 'text' &&
   R({ quoteFirstSentAt: daysAgo(8), quoteSentAt: daysAgo(8) }) === null,
   'a quote first emailed 12 days ago and re-sent 2 days ago must be due its first nudge');

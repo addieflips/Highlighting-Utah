@@ -7660,6 +7660,88 @@ function quoteCustomerKeys(){
   quoteCustKeyCacheFor = list;
   return keys;
 }
+/* ⭐ A NEW QUOTE THAT MAY BE A MEMBER WHO MOVED (2026-10-13, [[QT-51]]). Addie: "member made a
+   new quote for themselves even though they already existed in the costumers. This seems to
+   happen a lot", then "Because there address changed". quoteAlreadyACustomer needs the ADDRESS
+   and a contact to match, and somebody who moved always types a new address, so it can never
+   catch them — the card read "First time quote" and Convert would have made a second customer.
+   ⛔ PHONE OR EMAIL ALONE, AND IT ONLY ASKS. Seventeen numbers in the book are shared, fourteen
+   of them a parent and a child at two houses, so a contact match is a QUESTION for the office,
+   never a link made on its own. A person presses "It's them" or "Not them".
+   ⚠ Skipped when the quote is already a re-quote, already matches by address, was already
+   converted, or the office said "Not them" to that customer (`notExistingCustomerIds`). */
+let quoteContactMatchCache = null, quoteContactMatchCacheFor = null;
+function quoteContactMatchIndex(){
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  if(quoteContactMatchCacheFor === list && quoteContactMatchCache) return quoteContactMatchCache;
+  const idx = new Map();
+  const add = function(k, c){ if(!k) return; if(!idx.has(k)) idx.set(k, []); idx.get(k).push(c); };
+  list.forEach(function(c){
+    const d = (c && c.data) ? c.data : null;
+    if(!d) return;
+    const ph = String(d.phone || '').replace(/\D/g, '').slice(-10);
+    if(ph.length === 10) add('p' + ph, c);
+    [d.email, d.email2].forEach(function(e){
+      const em = String(e || '').trim().toLowerCase();
+      if(em.indexOf('@') > 0) add('e' + em, c);
+    });
+  });
+  quoteContactMatchCache = idx;
+  quoteContactMatchCacheFor = list;
+  return idx;
+}
+function quotePossibleExistingCustomers(d){
+  if(!d || d.convertedToCustomerAt || d.quoteArchived) return [];
+  if(isRequote(d) || quoteAlreadyACustomer(d)) return [];
+  const idx = quoteContactMatchIndex();
+  const notThem = new Set((Array.isArray(d.notExistingCustomerIds) ? d.notExistingCustomerIds : []).map(String));
+  const seen = new Set(), out = [];
+  const ph = String(d.phone || '').replace(/\D/g, '').slice(-10);
+  const em = String(d.email || '').trim().toLowerCase();
+  [ph.length === 10 ? 'p' + ph : '', em.indexOf('@') > 0 ? 'e' + em : ''].forEach(function(k){
+    (k && idx.get(k) || []).forEach(function(c){
+      if(seen.has(c.id) || notThem.has(String(c.id))) return;
+      seen.add(c.id);
+      out.push(c);
+    });
+  });
+  return out;
+}
+/* "It's them": the quote becomes an ADDRESS-CHANGE re-quote on their record, carrying what
+   the old record knew exactly as a re-quote raised from the portal does. It does NOT clear the
+   price or the answer — they may already have been priced and approved, and Convert then goes
+   through the ordinary apply-a-re-quote path, which updates the one customer and moves them. */
+function quoteLinkToCustomerUpdates(c){
+  const d = (c && c.data) || {};
+  return {
+    existingCustomerId: c.id,
+    existingCustomerNumber: d.customerNumber || '',
+    existingMeasuredFeet: Number(d.measuredFeet) || 0,
+    existingNumberOfBins: Number(d.numberOfBins) || 0,
+    existingLightsDescription: d.lightsDescription || '',
+    existingLightColors: Array.isArray(d.lightColors) ? d.lightColors : [],
+    existingCustomerAddressChange: true,
+    requoteKind: 'address',
+    changed: {what: 'address', oldAddress: d.address || '', oldPrice: Number(d.housePrice) || 0},
+    linkedToCustomerAt: Date.now()
+  };
+}
+function quoteContactMatchHtml(item){
+  const matches = quotePossibleExistingCustomers(item.data);
+  if(!matches.length) return '';
+  return '<div style="margin-top:8px; background:#FFF4DC; border:1px solid #E8C979; border-radius:10px; padding:8px 12px; font-size:13px;">' +
+    '<strong>Possible existing customer \u2014 did they move?</strong> Their ' +
+    (matches.length === 1 ? 'phone or email matches a customer' : 'phone or email matches ' + matches.length + ' customers') +
+    ' at a different address. Check before converting, or you will make a second customer.' +
+    matches.map(function(c){
+      const cd = c.data || {};
+      return '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">' +
+        '<span>' + (cd.customerNumber ? '#' + esc(cd.customerNumber) + ' ' : '') + '<strong>' + esc(cd.name || '(no name)') + '</strong> \u2014 ' + esc(cd.address || 'no address') + '</span>' +
+        '<button type="button" class="btn btn-gold btn-sm" data-quotelinkcust="' + esc(item.id) + '" data-cust="' + esc(c.id) + '">It\u2019s them \u2014 address change</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-quotenotcust="' + esc(item.id) + '" data-cust="' + esc(c.id) + '">Not them</button>' +
+      '</div>';
+    }).join('') + '</div>';
+}
 function quoteAlreadyACustomer(d){
   if(!d) return false;
   if(typeof isRequote === 'function' && isRequote(d)) return false;
@@ -14009,7 +14091,7 @@ let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
-/* ⭐ THE SEND TEXT SUB-SECTION OF AWAITING RESPONSE ([[QT-53]], 2026-10-13). Addie: "can we
+/* ⭐ THE SEND TEXT SUB-SECTION OF AWAITING RESPONSE ([[QT-54]], 2026-10-13). Addie: "can we
    have a text section that says send text than we mark as texted?", "maybe sub section in
    awaiting response", "Once texted goes back to awaiting response", "It will send nudge email
    10 days after text." 'all' is Awaiting Response as it always was, minus anyone owed a text;
@@ -14017,7 +14099,7 @@ let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this 
 let quoteSendSub = 'all';
 let quoteTextWaitDays = 10;   // follows settings/quoteNudgeAutomation.waitDays once loaded
 /* Days since a quote FIRST went out — the same clock the server's ladder and 30-day archive
-   read ([[QT-51]], [[QT-52]]): quoteFirstSentAt, else the earlier of the two send dates. */
+   read ([[QT-52]], [[QT-53]]): quoteFirstSentAt, else the earlier of the two send dates. */
 function quoteFirstSentDays(d){
   if(d && d.quoteFirstSentAt) return daysSince(d.quoteFirstSentAt);
   const ds = [daysSince(d && d.quoteSentAt), daysSince(d && d.quoteManuallySentAt)].filter(function(x){ return x !== null; });
@@ -14026,7 +14108,7 @@ function quoteFirstSentDays(d){
 /* Who is owed a text: still unanswered, quiet for the wait since the quote email first went
    out, not yet texted, and not already past the text rung (the automatic email has gone).
    ⚠ AN APPROVED QUOTE WAITING ON ITS FORM IS NOT OWED ONE — they answered. */
-/* ⭐ MARK AS TEXTED ([[QT-53]]). Writes quoteNudgeTextedAt — the server's ladder sends the
+/* ⭐ MARK AS TEXTED ([[QT-54]]). Writes quoteNudgeTextedAt — the server's ladder sends the
    automatic nudge email that many days after it — and the rung-one stamp if the 10 AM run
    never wrote it, so the ladder knows the text step is done whether or not the automation
    was on when it fell due. The mirror is updated first so the row moves back to Awaiting
@@ -14089,7 +14171,7 @@ let showArchivedQuotes = false; // Closed tab: swap between converted and archiv
 function quoteWasSentOut(d){
   return !!(d && (d.quoteSentAt || d.quoteManuallySent));
 }
-/* ⭐ WHEN THE QUOTE FIRST WENT OUT ([[QT-51]], 2026-10-13). Addie: "Awaiting responses in
+/* ⭐ WHEN THE QUOTE FIRST WENT OUT ([[QT-52]], 2026-10-13). Addie: "Awaiting responses in
    quotes should go in archive after 30 days of sending first email." quoteSentAt cannot
    answer that — the office's own Nudge button rewrites it, and so does every re-send — so
    the FIRST send is stamped once and never moved. Every door that sends or marks a quote
@@ -14721,7 +14803,7 @@ function renderQuoteStageControls(){
         '<button type="button" class="btn btn-sm '+(quoteSendSub === 'text' ? 'btn-gold' : 'btn-outline')+'" data-quotesendsub="text">Send text ('+owed.length+')</button>'+
       '</div>';
     if(quoteSendSub === 'text'){
-      /* ⭐ THE TEXT LIST ([[QT-53]]). A person sends the text from their own phone — the app
+      /* ⭐ THE TEXT LIST ([[QT-54]]). A person sends the text from their own phone — the app
          sends no SMS here — so each row is the number to text and a button to say it was. */
       el.innerHTML = subTabs +
         '<div style="background:#EEF4FF; border:1px solid #C7D7F5; border-radius:10px; padding:11px 14px; font-size:13px;">'+
@@ -16106,7 +16188,7 @@ function renderQuotesList(){
         return days !== null && days >= quoteQuietDays;
       });
     }
-    /* ⭐ QT-53: somebody owed a text sits under Send text, not Awaiting Response, until it
+    /* ⭐ QT-54: somebody owed a text sits under Send text, not Awaiting Response, until it
        is marked done — then they come back here. One rule decides both halves. */
     filtered = filtered.filter(function(item){
       return (quoteSendSub === 'text') === quoteNeedsText(item.data);
@@ -17911,6 +17993,7 @@ function renderQuoteRows(filtered){
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        quoteContactMatchHtml(item)+
         /* ⭐ THE CONTACT DETAILS ARE EDITABLE HERE, AND ONLY HERE. Until
            2026-08-19 a quote card could change the feet, the price, the set-up
            fee and the status - and nothing else. Name, phone and email were
@@ -19437,6 +19520,39 @@ function renderQuoteRows(filtered){
   /* ⭐ EDIT CONTACT. Opens and closes the row without a re-render, the same
      way the pricing panel does - re-rendering would throw away anything half
      typed in the boxes it is about to show. */
+  /* [[QT-51]] — the two answers to "Possible existing customer". */
+  list.querySelectorAll('[data-quotelinkcust]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const qid = btn.dataset.quotelinkcust, cid = btn.dataset.cust;
+      const c = (jobAddresses || []).find(function(x){ return x.id === cid; });
+      if(!c) return toast('That customer is no longer on file.');
+      const cd = c.data || {};
+      if(!confirm('Treat this quote as ' + (cd.name || 'this customer') + (cd.customerNumber ? ' #' + cd.customerNumber : '') +
+        ' moving to the new address?\n\nIt moves to Re-quotes as an address change. Converting it then updates their existing record ' +
+        '\u2014 it does not make a second customer.')) return;
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'quotes', qid), quoteLinkToCustomerUpdates(c));
+        toast('Linked to ' + (cd.name || 'their record') + ' \u2014 it is in Re-quotes now.');
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not link the quote to the customer:', err);
+        alert('Could not link it: ' + ((err && err.message) || err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-quotenotcust]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      btn.disabled = true;
+      try{
+        await updateDoc(doc(db, 'quotes', btn.dataset.quotenotcust), {notExistingCustomerIds: arrayUnion(btn.dataset.cust)});
+      }catch(err){
+        btn.disabled = false;
+        console.error('Could not save "Not them":', err);
+        alert('Could not save that: ' + ((err && err.message) || err));
+      }
+    });
+  });
   list.querySelectorAll('[data-contacttoggle]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const id = btn.dataset.contacttoggle;
@@ -21256,7 +21372,7 @@ function phoneNotTextedYet(items){
   });
   return out;
 }
-async function phoneBatchOpen(host, key, current){
+async function phoneBatchOpen(host, key, current, extraOpts){
   if(!host) return {saved: false, count: 0};
   const who = (auth && auth.currentUser && auth.currentUser.email) || '';
   const saved = await phoneRunLoad(key);
@@ -21267,9 +21383,12 @@ async function phoneBatchOpen(host, key, current){
     markTexted: function(nums, on, o){ return phoneMarkTexted(nums, on, o); },
     fresh: function(){
       const c = current();
-      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null, textedOut: c.textedOut || 0}));
+      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null,
+        textedOut: c.textedOut || 0, textedIn: c.textedIn || 0}));
     }
   };
+  /* RS-80: `keepTexted` — a new list holds everybody pending, texted or not. */
+  if(extraOpts) Object.assign(opts, extraOpts);
   if(saved){
     const extra = phoneRunNewPeople(saved, now.numbers, now.names);
     phoneBatchRender(host, now.numbers, phoneRunFirstOpen(saved), now.names,
@@ -21277,7 +21396,7 @@ async function phoneBatchOpen(host, key, current){
     return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
   }
   if(!now.numbers.length) return {saved: false, count: 0};
-  phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0}));
+  phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0, textedIn: now.textedIn || 0}));
   return {saved: false, count: now.numbers.length};
 }
 async function phoneRunPersist(host){
@@ -21340,7 +21459,7 @@ function phoneBatchRender(host, numbers, index, names, opts){
         (typeof opts.fresh === 'function'
           ? '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start a new list</button>' : '') +
       '</div>' +
-      (typeof opts.markTexted === 'function'
+      (typeof opts.markTexted === 'function' && !opts.keepTexted
         ? '<details style="margin-top:8px; font-size:12.5px;"><summary style="cursor:pointer;">Already texted some of these? Paste their numbers to take them off</summary>' +
           '<textarea data-pb="paste" rows="3" placeholder="One number per line, or separated by commas" style="width:100%; margin-top:6px; font-family:monospace; font-size:12.5px;"></textarea>' +
           '<button type="button" class="btn btn-outline btn-sm" data-pb="markpaste" style="margin-top:6px;">Mark them as already texted</button> ' +
@@ -21527,6 +21646,9 @@ function phoneBatchShow(host, index){
     const textedOut = (host._phoneOpts && host._phoneOpts.textedOut) || 0;
     if(textedOut && !(host._phoneOpts && host._phoneOpts.run)) t += '  ' + textedOut + ' already texted this season ' +
       (textedOut === 1 ? 'is' : 'are') + ' left out.';
+    const textedIn = (host._phoneOpts && host._phoneOpts.textedIn) || 0;
+    if(textedIn && !(host._phoneOpts && host._phoneOpts.run)) t += '  Everybody still pending is on it, texted or not \u2014 ' +
+      textedIn + ' of them ' + (textedIn === 1 ? 'was' : 'were') + ' already texted this season.';
     if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
       (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
     note.textContent = t;
@@ -21556,12 +21678,18 @@ async function rsvpCopyPhones(){
   const res = rsvpPhoneListRows(rsvpLinkSheetTargets());
   const host = document.getElementById('rsvpPhonesBatch');
   /* RS-75: the saved list if there is one — never re-cut from who is pending today. */
+  /* ⭐ EVERYBODY STILL PENDING, TEXTED OR NOT (2026-10-13, [[RS-80]]). Addie: "It only shows
+     257 people that need to be texted but I want it to show everyone that is still on hold
+     texted or not when I push start a new list." This REVERSES [[RS-78]]'s leave-them-out for
+     THIS list only (R-024): a reminder round goes to everybody who has not answered, and the
+     card above already counts them all. The Sent tick still stamps `rsvpTextedAt`, and the
+     Automation Emails list still leaves texted people out — she named this one. */
   const opened = await phoneBatchOpen(host, 'rsvp', function(){
-    /* RS-78: nobody already texted this season. */
-    const pick = phoneNotTextedYet(rsvpLinkSheetTargets());
-    const r = rsvpPhoneListRows(pick.items);
-    return {numbers: r.numbers, names: r.names, textedOut: pick.textedOut};
-  });
+    const all = rsvpLinkSheetTargets();
+    const r = rsvpPhoneListRows(all);
+    const textedIn = all.filter(function(it){ return rsvpTextedThisSeason((it && it.data) || {}); }).length;
+    return {numbers: r.numbers, names: r.names, textedIn: textedIn};
+  }, {keepTexted: true});
   if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;
@@ -45923,6 +46051,17 @@ const HLX_STATE_TABS = [
 async function hlxNamesAlreadyOnTab(tabName){
   const handle = await hlxSheetHandleLoad();
   if(!handle) return null;
+  /* ⚠ ASK BEFORE READING (2026-10-13). After a reload the saved file handle has no
+     permission until it is asked again, and getFile() on it throws "The request is not
+     allowed by the user agent" — which is what Delete Customer hit, because this read ran
+     before hlxAppendRowsToSheet ever asked. Read AND write, so the one prompt also covers
+     the append that follows. */
+  if(handle.queryPermission){
+    let state = await handle.queryPermission({mode: "readwrite"});
+    if(state !== "granted" && handle.requestPermission) state = await handle.requestPermission({mode: "readwrite"});
+    if(state !== "granted") throw new Error("Chrome would not let me open the master sheet " + String.fromCharCode(8212) +
+      " press the button again and choose Allow");
+  }
   const file = await handle.getFile();
   const entries = await hlxUnzipAll(await file.arrayBuffer());
   const part = hlxSheetPartFor(entries, tabName);
@@ -60361,7 +60500,8 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   } catch(err){
     if(!confirm("They could not be added to the Recycle sheet " + String.fromCharCode(8212) + " " +
       ((err && err.message) || "the sheet is not connected on this computer") +
-      "\n\nRemove them anyway? Nothing will be left saying their lights need pulling apart.")){
+      "\n\nRemove them anyway? They still go to Archive and to the Recycle list on the Warehouse tab " +
+      String.fromCharCode(8212) + " only the Excel Recycle sheet will be missing them, so add them there by hand.")){
       return {removed: false, reason: "stopped at the Recycle sheet"};
     }
   }
@@ -78707,6 +78847,19 @@ function rebuildSeasonDays(){
           takeOffPrintedDay(d, h); PRINTED_UNBUILT_OFF.push({name:h.name||'(no name)', date:isoOf(dt)});
         }
       });
+      /* ⭐ [[SCH-130]] a finished house leaves a locked day for the front of the season too. Dax, 2026-10-13: "all the
+         people that are done didnt get pushed to the front". A house ticked done ahead of its date sat on a locked day
+         taking a place the crew could not use. The day keeps every house still to hang — nothing moves on, nothing
+         unfinished moves off — and a day left with nothing to hang is dropped. */
+      /* ⚠ ONLY WHEN THERE IS A FRONT TO GO TO. On the first morning there is no working date before today, the record
+         below keeps every day where it was, and a split-off record would have no day to land on. */
+      const doneHere=(nextWorkingDay(start)<today)?(d.houses||[]).filter(function(h){ return h.done && !h.isFix && !h.isTakedown; }):[];
+      if(doneHere.length){
+        doneRecord.push({id:d.id+'-done', dt:dt, houses:doneHere});
+        const left=(d.houses||[]).filter(function(h){ return doneHere.indexOf(h)===-1; });
+        if(!left.length) return;
+        d=Object.assign({}, d, {houses:left});
+      }
       locked.push(d); keep.push(d); return;
     }
     const worked=isGone(dt)||houses.some(function(h){return h.done;});
@@ -78752,7 +78905,8 @@ function rebuildSeasonDays(){
      date from today on belongs to the locked days or the new plan. More done than those dates hold: the rest go on the
      last of them — a record day is never driven, so a big one costs nothing. No date before today at all (the first
      morning of the season): the old behaviour, each day kept where it was.
-     ⚠ A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
+     ⛔ SUPERSEDED BY [[SCH-130]] (2026-10-13): a locked day's DONE houses come here too; only its unfinished houses stay
+     put. The old line read: A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
      customer's record: done houses are hidden (SCH-119), so schedulePlanBookings never re-stamps their date, and when
      their lights went up is `completedAt`, not the day they sit on. */
   if(doneRecord.length){
@@ -78889,6 +79043,13 @@ function rebuildSeasonDays(){
   let heldToLater = 0;
   try{ if(typeof customersHeldToALaterDay === 'function') heldToLater = customersHeldToALaterDay().length; }
   catch(err){ console.error('Could not count who is held to a later day:', err); }
+  /* ⭐ [[SCH-130]] NOTHING LEFT TO PLACE IS NOT NOTHING TO SAVE. Late in the season every house can be done or on a set
+     day, and this exit used to leave SEASON exactly as it was — so the finished houses packed to the front above never
+     reached the plan and sat on the day they were ticked. Keep what was kept; only when no fix is riding along, since
+     riders need a built day to sit on. */
+  if(!movable.length && !riders.length && doneRecord.length){
+    BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
+  }
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
     : locked.length
@@ -80127,6 +80288,34 @@ function mergeShortOpenDays(){
   if(typeof computeDates === 'function') computeDates();
   return res;
 }
+/* [[SCH-130]] the nearest open day on or before `until` that may legally take `h` and has room — see pullBackPastDeadline. */
+function deadlineNearestDayFor(h, fromDay, until){
+  if(typeof SEASON === 'undefined' || !SEASON.length || !until) return null;
+  const startStr = isoOf(seasonStartDate());
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const cd = (c && c.data) || {};
+  const pt = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, cd) : null;
+  const todayStr = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  let best = null;
+  SEASON.forEach(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown) return;
+    const dt = dayDate(d); if(!dt) return;
+    const ds = isoOf(dt);
+    if(ds > until || ds <= todayStr) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
+    if(d.printedAt) return;
+    const live = (d.houses || []).filter(function(x){ return x && !x.done && !x.hiddenDone; }).length;
+    if(live >= cap) return;
+    const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    if(lim === 'man' && live >= ((typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8)) return;
+    if(lim === 'crew' && live >= ((typeof crewCap === 'function') ? crewCap() : 20)) return;
+    if(typeof houseMayGoOn === 'function' && !houseMayGoOn(h, cd, ds, startStr).ok) return;
+    const miles = milesFromDay(d, pt);
+    if(!best || miles < best.miles || (miles === best.miles && ds < best.ds)) best = {day: d, ds: ds, miles: miles};
+  });
+  return best;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -80153,6 +80342,17 @@ function pullBackPastDeadline(){
             day.houses.splice(day.houses.indexOf(h), 1, swap.other);
             swap.day.houses.splice(swap.day.houses.indexOf(swap.other), 1, h);
             res.moved.push({name: h.name || '(no name)', from: ds, to: swap.ds, swappedWith: swap.other.name || ''});
+            return;
+          }
+          /* ⭐ [[SCH-130]] AND LAST, THE NEAREST LEGAL DAY WITH ROOM, WHATEVER TOWNS IT HOLDS. nextInstallDayFor still
+             honours the old four-towns-a-day count, which [[SCH-129]] retired for crews ("geography matters more than
+             city labels") — so a Before Thanksgiving customer sat on 27 November while 25 November had room. A last day
+             is a promise; the town count is not. Locked, printed, away and full days are still refused. */
+          const near = deadlineNearestDayFor(h, day, until);
+          if(near){
+            day.houses.splice(day.houses.indexOf(h), 1);
+            near.day.houses.push(h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: near.ds});
             return;
           }
           res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;

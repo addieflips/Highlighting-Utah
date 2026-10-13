@@ -68,7 +68,7 @@ const READS = [
      deliberate line in this list exactly as the note above demands — that is what
      stops a WRITE ever arriving as "one more use of db". */
   ["the invoices",       /\bdb\s*\.collection\(\s*'invoices'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/],
-  /* Reads six and seven, added 2026-10-13 for "are the nudges working?" ([[QT-51]]):
+  /* Reads six and seven, added 2026-10-13 for "are the nudges working?" ([[QT-52]]):
      the nudge automation's own last-run record, and the quotes it chases. */
   ["the nudge switch",   /\bdb\s*\.collection\(\s*'settings'\s*\)\s*\.doc\(\s*'quoteNudgeAutomation'\s*\)\s*\.get\(\s*\)/],
   ["the quotes",         /\bdb\s*\.collection\(\s*'quotes'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/]

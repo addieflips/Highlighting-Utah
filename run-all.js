@@ -2053,6 +2053,10 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
   eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
   eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
+  /* QT-51: the possible-existing-customer banner, lifted, never stubbed. */
+  global.quoteContactMatchCache = null; global.quoteContactMatchCacheFor = null;
+  ['quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteContactMatchHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -17593,7 +17597,10 @@ suite('Suite 48. Days within two working days are set');
      which no longer cares which), and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
     (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
-     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin) ||
+     /* [[SCH-130]] (2026-10-13) the only other thing that leaves a set day is a house already DONE, and it goes to
+        the record at the front of the season — never to the pool. Everything still to hang stays and returns. */
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,1200}?const doneHere=[\s\S]{0,120}?\(d\.houses\|\|\[\]\)\.filter\(function\(h\)\{ return h\.done && !h\.isFix && !h\.isTakedown; \}\)[^;]*;\s*if\(doneHere\.length\)\{\s*doneRecord\.push\([\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
     'the return is the important part: without it the houses fall through into the pool and get a second day');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',
@@ -64402,8 +64409,9 @@ suite('350. The numbers on their own, and the people who have none');
   check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
-    /* REPOINTED again 2026-09-24 (RS-78): the pending people are first narrowed to those not texted yet. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const pick = phoneNotTextedYet\(rsvpLinkSheetTargets\(\)\);\s*const r = rsvpPhoneListRows\(pick\.items\);\s*return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(copyFn) &&
+    /* REPOINTED again 2026-10-13 (RS-80, superseding RS-78 here): everybody pending, texted or not. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true\}\);/.test(copyFn) &&
+    !/phoneNotTextedYet/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -65004,7 +65012,7 @@ suite('356. Names next to the numbers, number first');
   const strippedA = stripComments(admin);
   check('S356', 'both copy buttons hand the names over',
     /* REPOINTED 2026-09-24 (RS-75): both now open the panel through phoneBatchOpen. */
-    /return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
+    /return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};/.test(strippedA) &&
     /return \{numbers: s\.numbers, names: s\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
     /phoneBatchRender\(host, c\.numbers, 0, c\.names,/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
@@ -65410,8 +65418,14 @@ suite('364. Texted people stay off every new list');
   check('S364', 'ticking a batch Sent writes it on each customer too',
     /const r = await opts\.markTexted\(\(b && b\.numbers\) \|\| \[\], on\);/.test(panel),
     'a tick kept only on the list is lost the moment she presses Start a new list — which is what happened');
-  check('S364', 'both copy buttons build new lists from people not texted yet',
-    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 2);
+  /* NARROWED 2026-10-13 (RS-80): only the Automation Emails list leaves texted people out now;
+     Text the RSVP's new list is everybody still pending, texted or not. */
+  check('S364', 'the Automation Emails list builds new lists from people not texted yet',
+    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 1 &&
+    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\)/.test(stripped));
+  check('S364', 'Text the RSVP\'s new list keeps everybody pending, and hides the take-them-off box',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true\}\);/.test(stripped) &&
+    /typeof opts\.markTexted === 'function' && !opts\.keepTexted/.test(panel));
   check('S364', 'the paste box and the up-to-a-name box are both wired',
     /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
     /if\(!confirm\('Mark the first '/.test(panel));
@@ -66423,4 +66437,84 @@ suite('377. A fix takes several photos and can be edited after it is saved');
     !/fixPhotoUrl: currentFixPhotoUrl/.test(admin) && /note-editfix/.test(admin));
   const pr = extractFn(admin, 'printFixPhotos') || '';
   check('S377', 'the crew sheet prints every fix photo, numbered', /fixPhotosOf\(d\)/.test(pr) && /' of ' \+ urls\.length/.test(pr));
+}
+/* =====================================================================
+ * Suite 378. Delete Customer could not reach the Excel Recycle sheet
+ * (2026-10-13). hlxNamesAlreadyOnTab read the saved file handle before
+ * anything asked for permission, so after a reload getFile() threw "The
+ * request is not allowed by the user agent". RUNS the reader against a
+ * handle that refuses getFile until permission is granted.
+ * ===================================================================== */
+suite('378. The Recycle sheet read asks for permission first');
+{
+  const src = extractFn(admin, 'hlxNamesAlreadyOnTab');
+  check('S378', 'the reader was found', !!src);
+  if (src) {
+    pendingAsync.push((async function () {
+      let granted = false, asked = 0;
+      const handle = {
+        queryPermission: async () => (granted ? 'granted' : 'prompt'),
+        requestPermission: async () => { asked++; granted = true; return 'granted'; },
+        getFile: async () => { if (!granted) throw new Error('The request is not allowed by the user agent'); return { arrayBuffer: async () => new ArrayBuffer(0) }; }
+      };
+      const F = new Function('hlxSheetHandleLoad', 'hlxUnzipAll', 'hlxSheetPartFor',
+        'return async ' + src + ';')(async () => handle, async () => ({}), () => null);
+      let err = null, out;
+      try { out = await F('Recycle'); } catch (e) { err = e; }
+      check('S378', 'a handle with no permission yet is asked, then read', !err && asked === 1 && out === null,
+        err ? err.message : 'asked ' + asked);
+    })());
+  }
+  check('S378', 'the delete prompt no longer claims nothing will say their lights need pulling apart',
+    !/Nothing will be left saying their lights need pulling apart/.test(admin) &&
+    /They still go to Archive and to the Recycle list on the Warehouse tab/.test(admin));
+}
+/* =====================================================================
+ * Suite 379. A new quote from a member who moved is flagged (2026-10-13,
+ * QT-51). Addie: "member made a new quote for themselves even though they
+ * already existed in the costumers ... Because there address changed".
+ * RUNS the matcher and the link payload against a small book.
+ * ===================================================================== */
+suite('379. A quote from a member who moved is flagged, never linked on its own');
+{
+  const names = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer', 'isRequote',
+    'quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteLinkToCustomerUpdates'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S379', 'the matcher was found', srcs.every(Boolean), names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean)) {
+    const book = [
+      { id: 'megan', data: { name: 'Megan Moore', customerNumber: '993', phone: '(949) 510-0692', email: 'megnmoore1@gmail.com',
+        address: '22 Old Rd, Lehi, UT', measuredFeet: 180, numberOfBins: 1, lightsDescription: 'Warm White', housePrice: 216 } },
+      { id: 'parent', data: { name: 'Pat Parent', phone: '8015550111', address: '1 Elm St, Orem, UT' } },
+      { id: 'child', data: { name: 'Kid Parent', phone: '801-555-0111', address: '2 Oak Ave, Orem, UT' } }
+    ];
+    const F = new Function('jobAddresses', 'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null; let quoteContactMatchCache = null, quoteContactMatchCacheFor = null;' +
+      srcs.join('\n') + ';return { quotePossibleExistingCustomers, quoteLinkToCustomerUpdates };')(book);
+    const moved = { name: 'Megan Moore', phone: '9495100692', email: 'megnmoore1@gmail.com', address: '1461 S 10 E, Salem 84653' };
+    const m = F.quotePossibleExistingCustomers(moved);
+    check('S379', 'a quote at a new address with a member\'s phone and email names that member once', m.length === 1 && m[0].id === 'megan');
+    check('S379', 'the email alone is enough to ask', F.quotePossibleExistingCustomers({ email: 'MegnMoore1@gmail.com ', address: 'x' }).length === 1);
+    check('S379', 'a shared phone lists BOTH households for a person to choose, never one picked silently',
+      F.quotePossibleExistingCustomers({ phone: '18015550111', address: '9 New St' }).map(c => c.id).sort().join() === 'child,parent');
+    check('S379', '"Not them" takes that customer off the question',
+      F.quotePossibleExistingCustomers(Object.assign({ notExistingCustomerIds: ['megan'] }, moved)).length === 0);
+    check('S379', 'a quote already linked, converted or archived asks nothing',
+      F.quotePossibleExistingCustomers(Object.assign({ existingCustomerId: 'megan' }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ convertedToCustomerAt: 1 }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ quoteArchived: true }, moved)).length === 0);
+    check('S379', 'a stranger with no matching contact asks nothing',
+      F.quotePossibleExistingCustomers({ phone: '3855550000', email: 'new@x.com', address: '5 A St' }).length === 0);
+    const up = F.quoteLinkToCustomerUpdates(book[0]);
+    check('S379', '"It\'s them" makes it an address-change re-quote on that record, carrying what the record knew',
+      up.existingCustomerId === 'megan' && up.existingCustomerNumber === '993' && up.requoteKind === 'address' &&
+      up.existingCustomerAddressChange === true && up.existingMeasuredFeet === 180 && up.changed.what === 'address' &&
+      up.changed.oldAddress === '22 Old Rd, Lehi, UT');
+    check('S379', 'and leaves the price and the answer alone', !('quotedPrice' in up) && !('approvalStatus' in up));
+  }
+  const stripped = stripComments(admin);
+  check('S379', 'the card draws the question and both answers are wired',
+    /quoteContactMatchHtml\(item\)\+/.test(stripped) &&
+    /querySelectorAll\('\[data-quotelinkcust\]'\)/.test(stripped) && /querySelectorAll\('\[data-quotenotcust\]'\)/.test(stripped) &&
+    /updateDoc\(doc\(db, 'quotes', qid\), quoteLinkToCustomerUpdates\(c\)\)/.test(stripped) &&
+    /notExistingCustomerIds: arrayUnion\(/.test(stripped));
 }
