@@ -183,6 +183,7 @@ function otherRecord(ix, I, pos, spine) {
  *
  * A spine may carry `only: [{ rule, pattern, unless?, where, why, allow: [...] }]`.
  *   pattern  a regex matched against the COMMENT-BLANKED source of every scanned file
+ *   unlessInFn  a regex the enclosing function (or the line, in a handler) may match to excuse it
  *   unless   a regex tested against the matched text; a match it accepts is not a breach
  *            (used for "writes null", which is a clear rather than a booking). A capture
  *            group, never a negative lookahead after `\s*` — that backtracks and accepts
@@ -240,6 +241,17 @@ function onlyRows(ix, spine, rows, declared) {
       while ((m = re.exec(I.blanked))) {
         if (m[0].length === 0) { re.lastIndex++; continue; }
         if (unless && unless.test(m[0])) continue;
+        /* `unlessInFn`: excused when the code AROUND the match also does the right thing —
+           the smallest named function containing it, or, inside an anonymous handler
+           where there is no function to read, the line itself. Written for the colour
+           census: reading lightsDescription is fine when the same function also reads
+           lightColors or asks houseLightsText. */
+        if (o.unlessInFn) {
+          const f = fnRange(I, m.index);
+          const around = f ? I.blanked.slice(f.start, f.end)
+            : I.blanked.slice(I.blanked.lastIndexOf('\n', m.index) + 1, I.blanked.indexOf('\n', m.index));
+          if (new RegExp(o.unlessInFn).test(around)) continue;
+        }
         if (inAny(allowed[fk] || [], m.index)) continue;
         rows.push({ side: 'sets', where: o.where, when: 'nobody else may do this', file: fk,
           anchor: fk + ' · ' + (enclosing(I, m.index) || '(a handler)'), rules: [o.rule],

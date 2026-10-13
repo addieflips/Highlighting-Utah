@@ -17,10 +17,7 @@ const NOT_WATCHED = [
      on which day inside the Schedule — and the crew-routes documents fix and removal
      routes are still saved to. */
   ['scheduledRoutes', 'the saved fix and removal routes, and the Schedule plan itself (the hang day on a customer IS watched)'],
-  ['lightColors / lightsDescription', 'what colours a house gets'],
-  ['difficulty', 'the easy / medium / hard grade'],
   ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
-  ['outletTimer', 'whether a house asked for a timer'],
   /* ⭐ THE FIVE DATES ADDED 2026-08-28, AND WHY THEY ARE HERE RATHER THAN ON THE GRID.
    * Addie asked whether this page had picked them up. It had not, and writing the spines
    * is how the real reason surfaced: R-010 refuses a spine with a writer and no reader,
@@ -1531,6 +1528,133 @@ module.exports = [
       { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'the office finds who has no gate code' },
       { file: 'admin', fn: 'resolveLinkTokens', where: 'Automation Emails › Recipients', when: 'an email is filled in' },
       { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a yes decides whether to ask for one' }
+    ]
+  },
+  /* ⭐ BATCH 3 (2026-10-13): light colours, the timer, the difficulty grade. */
+
+  /* ⭐ LIGHT COLOURS LIVE IN TWO FIELDS, AND EVERY READER MUST READ BOTH.
+   * `rbDetectColorsAndPattern` only fills `lightsDescription` when a colour REPEATS (an
+   * alternating pattern, where the order matters); an ordinary house keeps its colours in
+   * `lightColors` with the description EMPTY. Four warehouse readers once tested the
+   * description alone, so every ordinary house was called blocked and had NO BULBS
+   * ordered; the $30 fee did the same and let the whole book change colours for free
+   * ([[WH-28]]). `houseLightsText` / `houseLightsTextServer` are the one answer.
+   * ⛔ SO THE `only` RULE IS A CENSUS OF ONE-FIELD READERS: reading the description is red
+   * unless the same function also reads `lightColors` or asks `houseLightsText`. Writing it
+   * found FOUR more — the re-quote card's "on file" line, the buffer-stock picker, the
+   * Routes tab's stop list and the portal's houses-on-this-bill list — all fixed in the
+   * same change by asking the one answer. */
+  {
+    field: 'lightsDescription',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
+    title: 'Light colours',
+    plain: 'What colours a house gets — in lightsDescription when the order matters, lightColors when it does not.',
+    guard: 'warehouse-colours.test.js, money-parity.test.js (the $30 change fee)',
+    states: [
+      ['A pattern (a colour repeats)', 'The description, in order'],
+      ['Ordinary colours', 'The list, with the description EMPTY'],
+      ['Nothing on file', 'Built under Check lights (WH-41)'],
+      ['Changed by a member', 'Re-queued for the warehouse, and the $30 rule decides']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
+        rules: ['Never wipes colours the form could not show (2026-08-26).'] },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the house-details panel is saved' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Build', when: 'a warehouse request changes them' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their own colours' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'houseLightsText', where: 'Warehouse › Build', when: 'anything asks what colours a house has',
+        rules: ['THE answer — the build queue, the bulb order, the pending count and the sheets all ask it.'] },
+      { file: 'server', fn: 'houseLightsTextServer', where: 'Member Portal › My Lights', when: 'the $30 change fee is decided',
+        rules: ['The same rule on the server; a first-time fill is not a change and is not charged.'] },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the Lights filter runs',
+        rules: ['Reads the RAW record so the soft-light switching list survives (2026-08-24).'] },
+      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the sheet' }
+    ],
+    only: [
+      {
+        rule: 'Every reader of the colours reads BOTH fields, or asks houseLightsText (WH-28).',
+        where: 'Warehouse › Build',
+        pattern: '\\.lightsDescription\\b(?!\\s*=[^=])',
+        unlessInFn: '\\blightColors\\b|\\bhouseLightsText(?:Server)?\\b',
+        why: 'reads lightsDescription alone — an ordinary house keeps its colours in lightColors with the description EMPTY, so this sees no colours for most of the book',
+        allow: [
+          { file: 'admin', fn: 'hcRunChecks', why: 'Health Check’s "colours written as words" row inspects the free text itself, which only the description holds.' },
+          { file: 'admin', fn: 'buildAddressRowHtml', why: 'Only decides whether to draw a house-details expander; the expander itself reads both.' }
+        ]
+      }
+    ]
+  },
+
+  /* ⭐ THE TIMER. A timer ALONE is not a light build ([[WH-27]]) and a timer coming out is
+   * its own job ([[WH-34]]) — the second has to be a stored flag written at BOTH doors
+   * (`whTimerCameOff` in the office, `whTimerCameOffServer` in the portal), because
+   * "used to want one" is readable off nothing once the save lands. */
+  {
+    field: 'outletTimer',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
+    title: 'Timer',
+    plain: 'Whether a house wants a timer in its bin.',
+    guard: 'run-all Suites 108 and 133 (WH-27, WH-34)',
+    ignore: ['^(rbCollectMissingCustomers|quoteSaveDetails|memberPrefill)$'],
+    states: [
+      ['Yes', 'A timer goes in the bin — on the Timers list'],
+      ['Yes, and no colours', 'Timer-only: its own queue, never parked as a light build (WH-27)'],
+      ['Yes → No', 'On the Remove Timer list (WH-34), from either door'],
+      ['Changed on a house with colours', 'A rebuild, like any warehouse field']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Build', when: 'a timer is added from the warehouse' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'whTimerOnlyQueue', where: 'Warehouse › Build', when: 'a save decides timer-only vs a light build',
+        rules: ['A timer alone on a house with no colours is not a light build (WH-27).'] },
+      { file: 'admin', fn: 'whTimerCameOff', where: 'Customers › All Customers', when: 'the office switches a timer off',
+        rules: ['Must be written at the moment of the save — nothing can work it out later (WH-34).'] },
+      { file: 'server', fn: 'whTimerCameOffServer', where: 'Member Portal › My Lights', when: 'a customer switches their own timer off' },
+      { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the Timers list is drawn' },
+      { file: 'admin', fn: 'whSheetRowsForBuild', where: 'Schedule › Printing', when: 'the build sheet prints',
+        rules: ['Both timer jobs reach paper — a removal reads TAKE OUT, never YES.'] },
+      { file: 'admin', fn: 'printCrewRow', where: 'Schedule › Printing', when: 'the crew sheet prints' }
+    ]
+  },
+
+  /* ⭐ THE DIFFICULTY GRADE, ON THE CUSTOMER. The measure tool's grade lives on the QUOTE
+   * (`measurement.difficulty`, saved by rmSaveGrade / rmCommitPayload) and is excluded
+   * here — two records, and the quote's half is about pricing, not the crew. */
+  {
+    field: 'difficulty',
+    areas: ['Customers'], record: 'cust',
+    title: 'Difficulty grade',
+    plain: 'Easy, medium or hard — how much work a house is for a crew.',
+    ignore: ['^(rm[A-Z].*|wireRoofMeasure|quoteDifficultyGrade)$',
+             '^(nearestNeighborOrder|pickClustered|pickClusteredSimple|findNearbyMissedHouses|renderOverviewMap|renderRouteMap|renderRouteOrderedList|renderRouteAddressList)$'],
+    states: [
+      ['Graded', 'Shown on the customer and copied onto their route stop'],
+      ['Unrated', 'What an import writes when the sheet has no grade']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the grade is picked on a row' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds somebody' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the list is drawn or filtered' },
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' }
     ]
   },
 ];
