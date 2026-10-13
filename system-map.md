@@ -7159,6 +7159,12 @@ manifest, named one by one), test-record tools (`quiet`, each with its reason, r
 ever stops matching), and a name between the halves of a ternary. `connections.test.js` plants
 each from the other side so none can widen into a blanket excuse.
 
+⭐ **A NUDGE IS NOT THE FIRST SEND ([[QT-55]], 2026-10-13).** Both office Nudge buttons used to
+stamp an old quote's first send as the moment of the nudge (and overwrite `quoteSentAt` in the
+same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory` keeps the
+earliest send already on the record. Quotes nudged before this have lost that date; archive
+them by hand from the quote card.
+
 ⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
 `admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
 that runs both copies side by side, and **Connections › Where things go › Rules written

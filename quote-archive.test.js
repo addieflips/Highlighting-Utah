@@ -113,7 +113,34 @@ check('the pass asks the one rule, and writes the reason the card shows',
 
 console.log('\n--- Every door that sends stamps the first send ---\n');
 check('the stamp helper exists and never overwrites a stamp already there',
-  /function quoteFirstSentStamp\(d\)\{\s*return \(d && d\.quoteFirstSentAt\) \? \{\} : \{quoteFirstSentAt: serverTimestamp\(\)\};/.test(admin));
+  /function quoteFirstSentStamp\(d\)\{\s*if\(d && d\.quoteFirstSentAt\) return \{\};/.test(admin));
+
+/* ⛔ QT-55: a NUDGE is never the first send, and a re-send of an old quote is not either.
+   Run, not matched — the helpers are lifted and fed records shaped like the real ones. */
+{
+  const hist = extractFn(admin, 'quoteFirstSentFromHistory'), stamp = extractFn(admin, 'quoteFirstSentStamp'),
+        tj = extractFn(admin, 'toJsDate');
+  check('the history helper can be lifted', !!hist && !!stamp && !!tj);
+  let H = () => ({}), S = () => ({});
+  try {
+    const mod = new Function('const serverTimestamp = () => "NOW";\n' + tj + '\n' + hist + '\n' + stamp +
+      '\nreturn [quoteFirstSentFromHistory, quoteFirstSentStamp];')();
+    H = mod[0]; S = mod[1];
+  } catch (e) { check('the history helpers run', false, e.message); }
+  const old = new Date(NOW - 40 * DAY), older = new Date(NOW - 45 * DAY);
+  check('a nudge on an old quote stamps its ORIGINAL send, not today',
+    H({ quoteSentAt: old }).quoteFirstSentAt === old);
+  check('and the earlier of the two send dates',
+    H({ quoteSentAt: old, quoteManuallySentAt: older }).quoteFirstSentAt === older);
+  check('a nudge with no send on record stamps nothing — never invents today',
+    !('quoteFirstSentAt' in H({})));
+  check('a stamp already there is never moved', JSON.stringify(H({ quoteFirstSentAt: old, quoteSentAt: older })) === '{}' &&
+    JSON.stringify(S({ quoteFirstSentAt: old })) === '{}');
+  check('a re-send of an old quote keeps its original send too', S({ quoteSentAt: old }).quoteFirstSentAt === old);
+  check('and a genuinely first send stamps now', S({}).quoteFirstSentAt === 'NOW');
+  const nudgeDoors = (admin.match(/quoteLastNudgedAt: serverTimestamp\(\)\r?\n\s*\}, quoteFirstSentFromHistory\(d\)\)\);/g) || []).length;
+  check('both office Nudge buttons use the history stamp', nudgeDoors === 2, 'found ' + nudgeDoors);
+}
 /* Each write that marks a quote sent: quoteSentAt set to a timestamp, or quoteManuallySent
    set true. ⚠ A CENSUS, NOT A FLOOR — a new door is a deliberate edit to this number. */
 const lines = admin.split(/\r?\n/);
@@ -121,7 +148,7 @@ const doors = [];
 lines.forEach((l, i) => {
   if (/quoteSentAt:\s*serverTimestamp\(\)|\{quoteManuallySent: true, quoteManuallySentAt: serverTimestamp\(\)\}/.test(l)) doors.push(i);
 });
-const unstamped = doors.filter(i => !lines.slice(Math.max(0, i - 2), i + 6).join('\n').includes('quoteFirstSentStamp('));
+const unstamped = doors.filter(i => !lines.slice(Math.max(0, i - 2), i + 6).join('\n').match(/quoteFirstSent(?:Stamp|FromHistory)\(/));
 check('there are six doors that mark a quote sent', doors.length === 6,
   'found ' + doors.length + ' — a door added or removed; check it stamps quoteFirstSentAt and change this number');
 check('and every one of them stamps the first send', unstamped.length === 0,
