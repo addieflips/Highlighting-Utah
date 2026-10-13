@@ -1309,14 +1309,19 @@ suite('SCH-116 The day the crew is hanging stands in for today when they are beh
   check('16.5 nor the Oct 6 sheet', dayOfCust('b1') === '2026-10-06', 'b1 on ' + dayOfCust('b1'));
 
   setup(HANG);
+  /* [[SCH-130]] a locked day keeps every house still to HANG exactly as it was; a house already done (a2) goes to the
+     front of the season with the other finished houses. */
   const lockedIds = function(){ return daysOf().filter(function(d){ return ['2026-10-05', '2026-10-06', '2026-10-07'].indexOf(d.ds) !== -1; })
-    .map(function(d){ return d.ds + ':' + d.ids.slice().sort().join(','); }).join(' | '); };
+    .map(function(d){ return d.ds + ':' + d.day.houses.filter(function(h){ return !h.done; }).map(function(h){ return h.id.replace(/^cust-/, ''); }).sort().join(','); }).join(' | '); };
   const lb = lockedIds();
   H.press();
-  check('16.6 Recalculate everything leaves all three locked days exactly as they were', lockedIds() === lb, lb + '  →  ' + lockedIds());
-  check('16.7 and nothing new is ever put on a day that is really already here or gone',
-    daysOf().every(function(d){ return d.ds >= '2026-10-08' || ['d5', 'd6', 'd7'].indexOf(d.day.id) !== -1; }),
+  check('16.6 Recalculate everything leaves every unfinished house on the three locked days exactly where it was', lockedIds() === lb, lb + '  →  ' + lockedIds());
+  check('16.7 and nothing still to hang is ever put on a day that is really already here or gone',
+    daysOf().every(function(d){ return d.ds >= '2026-10-08' || ['d5', 'd6', 'd7'].indexOf(d.day.id) !== -1 ||
+      d.day.houses.every(function(h){ return h.done; }); }),
     JSON.stringify(daysOf().map(function(d){ return d.day.id + '@' + d.ds; })));
+  check('16.7a [[SCH-130]] the house already done on the locked Oct 5 sheet goes to the front of the season',
+    dayOfCust('a2') < '2026-10-05', 'a2 on ' + dayOfCust('a2'));
 
   /* It walks forward one working day per working day, so two days behind stays two days behind. */
   H.setNow(new Date(2026, 9, 8, 7, 0)); H.api.setHangDay(HANG);
@@ -1385,16 +1390,21 @@ suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate,
   H.press();
   check('19.2 Recalculate everything takes it off the day list and the crew sheets', shown('x8') === 'h2', shown('x8'));
   const x8 = H.season().filter(function(x){ return x.id === 'x8'; })[0];
-  check('19.3a the full crew split (freeze, unassigned check) still holds it', (function(){ const d = H.season().filter(function(x){ return x.id === 'x8'; })[0]; return H.api.dayCrewHouses(d).some(function(c){ return c.some(function(h){ return h.name === 'h1'; }); }); })());
-  check('19.3 but the day still holds it — the record of what was hung, and what the Completed count reads',
-    x8 && x8.houses.some(function(h){ return h.name === 'h1' && h.done; }));
+  /* [[SCH-130]] (2026-10-13) a house done ahead of its locked day now goes to the record at the front of the season,
+     so the record of what was hung lives THERE — still in the plan, still what the Completed count reads. */
+  const recDay = function(){ return H.season().filter(function(x){ return (x.houses || []).some(function(h){ return h.name === 'h1'; }); })[0]; };
+  check('19.3a the full crew split (freeze, unassigned check) of the day holding it still holds it', (function(){ const d = recDay(); return !!d && H.api.dayCrewHouses(d).some(function(c){ return c.some(function(h){ return h.name === 'h1'; }); }); })());
+  check('19.3 and a day still holds it — the record of what was hung, at the front of the season (SCH-130)',
+    !!recDay() && recDay().houses.some(function(h){ return h.name === 'h1' && h.done; }) && H.api.isoOf(H.api.dayDate(recDay())) < '2026-10-07' &&
+    !(x8 && x8.houses.some(function(h){ return h.name === 'h1'; })));
   check('19.4 so a hung customer never looks unscheduled to the safety net (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0,
     JSON.stringify(H.api.confirmedNotOnAnyDay()));
   const x9 = H.season().filter(function(x){ return x.id === 'x9'; })[0];
   x9.houses.forEach(function(h){ if(h.name === 'h3') h.done = true; });
   check('19.5 a house ticked AFTER the press stays visible until the next one', shown('x9') === 'h3,h4', shown('x9'));
-  x8.houses.forEach(function(h){ if(h.name === 'h1') h.done = false; });
-  check('19.6 and a house unticked again comes straight back', shown('x8') === 'h1,h2', shown('x8'));
+  const rd = recDay();
+  rd.houses.forEach(function(h){ if(h.name === 'h1') h.done = false; });
+  check('19.6 and a house unticked again comes straight back on the day that holds it', shown(rd.id).split(',').indexOf('h1') !== -1, shown(rd.id));
 }
 }
 

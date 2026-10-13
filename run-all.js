@@ -17597,7 +17597,10 @@ suite('Suite 48. Days within two working days are set');
      which no longer cares which), and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
     (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
-     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin) ||
+     /* [[SCH-130]] (2026-10-13) the only other thing that leaves a set day is a house already DONE, and it goes to
+        the record at the front of the season — never to the pool. Everything still to hang stays and returns. */
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,1200}?const doneHere=[\s\S]{0,120}?\(d\.houses\|\|\[\]\)\.filter\(function\(h\)\{ return h\.done && !h\.isFix && !h\.isTakedown; \}\)[^;]*;\s*if\(doneHere\.length\)\{\s*doneRecord\.push\([\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
     'the return is the important part: without it the houses fall through into the pool and get a second day');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',

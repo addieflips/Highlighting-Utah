@@ -141,7 +141,8 @@ const seasonRules = ['every Confirmed customer is on a day after Recalculate (SC
   'a locked day never gains a house', 'nobody on a warehouse list is on any day (SCH-117)',
   'a missed house is on a later day after that evening\'s press (SCH-129)', 'nobody is on a day outside their window',
   'every house on a day is on exactly one crew (SCH-67)', 'two crews are never more than three apart (SCH-97)',
-  'no crew goes out under ten when its houses could join another day (SCH-128)'];
+  'no crew goes out under ten when its houses could join another day (SCH-128)',
+  'a finished house is pushed to the front of the season (SCH-130)'];
 check('and it still checks every standing schedule rule',
   seasonRules.every(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") !== -1; }),
   'missing: ' + seasonRules.filter(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") === -1; }).join(' | '));

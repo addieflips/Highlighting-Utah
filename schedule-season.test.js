@@ -84,7 +84,7 @@ function makeBook(seed, n, tag){
 
 /* ---- one season ---- */
 const WAREHOUSE = [
-  {k: 'build', set: function(d){ d.needsLightBuild = true; d.lightsQueuedAt = {toMillis: function(){ return Date.now(); }}; }, clear: function(d){ d.needsLightBuild = false; }},
+  {k: 'build', set: function(d, at){ d.needsLightBuild = true; d.lightsQueuedAt = {toMillis: function(){ return at; }}; }, clear: function(d){ d.needsLightBuild = false; }},
   {k: 'timer', set: function(d){ d.needsTimerOnly = true; }, clear: function(d){ d.needsTimerOnly = false; }},
   {k: 'colour', set: function(d){ d.needsColorChange = true; }, clear: function(d){ d.needsColorChange = false; }},
   {k: 'recycle', set: function(d){ d.needsLightRecycle = true; d.recycleKeepingCustomer = true; }, clear: function(d){ d.needsLightRecycle = false; d.recycleKeepingCustomer = false; }}];
@@ -93,6 +93,7 @@ function season(cfg){
   const add = function(rule, s){ (found[rule] = found[rule] || []).push(s); };
   const stats = {presses: 0, syncs: 0, longHops: 0, maxLongHops: 0, shortDays: 0, finished: '', missed: 0, released: 0, warehoused: 0};
   const r = rng(cfg.seed * 31 + 7);
+  const rAhead = rng(cfg.seed * 97 + 3);   /* [[SCH-130]] its own stream, so the rest of the season plays out as before */
   const book = makeBook(cfg.seed, cfg.n);
   const byId = {}; book.forEach(function(b){ byId['cust-' + b.id] = b; });
   const flagged = {}, released = {};
@@ -126,6 +127,10 @@ function season(cfg){
     const hs = holders();
     if(label === 'press'){
       (H.api.confirmedNotOnAnyDay() || []).forEach(function(c){ add('every Confirmed customer is on a day after Recalculate (SCH-85)', today + ': ' + ((c && c.data && c.data.name) || '?')); });
+      /* [[SCH-130]] a finished house goes to the front of the season, locked days included — once there is a date
+         before today to put it on. */
+      if(T0() < today) days().forEach(function(d){ const x = ds(d); if(x < today) return;
+        (d.houses || []).forEach(function(h){ if(h.done && !h.isFix && !h.isTakedown) add('a finished house is pushed to the front of the season (SCH-130)', today + ': ' + h.id + ' still on ' + x); }); });
       Object.keys(byId).forEach(function(id){
         const b = byId[id]; if(b.gone || flagged[id] || b.data.completed) return;
         const on = hs[id] && hs[id].some(function(o){ return live(o.h) && o.ds > today; });
@@ -199,7 +204,7 @@ function season(cfg){
     const snap = lockedSet(today);
     const hs = holders();
     const ids = Object.keys(hs).filter(function(id){ return byId[id] && !flagged[id] && !byId[id].gone && hs[id].some(function(o){ return live(o.h) && o.ds > today; }); });
-    for(let i = 0; i < cfg.warehouse && ids.length; i++){ const id = ids.splice(Math.floor(r() * ids.length), 1)[0]; const k = WAREHOUSE[Math.floor(r() * 4)]; k.set(byId[id].data); flagged[id] = k.k; stats.warehoused++; }
+    for(let i = 0; i < cfg.warehouse && ids.length; i++){ const id = ids.splice(Math.floor(r() * ids.length), 1)[0]; const k = WAREHOUSE[Math.floor(r() * 4)]; k.set(byId[id].data, new Date(day.getFullYear(), day.getMonth(), day.getDate(), 6, 30).getTime()); flagged[id] = k.k; stats.warehoused++; }
     Object.keys(flagged).forEach(function(id){ if(r() < 0.3){ WAREHOUSE.filter(function(k){ return k.k === flagged[id]; })[0].clear(byId[id].data); delete flagged[id]; released[id] = today; } });
     /* new customers keep arriving until three weeks before Thanksgiving, so the season can actually end */
     if(today < '2026-11-06' && r() < cfg.joins){
@@ -219,6 +224,12 @@ function season(cfg){
     days().filter(function(d){ return ds(d) === today; }).forEach(function(d){
       d.houses.forEach(function(h){ if(!live(h)) return; if(r() < cfg.rate){ h.done = true; if(byId[h.id]) byId[h.id].data.completed = true; } else missed.push(h.id); });
     });
+    /* [[SCH-130]] now and then a crew finishes a house off a LATER sheet ahead of its date — it must go to the front */
+    if(rAhead() < 0.35){
+      const ahead = days().filter(function(d){ return ds(d) > today && d.houses.some(live); }).sort(function(a, b){ return ds(a) < ds(b) ? -1 : 1; })[0];
+      const h = ahead && ahead.houses.filter(live)[0];
+      if(h){ h.done = true; if(byId[h.id]) byId[h.id].data.completed = true; stats.ahead = (stats.ahead || 0) + 1; }
+    }
     stats.missed += missed.length;
     /* SCH-127: the office presses Recalculate everything once the crews are in */
     H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 18, 0));
@@ -247,6 +258,7 @@ const RULES = [
   'no house is on two days',
   'a locked day never gains a house',
   'a locked day never loses a house (only to the warehouse)',
+  'a finished house is pushed to the front of the season (SCH-130)',
   'nobody on a warehouse list is on any day (SCH-117)',
   'taken off the warehouse list = on a day at the next press (SCH-117)',
   'a missed house never stays on a finished day (SCH-129)',
@@ -274,7 +286,7 @@ if(H){
     if(!res) return;
     const st = res.stats;
     check('it really was a season: ' + st.presses + ' presses, ' + st.syncs + ' syncs, ' + st.missed + ' houses missed, ' + st.warehoused + ' sent to the warehouse',
-      st.presses >= 30 && st.syncs >= 29 && (cfg.rate === 1 || st.missed >= 20) && st.warehoused >= 30,
+      st.presses >= 30 && st.syncs >= 29 && (cfg.rate === 1 || st.missed >= 20) && st.warehoused >= 30 && (st.ahead || 0) >= 5,
       'a season that never exercised the hard cases proves nothing');
     check('and every house was hung by Christmas', !!st.finished, 'still running on 23 December');
     RULES.forEach(function(rule){
