@@ -142,13 +142,14 @@ const seasonRules = ['every Confirmed customer is on a day after Recalculate (SC
   'a missed house is on a later day after that evening\'s press (SCH-129)', 'nobody is on a day outside their window',
   'every house on a day is on exactly one crew (SCH-67)', 'two crews are never more than three apart (SCH-97)',
   'no crew goes out under ten when its houses could join another day (SCH-128)',
-  'a finished house is pushed to the front of the season (SCH-130)'];
+  'a finished house is pushed to the front of the season (SCH-130)',
+  'no house is more than five miles from the rest of its crew (SCH-131)'];
 check('and it still checks every standing schedule rule',
   seasonRules.every(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") !== -1; }),
   'missing: ' + seasonRules.filter(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") === -1; }).join(' | '));
 const seasonCfg = (season.match(/\{name: '[^']+', seed: \d+, n: \d+, rate: [\d.]+, warehouse: \d+, joins: [\d.]+, maxHops: [\d.]+, meanHops: [\d.]+\}/g) || []);
 check('over at least three seasons', seasonCfg.length >= 3, 'found ' + seasonCfg.length);
-const BOUNDS = {maxHops: 18, meanHops: 9.5};
+const BOUNDS = {maxHops: 12, meanHops: 3};   /* tightened 2026-10-13 by [[SCH-131]]: was 18 / 9.5 */
 check('and its long-hop bounds have only ever been tightened (max ' + BOUNDS.maxHops + ', mean ' + BOUNDS.meanHops + ')',
   seasonCfg.length >= 3 && seasonCfg.every(function (c) {
     const mx = +c.match(/maxHops: ([\d.]+)/)[1], mn = +c.match(/meanHops: ([\d.]+)/)[1];

@@ -783,7 +783,11 @@ suite('9 Simulated seasons: small, medium, full, adversarial');
        passes or fails with the load is a flaky check (CLAUDE.md section 9.7). */
     console.log('  NOTE  9.3: two full Recalculates of 952 houses took ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
     const last = s.days.length ? s.days[s.days.length - 1].ds : '';
-    check('9.3: the season finishes before Thanksgiving (last day ' + last + ')', last < '2026-11-26' ||
+    /* [[SCH-131]] (2026-10-13): the working days after Thanksgiving are where a house with no crew within five miles
+       waits — so the season may run past it, but only for those houses (or somebody who asked for After Thanksgiving). */
+    const lateOk = s.days.filter(function(d){ return d.ds >= '2026-11-26'; }).every(function(d){
+      return (d.day.houses || []).every(function(h){ return h.fiveMileTail || /After Thanksgiving/.test(h.pref || ''); }); });
+    check('9.3: the season finishes before Thanksgiving, but for houses with no crew near them (last day ' + last + ')', last < '2026-11-26' || lateOk ||
       book.some(function(b){ return /After Thanksgiving/.test(b.data.installPreference); }), last);
   }
   /* 9.4 adversarial */
@@ -1711,8 +1715,16 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
     const shortCrew = days.filter(function(x){ return x.total >= 10 && x.runs.some(function(n){ return n < 10; }); });
     check('28.' + k + 'a book ' + spec[1] + ': on a day of ten or more, every crew out has at least ten', shortCrew.length === 0,
       shortCrew.slice(0, 5).map(function(x){ return x.ds + ' ' + x.runs.join('/'); }).join(' | '));
-    const tiny = days.filter(function(x){ return x.total < 10; });
-    check('28.' + k + 'b book ' + spec[1] + ': at most two days in the whole season are left under ten (a named day or a window nothing else may share)', tiny.length <= 2,
+    /* REPOINTED BY [[SCH-131]] (2026-10-13): "at most two days under ten" assumed a short day could always ride with
+       a run up to 30 miles away. Dax: every consecutive house within "5 at most" — so a day under ten is a fault only
+       when every one of its houses could have joined another day that has room within five miles of it. */
+    const ptH = function(h){ const c = H.api.planCustomerFor(h); return H.api.houseGeoPoint(h, (c && c.data) || {}); };
+    const near5 = function(h, o){ const p = ptH(h); if(!p) return true; return (o.day.houses || []).some(function(x){ const q = ptH(x); return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }); };
+    const tiny = days.filter(function(x){ return x.total < 10 && !H.api.routeDayIsLocked(x.ds); }).filter(function(x){
+      return days.some(function(o){ return o !== x && !H.api.routeDayIsLocked(o.ds) && o.total + x.total <= 40 &&
+        x.day.houses.every(function(h){ const c = H.api.planCustomerFor(h); return near5(h, o) && H.api.houseMayGoOn(h, (c && c.data) || {}, o.ds, '2026-10-01').ok; }); });
+    });
+    check('28.' + k + 'b book ' + spec[1] + ': no day is left under ten when all of it could join another day within five miles (SCH-131)', tiny.length === 0,
       tiny.map(function(x){ return x.ds + ' ' + x.total; }).join(' | '));
     const over = days.filter(function(x){ return x.total > 40 || x.runs.some(function(n){ return n > 24; }); });
     check('28.' + k + 'c book ' + spec[1] + ': no day over forty and no crew over twenty-four', over.length === 0,
