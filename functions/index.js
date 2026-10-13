@@ -7344,11 +7344,17 @@ async function runArrearsRsvpBatch(source) {
        carrying a balance. That is the harassment this block's own header warns about,
        arriving from the one direction it was not guarding. `rsvpWholePlan` in
        admin.html has always read both stamps for exactly this reason. */
+    /* ⛔ THE ONE RULE FOR "DO THEY STILL NEED ASKING" ([[RS-77]]'s one answer, applied 2026-10-13). This loop
+       decided it for itself — `if (rsvpStatus) skip` — and so differed from the daily
+       drip in three ways, all silent: everybody on Unanswered (the state the whole book is
+       put in before the RSVP goes out) was SKIPPED, because the word is truthy; somebody the
+       office had badged Maybe Next Year with no status of their own was WRITTEN TO; and the
+       "no automation emails" opt-out was never read at all, so a customer who asked not to be
+       emailed got a chase about their balance. rsvpStillOwedServer is the drip's rule and
+       covers the test record, an answer, the opt-out, no email and either send stamp. */
     if (d.arrearsRsvpEmailAt || d.rsvpEmailedAt) { out.skipped++; continue; }
-    const answered = String(d.rsvpStatus || '').trim();
-    if (answered) { out.skipped++; continue; }
+    if (rsvpStillOwedServer(d)) { out.skipped++; continue; }
     const email = String(d.email || '').trim();
-    if (!email) { out.skipped++; continue; }
 
     const owed = await arrearsForCustomer(d);
     if (!(owed.outstanding > 0)) { out.skipped++; continue; }
