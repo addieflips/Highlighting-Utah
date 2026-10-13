@@ -108,6 +108,103 @@ check('every declared connection is still made by the code',
   '\n        a bug that is not there.');
 
 /* ---------------------------------------------------------------------------
+ * 1b. `only` rules can still go red (added 2026-10-13, with the hang day).
+ *
+ * ⭐ SCH-102 — the Schedule is the ONLY thing that puts a house on a day — is held by
+ * the `only` rules on the `scheduledDate` spine. With the real files clean they report
+ * nothing, so gutting the mechanism or deleting the rules would change nothing and the
+ * build would stay green: the silent-failures gate's own trap. So this plants a second
+ * planner in a COPY of the real files and requires the page to name it.
+ * ⚠ IT RUNS THE REAL ENGINE ON THE REAL SOURCE plus one line, never a fixture of its own
+ * — a fixture carrying its own copy of the rule proves the copy works.
+ * ------------------------------------------------------------------------- */
+{
+  const os = require('os');
+  const { check: runCheck } = require('./connections/engine');
+  const manifestAll = require('./connections/manifest');
+  const hang = manifestAll.find(s => s.field === 'scheduledDate');
+  check('the hang day is watched, with its only-the-Schedule rules (SCH-102)',
+    !!hang && Array.isArray(hang.only) && hang.only.length >= 3,
+    'the scheduledDate spine or its `only` rules are gone — nothing now stops a second ' +
+    'planner booking hang days, and nothing would go red if one appeared');
+  if (hang) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hu-conn-'));
+    const realAdmin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+    const realServer = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+    const anchor = 'function validateSeasonPlan(';
+    const plant = (extra, aSrc, sSrc) => {
+      fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+      fs.writeFileSync(path.join(dir, 's.js'), sSrc);
+      const r = runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [hang])[0];
+      return r.rows.filter(x => !x.found && x.wrongValue);
+    };
+    try {
+      check('the planted-breach harness found its anchor', realAdmin.split(anchor).length === 2,
+        'validateSeasonPlan is no longer declared exactly once in admin.html — repoint the anchor');
+      const second = plant('', realAdmin.replace(anchor,
+        'function hu2ndPlanner(d){ return {scheduled: true, scheduledDate: d}; }\n' + anchor), realServer);
+      check('a second writer of a hang day goes red', second.length >= 2,
+        'planted {scheduled: true, scheduledDate: d} outside the Schedule mirror and got ' +
+        second.length + ' red(s) — the only-the-Schedule rule has stopped biting');
+      const door = plant('', realAdmin.replace('const RECONCILE_SWEEP_ENABLED = false;',
+        'const RECONCILE_SWEEP_ENABLED = true;'), realServer);
+      check('re-opening the crew-routes sweep goes red', door.length >= 1,
+        'turned RECONCILE_SWEEP_ENABLED on and nothing went red — the closed-door check is not running');
+      const clear = plant('', realAdmin.replace(anchor,
+        'function huClears(){ return {scheduled: false, scheduledDate: null, assignedCrew: null}; }\n' + anchor), realServer);
+      check('and a writer that only CLEARS a day stays green', clear.length === 0,
+        'clearing a booking was reported as a breach: ' + clear.map(x => x.why).join('; '));
+      /* ⭐ BATCH 2 (2026-10-13): the same proof for the two other `only` rules, run
+         through the SAME harness so the reader-census path (`allowDeclared`) is held
+         as well as the writer path. */
+      const plant2 = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        if (!sp) return null;
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0]
+          .rows.filter(x => !x.found && x.wrongValue);
+      };
+      const season = plant2('maybeNextYear', realAdmin.replace(anchor,
+        'function huOwnSeasonTest(d){ return !d.maybeNextYear; }\n' + anchor));
+      check('a new place deciding who is in the season for itself goes red',
+        !!season && season.length >= 1,
+        season ? 'planted a hand-rolled Back Next Year test and nothing went red — the reader census is not running'
+               : 'the maybeNextYear spine is gone');
+      const lock = plant2('lightsLockedUntil', realAdmin.replace(anchor,
+        'function huImporterLock(d){ d.lightsLockedUntil = new Date(); }\n' + anchor));
+      check('a new writer of the 48-hour lock goes red',
+        !!lock && lock.length >= 1,
+        lock ? 'planted a new lightsLockedUntil writer and nothing went red — an importer could lock the whole book'
+             : 'the lightsLockedUntil spine is gone');
+      /* ⭐ BATCH 3 (2026-10-13): the colour census, which excuses a reader by what the
+         FUNCTION around it does (`unlessInFn`) — so both halves are planted: a one-field
+         reader must go red, and a reader that also reads the list must not. */
+      const oneField = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huOneField(d){ return d.lightsDescription || ""; }\n' + anchor));
+      check('a new reader of the colours that reads only one field goes red',
+        !!oneField && oneField.length >= 1,
+        oneField ? 'planted a lightsDescription-only reader and nothing went red — the colour census is not running'
+                 : 'the lightsDescription spine is gone');
+      const bothFields = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huBoth(d){ return d.lightsDescription || (d.lightColors || []).join(", "); }\n' + anchor));
+      check('and one that reads both fields stays green',
+        !!bothFields && bothFields.length === 0,
+        'a reader of both colour fields was reported: ' + (bothFields || []).map(x => x.why).join('; '));
+      /* ⭐ BATCH 4 (2026-10-13): the photo list and its photo-#1 mirror. */
+      const mirror = plant2('housePhotos', realAdmin.replace(anchor,
+        'function huMirrorByHand(u){ return {housePhotoUrl: u}; }\n' + anchor));
+      check('a new hand-written house photo field goes red',
+        !!mirror && mirror.length >= 1,
+        mirror ? 'planted a hand-written housePhotoUrl and nothing went red — the list and its mirror can drift'
+               : 'the housePhotos spine is gone');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * 2. Every anchor still resolves.
  *
  * Separate from the check above on purpose. "The function was renamed" and "the function

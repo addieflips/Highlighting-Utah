@@ -2473,3 +2473,31 @@ are recorded here to close them. The three that remain change nothing until she 
 **Resulting map change:** `system-map.md` §6a (the whole panel, what is stored, and the
 if-X-isn't-working table). No questions-map row — no ruling was given this session; these
 are defaults taken in her absence and they belong here until she rules on them.
+
+## Q-036 · intent · OPEN · raised 2026-10-13
+**Three places on the Routes tab decide who is sitting the season out by reading the Back
+Next Year FLAG alone. Should they ask the shared rule instead?** Found by the connections
+map's new reader census on `maybeNextYear` (PROC-39), which allows them by name so the
+build stays green while this is open.
+
+`portalRsvp` records a Back Next Year answer from the RSVP link in `rsvpStatus`; every
+reader declared on the map checks both the flag and the status (`isOutForSeason`,
+`seasonBadgeKey`, `takedownSaidNo`, …). These three check the flag only:
+
+1. **Generate Fix Route** (`generateFixBtn`) and its count (`updateFixAvailableCount`) skip
+   a house whose flag is set. A house that answered Back Next Year by link is still offered
+   a fix route. Probably harmless — a fix only matters on a house that was hung — but it is
+   the same two-halves shape that kept people routed on 2026-08-22.
+2. **Generate Removal Route** (`generateRemovalBtn`) skips a house that is `completed` AND
+   has the flag set. That house was HUNG, so its lights still have to come down; skipping it
+   here means this generator will never put it on a takedown. The Schedule's own takedown
+   layout (`takedownSaidNo`) handles the same case deliberately — it keeps hung houses that
+   said no in their own list — so these two disagree.
+
+**Why it is not fixed yet:** both are routing behaviour, and which answer is right is a
+business call. Options: (a) read the flag AND the status, the way every declared reader
+does; (b) leave the fix generator as it is and only stop the removal generator skipping hung
+houses; (c) leave both — the Schedule's takedown layout is what is actually used.
+
+**Resulting map change:** none yet. When answered, take the matching allowance off the
+`maybeNextYear` spine in `connections/manifest.js` (or reword it) in the same change.
