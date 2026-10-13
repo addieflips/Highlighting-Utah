@@ -7145,8 +7145,19 @@ colour-change fee alone, but the carried-over unpaid balance and the 1 April lat
 same field, which is why its three undeclared writers read as strangers. Amber on the three money
 fields went 59 → 39, all of it display or payment-summing.
 ⭐ **AND [[RS-81]] (Q-036):** the Routes tab's Generate Fix Route, its count and Generate Removal
-Route ask `takedownSaidNo` now — the Schedule's own rule ([[SCH-90]]) — so somebody who said Back
-Next Year through the RSVP link is no longer offered either route.
+Route ask `saidNoOrBackNextYear` now — a main-app copy of the Schedule's own `takedownSaidNo`
+([[SCH-90]]), compared by `twin-parity.test.js` — so somebody who said Back Next Year through the
+RSVP link is no longer offered either route.
+⭐ **AND THE WAREHOUSE AND SEASON FIELDS (2026-10-13).** Every undeclared WRITER of a watched
+field was read, and none was wrong: the Mark Done object, a request taken by phone, the wire
+picked off a System Message, a Maybe-Next-Year quote becoming a sitting-out customer, a payment
+approving somebody who had said nothing ([[RS-77]]), Not needed on the build list, waiving a
+carried charge, and the Schedule mirror stamping `assignedCrewAt` (the map still only named the
+retired doors — [[SCH-102]]). All are declared, so amber on those fields is readers only. Three
+things the map used to count as writers and were not: tables of field NAMES (`TABLES` in the
+manifest, named one by one), test-record tools (`quiet`, each with its reason, red if its anchor
+ever stops matching), and a name between the halves of a ternary. `connections.test.js` plants
+each from the other side so none can widen into a blanket excuse.
 
 ⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
 `admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
