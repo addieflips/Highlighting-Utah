@@ -1344,7 +1344,9 @@ suite('SCH-120 A day that has been printed can no longer be rescheduled');
   H.load(book, {season: season});
   H.api.refreshLockedDates();
   const all = daysOf().filter(function(d){ return d.ds; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
-  const far = all.filter(function(d){ return !H.api.routeDayIsLocked(d.ds); })[3];
+  /* the last open day: [[SCH-129]] packs a 160-house book into fewer, fuller days, so it is no longer the fourth */
+  const open20 = all.filter(function(d){ return !H.api.routeDayIsLocked(d.ds); });
+  const far = open20.length >= 2 ? open20[open20.length - 1] : null;
   check('20.0 the scenario has a day well past the next two, not yet locked', !!far, JSON.stringify(all.map(function(d){ return d.ds; })));
   const ids = function(){ const d = daysOf().filter(function(x){ return x.day.id === far.day.id; })[0]; return d ? d.ds + ':' + d.ids.slice().sort().join(',') : 'GONE'; };
   H.api.markDayPrinted(far.day);

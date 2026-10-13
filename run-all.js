@@ -13900,7 +13900,8 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
     /sameCity\(t,pinned\)/.test(admin),
     'unconditional is what let a day claim Lehi and Highland over Eagle Mountain and West Jordan houses');
   check('S28', 'a worked day is judged by date OR by anything ticked off on it',
-    /const worked=\(dt&&dt<today\)\|\|houses\.some/.test(admin),
+    /* [[SCH-129]] the date half is isGone, which is still dt < today, plus today once the crews are in */
+    /const worked=isGone\(dt\)\|\|houses\.some/.test(admin) && /const isGone=function\(dt\)\{ return !!\(dt&&\(dt<today\|\|/.test(admin),
     'a day the crew has been sent out on is the record of what they were sent out with');
 }
 
@@ -17594,7 +17595,7 @@ suite('Suite 48. Days within two working days are set');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',
     admin.indexOf('const setSoon = dt && dt >= today') <
-    admin.indexOf('const worked=(dt&&dt<today)'),
+    admin.indexOf('const worked=isGone(dt)'),
     'a day that is set but has nothing done yet must be caught first, or it is treated as fair game');
 
   /* ⚠ WORKING days, which since 2026-08-21 means Thanksgiving is not one of
@@ -59601,6 +59602,8 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
                    /* [[SCH-106]] both read a printed day's frozen split first — lifted, never stubbed;
                       these fixtures carry no freeze, so the split is worked out exactly as before. */
                    'frozenCrewSplit',
+                   /* [[SCH-129]] the map split dayCrewHouses asks first — lifted, never stubbed */
+                   'geoCrewSplit',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
                    'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
@@ -59678,6 +59681,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
          leveller then prices by the nearest house alone — a narrower answer, never a
          different kind. Suite 365 runs the leveller WITH a yard. */
       'function routeHomePoint(){ return null; }' +
+      'const GEO_SPLIT_CACHE = new Map();' +
+      /* ⛔ A SECOND DELIBERATE STUB ([[SCH-129]]): no customer record behind any fixture house, so geoCrewSplit finds no
+         pin and hands the day to the TOWN split — which is what this suite exists to grade (the fallback for a day
+         holding a house with no pin). The map split itself is RUN by schedule-v2.test.js suite SCH-129. */
+      'function planCustomerFor(){ return null; }' +
       'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
       'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
       ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
@@ -59687,7 +59695,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
     assertSandbox('S314', 'dayCrewTowns', body314, admin,
       ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
        'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
-       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress', 'routeHomePoint'].concat(need314));
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress', 'routeHomePoint', 'GEO_SPLIT_CACHE', 'planCustomerFor'].concat(need314));
 
     const sb314 = {};
     new Function(body314 +
