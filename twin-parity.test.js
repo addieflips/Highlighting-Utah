@@ -144,5 +144,24 @@ console.log('\n=== Rules written twice, run side by side ===\n');
   if (ra && rs) check('referralSeasonNow agrees', ra() === rs());
 }
 
+/* ---- said No or Back Next Year: the Schedule widget's copy and the main app's ([[RS-81]]) --
+   Both live in admin.html — the widget is a sealed IIFE the main app cannot call into, so the
+   Routes tab carries its own. Not an office/server pair, but two copies of one rule all the same. */
+{
+  const [w, m] = pair('said no or back next year',
+    () => build(admin, ['takedownSaidNo'], '', 'takedownSaidNo'),
+    () => build(admin, ['saidNoOrBackNextYear'], '', 'saidNoOrBackNextYear'));
+  if (w && m) {
+    const st = [];
+    ['', 'yes', 'no', ' No ', 'backnextyear', 'BackNextYear', 'unanswered', null].forEach(rs =>
+      [false, true, undefined].forEach(f => st.push({ rsvpStatus: rs, maybeNextYear: f })));
+    st.push(null, undefined);
+    check('the Schedule and the Routes tab agree on who said No or Back Next Year',
+      st.every(d => w(d) === m(d)), st.filter(d => w(d) !== m(d)).map(d => JSON.stringify(d)).join(', '));
+    check('and the RSVP-link answer counts, not only the flag',
+      m({ rsvpStatus: 'backnextyear' }) === true && m({ maybeNextYear: true }) === true && m({ rsvpStatus: 'yes' }) === false);
+  }
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

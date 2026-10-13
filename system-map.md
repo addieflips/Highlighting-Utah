@@ -7136,6 +7136,18 @@ can differ (main photo removed, extras kept → list holds the extras, mirror bl
 left alone on purpose because the outlined sections belong to the MAIN photo. Only
 `scheduledRoutes` is left on the not-watched list.
 
+⭐ **WORKING THROUGH THE AMBER, MONEY FIRST (2026-10-13).** Every reader of `deposit` was
+checked for computing a balance as install + removal + changeFees − credits − deposit; none gets
+it wrong (the ones that look short only add up payments, or call the shared helper). Every reader
+of `billToPhone` was checked for finding a bill BOTH ways — bill-to first, then the house's own
+key — and all do. The `changeFees` row was retitled **Fees on a bill**: it was declared as the $30
+colour-change fee alone, but the carried-over unpaid balance and the 1 April late fee sum into the
+same field, which is why its three undeclared writers read as strangers. Amber on the three money
+fields went 59 → 39, all of it display or payment-summing.
+⭐ **AND [[RS-81]] (Q-036):** the Routes tab's Generate Fix Route, its count and Generate Removal
+Route ask `takedownSaidNo` now — the Schedule's own rule ([[SCH-90]]) — so somebody who said Back
+Next Year through the RSVP link is no longer offered either route.
+
 ⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
 `admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
 that runs both copies side by side, and **Connections › Where things go › Rules written

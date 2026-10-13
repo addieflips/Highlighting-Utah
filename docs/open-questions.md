@@ -2474,7 +2474,7 @@ are recorded here to close them. The three that remain change nothing until she 
 if-X-isn't-working table). No questions-map row — no ruling was given this session; these
 are defaults taken in her absence and they belong here until she rules on them.
 
-## Q-036 · intent · OPEN · raised 2026-10-13
+## Q-036 · intent · ANSWERED · raised and answered 2026-10-13
 **Three places on the Routes tab decide who is sitting the season out by reading the Back
 Next Year FLAG alone. Should they ask the shared rule instead?** Found by the connections
 map's new reader census on `maybeNextYear` (PROC-39), which allows them by name so the
@@ -2499,5 +2499,13 @@ business call. Options: (a) read the flag AND the status, the way every declared
 does; (b) leave the fix generator as it is and only stop the removal generator skipping hung
 houses; (c) leave both — the Schedule's takedown layout is what is actually used.
 
-**Resulting map change:** none yet. When answered, take the matching allowance off the
-`maybeNextYear` spine in `connections/manifest.js` (or reword it) in the same change.
+**ANSWERED 2026-10-13 — "fix both".** All three now ask `saidNoOrBackNextYear`, the main app's copy of the Schedule's own
+rule (`takedownSaidNo`) ([[SCH-90]]): said No or Back Next Year, by either route, gets no fix route and no removal
+route. ⚠ ITEM 2 ABOVE WAS WRONG ABOUT WHAT A FIX MEANT: it called the removal generator skipping a
+hung house a hole ("its lights would never come down"), but SCH-90 is Addie's own ruling that
+somebody who said No or Back Next Year gets no takedown. The generator was right to skip them
+and wrong only to miss the ones who answered by link. Corrected before anything was built.
+
+**Resulting map change:** [[RS-81]]. The three allowances came off the `maybeNextYear` spine in
+`connections/manifest.js` in the same change, so the reader census now fails if any of the
+three goes back to reading the flag alone.
