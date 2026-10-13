@@ -7103,6 +7103,17 @@ planner in a copy of the real files on every run to prove the rule still bites.
 ⚠ It still proves only what it names: a booking written through a helper the rule does not
 know about would not be seen, which is why each new writer has to be added deliberately.
 
+⭐ **BATCH 2, THE SAME DAY: who is in the season, the 48-hour lock and the gate code.**
+**Sitting the season out** (`maybeNextYear`) carries a READER census: every place that reads
+the Back Next Year flag is declared or allowed by name, and a new one is red — the fix is
+almost always to ask `isOutForSeason` (routes, schedule, build queue) or `houseIsOnTheBill`
+(money). Writing it surfaced three places on the Routes tab that read the flag alone
+(Generate Fix Route, its count, and Generate Removal Route); they are allowed by name and
+the question is open as **Q-036**. **Light-change lock (48 hours)** (`lightsLockedUntil`)
+allows six writers and nothing else, so an importer that started locking customers would go
+red. **Gate code** is watched without an `only` rule — its first reader is the printed crew
+sheet (`printGateCode`).
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field
