@@ -1441,6 +1441,8 @@ module.exports = [
       { file: 'admin', fn: 'stopProblem', where: 'Routes › Install', when: 'a stop is checked',
         rules: ['Names the reason, then asks isOutForSeason — the two cannot disagree.'] },
       { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office asks why a house is not on the build list' },
+      { file: 'admin', fn: 'saidNoOrBackNextYear', where: 'Routes › Install', when: 'a fix or removal route is generated on the Routes tab',
+        rules: ['The main app\u2019s copy of takedownSaidNo ([[RS-81]]); twin-parity.test.js holds the two together.'] },
       { file: 'admin', fn: 'takedownSaidNo', where: 'Schedule › Scheduling', when: 'takedown days are laid out',
         rules: ['A house that was hung still comes down, whatever they said after.'] }
     ],

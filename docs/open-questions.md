@@ -2499,8 +2499,8 @@ business call. Options: (a) read the flag AND the status, the way every declared
 does; (b) leave the fix generator as it is and only stop the removal generator skipping hung
 houses; (c) leave both — the Schedule's takedown layout is what is actually used.
 
-**ANSWERED 2026-10-13 — "fix both".** All three now ask `takedownSaidNo`, the Schedule's own
-rule ([[SCH-90]]): said No or Back Next Year, by either route, gets no fix route and no removal
+**ANSWERED 2026-10-13 — "fix both".** All three now ask `saidNoOrBackNextYear`, the main app's copy of the Schedule's own
+rule (`takedownSaidNo`) ([[SCH-90]]): said No or Back Next Year, by either route, gets no fix route and no removal
 route. ⚠ ITEM 2 ABOVE WAS WRONG ABOUT WHAT A FIX MEANT: it called the removal generator skipping a
 hung house a hole ("its lights would never come down"), but SCH-90 is Addie's own ruling that
 somebody who said No or Back Next Year gets no takedown. The generator was right to skip them

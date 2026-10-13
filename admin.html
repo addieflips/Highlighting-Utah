@@ -41502,6 +41502,16 @@ function isOutForSeason(d){
   }
   return false;
 }
+/* ⭐ SAID NO OR BACK NEXT YEAR, BY EITHER ROUTE ([[RS-81]], 2026-10-13). The main app's copy of
+   the Schedule widget's takedownSaidNo — the widget is a sealed IIFE, so the Routes tab cannot
+   call into it (the reliability suite fails if the main app tries). The two are compared side by
+   side in twin-parity.test.js. Reads the flag the office sets AND the status the RSVP link
+   writes; reading the flag alone missed everybody who answered by link. */
+function saidNoOrBackNextYear(d){
+  d = d || {};
+  const s = String(d.rsvpStatus == null ? '' : d.rsvpStatus).trim().toLowerCase();
+  return s === 'no' || s === 'backnextyear' || d.maybeNextYear === true;
+}
 /* ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Addie, having
    asked how she can tell a paid-up customer from a held one: "how do we measure if
    someone paid for last year so than they can be marked approved for the year and be
@@ -51526,10 +51536,10 @@ function updateFixAvailableCount(){
   const el = document.getElementById('fixAvailableCount');
   if(!el) return;
   const cityChoice = document.getElementById('fixCitySelect').value;
-    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — takedownSaidNo, the
-       same rule the Schedule's takedown planning uses ([[SCH-90]]). This read the flag alone, so
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
        somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !takedownSaidNo(a.data));
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   el.textContent = available.length + ' house' + (available.length===1?'':'s') + ' currently need' + (available.length===1?'s':'') + ' a fix' + (cityChoice !== 'all' ? ' in ' + cityChoice : '') + '.';
 }
@@ -68054,10 +68064,10 @@ document.getElementById('generateFixBtn').addEventListener('click', async functi
   const crewChoice = document.getElementById('fixCrewSelect').value;
   const seedPref = document.getElementById('fixSeedPref').value;
   const statusEl = document.getElementById('generateFixStatus');
-    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — takedownSaidNo, the
-       same rule the Schedule's takedown planning uses ([[SCH-90]]). This read the flag alone, so
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
        somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
-  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !takedownSaidNo(a.data));
+  let available = jobAddresses.filter(a => a.data.needsFix && !a.data.fixScheduled && typeof a.data.lat === 'number' && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const wantFix = document.getElementById('wantFixAll').checked ? available.length : (Number(document.getElementById('wantFix').value) || 0);
   const startText = document.getElementById('fixStartInput').value.trim();
@@ -68078,10 +68088,10 @@ document.getElementById('generateRemovalBtn').addEventListener('click', async fu
   const crewChoice = document.getElementById('removalCrewSelect').value;
   const seedPref = document.getElementById('removalSeedPref').value;
   const statusEl = document.getElementById('generateRemovalStatus');
-    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — takedownSaidNo, the
-       same rule the Schedule's takedown planning uses ([[SCH-90]]). This read the flag alone, so
+    /* ⭐ [[RS-81]] (2026-10-13): said No or Back Next Year, by EITHER route — saidNoOrBackNextYear, the
+       same rule as the Schedule's takedownSaidNo ([[SCH-90]]). This read the flag alone, so
        somebody who answered Back Next Year through the RSVP link (status only) was still offered. */
-  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !takedownSaidNo(a.data));
+  let available = jobAddresses.filter(a => a.data.completed && !a.data.removalDone && !a.data.removalScheduled && typeof a.data.lat === 'number' && !saidNoOrBackNextYear(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice);
   const startText = document.getElementById('removalStartInput').value.trim();
   let startPoint = null;
