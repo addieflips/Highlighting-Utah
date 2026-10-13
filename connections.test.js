@@ -177,6 +177,20 @@ check('every declared connection is still made by the code',
         !!lock && lock.length >= 1,
         lock ? 'planted a new lightsLockedUntil writer and nothing went red — an importer could lock the whole book'
              : 'the lightsLockedUntil spine is gone');
+      /* ⭐ BATCH 3 (2026-10-13): the colour census, which excuses a reader by what the
+         FUNCTION around it does (`unlessInFn`) — so both halves are planted: a one-field
+         reader must go red, and a reader that also reads the list must not. */
+      const oneField = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huOneField(d){ return d.lightsDescription || ""; }\n' + anchor));
+      check('a new reader of the colours that reads only one field goes red',
+        !!oneField && oneField.length >= 1,
+        oneField ? 'planted a lightsDescription-only reader and nothing went red — the colour census is not running'
+                 : 'the lightsDescription spine is gone');
+      const bothFields = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huBoth(d){ return d.lightsDescription || (d.lightColors || []).join(", "); }\n' + anchor));
+      check('and one that reads both fields stays green',
+        !!bothFields && bothFields.length === 0,
+        'a reader of both colour fields was reported: ' + (bothFields || []).map(x => x.why).join('; '));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

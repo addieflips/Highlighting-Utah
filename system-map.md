@@ -7114,6 +7114,16 @@ allows six writers and nothing else, so an importer that started locking custome
 red. **Gate code** is watched without an `only` rule — its first reader is the printed crew
 sheet (`printGateCode`).
 
+⭐ **BATCH 3: light colours, the timer and the difficulty grade.** **Light colours**
+(`lightsDescription`) carries a census of ONE-FIELD readers: reading the description is red
+unless the same function also reads `lightColors` or asks `houseLightsText`, because an
+ordinary house keeps its colours in the list with the description EMPTY ([[WH-28]]). Writing
+it found four more one-field readers, all fixed in the same change: the re-quote card's
+"on file" line, the buffer-stock picker, the Routes tab stop list, and the portal's
+houses-on-this-bill list (`houseBillingRow`, server). **Timer** and **Difficulty grade** are
+watched without `only` rules; the grade on the QUOTE (`measurement.difficulty`) is a
+different record and is excluded.
+
 ⚠ **THE TWO HALVES KEEP THEMSELVES CURRENT DIFFERENTLY, AND ONLY ONE OF THEM DOES IT BY
 ITSELF.** Rules is parsed from the questions map every build, so a ruling answered today is
 on the page today with nobody remembering to add it. The grid is hand-written: a field

@@ -1427,7 +1427,9 @@ function houseBillingRow(id, d) {
     name: d.name || '',
     address: d.address || '',
     propertyLabel: d.propertyLabel || '',
-    lightsDescription: d.lightsDescription || '',
+    /* Both colour fields (2026-10-13): an ordinary house has an EMPTY description and its
+       colours in lightColors, so the houses-on-this-bill list showed no lights for it. */
+    lightsDescription: houseLightsTextServer(d),
     housePrice: Number(d.housePrice) || 0,
     scheduledDate: d.scheduledDate || null,
     completed: !!d.completed,
