@@ -21147,7 +21147,7 @@ function phoneNotTextedYet(items){
   });
   return out;
 }
-async function phoneBatchOpen(host, key, current){
+async function phoneBatchOpen(host, key, current, extraOpts){
   if(!host) return {saved: false, count: 0};
   const who = (auth && auth.currentUser && auth.currentUser.email) || '';
   const saved = await phoneRunLoad(key);
@@ -21158,9 +21158,12 @@ async function phoneBatchOpen(host, key, current){
     markTexted: function(nums, on, o){ return phoneMarkTexted(nums, on, o); },
     fresh: function(){
       const c = current();
-      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null, textedOut: c.textedOut || 0}));
+      phoneBatchRender(host, c.numbers, 0, c.names, Object.assign({}, opts, {run: null, extra: null,
+        textedOut: c.textedOut || 0, textedIn: c.textedIn || 0}));
     }
   };
+  /* RS-80: `keepTexted` — a new list holds everybody pending, texted or not. */
+  if(extraOpts) Object.assign(opts, extraOpts);
   if(saved){
     const extra = phoneRunNewPeople(saved, now.numbers, now.names);
     phoneBatchRender(host, now.numbers, phoneRunFirstOpen(saved), now.names,
@@ -21168,7 +21171,7 @@ async function phoneBatchOpen(host, key, current){
     return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
   }
   if(!now.numbers.length) return {saved: false, count: 0};
-  phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0}));
+  phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0, textedIn: now.textedIn || 0}));
   return {saved: false, count: now.numbers.length};
 }
 async function phoneRunPersist(host){
@@ -21231,7 +21234,7 @@ function phoneBatchRender(host, numbers, index, names, opts){
         (typeof opts.fresh === 'function'
           ? '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start a new list</button>' : '') +
       '</div>' +
-      (typeof opts.markTexted === 'function'
+      (typeof opts.markTexted === 'function' && !opts.keepTexted
         ? '<details style="margin-top:8px; font-size:12.5px;"><summary style="cursor:pointer;">Already texted some of these? Paste their numbers to take them off</summary>' +
           '<textarea data-pb="paste" rows="3" placeholder="One number per line, or separated by commas" style="width:100%; margin-top:6px; font-family:monospace; font-size:12.5px;"></textarea>' +
           '<button type="button" class="btn btn-outline btn-sm" data-pb="markpaste" style="margin-top:6px;">Mark them as already texted</button> ' +
@@ -21418,6 +21421,9 @@ function phoneBatchShow(host, index){
     const textedOut = (host._phoneOpts && host._phoneOpts.textedOut) || 0;
     if(textedOut && !(host._phoneOpts && host._phoneOpts.run)) t += '  ' + textedOut + ' already texted this season ' +
       (textedOut === 1 ? 'is' : 'are') + ' left out.';
+    const textedIn = (host._phoneOpts && host._phoneOpts.textedIn) || 0;
+    if(textedIn && !(host._phoneOpts && host._phoneOpts.run)) t += '  Everybody still pending is on it, texted or not \u2014 ' +
+      textedIn + ' of them ' + (textedIn === 1 ? 'was' : 'were') + ' already texted this season.';
     if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
       (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
     note.textContent = t;
@@ -21447,12 +21453,18 @@ async function rsvpCopyPhones(){
   const res = rsvpPhoneListRows(rsvpLinkSheetTargets());
   const host = document.getElementById('rsvpPhonesBatch');
   /* RS-75: the saved list if there is one — never re-cut from who is pending today. */
+  /* ⭐ EVERYBODY STILL PENDING, TEXTED OR NOT (2026-10-13, [[RS-80]]). Addie: "It only shows
+     257 people that need to be texted but I want it to show everyone that is still on hold
+     texted or not when I push start a new list." This REVERSES [[RS-78]]'s leave-them-out for
+     THIS list only (R-024): a reminder round goes to everybody who has not answered, and the
+     card above already counts them all. The Sent tick still stamps `rsvpTextedAt`, and the
+     Automation Emails list still leaves texted people out — she named this one. */
   const opened = await phoneBatchOpen(host, 'rsvp', function(){
-    /* RS-78: nobody already texted this season. */
-    const pick = phoneNotTextedYet(rsvpLinkSheetTargets());
-    const r = rsvpPhoneListRows(pick.items);
-    return {numbers: r.numbers, names: r.names, textedOut: pick.textedOut};
-  });
+    const all = rsvpLinkSheetTargets();
+    const r = rsvpPhoneListRows(all);
+    const textedIn = all.filter(function(it){ return rsvpTextedThisSeason((it && it.data) || {}); }).length;
+    return {numbers: r.numbers, names: r.names, textedIn: textedIn};
+  }, {keepTexted: true});
   if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;

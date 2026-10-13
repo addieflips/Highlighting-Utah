@@ -64382,8 +64382,9 @@ suite('350. The numbers on their own, and the people who have none');
   check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
-    /* REPOINTED again 2026-09-24 (RS-78): the pending people are first narrowed to those not texted yet. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const pick = phoneNotTextedYet\(rsvpLinkSheetTargets\(\)\);\s*const r = rsvpPhoneListRows\(pick\.items\);\s*return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(copyFn) &&
+    /* REPOINTED again 2026-10-13 (RS-80, superseding RS-78 here): everybody pending, texted or not. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true\}\);/.test(copyFn) &&
+    !/phoneNotTextedYet/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -64984,7 +64985,7 @@ suite('356. Names next to the numbers, number first');
   const strippedA = stripComments(admin);
   check('S356', 'both copy buttons hand the names over',
     /* REPOINTED 2026-09-24 (RS-75): both now open the panel through phoneBatchOpen. */
-    /return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
+    /return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};/.test(strippedA) &&
     /return \{numbers: s\.numbers, names: s\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
     /phoneBatchRender\(host, c\.numbers, 0, c\.names,/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
@@ -65390,8 +65391,14 @@ suite('364. Texted people stay off every new list');
   check('S364', 'ticking a batch Sent writes it on each customer too',
     /const r = await opts\.markTexted\(\(b && b\.numbers\) \|\| \[\], on\);/.test(panel),
     'a tick kept only on the list is lost the moment she presses Start a new list — which is what happened');
-  check('S364', 'both copy buttons build new lists from people not texted yet',
-    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 2);
+  /* NARROWED 2026-10-13 (RS-80): only the Automation Emails list leaves texted people out now;
+     Text the RSVP's new list is everybody still pending, texted or not. */
+  check('S364', 'the Automation Emails list builds new lists from people not texted yet',
+    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 1 &&
+    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\)/.test(stripped));
+  check('S364', 'Text the RSVP\'s new list keeps everybody pending, and hides the take-them-off box',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true\}\);/.test(stripped) &&
+    /typeof opts\.markTexted === 'function' && !opts\.keepTexted/.test(panel));
   check('S364', 'the paste box and the up-to-a-name box are both wired',
     /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
     /if\(!confirm\('Mark the first '/.test(panel));
