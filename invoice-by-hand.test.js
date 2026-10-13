@@ -188,6 +188,23 @@ const twoHouses = () => [
   check('the run reports how many it did not email, and the office screen shows it',
     /sentByHandCount, sentByHandNames/.test(run + fnsSrc) && adminSrc.includes("r.sentByHandCount+' not emailed (already given by hand)'"));
 
+  /* ---- Send Invoices Now must wait as long as the server may run (2026-10-12). ----
+     A catch-up run of 81 invoices took 107 seconds; the browser gave up at 70 and the
+     page said "Send failed — deadline-exceeded" while all 81 went out. Two halves:
+     the wait is at least the server's own limit, and a timeout is never called a
+     failure. */
+  const nowDecl = (adminSrc.match(/const sendInvoicesNowFn = httpsCallable\(fbFunctions, 'sendInvoicesNow'(?:, \{ timeout: (\d+) \})?\);/) || []);
+  const serverLimit = (fnsSrc.match(/exports\.sendInvoicesNow = onCall\(\{[^}]*timeoutSeconds: (\d+)/) || [])[1];
+  check('the Send Invoices Now call was found, on both sides', nowDecl.length > 0 && !!serverLimit);
+  check('the browser waits at least as long as the server is allowed to run',
+    Number(nowDecl[1]) >= Number(serverLimit) * 1000,
+    'browser ' + nowDecl[1] + ' ms, server ' + serverLimit + ' s — shorter, and a long run reads as a failure while it succeeds');
+  const nowHandler = stripComments(between(adminSrc, "getElementById('sendInvoicesNowBtn')?.addEventListener", '/* ---------------- START NEW SEASON'));
+  check('a timeout is told apart from a failure, and never says "Send failed"',
+    /const timedOut = \/deadline\/i\.test\(/.test(nowHandler)
+      && /statusEl\.textContent = timedOut\s*\?\s*'[^']*has NOT failed[^']*'\s*:\s*'\\u2717 Send failed/.test(nowHandler),
+    '"Send failed" on a run that is still sending invites a second press');
+
   console.log('\ninvoice-by-hand: ' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })().catch(function (err) { console.log('invoice-by-hand crashed: ' + (err && err.stack || err)); process.exit(1); });
