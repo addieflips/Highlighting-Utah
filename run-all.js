@@ -34224,8 +34224,11 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
     /already answered is left out automatically/.test(adm),
     'a shorter list with no reason reads as a lost audience');
   check('S72', 'the server batch skips them for the same reason',
-    /const answered = String\(d\.rsvpStatus \|\| ''\)\.trim\(\);[\s\S]{0,120}if \(answered\)/
-      .test(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8')),
+    /* Repointed 2026-10-13 ([[RS-77]]): the batch asks rsvpStillOwedServer — the drip's own
+       rule, which reads an answer the way the screen does — rather than its own `if (rsvpStatus)`.
+       S288 RUNS that; this only holds the call in place. */
+    /if \(rsvpStillOwedServer\(d\)\) \{ out\.skipped\+\+; continue; \}/
+      .test(extractFn(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8'), 'runArrearsRsvpBatch') || ''),
     'if the batch ever stops skipping, the screen and the schedule disagree about ' +
     'who is still being asked, and this pairing is the only thing that would say so');
 }
@@ -52060,7 +52063,7 @@ suite('287. The routine route sweep does not bury the notice that matters');
     function makeBook() {
       return [
         { id: 'owes-silent',   name: 'Dana Petersen', email: 'dana@example.com',  phone: '8015550101', rsvpStatus: '',             owes: 315 },
-        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315 },
+        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315, rsvpRespondedAt: 'a-date' },
         { id: 'owes-no',       name: 'No Nolan',      email: 'no@example.com',    phone: '8015550103', rsvpStatus: 'no',           owes: 315 },
         { id: 'owes-back',     name: 'Back Barnes',   email: 'back@example.com',  phone: '8015550104', rsvpStatus: 'backnextyear', owes: 315 },
         { id: 'settled',       name: 'Paid Palmer',   email: 'paid@example.com',  phone: '8015550105', rsvpStatus: '',             owes: 0   },
@@ -52113,6 +52116,10 @@ suite('287. The routine route sweep does not bury the notice that matters');
         templateSubjectOr: (t, fallback) => (t && t.subject) || fallback,
         properNameServer: (n) => String(n || '').split(/\s+/)[0],
         digitsOnly: (v) => String(v || '').replace(/\D/g, ''),
+        /* ⚠ LIFTED, NOT STUBBED ([[RS-77]]): it decides who is still owed the question, which
+           is what every check below is about. It reads digitsOnly, so it is built with it. */
+        rsvpStillOwedServer: new Function('digitsOnly', extractFn(fnsSrcChase, 'rsvpStillOwedServer') +
+          '\nreturn rsvpStillOwedServer;')((v) => String(v || '').replace(/\D/g, '')),
         arrearsForCustomer: async (d) => ({ outstanding: d.owes || 0, season: '2025' }),
         ensureToken: async (id) => 'tok-' + id,
         /* ⚠ LIFTED, NOT STUBBED (§3). The referral link in this email is built from
@@ -52163,6 +52170,29 @@ suite('287. The routine route sweep does not bury the notice that matters');
       const fn = new Function(...names, batchSrc + '\nreturn runArrearsRsvpBatch;')(...names.map(k => sandbox[k]));
       return fn('test').then(out => ({ out, sent, stamped, book }));
     }
+
+    /* ⭐ [[RS-77]], applied 2026-10-13: the chase asks the one shared rule who still needs asking. Before, it
+       read `if (rsvpStatus) skip` and differed from the daily drip three ways. Each is a row. */
+    pendingAsync.push(runBatch({ book: [
+      { id: 'rs82-unanswered', name: 'Una Answered', email: 'una@example.com', phone: '8015550201', rsvpStatus: 'unanswered', owes: 315 },
+      { id: 'rs82-badged',     name: 'Bea Badged',   email: 'bea@example.com', phone: '8015550202', rsvpStatus: '', maybeNextYear: true, owes: 315 },
+      { id: 'rs82-optout',     name: 'Otto Out',     email: 'otto@example.com', phone: '8015550203', rsvpStatus: '', noAutomationEmails: true, owes: 315 },
+      { id: 'rs82-drip',       name: 'Drew Drip',    email: 'drew@example.com', phone: '8015550204', rsvpStatus: '', rsvpEmailedAt: 'a-date', owes: 315 }
+    ] }).then(function (r) {
+      const to = r.sent.map(m => m.to_email);
+      check('S288', 'RS-77: somebody on Unanswered who owes IS written to — asked is not answered',
+        to.indexOf('una@example.com') !== -1,
+        'the word "unanswered" is truthy, and the old test read any word as an answer');
+      check('S288', 'RS-77: somebody the office badged Maybe Next Year is left alone',
+        to.indexOf('bea@example.com') === -1, 'the badge is an answer the office recorded for them');
+      check('S288', 'RS-77: somebody who opted out of automatic emails is never chased',
+        to.indexOf('otto@example.com') === -1, 'they asked not to be emailed; this batch never read it');
+      check('S288', 'RS-77: somebody the daily drip already asked is not asked again',
+        to.indexOf('drew@example.com') === -1);
+      check('S288', 'RS-77: and the batch asks the shared rule rather than its own',
+        /rsvpStillOwedServer\(d\)/.test(stripComments(batchBody || '')),
+        'a second opinion about who has answered is how these three drifted');
+    }));
 
     pendingAsync.push(runBatch().then(function (r) {
       const to = r.sent.map(m => m.to_email);

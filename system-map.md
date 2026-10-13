@@ -7159,6 +7159,13 @@ manifest, named one by one), test-record tools (`quiet`, each with its reason, r
 ever stops matching), and a name between the halves of a ternary. `connections.test.js` plants
 each from the other side so none can widen into a blanket excuse.
 
+⭐ **THE NOT PAID RSVP ASKS THE SHARED RULE (2026-10-13).** Found reading the amber on
+`rsvpStatus`: `runArrearsRsvpBatch` (the Not Paid RSVP, its switch off but its Run now button
+live) decided "have they answered?" with `if (rsvpStatus)`, so everybody on Unanswered was
+skipped, a Maybe Next Year badge with no status was written to, and the "no automation emails"
+opt-out was never read. It asks `rsvpStillOwedServer` now — the daily drip's rule ([[RS-77]]).
+Run S288 covers all three.
+
 ⭐ **A NUDGE IS NOT THE FIRST SEND ([[QT-55]], 2026-10-13).** Both office Nudge buttons used to
 stamp an old quote's first send as the moment of the nudge (and overwrite `quoteSentAt` in the
 same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory` keeps the
