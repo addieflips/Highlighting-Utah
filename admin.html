@@ -45826,6 +45826,17 @@ const HLX_STATE_TABS = [
 async function hlxNamesAlreadyOnTab(tabName){
   const handle = await hlxSheetHandleLoad();
   if(!handle) return null;
+  /* ⚠ ASK BEFORE READING (2026-10-13). After a reload the saved file handle has no
+     permission until it is asked again, and getFile() on it throws "The request is not
+     allowed by the user agent" — which is what Delete Customer hit, because this read ran
+     before hlxAppendRowsToSheet ever asked. Read AND write, so the one prompt also covers
+     the append that follows. */
+  if(handle.queryPermission){
+    let state = await handle.queryPermission({mode: "readwrite"});
+    if(state !== "granted" && handle.requestPermission) state = await handle.requestPermission({mode: "readwrite"});
+    if(state !== "granted") throw new Error("Chrome would not let me open the master sheet " + String.fromCharCode(8212) +
+      " press the button again and choose Allow");
+  }
   const file = await handle.getFile();
   const entries = await hlxUnzipAll(await file.arrayBuffer());
   const part = hlxSheetPartFor(entries, tabName);
@@ -60262,7 +60273,8 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   } catch(err){
     if(!confirm("They could not be added to the Recycle sheet " + String.fromCharCode(8212) + " " +
       ((err && err.message) || "the sheet is not connected on this computer") +
-      "\n\nRemove them anyway? Nothing will be left saying their lights need pulling apart.")){
+      "\n\nRemove them anyway? They still go to Archive and to the Recycle list on the Warehouse tab " +
+      String.fromCharCode(8212) + " only the Excel Recycle sheet will be missing them, so add them there by hand.")){
       return {removed: false, reason: "stopped at the Recycle sheet"};
     }
   }

@@ -66411,3 +66411,34 @@ suite('377. A fix takes several photos and can be edited after it is saved');
   const pr = extractFn(admin, 'printFixPhotos') || '';
   check('S377', 'the crew sheet prints every fix photo, numbered', /fixPhotosOf\(d\)/.test(pr) && /' of ' \+ urls\.length/.test(pr));
 }
+/* =====================================================================
+ * Suite 378. Delete Customer could not reach the Excel Recycle sheet
+ * (2026-10-13). hlxNamesAlreadyOnTab read the saved file handle before
+ * anything asked for permission, so after a reload getFile() threw "The
+ * request is not allowed by the user agent". RUNS the reader against a
+ * handle that refuses getFile until permission is granted.
+ * ===================================================================== */
+suite('378. The Recycle sheet read asks for permission first');
+{
+  const src = extractFn(admin, 'hlxNamesAlreadyOnTab');
+  check('S378', 'the reader was found', !!src);
+  if (src) {
+    pendingAsync.push((async function () {
+      let granted = false, asked = 0;
+      const handle = {
+        queryPermission: async () => (granted ? 'granted' : 'prompt'),
+        requestPermission: async () => { asked++; granted = true; return 'granted'; },
+        getFile: async () => { if (!granted) throw new Error('The request is not allowed by the user agent'); return { arrayBuffer: async () => new ArrayBuffer(0) }; }
+      };
+      const F = new Function('hlxSheetHandleLoad', 'hlxUnzipAll', 'hlxSheetPartFor',
+        'return async ' + src + ';')(async () => handle, async () => ({}), () => null);
+      let err = null, out;
+      try { out = await F('Recycle'); } catch (e) { err = e; }
+      check('S378', 'a handle with no permission yet is asked, then read', !err && asked === 1 && out === null,
+        err ? err.message : 'asked ' + asked);
+    })());
+  }
+  check('S378', 'the delete prompt no longer claims nothing will say their lights need pulling apart',
+    !/Nothing will be left saying their lights need pulling apart/.test(admin) &&
+    /They still go to Archive and to the Recycle list on the Warehouse tab/.test(admin));
+}
