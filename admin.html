@@ -78596,6 +78596,19 @@ function rebuildSeasonDays(){
           takeOffPrintedDay(d, h); PRINTED_UNBUILT_OFF.push({name:h.name||'(no name)', date:isoOf(dt)});
         }
       });
+      /* ⭐ [[SCH-130]] a finished house leaves a locked day for the front of the season too. Dax, 2026-10-13: "all the
+         people that are done didnt get pushed to the front". A house ticked done ahead of its date sat on a locked day
+         taking a place the crew could not use. The day keeps every house still to hang — nothing moves on, nothing
+         unfinished moves off — and a day left with nothing to hang is dropped. */
+      /* ⚠ ONLY WHEN THERE IS A FRONT TO GO TO. On the first morning there is no working date before today, the record
+         below keeps every day where it was, and a split-off record would have no day to land on. */
+      const doneHere=(nextWorkingDay(start)<today)?(d.houses||[]).filter(function(h){ return h.done && !h.isFix && !h.isTakedown; }):[];
+      if(doneHere.length){
+        doneRecord.push({id:d.id+'-done', dt:dt, houses:doneHere});
+        const left=(d.houses||[]).filter(function(h){ return doneHere.indexOf(h)===-1; });
+        if(!left.length) return;
+        d=Object.assign({}, d, {houses:left});
+      }
       locked.push(d); keep.push(d); return;
     }
     const worked=isGone(dt)||houses.some(function(h){return h.done;});
@@ -78641,7 +78654,8 @@ function rebuildSeasonDays(){
      date from today on belongs to the locked days or the new plan. More done than those dates hold: the rest go on the
      last of them — a record day is never driven, so a big one costs nothing. No date before today at all (the first
      morning of the season): the old behaviour, each day kept where it was.
-     ⚠ A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
+     ⛔ SUPERSEDED BY [[SCH-130]] (2026-10-13): a locked day's DONE houses come here too; only its unfinished houses stay
+     put. The old line read: A LOCKED DAY IS NOT TOUCHED — its done houses stay on it, printed paper is printed paper (SCH-120). Nor is a
      customer's record: done houses are hidden (SCH-119), so schedulePlanBookings never re-stamps their date, and when
      their lights went up is `completedAt`, not the day they sit on. */
   if(doneRecord.length){
@@ -78778,6 +78792,13 @@ function rebuildSeasonDays(){
   let heldToLater = 0;
   try{ if(typeof customersHeldToALaterDay === 'function') heldToLater = customersHeldToALaterDay().length; }
   catch(err){ console.error('Could not count who is held to a later day:', err); }
+  /* ⭐ [[SCH-130]] NOTHING LEFT TO PLACE IS NOT NOTHING TO SAVE. Late in the season every house can be done or on a set
+     day, and this exit used to leave SEASON exactly as it was — so the finished houses packed to the front above never
+     reached the plan and sat on the day they were ticked. Keep what was kept; only when no fix is riding along, since
+     riders need a built day to sit on. */
+  if(!movable.length && !riders.length && doneRecord.length){
+    BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
+  }
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
     : locked.length
@@ -80016,6 +80037,34 @@ function mergeShortOpenDays(){
   if(typeof computeDates === 'function') computeDates();
   return res;
 }
+/* [[SCH-130]] the nearest open day on or before `until` that may legally take `h` and has room — see pullBackPastDeadline. */
+function deadlineNearestDayFor(h, fromDay, until){
+  if(typeof SEASON === 'undefined' || !SEASON.length || !until) return null;
+  const startStr = isoOf(seasonStartDate());
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const cd = (c && c.data) || {};
+  const pt = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, cd) : null;
+  const todayStr = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  let best = null;
+  SEASON.forEach(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown) return;
+    const dt = dayDate(d); if(!dt) return;
+    const ds = isoOf(dt);
+    if(ds > until || ds <= todayStr) return;
+    if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
+    if(d.printedAt) return;
+    const live = (d.houses || []).filter(function(x){ return x && !x.done && !x.hiddenDone; }).length;
+    if(live >= cap) return;
+    const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    if(lim === 'man' && live >= ((typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8)) return;
+    if(lim === 'crew' && live >= ((typeof crewCap === 'function') ? crewCap() : 20)) return;
+    if(typeof houseMayGoOn === 'function' && !houseMayGoOn(h, cd, ds, startStr).ok) return;
+    const miles = milesFromDay(d, pt);
+    if(!best || miles < best.miles || (miles === best.miles && ds < best.ds)) best = {day: d, ds: ds, miles: miles};
+  });
+  return best;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -80042,6 +80091,17 @@ function pullBackPastDeadline(){
             day.houses.splice(day.houses.indexOf(h), 1, swap.other);
             swap.day.houses.splice(swap.day.houses.indexOf(swap.other), 1, h);
             res.moved.push({name: h.name || '(no name)', from: ds, to: swap.ds, swappedWith: swap.other.name || ''});
+            return;
+          }
+          /* ⭐ [[SCH-130]] AND LAST, THE NEAREST LEGAL DAY WITH ROOM, WHATEVER TOWNS IT HOLDS. nextInstallDayFor still
+             honours the old four-towns-a-day count, which [[SCH-129]] retired for crews ("geography matters more than
+             city labels") — so a Before Thanksgiving customer sat on 27 November while 25 November had room. A last day
+             is a promise; the town count is not. Locked, printed, away and full days are still refused. */
+          const near = deadlineNearestDayFor(h, day, until);
+          if(near){
+            day.houses.splice(day.houses.indexOf(h), 1);
+            near.day.houses.push(h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: near.ds});
             return;
           }
           res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;

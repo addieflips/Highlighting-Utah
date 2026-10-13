@@ -1309,14 +1309,19 @@ suite('SCH-116 The day the crew is hanging stands in for today when they are beh
   check('16.5 nor the Oct 6 sheet', dayOfCust('b1') === '2026-10-06', 'b1 on ' + dayOfCust('b1'));
 
   setup(HANG);
+  /* [[SCH-130]] a locked day keeps every house still to HANG exactly as it was; a house already done (a2) goes to the
+     front of the season with the other finished houses. */
   const lockedIds = function(){ return daysOf().filter(function(d){ return ['2026-10-05', '2026-10-06', '2026-10-07'].indexOf(d.ds) !== -1; })
-    .map(function(d){ return d.ds + ':' + d.ids.slice().sort().join(','); }).join(' | '); };
+    .map(function(d){ return d.ds + ':' + d.day.houses.filter(function(h){ return !h.done; }).map(function(h){ return h.id.replace(/^cust-/, ''); }).sort().join(','); }).join(' | '); };
   const lb = lockedIds();
   H.press();
-  check('16.6 Recalculate everything leaves all three locked days exactly as they were', lockedIds() === lb, lb + '  →  ' + lockedIds());
-  check('16.7 and nothing new is ever put on a day that is really already here or gone',
-    daysOf().every(function(d){ return d.ds >= '2026-10-08' || ['d5', 'd6', 'd7'].indexOf(d.day.id) !== -1; }),
+  check('16.6 Recalculate everything leaves every unfinished house on the three locked days exactly where it was', lockedIds() === lb, lb + '  →  ' + lockedIds());
+  check('16.7 and nothing still to hang is ever put on a day that is really already here or gone',
+    daysOf().every(function(d){ return d.ds >= '2026-10-08' || ['d5', 'd6', 'd7'].indexOf(d.day.id) !== -1 ||
+      d.day.houses.every(function(h){ return h.done; }); }),
     JSON.stringify(daysOf().map(function(d){ return d.day.id + '@' + d.ds; })));
+  check('16.7a [[SCH-130]] the house already done on the locked Oct 5 sheet goes to the front of the season',
+    dayOfCust('a2') < '2026-10-05', 'a2 on ' + dayOfCust('a2'));
 
   /* It walks forward one working day per working day, so two days behind stays two days behind. */
   H.setNow(new Date(2026, 9, 8, 7, 0)); H.api.setHangDay(HANG);
