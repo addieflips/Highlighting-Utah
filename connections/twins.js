@@ -64,15 +64,17 @@ const TWINS = [
   T('referralShareBoxHtml', 'referralShareBoxHtmlServer', 'run-all.js', 'the refer-a-friend box in an email'),
   T('properName', 'properNameServer', 'run-all.js', 'the first name an email greets somebody by'),
 
-  /* --- the same NAME in both files. Each side is tested ON ITS OWN; nothing runs the two
-     side by side, which is the honest answer and is shown as such on the page. --- */
-  T('seasonYesUpdates', 'seasonYesUpdates', null, 'what saying yes to the season writes — the office dropdown and the RSVP link'),
-  T('warehouseRebuildFields', 'warehouseRebuildFields', null, 'which changes send a house back to the warehouse'),
+  /* --- the same NAME in both files. twin-parity.test.js (2026-10-13) runs the pure ones
+     side by side; its first run found contactIndexFields disagreeing — a lost backslash in
+     the office copy. The two still marked null do work against Firestore or EmailJS and
+     cannot be run as plain functions; each side is tested on its own. --- */
+  T('seasonYesUpdates', 'seasonYesUpdates', 'twin-parity.test.js', 'what saying yes to the season writes — the office dropdown and the RSVP link'),
+  T('warehouseRebuildFields', 'warehouseRebuildFields', 'twin-parity.test.js', 'which changes send a house back to the warehouse'),
   T('sendPaymentReceipt', 'sendPaymentReceipt', null, 'the payment receipt — sent from the office by hand, and by PayPal on the server'),
   T('removeCustomerFromUpcomingRoutes', 'removeCustomerFromUpcomingRoutes', null, 'taking somebody off every upcoming route'),
-  T('quoteIsAddOn', 'quoteIsAddOn', null, 'whether a quote is an add-on to a house we already light'),
-  T('referralSeasonNow', 'referralSeasonNow', null, 'which season a referral link belongs to'),
-  T('contactIndexFields', 'contactIndexFields', null, 'the phone and email keys a customer is looked up by'),
+  T('quoteIsAddOn', 'quoteIsAddOn', 'twin-parity.test.js', 'whether a quote is an add-on to a house we already light'),
+  T('referralSeasonNow', 'referralSeasonNow', 'twin-parity.test.js', 'which season a referral link belongs to'),
+  T('contactIndexFields', 'contactIndexFields', 'twin-parity.test.js', 'the phone and email keys a customer is looked up by'),
 
   /* --- different names, one rule. The census cannot find these by name, so they are
      listed by hand and the gate only checks both still exist. --- */

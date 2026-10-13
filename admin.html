@@ -9627,7 +9627,12 @@ document.getElementById('ledgerBackfillRunBtn')?.addEventListener('click', onceA
    are saved; see findByPhone / findByEmail in functions/index.js. */
 function contactIndexFields(d){
   const out = {};
-  if(d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/D/g,'');
+  /* ⛔ \D, NOT D (fixed 2026-10-13). From 23 Sep this read /D/g — a backslash lost in an edit
+     — which strips the LETTER D and keeps every bracket, space and dash, so "(801) 555-0123"
+     was indexed as itself. The server's copy was always right, and the two disagreeing is what
+     twin-parity.test.js now catches. A record saved in that window is repaired by the
+     sign-in shortcuts tool below, which compares against THIS function. */
+  if(d.phone !== undefined) out.phoneDigits = String(d.phone || '').replace(/\D/g,'');
   if(d.email !== undefined) out.emailLower = String(d.email || '').toLowerCase().trim();
   if(d.email2 !== undefined) out.email2Lower = String(d.email2 || '').toLowerCase().trim();
   return out;
@@ -44092,6 +44097,13 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
        main reason anyone imports a payment file. And it SET the deposit rather
        than adding to it, so a $200 card payment followed by a $315 Venmo row
        became $315 and $200 of real money vanished. Both fixed here. */
+    /* ⛔ /D/ HERE IS WRONG AND MUST STAY (2026-10-13). It strips the LETTER D rather than
+       every non-digit — the same lost backslash contactIndexFields had. But this value is only
+       the "already imported" tag, and every tag already saved on an invoice was built this
+       way. "Fixing" it changes the tag for every formatted phone, so re-importing a file that
+       already went in would no longer be recognised and its payments would be ADDED AGAIN.
+       A tag only has to be stable, and this one is. Change it only together with a check that
+       accepts both spellings of the tag. */
     const thisRowTag = rowTag(rowIdx, String(phone).replace(/D/g,''), amount);
     const seen = Array.isArray(d.importedPayments) ? d.importedPayments : [];
     if(seen.indexOf(thisRowTag) !== -1){ alreadyDone++; continue; }
