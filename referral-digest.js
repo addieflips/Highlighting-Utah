@@ -127,6 +127,18 @@ const day = v => { const t = v && v.toDate ? v.toDate() : (v ? new Date(v) : nul
         if (f && String(qd.name || '').toLowerCase().indexOf(sur) === -1) console.log('   quote NAMING her (no link): ' + ini(qd.name) + ' on ' + day(qd.createdAt) +
           '  in field "' + f + '"  status ' + (qd.status || '?') + (qd.convertedToCustomerAt ? ' CONVERTED' : ''));
       });
+      /* Looser: her first name or a misspelt surname anywhere in a quote or another customer's
+         record, outside their own name field ("referred by Brittany", "Pinarski"). */
+      const first = String(d.name || '').trim().split(/\s+/)[0].toLowerCase();
+      const pats = [first, sur.slice(0, 5), sur.replace(/i/g, '')].filter(x => x && x.length >= 4);
+      const scan = (label, rec, id) => {
+        const f = Object.keys(rec).find(k => k !== 'name' && typeof rec[k] === 'string' &&
+          pats.some(pp => rec[k].toLowerCase().includes(pp)) && /refer|friend|told|sent|heard/i.test(rec[k]));
+        if (f) console.log('   ' + label + ' mentions her in "' + f + '": ' + ini(rec.name) + (rec.createdAt ? ' on ' + day(rec.createdAt) : '') +
+          (rec.customerNumber ? ' #' + rec.customerNumber : '') + (rec.status ? ' status ' + rec.status : '') + (rec.convertedToCustomerAt ? ' CONVERTED' : ''));
+      };
+      qs.docs.forEach(q => scan('quote', q.data() || {}, q.id));
+      custs.forEach(o => { if (o.id !== c.id) scan('customer', o.d, o.id); });
       custs.forEach(o => { if (o.d.referredByCustomerId === c.id) console.log('   customer linked as referred by her: #' + (o.d.customerNumber || '?') + ' ' + ini(o.d.name)); });
       if (b) console.log('   her bill: credit lines ' + JSON.stringify((b.creditNotes || []).map(n => (n.kind || 'other') + ' $' + n.amount)) + ', status ' + (b.status || '?'));
     });
