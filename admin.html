@@ -74751,7 +74751,9 @@ function dayDate(day){
   if(!day) return undefined;
   if(day._date) return day._date;
   if(day.pin) return new Date(day.pin);
-  if(typeof day.base==='number' && startFor(day)) return desired(day);
+  /* typeof-guarded: several suites lift this inside a slice that does not carry the layout helpers, and there it
+     must answer exactly what it always did. */
+  if(typeof day.base==='number' && typeof startFor==='function' && typeof desired==='function' && startFor(day)) return desired(day);
   return undefined;
 }
 function getDay(id){return SEASON.find(d=>d.id===id);}
