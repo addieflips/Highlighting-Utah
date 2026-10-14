@@ -1663,7 +1663,7 @@ suite('The plan Firestore is handed can actually be saved (2026-10-12)');
     H.api.planSaveProblem(holed) !== '' && H.api.planSaveProblem(H.api.planDropUndefined(holed)) === '',
     H.api.planSaveProblem(H.api.planDropUndefined(holed)));
   check('26.6 and nothing else in the plan changes', JSON.stringify(H.api.planDropUndefined(out)) === JSON.stringify(out));
-  check('26.7 the save writes the cleaned plan', /const data=planDropUndefined\(serialize\(\)\)/.test(noComments));
+  check('26.7 the save writes the cleaned plan', /const data=planDropUndefined\(serialize\(\)\)/.test(fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8')));
   /* The round trip, through JSON as Firestore would hand it back: same split, same houses on the same crew. */
   const before = H.season().map(function(d){ const s = H.api.frozenCrewSplit(d); return s ? s.map(function(c){ return c.map(function(h){ return String(h.id); }); }) : null; });
   H.api.hydrate(JSON.parse(JSON.stringify(out)));

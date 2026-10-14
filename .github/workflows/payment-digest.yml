@@ -1,0 +1,35 @@
+# WHY ARE CARD PAYMENTS NOT COMING IN? (2026-10-14) — read-only, names nobody.
+# Reads the PayPal functions' Cloud Logging lines and the invoices' last-payment times.
+# ⛔ READ-ONLY: payment-digest.js runs `gcloud logging read` and Firestore .get() only.
+# ⛔ NAMES NOBODY: error text has digit runs and email addresses scrubbed before printing.
+name: Read the payment logs
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: payment-digest
+  cancel-in-progress: true
+
+jobs:
+  digest:
+    name: PayPal calls and payments, naming nobody
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the Firestore client
+        run: npm install --no-save firebase-admin@^13.10.0
+      - name: Write service account key to a temp file
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: printf '%s' "$SA_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+      - name: Sign gcloud in as the same account
+        run: gcloud auth activate-service-account --key-file="$RUNNER_TEMP/firebase-sa.json" --quiet
+      - name: Read
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+        run: node payment-digest.js
