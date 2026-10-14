@@ -80653,9 +80653,10 @@ function enforceFiveMileOnce(){
   const used = new Set();
   kept.forEach(function(k){
     if(used.has(k.h)) return;
-    const o = k.h, group = [o];
+    const o = k.h;
     const until = k.until;
-    /* who may join: on an open day (the overflow included — that is where the dateless wait), not stuck, close to o */
+    /* who could join: on an open day (the overflow included — that is where the dateless wait), not stuck, close to o, and
+       never somebody with an earlier last day than o (they cannot wait for o's day) */
     const pool = [];
     SEASON.forEach(function(d){
       if(!isOpen(d)) return;
@@ -80663,42 +80664,53 @@ function enforceFiveMileOnce(){
         if(h === o || used.has(h) || !movable(h)) return;
         if(mi(o, h) > MAX_CREW_RADIUS_MILES) return;
         const u = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
-        /* a house with an earlier last day than o cannot wait for o's day; one with no last day, or a later one, can */
         if(u && u < until) return;
         pool.push({h: h, d: d, kept: kept.some(function(x){ return x.h === h; })});
       });
     });
-    /* grow along hops of at most five miles, the houses that also have nowhere else first, then the nearest */
-    while(group.length < cap){
-      let best = null, bestKey = Infinity;
-      pool.forEach(function(c){
-        if(group.indexOf(c.h) !== -1) return;
-        let hop = Infinity; group.forEach(function(g){ const m = mi(g, c.h); if(m < hop) hop = m; });
-        if(hop > MAX_CREW_HOP_MILES) return;
-        const key = (c.kept ? 0 : 1000) + mi(o, c.h);
-        if(key < bestKey){ bestKey = key; best = c; }
-      });
-      if(!best) break;
-      group.push(best.h);
-    }
-    /* alone with nobody within five miles: no existing day can take it (the stray step already asked them all), but a day of
-       its own can — a one-man day, which is where [[SCH-69]] puts a real outlier */
-    /* the earliest open day before the last day where every house in the group may go and every crew keeps its five miles */
-    const fromOf = new Map();
-    group.forEach(function(h){ const p = pool.filter(function(c){ return c.h === h; })[0]; fromOf.set(h, h === o ? k.from : (p && p.d)); });
-    const lift = function(){ group.forEach(function(h){ const d = fromOf.get(h); const i = d ? d.houses.indexOf(h) : -1; if(i !== -1) d.houses.splice(i, 1); }); };
-    const putBack = function(){ group.forEach(function(h){ const d = fromOf.get(h); if(d && d.houses.indexOf(h) === -1) d.houses.push(h); }); };
-    lift();
-    let target = group.length < 2 ? null : byDate().find(function(d){
+    /* ⚠ THE DATE FIRST, THEN THE GROUP (2026-10-14). Gathered without a date, the group took November customers along with
+       the October house, no October day would take all of them, and the whole group was dropped — on the live plan that left
+       19 and 20 October exactly as they were. So for each candidate day, only the houses that may go ON that day are gathered:
+       grown along hops of at most five miles, the houses that also have nowhere else first, then the nearest, up to a crew. */
+    const groupFor = function(ds){
+      if(!houseMayGoOn(o, custOf(o), ds, startStr).ok) return null;
+      const g = [o];
+      const ok = pool.filter(function(c){ return houseMayGoOn(c.h, custOf(c.h), ds, startStr).ok; });
+      while(g.length < cap){
+        let best = null, bestKey = Infinity;
+        ok.forEach(function(c){
+          if(g.indexOf(c.h) !== -1) return;
+          let hop = Infinity; g.forEach(function(x){ const m = mi(x, c.h); if(m < hop) hop = m; });
+          if(hop > MAX_CREW_HOP_MILES) return;
+          const key = (c.kept ? 0 : 1000) + mi(o, c.h);
+          if(key < bestKey){ bestKey = key; best = c; }
+        });
+        if(!best) break;
+        g.push(best.h);
+      }
+      return g;
+    };
+    const fromOf = new Map(pool.map(function(c){ return [c.h, c.d]; }));
+    fromOf.set(o, k.from);
+    const lift = function(g){ g.forEach(function(h){ const d = fromOf.get(h); const i = d ? d.houses.indexOf(h) : -1; if(i !== -1) d.houses.splice(i, 1); }); };
+    const putBack = function(g){ g.forEach(function(h){ const d = fromOf.get(h); if(d && d.houses.indexOf(h) === -1) d.houses.push(h); }); };
+    let target = null, group = null;
+    /* an existing day before the last one, where every crew still keeps its five miles with the group on it */
+    byDate().some(function(d){
       const ds = dsOf(d);
       if(until && ds > until) return false;
-      if(d.houses.filter(live).length + group.length > capFor(ds)) return false;
-      if(!group.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) return false;
-      return dayHoldsWithHouses(d, group);
+      const g = groupFor(ds);
+      /* alone with nobody within five miles: the stray step already asked every existing day — only a day of its own is left */
+      if(!g || g.length < 2) return false;
+      lift(g);
+      if(d.houses.filter(live).length + g.length <= capFor(ds) && dayHoldsWithHouses(d, g)){ target = d; group = g; return true; }
+      putBack(g);
+      return false;
     });
     /* ⭐ AND A DAY OF ITS OWN WHEN NO DAY IN FRONT OF THE LAST ONE CAN TAKE THEM (2026-10-14). The live plan had nothing on 21-30
        October, so a late October house had no day to be grouped onto and stayed on a crew twelve miles off. The earliest empty
-       working date before its last day, outside the lock, is opened for the group. */
+       working date before its last day, outside the lock, is opened for the group. A dated house with nobody within five miles
+       gets it to itself — a one-man day, which is where [[SCH-69]] puts a real outlier. */
     if(!target && until){
       const taken = new Set(SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown; }).map(dsOf));
       const t0 = new Date(today.slice(0, 4) * 1, today.slice(5, 7) * 1 - 1, today.slice(8, 10) * 1);
@@ -80709,17 +80721,18 @@ function enforceFiveMileOnce(){
         if(taken.has(ds) || tailSet.has(ds)) continue;
         if(typeof isWorkingDay === 'function' && !isWorkingDay(dt)) continue;
         if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
-        if(!group.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) continue;
+        const g = groupFor(ds);
+        if(!g) continue;
         /* ⚠ only if no other day moves: the calendar packs days in order, and a new one can push the rest along */
         const before = new Map(SEASON.map(function(d){ return [d, dsOf(d)]; }));
         const nd = tailDay(ds);
         if(!nd) continue;
         const shifted = SEASON.some(function(d){ return d !== nd && before.has(d) && before.get(d) !== dsOf(d); });
         if(shifted || nd.houses.length){ if(!nd.houses.length){ SEASON.splice(SEASON.indexOf(nd), 1); computeDates(); } continue; }
-        target = nd;
+        lift(g); target = nd; group = g;
       }
     }
-    if(!target){ putBack(); res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
+    if(!target){ res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
     group.forEach(function(h){
       target.houses.push(h); used.add(h);
       if(h.fiveMileTail) delete h.fiveMileTail;
