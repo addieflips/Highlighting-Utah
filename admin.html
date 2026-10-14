@@ -80831,6 +80831,41 @@ function enforceFiveMileOnce(){
      put on the earliest open day before its last day where every crew still keeps its five miles (dayHoldsWithHouses). Other
      houses with a last day near it join the same group. Only when no such day exists does it stay where it was, named. */
   const used = new Set();
+  /* ⭐ NEIGHBOURS ONLY OUT OF SPARE ROOM BEFORE THE LAST DAY. A neighbour brought forward spends a place on a day that another
+     house with the same last day may need — schedule-v2 SCH-122 measured October customers pushed into November when groups
+     filled to a crew regardless. So the room is counted once per last day: the open working days up to it, at a full day
+     each, less every house already on them and every house with that last day (or an earlier one) waiting anywhere else.
+     A group takes no more neighbours than that leaves; with none spare the house still gets a day of its own (a one-man day)
+     rather than a ride on a far crew. */
+  const spare = new Map();
+  const spareFor = function(until){
+    if(spare.has(until)) return spare.get(until);
+    const perDay = cap * crewsN;
+    const t0 = new Date(today.slice(0, 4) * 1, today.slice(5, 7) * 1 - 1, today.slice(8, 10) * 1);
+    let room = 0;
+    for(let step = 1; step <= 120; step++){
+      const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + step);
+      const ds = isoOf(dt);
+      if(ds > until) break;
+      if(tailSet.has(ds) || (typeof isWorkingDay === 'function' && !isWorkingDay(dt))) continue;
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
+      room += perDay;
+    }
+    let owed = 0;
+    SEASON.forEach(function(d){
+      if(!isOpen(d)) return;
+      const ds = dsOf(d);
+      (d.houses || []).forEach(function(h){
+        if(!live(h)) return;
+        if(ds <= until && !tailSet.has(ds)){ owed++; return; }
+        const u = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
+        if(u && u <= until) owed++;
+      });
+    });
+    const left = Math.max(0, room - owed);
+    spare.set(until, left);
+    return left;
+  };
   kept.forEach(function(k){
     if(used.has(k.h)) return;
     const o = k.h;
@@ -80856,10 +80891,15 @@ function enforceFiveMileOnce(){
       if(!houseMayGoOn(o, custOf(o), ds, startStr).ok) return null;
       const g = [o];
       const ok = pool.filter(function(c){ return houseMayGoOn(c.h, custOf(c.h), ds, startStr).ok; });
+      /* up to a crew; a neighbour brought forward from past the last day (or from the overflow) spends spare room — see spareFor */
+      const room = spareFor(until);
+      let fromLater = 0;
+      const later = function(c){ const x = c.d ? dsOf(c.d) : ''; return !c.kept && (!x || x > until || tailSet.has(x)); };
       while(g.length < cap){
         let best = null, bestKey = Infinity;
         ok.forEach(function(c){
           if(g.indexOf(c.h) !== -1) return;
+          if(later(c) && fromLater >= room) return;
           let hop = Infinity; g.forEach(function(x){ const m = mi(x, c.h); if(m < hop) hop = m; });
           if(hop > MAX_CREW_HOP_MILES) return;
           const key = (c.kept ? 0 : 1000) + mi(o, c.h);
@@ -80867,7 +80907,9 @@ function enforceFiveMileOnce(){
         });
         if(!best) break;
         g.push(best.h);
+        if(later(best)) fromLater++;
       }
+      g.fromLater = fromLater;
       return g;
     };
     const fromOf = new Map(pool.map(function(c){ return [c.h, c.d]; }));
@@ -80913,6 +80955,7 @@ function enforceFiveMileOnce(){
       }
     }
     if(!target){ res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
+    if(group.fromLater) spare.set(until, Math.max(0, spareFor(until) - group.fromLater));
     group.forEach(function(h){
       target.houses.push(h); used.add(h);
       if(h.fiveMileTail) delete h.fiveMileTail;

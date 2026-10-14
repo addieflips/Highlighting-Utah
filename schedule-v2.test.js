@@ -951,7 +951,10 @@ function liveUnbuilt(useTick){
   H.load(book, {season: season});
   const before = lockedPrint();
   const lockedDs = Object.keys(before).sort();
-  const onDay = daysOf().filter(function(d){ return d.ds === lockedDs[1]; })[0];
+  /* [[SCH-133]] the printed day the test works on is the later of the two when there are two; a plan whose next scheduled
+     day has a gap after it (tight October groups) can leave only one inside the lock, and the claims hold for that one */
+  const target = lockedDs.length > 1 ? lockedDs[1] : lockedDs[0], other = lockedDs.filter(function(x){ return x !== target; })[0];
+  const onDay = daysOf().filter(function(d){ return d.ds === target; })[0];
   const ids = onDay ? onDay.ids.map(function(x){ return x.replace(/^cust-/, ''); }) : [];
   const byId = {}; book.forEach(function(b){ byId[b.id] = b; });
   const rachel = byId[ids[2]], mover = byId[ids[3]];
@@ -965,12 +968,12 @@ function liveUnbuilt(useTick){
   const after = lockedPrint();
   const strip = function(str){ return str.split('|').map(function(c){ return c.split(',').filter(function(x){ return x && x !== 'cust-' + rachel.id && x !== 'cust-' + mover.id; }).join(','); }).join('|'); };
   const label = useTick ? 'the five-minute sync' : 'Recalculate everything';
-  check(label + ': the unbuilt new hang is taken off the printed day', !dayOfCust(rachel.id), lockedDs[1] + ' → ' + dayOfCust(rachel.id));
-  check(label + ': and so is a returning customer whose rebuild is still queued (SCH-115)', !dayOfCust(mover.id), lockedDs[1] + ' → ' + dayOfCust(mover.id));
-  check(label + ': everybody else on that day keeps exactly their crew and order', after[lockedDs[1]] === strip(before[lockedDs[1]]),
-    'before ' + strip(before[lockedDs[1]]).slice(0, 120) + ' | after ' + (after[lockedDs[1]] || '').slice(0, 120));
-  check(label + ': the other printed day is untouched', after[lockedDs[0]] === before[lockedDs[0]]);
-  if(!useTick) check(label + ': and the office is told who came off which day', H.unbuiltOff().some(function(x){ return x.date === lockedDs[1]; }), JSON.stringify(H.unbuiltOff()));
+  check(label + ': the unbuilt new hang is taken off the printed day', !dayOfCust(rachel.id), target + ' → ' + dayOfCust(rachel.id));
+  check(label + ': and so is a returning customer whose rebuild is still queued (SCH-115)', !dayOfCust(mover.id), target + ' → ' + dayOfCust(mover.id));
+  check(label + ': everybody else on that day keeps exactly their crew and order', after[target] === strip(before[target]),
+    'before ' + strip(before[target]).slice(0, 120) + ' | after ' + (after[target] || '').slice(0, 120));
+  if(other) check(label + ': the other printed day is untouched', after[other] === before[other]);
+  if(!useTick) check(label + ': and the office is told who came off which day', H.unbuiltOff().some(function(x){ return x.date === target; }), JSON.stringify(H.unbuiltOff()));
 }
 liveUnbuilt(false);
 liveUnbuilt(true);
