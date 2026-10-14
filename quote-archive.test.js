@@ -138,6 +138,15 @@ check('the stamp helper exists and never overwrites a stamp already there',
     JSON.stringify(S({ quoteFirstSentAt: old })) === '{}');
   check('a re-send of an old quote keeps its original send too', S({ quoteSentAt: old }).quoteFirstSentAt === old);
   check('and a genuinely first send stamps now', S({}).quoteFirstSentAt === 'NOW');
+  /* The look-alike the screen mirrors in after a send: a plain object whose toDate is a
+     FUNCTION. Firestore refuses to store one, and passing it straight back failed the send. */
+  const lookAlike = { toDate: () => old };
+  const out = H({ quoteSentAt: lookAlike }).quoteFirstSentAt;
+  check('a mirrored look-alike stamp is written back as a plain Date, never as itself',
+    out instanceof Date && out.getTime() === old.getTime(),
+    'got ' + (out && out.constructor && out.constructor.name) + ' — an object carrying a function is refused by Firestore');
+  check('and nothing written carries a function anywhere',
+    !Object.values(H({ quoteSentAt: lookAlike })).some(v => v && typeof v === 'object' && Object.values(v).some(x => typeof x === 'function')));
   const nudgeDoors = (admin.match(/quoteLastNudgedAt: serverTimestamp\(\)\r?\n\s*\}, quoteFirstSentFromHistory\(d\)\)\);/g) || []).length;
   check('both office Nudge buttons use the history stamp', nudgeDoors === 2, 'found ' + nudgeDoors);
 }
