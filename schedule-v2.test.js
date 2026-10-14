@@ -1743,7 +1743,9 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
     const near5 = function(h, o){ const p = ptH(h); if(!p) return true; return (o.day.houses || []).some(function(x){ const q = ptH(x); return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }); };
     const tiny = days.filter(function(x){ return x.total < 10 && !H.api.routeDayIsLocked(x.ds); }).filter(function(x){
       return days.some(function(o){ return o !== x && !H.api.routeDayIsLocked(o.ds) && o.total + x.total <= 40 &&
-        x.day.houses.every(function(h){ const c = H.api.planCustomerFor(h); return near5(h, o) && H.api.houseMayGoOn(h, (c && c.data) || {}, o.ds, '2026-10-01').ok; }); });
+        x.day.houses.every(function(h){ const c = H.api.planCustomerFor(h); return near5(h, o) && H.api.houseMayGoOn(h, (c && c.data) || {}, o.ds, '2026-10-01').ok; }) &&
+        /* [[SCH-133]] and every crew on that day keeps its five miles with them — the planner's own test, as in the season sim */
+        H.api.dayHoldsWithHouses(o.day, x.day.houses); });
     });
     check('28.' + k + 'b book ' + spec[1] + ': no day is left under ten when all of it could join another day within five miles (SCH-131)', tiny.length === 0,
       tiny.map(function(x){ return x.ds + ' ' + x.total; }).join(' | '));
