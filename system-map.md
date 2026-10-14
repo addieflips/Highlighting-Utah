@@ -7190,6 +7190,11 @@ same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory`
 earliest send already on the record. Quotes nudged before this have lost that date; archive
 them by hand from the quote card.
 
+⭐ **FIXES ARE A LIST, NOT A DAY ([[FIX-09]], 2026-10-14).** Schedule › Fixes is every open fix,
+oldest first, live from the customers, with Edit fix, ✓ Done and Print. The fix popup no longer asks
+for a day; `placeFixesFromCustomers` now takes any fixer-route day and any fix riding on an install
+day off the plan. Routes › Generate Fix Route still builds a driving order if wanted.
+
 ⭐ **CARD PAYMENTS STOPPED ON 13 OCTOBER — PAYPAL'S SIDE (2026-10-14).** Read the payment logs
 showed every order before 8:19 AM was captured within minutes, and the nine created after it
 (SuAnne four times) were never approved — no change on our side. The cause is on the PayPal

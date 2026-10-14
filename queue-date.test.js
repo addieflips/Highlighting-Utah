@@ -271,7 +271,10 @@ check('the one place that sets the flag without queuing is still excluded',
        flag into the local cache afterwards, so the note/photo popup does not read its
        own stale copy on the next render. */
     showAddFixPopup: 'mirrors the flag into the local cache after Save Fix calls ' +
-      'hlxMarkJobDone, which is the dated write'
+      'hlxMarkJobDone, which is the dated write',
+    /* [[FIX-09]] the Fixes list's Done button: mirrors the flag off so the row leaves at once, then
+       calls hlxMarkJobDone — the dated write — and puts it back if that fails. */
+    markFixDoneFromList: 'mirrors the flag around hlxMarkJobDone, which is the dated write'
   };
   const strangers = [...doors.keys()].filter(f => !(f in FIX_DOORS));
   check('no new place writes the fix flag without a decision about it',

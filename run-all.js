@@ -64728,7 +64728,8 @@ suite('352. Fixes and Takedowns have a name search too');
   check('S352', 'both new search boxes are drawn',
     admin.indexOf('id=\\"fixQ\\"') !== -1 && admin.indexOf('id=\\"takeQ\\"') !== -1);
   check('S352', 'each tab reads its own box and searches its own days',
-    /const fq=RT\.getElementById\('fixQ'\)[^;]*;if\(fq\)renderSearchIn\(fq,fr,'fixPanel'\)/.test(strippedA) &&
+    /* [[FIX-09]] the Fixes tab has no days any more — its box filters the live Fixes list. */
+    /function renderFixTray\(\)\{[\s\S]{0,400}RT\.getElementById\('fixQ'\)/.test(strippedA) &&
     /const tq=RT\.getElementById\('takeQ'\)[^;]*;if\(tq\)renderSearchIn\(tq,td,'takePanel'\)/.test(strippedA));
   check('S352', 'typing in either box redraws — a box with no listener looks identical to a working one',
     /\['q','fixQ','takeQ'\]\.forEach\(function\(id\)\{RT\.getElementById\(id\)\.addEventListener\('input'/.test(strippedA));
@@ -66292,42 +66293,55 @@ suite('373. Every Street View photo of the house, by season and year');
  * over the source cannot see.
  * --------------------------------------------------------------------------- */
 suite('374. A fix raised in Customers reaches a fixer route');
+/* ⛔ REPOINTED 2026-10-14 ([[FIX-09]]): fixes are not scheduled any more. The same function now
+   takes fixes OFF the plan — every fixer-route day and every fix riding on an install day — and
+   must never touch an install or a takedown. RUN against a seeded season. */
 {
-  const names = ['placeFixesFromCustomers', 'fixedHouseCustomerIds', 'dlabel', 'isoOf', 'dayDate'];
-  const parts = names.map(n => extractFn(admin, n));
-  check('S374', 'the fix placement and its helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  const parts = [extractFn(admin, 'placeFixesFromCustomers')];
+  check('S374', 'the fix clean-up is findable', parts.every(Boolean));
   if (parts.every(Boolean)) {
-    const pre = 'let SEASON = [], fixRouteSeq = 0, computeCalls = 0;' +
-      'const BASE_START = new Date(2026, 9, 1);' +
-      "const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; const MO = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];" +
-      'function daysBetween(a, b){ return Math.round((a - b) / 864e5); }' +
-      /* the real computeDates sets a fixer route's _date from its pin; this is that one line */
-      'function computeDates(){ computeCalls++; SEASON.filter(d => d.isFixRoute).forEach(d => { d._date = new Date(d.pin); }); }' +
-      'function planCustomerFor(h){ return h.custId ? {id: h.custId} : null; }' +
-      "function houseFromCustomer(item){ return {id: 'cust-' + item.id, custId: item.id, name: item.data.name}; }" +
-      "function nextFixSaturdayIso(){ return '2026-10-10'; }";
-    const run = (jobs, season) => new Function('jobAddresses', 'seed',
-      pre + parts.join('\n') + 'SEASON = seed; const placed = placeFixesFromCustomers(); return {placed, SEASON, computeCalls};')(jobs, season || []);
-    let r, threw = '';
-    try {
-      r = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixNote: 'front peak out', fixScheduleDate: '2026-10-17'}},
-               {id: 'b', data: {name: 'Bo', needsFix: true}},
-               {id: 'c', data: {name: 'Cy', needsFix: true, fixScheduleDate: '2026-10-17'}},
-               {id: 'd', data: {name: 'Di'}}]);
-    } catch (e) { threw = String(e && e.message || e); }
-    check('S374', 'a fix whose date has no fixer route yet is placed rather than throwing', !threw && r && r.placed.length === 3, threw);
-    if (r) {
-      const fr = r.SEASON.filter(d => d.isFixRoute);
-      check('S374', 'two fixes asked for one date share one fixer route', fr.length === 2 &&
-        fr.find(d => d.houses.length === 2 && d.houses.every(h => h.isFix)), fr.map(d => d.houses.length).join(','));
-      const ann = fr.flatMap(d => d.houses).find(h => h.custId === 'a');
-      check('S374', 'the house is labelled with the day it was put on', ann && ann.autoDay === 'Sat Oct 17', ann && ann.autoDay);
-      check('S374', 'and a customer not flagged for a fix is left alone', !fr.flatMap(d => d.houses).some(h => h.custId === 'd'));
-      let again;
-      try { again = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixScheduleDate: '2026-10-17'}}], r.SEASON); } catch (e) { again = null; }
-      check('S374', 'a fix already on a fixer route is not placed a second time', again && again.placed.length === 0);
+    const pre = 'let SEASON = [], computeCalls = 0; function computeDates(){ computeCalls++; }';
+    const run = seed => new Function('seed', pre + parts.join('\n') +
+      'SEASON = seed; const removed = placeFixesFromCustomers(); return {removed, SEASON, computeCalls};')(seed);
+    const seed = () => [
+      {id: 'd1', houses: [{id: 'i1', name: 'Ivy'}, {id: 'f1', name: 'Fay', isFix: true}, {id: 't1', name: 'Ted', isTakedown: true}]},
+      {id: 'fr0', isFixRoute: true, houses: [{id: 'f2', name: 'Flo', isFix: true}, {id: 'f3', name: 'Fin', isFix: true}]},
+      {id: 'd2', houses: [{id: 'i2', name: 'Ian'}]}
+    ];
+    let r2, threw = '';
+    try { r2 = run(seed()); } catch (e) { threw = String(e && e.message || e); }
+    check('S374', 'it runs over a season with fixes on it', !threw && !!r2, threw);
+    if (r2) {
+      check('S374', 'every fixer-route day is gone', !r2.SEASON.some(d => d.isFixRoute));
+      check('S374', 'and a fix riding on an install day is taken off it', !r2.SEASON.some(d => d.houses.some(h => h.isFix)));
+      check('S374', 'installs and takedowns are never touched',
+        JSON.stringify(r2.SEASON.map(d => d.houses.map(h => h.id))) === JSON.stringify([['i1', 't1'], ['i2']]));
+      check('S374', 'and it names all three fixes it took off', r2.removed.map(x => x.name).sort().join(',') === 'Fay,Fin,Flo');
+      const again = run(r2.SEASON);
+      check('S374', 'run again it finds nothing — it settles', again.removed.length === 0 && again.computeCalls === 0);
     }
   }
+  /* The Fixes list itself, RUN: who is on it and in what order. */
+  const listSrc = ['openFixItems', 'saidNoOrBackNextYear', 'toJsDate'].map(n => extractFn(admin, n));
+  check('S374', 'the Fixes list rule is findable', listSrc.every(Boolean));
+  if (listSrc.every(Boolean)) {
+    const open = new Function('jobAddresses', listSrc.join('\n') + '\nreturn openFixItems();');
+    const at = d => new Date(2026, 9, d);
+    const got = open([
+      {id: 'new', data: {name: 'New', needsFix: true, fixRaisedAt: at(12)}},
+      {id: 'old', data: {name: 'Old', needsFix: true, fixRaisedAt: at(2)}},
+      {id: 'done', data: {name: 'Done', needsFix: false}},
+      {id: 'out', data: {name: 'Out', needsFix: true, rsvpStatus: 'backnextyear'}},
+      {id: 'undated', data: {name: 'Undated', needsFix: true}}
+    ]).map(x => x.id);
+    check('S374', 'every open fix is listed, oldest raised first, undated last', got.join(',') === 'old,new,undated', got.join(','));
+  }
+  check('S374', 'each row has its own Edit fix and Done', /data-editfixcust="/.test(admin) && /data-fixdonecust="/.test(admin) &&
+    /if\(t\.dataset\.fixdonecust\)\{markFixDoneFromList\(/.test(admin) && /if\(t\.dataset\.editfixcust\)\{showAddFixPopup\(/.test(admin));
+  check('S374', 'and the list prints, with what is wrong and the photos', /if\(t\.dataset\.fixprint\)\{printFixList\(/.test(admin) &&
+    /fixes:\s*\[[^\]]*k: 'fix'/.test(admin) && /function printFixList[\s\S]{0,1200}printPhotosHtml\(photos/.test(admin));
+  check('S374', 'the fix popup no longer asks for a day', admin.indexOf('class="addfix-date"') === -1);
+  check('S374', 'and saving a fix writes no day', !/fixNote: noteVal, fixScheduleDate/.test(admin));
 }
 
 suite('375. A setting changed on another computer reaches this one without a refresh');
