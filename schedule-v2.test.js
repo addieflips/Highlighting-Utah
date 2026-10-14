@@ -1601,8 +1601,8 @@ suite('SCH-126 / SCH-132 Every crew drives the shortest route that finishes each
      finish each area before leaving it — a drive between two areas carries a search price far above any day's miles,
      which is the rule as admin.html prices it, and the price is taken back off so the answer is in real miles */
   const exact = function(P){
-    const A = H.api.routeAreaIds(P), PEN = 1000, legs = new Set(A).size - 1;
-    const mi = function(a, b){ return H.api.haversine(a.lat, a.lng, b.lat, b.lng) + (a.__i !== undefined && b.__i !== undefined && A[a.__i] !== A[b.__i] ? PEN : 0); };
+    const A = H.api.routeAreaIds(P), PEN = 1000, HOP = 100, legs = new Set(A).size - 1;
+    const mi = function(a, b){ const r = H.api.haversine(a.lat, a.lng, b.lat, b.lng), both = a.__i !== undefined && b.__i !== undefined; return r + (both && A[a.__i] !== A[b.__i] ? PEN : 0) + (both && r > 5 ? HOP : 0); };
     P = P.map(function(p, i){ return {lat: p.lat, lng: p.lng, __i: i}; });
     const n = P.length, FULL = 1 << n, dp = new Float64Array(FULL * n).fill(Infinity);
     for(let i = 0; i < n; i++) dp[(1 << i) * n + i] = mi(yard, P[i]);
@@ -1611,7 +1611,8 @@ suite('SCH-126 / SCH-132 Every crew drives the shortest route that finishes each
       for(let j = 0; j < n; j++){ if(S & (1 << j)) continue; const T2 = S | (1 << j), w = v + mi(P[i], P[j]); if(w < dp[T2 * n + j]) dp[T2 * n + j] = w; }
     }
     let best = Infinity; for(let i = 0; i < n; i++) best = Math.min(best, dp[(FULL - 1) * n + i] + mi(P[i], yard));
-    return best - legs * PEN;
+    /* [[SCH-133]] a drive over five miles between two houses is priced 100 as well; the fewest such drives is subtracted */
+    return best - legs * PEN - Math.floor((best - legs * PEN) / HOP) * HOP;
   };
   check('25.0 the yard resolves, so every tour below is a real round trip', !!(yard && typeof yard.lat === 'number'));
   let checked = 0, routes = 0; const over = [], back = [];

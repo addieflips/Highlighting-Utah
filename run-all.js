@@ -61568,12 +61568,17 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
       far.out.every(p => nearer(p) < coreAvg),
       'that is the whole shape of the fault: far from the middle of the day, close to the road out');
     const driven = api.order(lopsided.slice());
-    check('S322', 'so the crew does them on the way out, not on the way back',
-      farNames.has(driven[0].name) && farNames.has(driven[1].name),
+    /* ⛔ NARROWED 2026-10-14 BY [[SCH-133]] — Dax: "almost every schedule has a hop thats like american fork to orem which is way
+       to big of a hop". The way-out shape of this day (31.56 mi) drives over five miles between two houses; the order now avoids
+       that and does the far pair at the OTHER end of the day (33.94 mi). Still never in the middle, which is what Dax ruled out
+       on 2026-09-26; "on the way there" is kept only where it costs no drive of over five miles between two houses. */
+    const longDrives = ord => { let n = 0; for (let k = 1; k < ord.length; k++) if (api.hav(ord[k-1]._cust.lat, ord[k-1]._cust.lng, ord[k]._cust.lat, ord[k]._cust.lng) > 5) n++; return n; };
+    check('S322', 'so the crew does them at one end of the day, never in the middle',
+      (farNames.has(driven[0].name) && farNames.has(driven[1].name)) || (farNames.has(driven[driven.length - 1].name) && farNames.has(driven[driven.length - 2].name)),
       'got ' + ids(driven) + ' — he watched a crew drive past a house in the morning and return for it in the afternoon');
-    check('S322', 'and the day is shorter for it',
-      api.miles(pts(driven), HOME, HOME) < 33,
-      'measured at 33.94 mi with the far group last and 31.56 with it first');
+    check('S322', 'and no drive between two of its houses is over five miles (SCH-133), for no more than the far-last miles',
+      longDrives(driven) === 0 && api.miles(pts(driven), HOME, HOME) < 35,
+      'measured 2026-10-14 at 34.54 mi with no drive over five miles; 31.56 with the far pair first, which carries one');
     check('S322', 'nothing is dropped by choosing the other shape',
       driven.length === lopsided.length &&
       new Set(driven.map(h => h.name)).size === lopsided.length);
