@@ -52050,8 +52050,11 @@ suite('287. The routine route sweep does not bury the notice that matters');
      email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
      ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
   const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  /* [2026-10-14] the body builder first puts misspelled codes right (canonicalEmailCodesServer) — lifted, never stubbed */
+  const canonSrc = fnsSrcChase.slice(fnsSrcChase.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['),
+    fnsSrcChase.indexOf('function canonicalEmailCodesServer(')) + (extractFn(fnsSrcChase, 'canonicalEmailCodesServer') || '');
   const batchSrc = (batchBody && bodyBody)
-    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    ? (canonSrc + String.fromCharCode(10) + 'async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
     : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
@@ -66575,6 +66578,49 @@ suite('379. A quote from a member who moved is flagged, never linked on its own'
 }
 
 /* =====================================================================
+   380. A code typed without its underscores still renders (2026-10-14)
+   Dax: "the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix
+   that". The live RSVP template had the codes saved without underscores and every renderer matches the exact spelling.
+   canonicalEmailCodes (admin.html) and canonicalEmailCodesServer (functions/index.js) put the spelling back; this RUNS both,
+   requires the same answer from each, and asserts every place that must use it does.
+   ===================================================================== */
+suite('380. A code typed without its underscores still renders');
+{
+  const lift = function(src, fn, consts){ return new Function(extractFn(src, consts) + '\n' + extractFn(src, fn) + '\nreturn ' + fn + ';'); };
+  let A = null, S = null;
+  try {
+    const aConst = admin.slice(admin.indexOf('const EMAIL_CANONICAL_CODES = ['), admin.indexOf('function canonicalEmailCodes('));
+    A = new Function(aConst + '\n' + extractFn(admin, 'canonicalEmailCodes') + '\nreturn canonicalEmailCodes;')();
+    const sConst = fnsSrc.slice(fnsSrc.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['), fnsSrc.indexOf('function canonicalEmailCodesServer('));
+    S = new Function(sConst + '\n' + extractFn(fnsSrc, 'canonicalEmailCodesServer') + '\nreturn canonicalEmailCodesServer;')();
+  } catch (e) { A = A || null; S = S || null; }
+  check('S380', 'both copies were found and lifted', typeof A === 'function' && typeof S === 'function',
+    'renamed or removed — update this suite rather than deleting it');
+  if (typeof A === 'function' && typeof S === 'function') {
+    const real = 'Hi {{name}}\n\n{{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}}\n\n{{referral_button}}';
+    check('S380', 'the three codes off the live RSVP template come back spelled properly',
+      A(real) === 'Hi {{name}}\n\n{{rsvp_yes_button}} {{rsvp_back_button}} {{rsvp_no_button}}\n\n{{referral_button}}', A(real));
+    const odd = '{{ RSVP Yes Button }} {{Rsvp-No-Link}} {{rsvp__back__link}} {{REFERRALLINK}} {{rsvplink}} {{RSVP button}}';
+    check('S380', 'case, spaces, hyphens and doubled underscores do not matter',
+      A(odd) === '{{rsvp_yes_button}} {{rsvp_no_link}} {{rsvp_back_link}} {{referral_link}} {{rsvp_link}} {{rsvp_button}}', A(odd));
+    const keep = '{{name}} {{price}} {{link:see your quote}} {{houses_block}} {{photo}} {{rsvp_maybe}} {{unknowncode}}';
+    check('S380', 'nothing it does not know is touched — {{link:her words}} and unknown codes stay exactly as typed', A(keep) === keep, A(keep));
+    const samples = [real, odd, keep, '', 'no codes at all', '{{rsvp_yes_button}}{{rsvpyesbutton}}', '{{ rsvp yes button}}'];
+    check('S380', 'the office copy and the 9 AM batch copy give the same answer', samples.every(function(t){ return A(t) === S(t); }));
+  }
+  const strippedA = stripComments(admin), strippedF = stripComments(fnsSrc);
+  check('S380', 'the office email builder uses it first',
+    /async function resolveLinkTokens\([^)]*\)\{\s*opts = opts \|\| \{\};\s*let out = \(typeof canonicalEmailCodes === 'function'\) \? canonicalEmailCodes\(text\) : text;/.test(strippedA));
+  check('S380', 'the 9 AM batch builder uses it first',
+    /async function rsvpEmailBodyServer\([^)]*\) \{[\s\S]{0,900}?let body = canonicalEmailCodesServer\(templateBody\);/.test(strippedF));
+  check('S380', 'a template is saved with the codes spelled properly',
+    /const body = canonicalEmailCodes\(document\.getElementById\('etTemplateBody'\)\.value\);/.test(strippedA) &&
+    /const subject = canonicalEmailCodes\(document\.getElementById\('etTemplateSubject'\)\.value\.trim\(\)\);/.test(strippedA));
+  check('S380', 'and a template is recognised as an RSVP one however its codes are spelled',
+    /function etTemplateIsRsvp\(t\)\{[\s\S]*?canonicalEmailCodes\(String\(d\.body/.test(strippedA));
+}
+
+/* =====================================================================
    381. A new hang's photo comes off the live record, and prints on the back of the sheet (2026-10-14)
    Dax: "when we get a new hang it should pull the picture from their live customer file so when i printed rachel oslund it
    said she didnt have a picture even though I added her today", and "the picture attempts to appear on the wrong page
@@ -66642,6 +66688,15 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
   check('S381', 'the whole-day sheet puts both crews\' photos on the back, after every table',
     /blocks\.push\(printBackSideHtml\(backs\.join\(''\)\)\);/.test(stripped) &&
     stripped.indexOf("blocks.push(printBackSideHtml(backs.join('')));") > stripped.indexOf("In neither crew’s city"));
+  /* "certain picture file types dont print corretly too if thats the case have it auto fix that" */
+  let Src = null;
+  try { Src = new Function(extractFn(admin, 'printPhotoSrc') + '\nreturn printPhotoSrc;')(); } catch (e) { Src = null; }
+  check('S381', 'every printed photo is asked for as a JPG', typeof Src === 'function' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/v1791985042/abc.heic') ===
+      'https://res.cloudinary.com/highlighting-utah/image/upload/f_jpg,q_auto,w_1200,c_limit/v1791985042/abc.heic' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg') === 'https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg' &&
+    Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
+  check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
   check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
     (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
 }

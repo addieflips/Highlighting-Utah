@@ -43,6 +43,7 @@ const TWINS = [
   T('invoiceEmailRows', 'invoiceEmailRowsServer', 'invoice-email.test.js', 'the line items inside the invoice email'),
   T('invoiceEmailBlock', 'invoiceEmailBlockServer', 'invoice-email.test.js', 'the invoice document inside the email'),
   T('invoiceEmailPlace', 'invoiceEmailPlaceServer', 'invoice-email.test.js', 'where in the email the invoice goes'),
+  T('canonicalEmailCodes', 'canonicalEmailCodesServer', 'run-all.js', 'an RSVP or referral code typed without its underscores still renders (Suite 380)'),
   T('invoiceEmailNumber', 'invoiceEmailNumberServer', 'invoice-email.test.js', 'the invoice number printed in the email',
     { byBlock: true }),
   /* --- the warehouse --- */
