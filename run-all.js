@@ -26447,7 +26447,7 @@ suite('Suite 104. The Printing tab');
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
     extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-    extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+    extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
     chargeNewMemberFee: true,
@@ -26540,9 +26540,9 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
-      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
-      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') + extractFn(admin, 'printTableHtml') +
       /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
       extractFn(admin, 'printCrewPhotoGaps') + extractFn(admin, 'printPhotoGapsHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
@@ -26761,7 +26761,7 @@ suite('Suite 104. The Printing tab');
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
       extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-      extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') +
+      extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
     return (out[0] || {}).body || '';
@@ -65956,7 +65956,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
   const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
-                  'printCrewPhotos', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
   const make = (opts) => new Function('o',
@@ -66068,7 +66068,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
  * --------------------------------------------------------------------------- */
 suite('368. A new hang\'s photos and its row carry the same letter and colour');
 {
-  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
   const src = names.map(n => extractFn(admin, n));
   const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
   check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
@@ -66618,4 +66618,85 @@ suite('380. A code typed without its underscores still renders');
     /const subject = canonicalEmailCodes\(document\.getElementById\('etTemplateSubject'\)\.value\.trim\(\)\);/.test(strippedA));
   check('S380', 'and a template is recognised as an RSVP one however its codes are spelled',
     /function etTemplateIsRsvp\(t\)\{[\s\S]*?canonicalEmailCodes\(String\(d\.body/.test(strippedA));
+}
+
+/* =====================================================================
+   381. A new hang's photo comes off the live record, and prints on the back of the sheet (2026-10-14)
+   Dax: "when we get a new hang it should pull the picture from their live customer file so when i printed rachel oslund it
+   said she didnt have a picture even though I added her today", and "the picture attempts to appear on the wrong page
+   number when it should just appear on the back side of the new hang paper". Rachel's picture was in the record's LAYOUT MAP
+   slot and the sheet read the house-photo slots alone. RUN, not matched: the photo rule against records shaped like hers,
+   and the print document against fake pages.
+   ===================================================================== */
+suite('381. A new hang\'s photo comes off the live record, and prints on the back of the sheet');
+{
+  let P = null;
+  try {
+    /* closedQuoteFor is the fixture dial here (it walks the whole quote book); the photo rule itself is lifted */
+    P = new Function('quotes',
+      extractFn(admin, 'customerPhotoList') + '\n' + extractFn(admin, 'quotePhotoList') + '\n' +
+      extractFn(admin, 'printNewHangPhotoList') + '\n' +
+      'function closedQuoteFor(h){ return quotes[h.id] || null; }\nreturn printNewHangPhotoList;');
+  } catch (e) { P = null; }
+  check('S381', 'the photo rule was found and lifted', typeof P === 'function', 'renamed or removed — update this suite rather than deleting it');
+  if (typeof P === 'function') {
+    const quotes = { 'cust-r': { data: { frontPhotoUrl: 'https://x/quote-front.jpg' } }, 'cust-n': { data: { frontPhotoUrl: 'https://x/q2.jpg' } } };
+    const rule = P(quotes);
+    const rachel = { name: 'Rachel Oslund', housePhotos: [], housePhotoUrl: '', layoutMapUrl: 'https://x/layout.jpg' };
+    const got = rule(rachel, { id: 'cust-r' });
+    check('S381', 'a picture in the layout map slot is printed — Rachel Oslund\'s case', got.length === 1 && got[0].url === 'https://x/layout.jpg' && got[0].label === 'layout map', JSON.stringify(got));
+    const both = rule({ housePhotos: [{ url: 'https://x/h1.jpg' }, { url: 'https://x/h2.jpg' }], layoutMapUrl: 'https://x/layout.jpg' }, { id: 'cust-r' });
+    check('S381', 'house photos first, then the layout map, and the quote\'s picture is not added on top',
+      both.map(function(p){ return p.url; }).join(',') === 'https://x/h1.jpg,https://x/h2.jpg,https://x/layout.jpg', JSON.stringify(both));
+    const same = rule({ housePhotoUrl: 'https://x/same.jpg', layoutMapUrl: 'https://x/same.jpg' }, { id: 'cust-r' });
+    check('S381', 'one picture saved in both slots prints once', same.length === 1, JSON.stringify(same));
+    const bare = rule({ housePhotos: [] }, { id: 'cust-n' });
+    check('S381', 'a record with no picture at all falls back to the quote they were converted from', bare.length === 1 && bare[0].url === 'https://x/q2.jpg', JSON.stringify(bare));
+    check('S381', 'and with no quote photo either, there is nothing — the "no photo on file" line says so', rule({}, { id: 'nobody' }).length === 0);
+  }
+  /* the print document: a sheet with photos has them on a page of their own; every other sheet in that print gets a blank back */
+  let html = '';
+  let Doc = null;
+  try {
+    Doc = new Function('captured',
+      'var window = {open: function(){ return {document: {write: function(h){ captured.html = h; }, close: function(){}}, focus: function(){}, print: function(){}}; }};' +
+      'function setTimeout(){}\nfunction toast(){}\nvar PRINT_SHEET_CSS = "";\n' +
+      admin.slice(admin.indexOf('function esc(s){return'), admin.indexOf('\n', admin.indexOf('function esc(s){return'))) + '\n' +
+      extractFn(admin, 'printBackSideHtml') + '\n' + extractFn(admin, 'schedOpenPrintPages') + '\n' +
+      'return {open: schedOpenPrintPages, back: printBackSideHtml};');
+  } catch (e) { Doc = null; }
+  check('S381', 'the print document builder was found and lifted', typeof Doc === 'function');
+  if (typeof Doc === 'function') {
+    const cap = {}, D = Doc(cap);
+    check('S381', 'nothing in, no back page out', D.back('') === '');
+    D.open('t', [{ title: 'Warehouse', body: '<table id="w"></table>' },
+                 { title: 'Crew 1', body: '<table id="c1"></table>' + D.back('<div class="photos">p</div>') }]);
+    html = cap.html || '';
+    const sheets = html.split('<div class="sheet">').slice(1);
+    check('S381', 'the photos come after the table, inside a block that starts a new page',
+      sheets[1] && sheets[1].indexOf('id="c1"') < sheets[1].indexOf('class="backside"') && sheets[1].indexOf('class="photos"') > sheets[1].indexOf('class="backside"'));
+    check('S381', 'the sheet with no photos gets a blank back, so the crew sheet starts on its own paper',
+      sheets[0] && sheets[0].indexOf('class="blankback"') !== -1 && sheets[1].indexOf('class="blankback"') === -1);
+    D.open('t', [{ title: 'Warehouse', body: '<table></table>' }, { title: 'Crew 1', body: '<table></table>' }]);
+    check('S381', 'and a print with no photos at all adds no blank pages', (cap.html || '').indexOf('blankback') === -1);
+  }
+  const stripped = stripComments(admin);
+  check('S381', 'the back page starts a new page in the print stylesheet',
+    /'\.backside\{page-break-before:always;break-before:page;\}'/.test(admin) && /PRINT_PHOTO_CSS \+/.test(admin));
+  check('S381', 'a crew\'s own sheet puts its photos on the back',
+    /printTableHtml\(rows, printCrewColumns\(rows\)\) \+\s*printBackSideHtml\(printPhotosHtml\(printCrewPhotos\(day, i\)\)/.test(stripped));
+  check('S381', 'the whole-day sheet puts both crews\' photos on the back, after every table',
+    /blocks\.push\(printBackSideHtml\(backs\.join\(''\)\)\);/.test(stripped) &&
+    stripped.indexOf("blocks.push(printBackSideHtml(backs.join('')));") > stripped.indexOf("In neither crew’s city"));
+  /* "certain picture file types dont print corretly too if thats the case have it auto fix that" */
+  let Src = null;
+  try { Src = new Function(extractFn(admin, 'printPhotoSrc') + '\nreturn printPhotoSrc;')(); } catch (e) { Src = null; }
+  check('S381', 'every printed photo is asked for as a JPG', typeof Src === 'function' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/v1791985042/abc.heic') ===
+      'https://res.cloudinary.com/highlighting-utah/image/upload/f_jpg,q_auto,w_1200,c_limit/v1791985042/abc.heic' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg') === 'https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg' &&
+    Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
+  check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
+  check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
+    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
 }
