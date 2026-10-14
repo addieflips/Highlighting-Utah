@@ -52050,8 +52050,11 @@ suite('287. The routine route sweep does not bury the notice that matters');
      email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
      ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
   const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  /* [2026-10-14] the body builder first puts misspelled codes right (canonicalEmailCodesServer) — lifted, never stubbed */
+  const canonSrc = fnsSrcChase.slice(fnsSrcChase.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['),
+    fnsSrcChase.indexOf('function canonicalEmailCodesServer(')) + (extractFn(fnsSrcChase, 'canonicalEmailCodesServer') || '');
   const batchSrc = (batchBody && bodyBody)
-    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    ? (canonSrc + String.fromCharCode(10) + 'async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
     : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
@@ -66572,4 +66575,47 @@ suite('379. A quote from a member who moved is flagged, never linked on its own'
     /querySelectorAll\('\[data-quotelinkcust\]'\)/.test(stripped) && /querySelectorAll\('\[data-quotenotcust\]'\)/.test(stripped) &&
     /updateDoc\(doc\(db, 'quotes', qid\), quoteLinkToCustomerUpdates\(c\)\)/.test(stripped) &&
     /notExistingCustomerIds: arrayUnion\(/.test(stripped));
+}
+
+/* =====================================================================
+   380. A code typed without its underscores still renders (2026-10-14)
+   Dax: "the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix
+   that". The live RSVP template had the codes saved without underscores and every renderer matches the exact spelling.
+   canonicalEmailCodes (admin.html) and canonicalEmailCodesServer (functions/index.js) put the spelling back; this RUNS both,
+   requires the same answer from each, and asserts every place that must use it does.
+   ===================================================================== */
+suite('380. A code typed without its underscores still renders');
+{
+  const lift = function(src, fn, consts){ return new Function(extractFn(src, consts) + '\n' + extractFn(src, fn) + '\nreturn ' + fn + ';'); };
+  let A = null, S = null;
+  try {
+    const aConst = admin.slice(admin.indexOf('const EMAIL_CANONICAL_CODES = ['), admin.indexOf('function canonicalEmailCodes('));
+    A = new Function(aConst + '\n' + extractFn(admin, 'canonicalEmailCodes') + '\nreturn canonicalEmailCodes;')();
+    const sConst = fnsSrc.slice(fnsSrc.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['), fnsSrc.indexOf('function canonicalEmailCodesServer('));
+    S = new Function(sConst + '\n' + extractFn(fnsSrc, 'canonicalEmailCodesServer') + '\nreturn canonicalEmailCodesServer;')();
+  } catch (e) { A = A || null; S = S || null; }
+  check('S380', 'both copies were found and lifted', typeof A === 'function' && typeof S === 'function',
+    'renamed or removed — update this suite rather than deleting it');
+  if (typeof A === 'function' && typeof S === 'function') {
+    const real = 'Hi {{name}}\n\n{{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}}\n\n{{referral_button}}';
+    check('S380', 'the three codes off the live RSVP template come back spelled properly',
+      A(real) === 'Hi {{name}}\n\n{{rsvp_yes_button}} {{rsvp_back_button}} {{rsvp_no_button}}\n\n{{referral_button}}', A(real));
+    const odd = '{{ RSVP Yes Button }} {{Rsvp-No-Link}} {{rsvp__back__link}} {{REFERRALLINK}} {{rsvplink}} {{RSVP button}}';
+    check('S380', 'case, spaces, hyphens and doubled underscores do not matter',
+      A(odd) === '{{rsvp_yes_button}} {{rsvp_no_link}} {{rsvp_back_link}} {{referral_link}} {{rsvp_link}} {{rsvp_button}}', A(odd));
+    const keep = '{{name}} {{price}} {{link:see your quote}} {{houses_block}} {{photo}} {{rsvp_maybe}} {{unknowncode}}';
+    check('S380', 'nothing it does not know is touched — {{link:her words}} and unknown codes stay exactly as typed', A(keep) === keep, A(keep));
+    const samples = [real, odd, keep, '', 'no codes at all', '{{rsvp_yes_button}}{{rsvpyesbutton}}', '{{ rsvp yes button}}'];
+    check('S380', 'the office copy and the 9 AM batch copy give the same answer', samples.every(function(t){ return A(t) === S(t); }));
+  }
+  const strippedA = stripComments(admin), strippedF = stripComments(fnsSrc);
+  check('S380', 'the office email builder uses it first',
+    /async function resolveLinkTokens\([^)]*\)\{\s*opts = opts \|\| \{\};\s*let out = \(typeof canonicalEmailCodes === 'function'\) \? canonicalEmailCodes\(text\) : text;/.test(strippedA));
+  check('S380', 'the 9 AM batch builder uses it first',
+    /async function rsvpEmailBodyServer\([^)]*\) \{[\s\S]{0,900}?let body = canonicalEmailCodesServer\(templateBody\);/.test(strippedF));
+  check('S380', 'a template is saved with the codes spelled properly',
+    /const body = canonicalEmailCodes\(document\.getElementById\('etTemplateBody'\)\.value\);/.test(strippedA) &&
+    /const subject = canonicalEmailCodes\(document\.getElementById\('etTemplateSubject'\)\.value\.trim\(\)\);/.test(strippedA));
+  check('S380', 'and a template is recognised as an RSVP one however its codes are spelled',
+    /function etTemplateIsRsvp\(t\)\{[\s\S]*?canonicalEmailCodes\(String\(d\.body/.test(strippedA));
 }
