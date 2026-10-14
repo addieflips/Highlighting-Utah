@@ -490,7 +490,9 @@ if (queueState) {
    RUN against a fake Firestore and a fake mail service. Every claim here is about how
    many emails leave and what reaches a customer record, and a regex cannot see either. */
 const runBatch = (function () {
-  const bodySrc = liftFrom(fns, 'rsvpEmailBodyServer');
+  /* [2026-10-14] the body builder first puts misspelled codes right — lifted with it, never stubbed */
+  const bodySrc = fns.slice(fns.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['), fns.indexOf('function canonicalEmailCodesServer(')) +
+    (liftFrom(fns, 'canonicalEmailCodesServer') || '') + '\n' + (liftFrom(fns, 'rsvpEmailBodyServer') || '');
   const batchSrc = liftFrom(fns, 'runRsvpDailyBatch');
   const gateSrc = liftFrom(fns, 'rsvpStillOwedServer');
   if (!bodySrc || !batchSrc || !gateSrc) return null;

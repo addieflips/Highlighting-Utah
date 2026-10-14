@@ -10711,9 +10711,26 @@ function quoteForButtons(phone){
   if(!open.length) return null;
   return open.slice().sort(function(a, b){ return when(b) - when(a); })[0];
 }
+/* ⭐ A CODE TYPED WITHOUT ITS UNDERSCORES IS STILL THE CODE (2026-10-14). Dax: "the rsvp is showing this:
+   {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix that". The live RSVP template had
+   the three button codes saved without their underscores; every renderer matches the exact spelling, so the email went out
+   with the codes as text. This puts the canonical spelling back — case, spaces, underscores and hyphens do not matter —
+   for the RSVP and referral codes only. ⚠ THE SAME TEXT IS canonicalEmailCodesServer IN functions/index.js; run-all compares
+   the two, because the 9 AM batch renders on the server. ⚠ It never touches {{link:her words}} or any code it does not know. */
+const EMAIL_CANONICAL_CODES = ['rsvp_yes_button', 'rsvp_no_button', 'rsvp_back_button', 'rsvp_yes_link', 'rsvp_no_link',
+  'rsvp_back_link', 'rsvp_link', 'rsvp_button', 'referral_button', 'referral_link'];
+function canonicalEmailCodes(text){
+  const squash = function(s){ return String(s).toLowerCase().replace(/[\s_\-]+/g, ''); };
+  const byKey = {};
+  EMAIL_CANONICAL_CODES.forEach(function(c){ byKey[squash(c)] = c; });
+  return String(text == null ? '' : text).replace(/\{\{\s*([A-Za-z][A-Za-z _\-]*?)\s*\}\}/g, function(m, inner){
+    const hit = byKey[squash(inner)];
+    return hit ? '{{' + hit + '}}' : m;
+  });
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
-  let out = text;
+  let out = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(text) : text;
   const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
   if(opts.price !== undefined){
@@ -20383,10 +20400,11 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
   const statusEl = document.getElementById('etSaveStatus');
   const name = document.getElementById('etTemplateName').value.trim();
   const folderId = document.getElementById('etTemplateFolder').value || null;
-  const body = document.getElementById('etTemplateBody').value;
+  /* [2026-10-14] saved with the codes spelled properly, so a code typed without its underscores is fixed at the source */
+  const body = canonicalEmailCodes(document.getElementById('etTemplateBody').value);
   /* Written even when blank, so clearing the box really does go back to the
      standard subject rather than leaving the old one on the record. */
-  const subject = document.getElementById('etTemplateSubject').value.trim();
+  const subject = canonicalEmailCodes(document.getElementById('etTemplateSubject').value.trim());
   if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
   const editingId = document.getElementById('etEditingId').value;
   try{
@@ -22236,7 +22254,7 @@ async function emailSubjectFor(template, phone, vars){
 function etTemplateIsRsvp(t){
   const d = (t && t.data) ? t.data : t;
   if(!d) return false;
-  const body = String(d.body || '');
+  const body = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(String(d.body || '')) : String(d.body || '');
   if(/\{\{rsvp_(yes|no|back)_(button|link)\}\}/.test(body)) return true;
   return String(d.folderName || '').trim().toLowerCase() === 'rsvp';
 }

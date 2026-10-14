@@ -6975,6 +6975,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
           - ⚠ **AND THE RENDERER IS SHARED, NOT COPIED.** The RSVP body builder moved out of the
             unpaid chase into `rsvpEmailBodyServer` so the drip would not be a third copy — the
             `{{photo}}` and `{{link}}` pairings in this repo are both about two renderers drifting.
+          - ⭐ **A CODE TYPED WITHOUT ITS UNDERSCORES STILL RENDERS** (2026-10-14). Dax: *"the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons"*. The live RSVP template had the three button codes saved without underscores and every renderer matches the exact spelling, so the email carried the codes as text. The template was corrected in Firestore, and `canonicalEmailCodes` (admin.html) / `canonicalEmailCodesServer` (functions/index.js) now put the spelling of the RSVP and referral codes back — case, spaces, underscores and hyphens ignored — at the start of `resolveLinkTokens` and `rsvpEmailBodyServer`, when a template is saved, and in `etTemplateIsRsvp`. Anything else, `{{link:her words}}` included, is left as typed. run-all Suite 380 runs both copies and requires the same answer.
           - ⚠ **THE OFFICE'S OWN BUTTON WARNS BUT NEVER REFUSES** (`rsvpWholeSendWarning`). A guard
             that blocks a legitimate send has no way round it at all. It is its own function because
             the check for it was weak: a red-check proved `/total > RSVP_DRIP_DEFAULT_PER_DAY/` stays
