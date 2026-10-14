@@ -219,7 +219,7 @@ suite('1.1 The Schedule is the only install-date authority');
     return i > 0 && j > i && body.indexOf('syncInstallStampsFromSchedule()') !== -1 && body.indexOf('clearStaleInstallBookings(') === -1;
   })());
   check('every saved plan is mirrored onto the records', /mirrorStampsSoon\(\);\}catch\(e\)/.test(noComments) &&
-    /async function saveNow\(\)\{[\s\S]*?const data=serialize\(\)[\s\S]*?try\{await setDoc\(PLAN_REF\(\),data\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
+    /async function saveNow\(\)\{[\s\S]*?const data=planDropUndefined\(serialize\(\)\)[\s\S]*?try\{await setDoc\(PLAN_REF\(\),data\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
   /* The plan is shared: every open Schedule follows it live, so a Recalculate on one computer
      reaches the others instead of being saved over by their stale copy. */
   check('a loaded plan follows Firestore live', /hydrate\(s\.data\(\)\);planSyncedKey=planKey\(s\.data\(\)\);[^\n]*followPlanLive\(\)/.test(noComments) &&
@@ -1662,6 +1662,17 @@ suite('The plan Firestore is handed can actually be saved (2026-10-12)');
     /list inside a list/.test(H.api.planSaveProblem({days: [{frozenCrews: [['a']]}]})) &&
     H.api.planSaveProblem({days: [{x: undefined}]}) === 'days[0].x is undefined' &&
     H.api.planSaveProblem({days: [{ids: ['a'], m: {k: [1]}}], n: null}) === '');
+  /* ⛔ 2026-10-14: a fix whose description was never typed (fixList[0].issue undefined) stopped the
+     Schedule saving at all — Firestore refuses the WHOLE document over one undefined. What is written
+     goes through planDropUndefined; this plants the real shape and asserts the write is now clean. */
+  const holed = JSON.parse(JSON.stringify(out));
+  holed.fixList = [{id: 'f1', name: 'No Note', issue: undefined}];
+  if (holed.days[0] && holed.days[0].houses && holed.days[0].houses[0]) holed.days[0].houses[0].issue = undefined;
+  check('26.5 an undefined left anywhere in the plan is dropped before it is written',
+    H.api.planSaveProblem(holed) !== '' && H.api.planSaveProblem(H.api.planDropUndefined(holed)) === '',
+    H.api.planSaveProblem(H.api.planDropUndefined(holed)));
+  check('26.6 and nothing else in the plan changes', JSON.stringify(H.api.planDropUndefined(out)) === JSON.stringify(out));
+  check('26.7 the save writes the cleaned plan', /const data=planDropUndefined\(serialize\(\)\)/.test(fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8')));
   /* The round trip, through JSON as Firestore would hand it back: same split, same houses on the same crew. */
   const before = H.season().map(function(d){ const s = H.api.frozenCrewSplit(d); return s ? s.map(function(c){ return c.map(function(h){ return String(h.id); }); }) : null; });
   H.api.hydrate(JSON.parse(JSON.stringify(out)));

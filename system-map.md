@@ -7176,6 +7176,13 @@ same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory`
 earliest send already on the record. Quotes nudged before this have lost that date; archive
 them by hand from the quote card.
 
+⭐ **TWO SAVES THAT FAILED WHOLE (fixed 2026-10-14).** Send Email on a quote first sent before 13
+October copied a look-alike date into `quoteFirstSentAt` and Firestore refused the write, so the
+send failed; it writes a plain Date now. And the Schedule refused to save at all when a fix had
+no description (`issue` undefined), so other computers kept the old plan; `planDropUndefined`
+strips undefined fields from what is written. **To read why card payments fail:** Actions ›
+**Read the payment logs** (`payment-digest.js`, read-only, names nobody).
+
 ⭐ **RULES WRITTEN TWICE (2026-10-13).** `functions/index.js` cannot import from
 `admin.html`, so 42 rules exist in both. `connections/twins.js` lists each pair with the test
 that runs both copies side by side, and **Connections › Where things go › Rules written
