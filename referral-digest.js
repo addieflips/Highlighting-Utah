@@ -35,6 +35,15 @@ const day = v => { const t = v && v.toDate ? v.toDate() : (v ? new Date(v) : nul
   const inv = {}; is.docs.forEach(d => { inv[d.id] = d.data() || {}; });
   const alias = new Map(); const nick = id => { if (!alias.has(id)) alias.set(id, 'referrer #' + (alias.size + 1)); return alias.get(id); };
 
+  /* Is the friend ALREADY a customer by some other door (added by hand, a second quote)?
+     The $25 is only ever given when the quote CARRYING THE TOKEN is converted. */
+  function friendOnBook(qd) {
+    const ph = digits(qd.phone), em = String(qd.email || '').trim().toLowerCase();
+    const hit = custs.filter(c => (ph && digits(c.d.phone) === ph) || (em && String(c.d.email || '').trim().toLowerCase() === em));
+    if (!hit.length) return 'friend NOT a customer';
+    const c = hit[0];
+    return 'FRIEND IS ALREADY A CUSTOMER (added ' + day(c.d.createdAt) + (c.d.referredByCustomerId ? ', linked' : ', not linked to referrer') + ')';
+  }
   console.log('\n=== Referrals, step by step (names left out) ===\n');
   const quotes = qs.docs.map(d => ({ id: d.id, d: d.data() || {} })).filter(q => String(q.d.referredByToken || '').trim());
   console.log('quotes carrying a referral token: ' + quotes.length);
@@ -55,6 +64,7 @@ const day = v => { const t = v && v.toDate ? v.toDate() : (v ? new Date(v) : nul
     }
     console.log('  quote ' + String(i + 1).padStart(2) + '  ' + day(q.d.createdAt) + '  ' + (h ? nick(h.c.id) + (h.current ? '' : ' (OLD link)') : '-') +
       '  status ' + (q.d.status || '?') + (conv ? ' → customer' + (friend ? '' : ' (deleted)') : '') +
+      (!conv && h ? '  ' + friendOnBook(q.d) : '') +
       '  fee ' + (q.d.chargeSetupFee === false ? 'waived' : q.d.chargeSetupFee === true ? 'CHARGED' : 'unset') + '  ⇒ ' + step);
   });
 
@@ -71,6 +81,11 @@ const day = v => { const t = v && v.toDate ? v.toDate() : (v ? new Date(v) : nul
       '  rsvp ' + (c.d.rsvpStatus || '-') + (c.d.billToPhone ? '  billed elsewhere' : '') +
       '  bill: ' + (b ? 'referral lines ' + lines.length + ' = $' + sum + ', credits total $' + (Number(b.credits) || 0) +
         ', status ' + (b.status || '?') + (b.invoiceEmailSent ? ', invoice sent' : '') : 'NO INVOICE FOUND'));
+  });
+  custs.filter(c => (c.d.referralCredits || []).length).forEach(c => {
+    console.log('  ' + nick(c.id) + ' entries: ' + (c.d.referralCredits || []).map(e =>
+      '[' + day(e.creditedAt) + ' season ' + e.season + (e.revoked ? ' revoked ' + day(e.revokedAt) : '') + (e.waived ? ' waived' : '') +
+      (custById[e.referredCustomerId] ? '' : ' friend-record-gone') + ']').join(' '));
   });
   console.log('\n(this year = ' + year + '; an entry only counts on the bill for the season it is stamped with)');
 })().catch(e => { console.error('referral-digest failed: ' + (e && e.message)); process.exit(1); });
