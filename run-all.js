@@ -57231,10 +57231,9 @@ suite('305. The referral link, from the office side');
  *  - the COPY: referralShareLine (index.html), the message that goes out to
  *    the friend.
  *
- * ⚠ THE OFFICE'S EXPLICIT ANSWER STILL WINS, same as the re-quote rule right
- * above this one — `chargeSetupFee !== undefined` is checked FIRST and returns
- * before either the re-quote or the referral check runs. This suite proves the
- * referral check sits on the same footing as the re-quote check, not ahead of it.
+ * ⛔ SINCE 2026-10-14 ([[REF-46]]) A CURRENT REFERRAL LINK IS ASKED BEFORE THE OFFICE'S
+ * TICK — "No one that was refered should have a 30 dollar set up fee." It used to be the
+ * other way round (the office's answer first, the referral on the re-quote's footing).
  * ============================================================ */
 suite('Suite 312. A friend who comes in through a referral link pays no setup fee');
 {
@@ -57309,10 +57308,17 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
     const body = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S312', 'quoteChargesSetupFee was found', !!body);
 
-    check('S312', 'the office\'s own explicit answer is checked first, and wins either way',
-      body.indexOf('chargeSetupFee !== undefined') <
-        body.indexOf("String(q.referredByToken || '').trim()"),
-      'a box the office deliberately ticked or unticked must never be silently overridden');
+    /* ⛔ REVERSED 2026-10-14 ([[REF-46]]) — this check used to assert the office's tick was asked
+       FIRST and won either way. Addie: "No one that was refered should have a 30 dollar set up fee.
+       Get rid of those." Seven referred quotes carried a tick and would have been charged. So a
+       CURRENT referral link is asked before the office's answer now; the rest of the office's
+       answer (any quote with no live referral link) still wins exactly as before. */
+    check('S312', 'a current referral link is asked before the office\'s own tick',
+      body.indexOf('h && h.current') !== -1 &&
+      body.indexOf('h && h.current') < body.indexOf('chargeSetupFee !== undefined'),
+      'a referred friend must never be charged the $30 because a box on the card was ticked');
+    check('S312', 'and the office\'s own answer still decides every other quote',
+      /if\(q\.chargeSetupFee !== undefined\) return !!q\.chargeSetupFee;/.test(body));
     /* ⚠ TIGHTENED 2026-09-07 (REF-25) AND THE CHECK MOVED WITH IT. It used to be enough
        that a token was PRESENT; Addie: "If referal link is from last year and they are
        using it than it should still charge 30 dollar fee." So the waiver now asks
@@ -57373,9 +57379,11 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
         sv.f({ referredByToken: 'undated1' }) === false,
         'every link minted before the stamp existed is unstamped; reading those as ' +
         'expired would charge the $30 to friends told in writing they would not pay it');
-      check('S312', 'the office can still tick the fee ON for a referred quote',
-        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === true,
-        'the office\'s own answer wins in BOTH directions, same as every other case here');
+      /* ⛔ REVERSED 2026-10-14 ([[REF-46]]): this asserted the office could tick the fee back ON for
+         a referred quote. Addie: "No one that was refered should have a 30 dollar set up fee." */
+      check('S312', 'a tick on the card does NOT charge a friend on a current referral link',
+        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === false,
+        'seven referred quotes carried a tick on 14 October and would have been charged');
       check('S312', 'and OFF for one the rule would have charged',
         sv.f({ referredByToken: 'stale1', chargeSetupFee: false }) === false);
       check('S312', 'the office can still tick the fee OFF for an ordinary quote',

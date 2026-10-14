@@ -6154,6 +6154,12 @@ async function runInvoiceBatch(triggeredBy) {
       // install was marked complete. Charging nobody by mistake is a bad day;
       // charging 945 people by mistake is a much worse one, so an unset box
       // now means no fee and the office ticks it for anyone who owes it.
+      /* ⛔ AND NEVER SOMEBODY WHO JOINED THROUGH A REFERRAL ([[REF-46]], 2026-10-14). Addie: "No one
+         that was refered should have a 30 dollar set up fee. Get rid of those." A credited referral
+         stamps `referredByCustomerId` on the friend; one converted while the quote card's box was
+         ticked (customer #1044, 25 September) still carried the fee box, and this run would have
+         added the $30 the night their lights were marked done. The office's box cannot overrule her. */
+      if (cust.referredByCustomerId) return false;
       return cust.chargeNewMemberFee === true;
     }
 

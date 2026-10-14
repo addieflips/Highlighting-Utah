@@ -73,5 +73,30 @@ check('a name is escaped', /&lt;b&gt;/.test(api.referralPeopleHtml([{ name: '<b>
 const noComments = admin.replace(/\/\*[\s\S]*?\*\//g, '');
 check('the Discounts box draws the table', /statusLine\.innerHTML\s*=\s*money\.join\(''\)\s*\+\s*\r?\n?\s*referralPeopleHtml\(referralPeopleRows\(d,/.test(noComments));
 
+/* [[REF-46]] — a referred friend never pays the $30, whatever the card's box says. The real
+   quoteChargesSetupFee is run; the holder lookup is given the two answers it can give. */
+{
+  const fn = new Function('referralHolderFor', 'isRequote', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
+    extractFn(admin, 'quoteChargesSetupFee') + '\nreturn quoteChargesSetupFee;')(
+    t => t === 'LIVE' ? { current: true } : (t === 'OLD' ? { current: false } : null),
+    () => false, () => new Set(['x']), () => false);
+  check('a referred quote with the box TICKED is not charged', fn({ referredByToken: 'LIVE', chargeSetupFee: true }) === false);
+  check('a retired link with the box ticked still pays (REF-25)', fn({ referredByToken: 'OLD', chargeSetupFee: true }) === true);
+  check('an invented link with the box ticked still pays', fn({ referredByToken: 'MADEUP', chargeSetupFee: true }) === true);
+  check('an ordinary quote still follows the office\'s tick', fn({ chargeSetupFee: true }) === true && fn({ chargeSetupFee: false }) === false);
+}
+
+{
+  const fns = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+  const at = fns.indexOf('function looksLikeNewMember(cust)');
+  const body = at > 0 ? fns.slice(at, fns.indexOf('\n    }', at) + 6) : '';
+  const looks = body ? new Function(body + '\nreturn looksLikeNewMember;')() : null;
+  check('the nightly run found its new-member rule', !!looks);
+  check('the nightly run never charges the $30 to a referred customer, box ticked or not',
+    looks && looks({ chargeNewMemberFee: true, referredByCustomerId: 'r1' }) === false);
+  check('and still charges an ordinary new member whose box is ticked',
+    looks && looks({ chargeNewMemberFee: true }) === true && looks({}) === false);
+}
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
