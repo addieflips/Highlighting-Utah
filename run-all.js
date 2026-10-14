@@ -26447,7 +26447,7 @@ suite('Suite 104. The Printing tab');
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
     extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-    extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+    extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
     chargeNewMemberFee: true,
@@ -26540,9 +26540,9 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
-      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
-      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') + extractFn(admin, 'printTableHtml') +
       /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
       extractFn(admin, 'printCrewPhotoGaps') + extractFn(admin, 'printPhotoGapsHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
@@ -26761,7 +26761,7 @@ suite('Suite 104. The Printing tab');
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
       extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-      extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') +
+      extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
     return (out[0] || {}).body || '';
@@ -49183,7 +49183,10 @@ if (!JSDOM) {
        through a change to who gets $25 — the one thing it exists to protect. */
     'referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
-    'referralShareLinkFromToken'];
+    'referralShareLinkFromToken',
+    /* ⚠ AND THE WHO-THEY-REFERRED TABLE ([[REF-45]]), drawn in the same Discounts box. Lifted,
+       never stubbed, for the reason every name above gives. */
+    'referralPeopleRows', 'referralPeopleHtml', 'toJsDate'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -52047,8 +52050,11 @@ suite('287. The routine route sweep does not bury the notice that matters');
      email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
      ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
   const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  /* [2026-10-14] the body builder first puts misspelled codes right (canonicalEmailCodesServer) — lifted, never stubbed */
+  const canonSrc = fnsSrcChase.slice(fnsSrcChase.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['),
+    fnsSrcChase.indexOf('function canonicalEmailCodesServer(')) + (extractFn(fnsSrcChase, 'canonicalEmailCodesServer') || '');
   const batchSrc = (batchBody && bodyBody)
-    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    ? (canonSrc + String.fromCharCode(10) + 'async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
     : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
@@ -64728,7 +64734,8 @@ suite('352. Fixes and Takedowns have a name search too');
   check('S352', 'both new search boxes are drawn',
     admin.indexOf('id=\\"fixQ\\"') !== -1 && admin.indexOf('id=\\"takeQ\\"') !== -1);
   check('S352', 'each tab reads its own box and searches its own days',
-    /const fq=RT\.getElementById\('fixQ'\)[^;]*;if\(fq\)renderSearchIn\(fq,fr,'fixPanel'\)/.test(strippedA) &&
+    /* [[FIX-09]] the Fixes tab has no days any more — its box filters the live Fixes list. */
+    /function renderFixTray\(\)\{[\s\S]{0,400}RT\.getElementById\('fixQ'\)/.test(strippedA) &&
     /const tq=RT\.getElementById\('takeQ'\)[^;]*;if\(tq\)renderSearchIn\(tq,td,'takePanel'\)/.test(strippedA));
   check('S352', 'typing in either box redraws — a box with no listener looks identical to a working one',
     /\['q','fixQ','takeQ'\]\.forEach\(function\(id\)\{RT\.getElementById\(id\)\.addEventListener\('input'/.test(strippedA));
@@ -65949,7 +65956,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
   const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
-                  'printCrewPhotos', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
   const make = (opts) => new Function('o',
@@ -66061,7 +66068,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
  * --------------------------------------------------------------------------- */
 suite('368. A new hang\'s photos and its row carry the same letter and colour');
 {
-  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
   const src = names.map(n => extractFn(admin, n));
   const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
   check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
@@ -66292,42 +66299,55 @@ suite('373. Every Street View photo of the house, by season and year');
  * over the source cannot see.
  * --------------------------------------------------------------------------- */
 suite('374. A fix raised in Customers reaches a fixer route');
+/* ⛔ REPOINTED 2026-10-14 ([[FIX-09]]): fixes are not scheduled any more. The same function now
+   takes fixes OFF the plan — every fixer-route day and every fix riding on an install day — and
+   must never touch an install or a takedown. RUN against a seeded season. */
 {
-  const names = ['placeFixesFromCustomers', 'fixedHouseCustomerIds', 'dlabel', 'isoOf', 'dayDate'];
-  const parts = names.map(n => extractFn(admin, n));
-  check('S374', 'the fix placement and its helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  const parts = [extractFn(admin, 'placeFixesFromCustomers')];
+  check('S374', 'the fix clean-up is findable', parts.every(Boolean));
   if (parts.every(Boolean)) {
-    const pre = 'let SEASON = [], fixRouteSeq = 0, computeCalls = 0;' +
-      'const BASE_START = new Date(2026, 9, 1);' +
-      "const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; const MO = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];" +
-      'function daysBetween(a, b){ return Math.round((a - b) / 864e5); }' +
-      /* the real computeDates sets a fixer route's _date from its pin; this is that one line */
-      'function computeDates(){ computeCalls++; SEASON.filter(d => d.isFixRoute).forEach(d => { d._date = new Date(d.pin); }); }' +
-      'function planCustomerFor(h){ return h.custId ? {id: h.custId} : null; }' +
-      "function houseFromCustomer(item){ return {id: 'cust-' + item.id, custId: item.id, name: item.data.name}; }" +
-      "function nextFixSaturdayIso(){ return '2026-10-10'; }";
-    const run = (jobs, season) => new Function('jobAddresses', 'seed',
-      pre + parts.join('\n') + 'SEASON = seed; const placed = placeFixesFromCustomers(); return {placed, SEASON, computeCalls};')(jobs, season || []);
-    let r, threw = '';
-    try {
-      r = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixNote: 'front peak out', fixScheduleDate: '2026-10-17'}},
-               {id: 'b', data: {name: 'Bo', needsFix: true}},
-               {id: 'c', data: {name: 'Cy', needsFix: true, fixScheduleDate: '2026-10-17'}},
-               {id: 'd', data: {name: 'Di'}}]);
-    } catch (e) { threw = String(e && e.message || e); }
-    check('S374', 'a fix whose date has no fixer route yet is placed rather than throwing', !threw && r && r.placed.length === 3, threw);
-    if (r) {
-      const fr = r.SEASON.filter(d => d.isFixRoute);
-      check('S374', 'two fixes asked for one date share one fixer route', fr.length === 2 &&
-        fr.find(d => d.houses.length === 2 && d.houses.every(h => h.isFix)), fr.map(d => d.houses.length).join(','));
-      const ann = fr.flatMap(d => d.houses).find(h => h.custId === 'a');
-      check('S374', 'the house is labelled with the day it was put on', ann && ann.autoDay === 'Sat Oct 17', ann && ann.autoDay);
-      check('S374', 'and a customer not flagged for a fix is left alone', !fr.flatMap(d => d.houses).some(h => h.custId === 'd'));
-      let again;
-      try { again = run([{id: 'a', data: {name: 'Ann', needsFix: true, fixScheduleDate: '2026-10-17'}}], r.SEASON); } catch (e) { again = null; }
-      check('S374', 'a fix already on a fixer route is not placed a second time', again && again.placed.length === 0);
+    const pre = 'let SEASON = [], computeCalls = 0; function computeDates(){ computeCalls++; }';
+    const run = seed => new Function('seed', pre + parts.join('\n') +
+      'SEASON = seed; const removed = placeFixesFromCustomers(); return {removed, SEASON, computeCalls};')(seed);
+    const seed = () => [
+      {id: 'd1', houses: [{id: 'i1', name: 'Ivy'}, {id: 'f1', name: 'Fay', isFix: true}, {id: 't1', name: 'Ted', isTakedown: true}]},
+      {id: 'fr0', isFixRoute: true, houses: [{id: 'f2', name: 'Flo', isFix: true}, {id: 'f3', name: 'Fin', isFix: true}]},
+      {id: 'd2', houses: [{id: 'i2', name: 'Ian'}]}
+    ];
+    let r2, threw = '';
+    try { r2 = run(seed()); } catch (e) { threw = String(e && e.message || e); }
+    check('S374', 'it runs over a season with fixes on it', !threw && !!r2, threw);
+    if (r2) {
+      check('S374', 'every fixer-route day is gone', !r2.SEASON.some(d => d.isFixRoute));
+      check('S374', 'and a fix riding on an install day is taken off it', !r2.SEASON.some(d => d.houses.some(h => h.isFix)));
+      check('S374', 'installs and takedowns are never touched',
+        JSON.stringify(r2.SEASON.map(d => d.houses.map(h => h.id))) === JSON.stringify([['i1', 't1'], ['i2']]));
+      check('S374', 'and it names all three fixes it took off', r2.removed.map(x => x.name).sort().join(',') === 'Fay,Fin,Flo');
+      const again = run(r2.SEASON);
+      check('S374', 'run again it finds nothing — it settles', again.removed.length === 0 && again.computeCalls === 0);
     }
   }
+  /* The Fixes list itself, RUN: who is on it and in what order. */
+  const listSrc = ['openFixItems', 'saidNoOrBackNextYear', 'toJsDate'].map(n => extractFn(admin, n));
+  check('S374', 'the Fixes list rule is findable', listSrc.every(Boolean));
+  if (listSrc.every(Boolean)) {
+    const open = new Function('jobAddresses', listSrc.join('\n') + '\nreturn openFixItems();');
+    const at = d => new Date(2026, 9, d);
+    const got = open([
+      {id: 'new', data: {name: 'New', needsFix: true, fixRaisedAt: at(12)}},
+      {id: 'old', data: {name: 'Old', needsFix: true, fixRaisedAt: at(2)}},
+      {id: 'done', data: {name: 'Done', needsFix: false}},
+      {id: 'out', data: {name: 'Out', needsFix: true, rsvpStatus: 'backnextyear'}},
+      {id: 'undated', data: {name: 'Undated', needsFix: true}}
+    ]).map(x => x.id);
+    check('S374', 'every open fix is listed, oldest raised first, undated last', got.join(',') === 'old,new,undated', got.join(','));
+  }
+  check('S374', 'each row has its own Edit fix and Done', /data-editfixcust="/.test(admin) && /data-fixdonecust="/.test(admin) &&
+    /if\(t\.dataset\.fixdonecust\)\{markFixDoneFromList\(/.test(admin) && /if\(t\.dataset\.editfixcust\)\{showAddFixPopup\(/.test(admin));
+  check('S374', 'and the list prints, with what is wrong and the photos', /if\(t\.dataset\.fixprint\)\{printFixList\(/.test(admin) &&
+    /fixes:\s*\[[^\]]*k: 'fix'/.test(admin) && /function printFixList[\s\S]{0,1200}printPhotosHtml\(photos/.test(admin));
+  check('S374', 'the fix popup no longer asks for a day', admin.indexOf('class="addfix-date"') === -1);
+  check('S374', 'and saving a fix writes no day', !/fixNote: noteVal, fixScheduleDate/.test(admin));
 }
 
 suite('375. A setting changed on another computer reaches this one without a refresh');
@@ -66555,4 +66575,128 @@ suite('379. A quote from a member who moved is flagged, never linked on its own'
     /querySelectorAll\('\[data-quotelinkcust\]'\)/.test(stripped) && /querySelectorAll\('\[data-quotenotcust\]'\)/.test(stripped) &&
     /updateDoc\(doc\(db, 'quotes', qid\), quoteLinkToCustomerUpdates\(c\)\)/.test(stripped) &&
     /notExistingCustomerIds: arrayUnion\(/.test(stripped));
+}
+
+/* =====================================================================
+   380. A code typed without its underscores still renders (2026-10-14)
+   Dax: "the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix
+   that". The live RSVP template had the codes saved without underscores and every renderer matches the exact spelling.
+   canonicalEmailCodes (admin.html) and canonicalEmailCodesServer (functions/index.js) put the spelling back; this RUNS both,
+   requires the same answer from each, and asserts every place that must use it does.
+   ===================================================================== */
+suite('380. A code typed without its underscores still renders');
+{
+  const lift = function(src, fn, consts){ return new Function(extractFn(src, consts) + '\n' + extractFn(src, fn) + '\nreturn ' + fn + ';'); };
+  let A = null, S = null;
+  try {
+    const aConst = admin.slice(admin.indexOf('const EMAIL_CANONICAL_CODES = ['), admin.indexOf('function canonicalEmailCodes('));
+    A = new Function(aConst + '\n' + extractFn(admin, 'canonicalEmailCodes') + '\nreturn canonicalEmailCodes;')();
+    const sConst = fnsSrc.slice(fnsSrc.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['), fnsSrc.indexOf('function canonicalEmailCodesServer('));
+    S = new Function(sConst + '\n' + extractFn(fnsSrc, 'canonicalEmailCodesServer') + '\nreturn canonicalEmailCodesServer;')();
+  } catch (e) { A = A || null; S = S || null; }
+  check('S380', 'both copies were found and lifted', typeof A === 'function' && typeof S === 'function',
+    'renamed or removed — update this suite rather than deleting it');
+  if (typeof A === 'function' && typeof S === 'function') {
+    const real = 'Hi {{name}}\n\n{{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}}\n\n{{referral_button}}';
+    check('S380', 'the three codes off the live RSVP template come back spelled properly',
+      A(real) === 'Hi {{name}}\n\n{{rsvp_yes_button}} {{rsvp_back_button}} {{rsvp_no_button}}\n\n{{referral_button}}', A(real));
+    const odd = '{{ RSVP Yes Button }} {{Rsvp-No-Link}} {{rsvp__back__link}} {{REFERRALLINK}} {{rsvplink}} {{RSVP button}}';
+    check('S380', 'case, spaces, hyphens and doubled underscores do not matter',
+      A(odd) === '{{rsvp_yes_button}} {{rsvp_no_link}} {{rsvp_back_link}} {{referral_link}} {{rsvp_link}} {{rsvp_button}}', A(odd));
+    const keep = '{{name}} {{price}} {{link:see your quote}} {{houses_block}} {{photo}} {{rsvp_maybe}} {{unknowncode}}';
+    check('S380', 'nothing it does not know is touched — {{link:her words}} and unknown codes stay exactly as typed', A(keep) === keep, A(keep));
+    const samples = [real, odd, keep, '', 'no codes at all', '{{rsvp_yes_button}}{{rsvpyesbutton}}', '{{ rsvp yes button}}'];
+    check('S380', 'the office copy and the 9 AM batch copy give the same answer', samples.every(function(t){ return A(t) === S(t); }));
+  }
+  const strippedA = stripComments(admin), strippedF = stripComments(fnsSrc);
+  check('S380', 'the office email builder uses it first',
+    /async function resolveLinkTokens\([^)]*\)\{\s*opts = opts \|\| \{\};\s*let out = \(typeof canonicalEmailCodes === 'function'\) \? canonicalEmailCodes\(text\) : text;/.test(strippedA));
+  check('S380', 'the 9 AM batch builder uses it first',
+    /async function rsvpEmailBodyServer\([^)]*\) \{[\s\S]{0,900}?let body = canonicalEmailCodesServer\(templateBody\);/.test(strippedF));
+  check('S380', 'a template is saved with the codes spelled properly',
+    /const body = canonicalEmailCodes\(document\.getElementById\('etTemplateBody'\)\.value\);/.test(strippedA) &&
+    /const subject = canonicalEmailCodes\(document\.getElementById\('etTemplateSubject'\)\.value\.trim\(\)\);/.test(strippedA));
+  check('S380', 'and a template is recognised as an RSVP one however its codes are spelled',
+    /function etTemplateIsRsvp\(t\)\{[\s\S]*?canonicalEmailCodes\(String\(d\.body/.test(strippedA));
+}
+
+/* =====================================================================
+   381. A new hang's photo comes off the live record, and prints on the back of the sheet (2026-10-14)
+   Dax: "when we get a new hang it should pull the picture from their live customer file so when i printed rachel oslund it
+   said she didnt have a picture even though I added her today", and "the picture attempts to appear on the wrong page
+   number when it should just appear on the back side of the new hang paper". Rachel's picture was in the record's LAYOUT MAP
+   slot and the sheet read the house-photo slots alone. RUN, not matched: the photo rule against records shaped like hers,
+   and the print document against fake pages.
+   ===================================================================== */
+suite('381. A new hang\'s photo comes off the live record, and prints on the back of the sheet');
+{
+  let P = null;
+  try {
+    /* closedQuoteFor is the fixture dial here (it walks the whole quote book); the photo rule itself is lifted */
+    P = new Function('quotes',
+      extractFn(admin, 'customerPhotoList') + '\n' + extractFn(admin, 'quotePhotoList') + '\n' +
+      extractFn(admin, 'printNewHangPhotoList') + '\n' +
+      'function closedQuoteFor(h){ return quotes[h.id] || null; }\nreturn printNewHangPhotoList;');
+  } catch (e) { P = null; }
+  check('S381', 'the photo rule was found and lifted', typeof P === 'function', 'renamed or removed — update this suite rather than deleting it');
+  if (typeof P === 'function') {
+    const quotes = { 'cust-r': { data: { frontPhotoUrl: 'https://x/quote-front.jpg' } }, 'cust-n': { data: { frontPhotoUrl: 'https://x/q2.jpg' } } };
+    const rule = P(quotes);
+    const rachel = { name: 'Rachel Oslund', housePhotos: [], housePhotoUrl: '', layoutMapUrl: 'https://x/layout.jpg' };
+    const got = rule(rachel, { id: 'cust-r' });
+    check('S381', 'a picture in the layout map slot is printed — Rachel Oslund\'s case', got.length === 1 && got[0].url === 'https://x/layout.jpg' && got[0].label === 'layout map', JSON.stringify(got));
+    const both = rule({ housePhotos: [{ url: 'https://x/h1.jpg' }, { url: 'https://x/h2.jpg' }], layoutMapUrl: 'https://x/layout.jpg' }, { id: 'cust-r' });
+    check('S381', 'house photos first, then the layout map, and the quote\'s picture is not added on top',
+      both.map(function(p){ return p.url; }).join(',') === 'https://x/h1.jpg,https://x/h2.jpg,https://x/layout.jpg', JSON.stringify(both));
+    const same = rule({ housePhotoUrl: 'https://x/same.jpg', layoutMapUrl: 'https://x/same.jpg' }, { id: 'cust-r' });
+    check('S381', 'one picture saved in both slots prints once', same.length === 1, JSON.stringify(same));
+    const bare = rule({ housePhotos: [] }, { id: 'cust-n' });
+    check('S381', 'a record with no picture at all falls back to the quote they were converted from', bare.length === 1 && bare[0].url === 'https://x/q2.jpg', JSON.stringify(bare));
+    check('S381', 'and with no quote photo either, there is nothing — the "no photo on file" line says so', rule({}, { id: 'nobody' }).length === 0);
+  }
+  /* the print document: a sheet with photos has them on a page of their own; every other sheet in that print gets a blank back */
+  let html = '';
+  let Doc = null;
+  try {
+    Doc = new Function('captured',
+      'var window = {open: function(){ return {document: {write: function(h){ captured.html = h; }, close: function(){}}, focus: function(){}, print: function(){}}; }};' +
+      'function setTimeout(){}\nfunction toast(){}\nvar PRINT_SHEET_CSS = "";\n' +
+      admin.slice(admin.indexOf('function esc(s){return'), admin.indexOf('\n', admin.indexOf('function esc(s){return'))) + '\n' +
+      extractFn(admin, 'printBackSideHtml') + '\n' + extractFn(admin, 'schedOpenPrintPages') + '\n' +
+      'return {open: schedOpenPrintPages, back: printBackSideHtml};');
+  } catch (e) { Doc = null; }
+  check('S381', 'the print document builder was found and lifted', typeof Doc === 'function');
+  if (typeof Doc === 'function') {
+    const cap = {}, D = Doc(cap);
+    check('S381', 'nothing in, no back page out', D.back('') === '');
+    D.open('t', [{ title: 'Warehouse', body: '<table id="w"></table>' },
+                 { title: 'Crew 1', body: '<table id="c1"></table>' + D.back('<div class="photos">p</div>') }]);
+    html = cap.html || '';
+    const sheets = html.split('<div class="sheet">').slice(1);
+    check('S381', 'the photos come after the table, inside a block that starts a new page',
+      sheets[1] && sheets[1].indexOf('id="c1"') < sheets[1].indexOf('class="backside"') && sheets[1].indexOf('class="photos"') > sheets[1].indexOf('class="backside"'));
+    check('S381', 'the sheet with no photos gets a blank back, so the crew sheet starts on its own paper',
+      sheets[0] && sheets[0].indexOf('class="blankback"') !== -1 && sheets[1].indexOf('class="blankback"') === -1);
+    D.open('t', [{ title: 'Warehouse', body: '<table></table>' }, { title: 'Crew 1', body: '<table></table>' }]);
+    check('S381', 'and a print with no photos at all adds no blank pages', (cap.html || '').indexOf('blankback') === -1);
+  }
+  const stripped = stripComments(admin);
+  check('S381', 'the back page starts a new page in the print stylesheet',
+    /'\.backside\{page-break-before:always;break-before:page;\}'/.test(admin) && /PRINT_PHOTO_CSS \+/.test(admin));
+  check('S381', 'a crew\'s own sheet puts its photos on the back',
+    /printTableHtml\(rows, printCrewColumns\(rows\)\) \+\s*printBackSideHtml\(printPhotosHtml\(printCrewPhotos\(day, i\)\)/.test(stripped));
+  check('S381', 'the whole-day sheet puts both crews\' photos on the back, after every table',
+    /blocks\.push\(printBackSideHtml\(backs\.join\(''\)\)\);/.test(stripped) &&
+    stripped.indexOf("blocks.push(printBackSideHtml(backs.join('')));") > stripped.indexOf("In neither crew’s city"));
+  /* "certain picture file types dont print corretly too if thats the case have it auto fix that" */
+  let Src = null;
+  try { Src = new Function(extractFn(admin, 'printPhotoSrc') + '\nreturn printPhotoSrc;')(); } catch (e) { Src = null; }
+  check('S381', 'every printed photo is asked for as a JPG', typeof Src === 'function' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/v1791985042/abc.heic') ===
+      'https://res.cloudinary.com/highlighting-utah/image/upload/f_jpg,q_auto,w_1200,c_limit/v1791985042/abc.heic' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg') === 'https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg' &&
+    Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
+  check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
+  check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
+    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
 }

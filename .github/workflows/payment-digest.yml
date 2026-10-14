@@ -33,3 +33,8 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
           GOOGLE_CLOUD_PROJECT: highlighting-utah
         run: node payment-digest.js
+      - name: Read referrals (read-only, names nobody)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+        run: node referral-digest.js
