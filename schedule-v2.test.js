@@ -1589,7 +1589,7 @@ suite('SCH-124 / SCH-127 Recalculate everything never runs itself — a press ea
   }
   check('24.10 with one press a morning, every house the crew missed is on a day from that morning on', lost.length === 0, lost.slice(0, 4).join(' | '));
 }
-suite('SCH-126 Every crew drives the shortest route, and who is on which crew does not depend on the order');
+suite('SCH-126 / SCH-132 Every crew drives the shortest route that finishes each area before leaving it, and who is on which crew does not depend on the order');
 {
   const book = makeBook(320, 125);
   H.setNow(new Date(2026, 9, 9, 7, 0)); H.load(book, {}); H.press();
@@ -1597,8 +1597,13 @@ suite('SCH-126 Every crew drives the shortest route, and who is on which crew do
   const mi = function(a, b){ return H.api.haversine(a.lat, a.lng, b.lat, b.lng); };
   const ptOfH = function(h){ const c = H.api.planCustomerFor(h); return H.api.houseGeoPoint(h, (c && c.data) || {}); };
   const tour = function(P){ if(!P.length) return 0; let m = mi(yard, P[0]); for(let i = 1; i < P.length; i++) m += mi(P[i - 1], P[i]); return m + mi(P[P.length - 1], yard); };
-  /* the exact shortest yard -> stops -> yard (Held-Karp), feasible to about a dozen stops */
+  /* the exact shortest yard -> stops -> yard (Held-Karp), feasible to about a dozen stops. [[SCH-132]]: among the orders that
+     finish each area before leaving it — a drive between two areas carries a search price far above any day's miles,
+     which is the rule as admin.html prices it, and the price is taken back off so the answer is in real miles */
   const exact = function(P){
+    const A = H.api.routeAreaIds(P), PEN = 1000, legs = new Set(A).size - 1;
+    const mi = function(a, b){ return H.api.haversine(a.lat, a.lng, b.lat, b.lng) + (a.__i !== undefined && b.__i !== undefined && A[a.__i] !== A[b.__i] ? PEN : 0); };
+    P = P.map(function(p, i){ return {lat: p.lat, lng: p.lng, __i: i}; });
     const n = P.length, FULL = 1 << n, dp = new Float64Array(FULL * n).fill(Infinity);
     for(let i = 0; i < n; i++) dp[(1 << i) * n + i] = mi(yard, P[i]);
     for(let S = 1; S < FULL; S++) for(let i = 0; i < n; i++){
@@ -1606,13 +1611,16 @@ suite('SCH-126 Every crew drives the shortest route, and who is on which crew do
       for(let j = 0; j < n; j++){ if(S & (1 << j)) continue; const T2 = S | (1 << j), w = v + mi(P[i], P[j]); if(w < dp[T2 * n + j]) dp[T2 * n + j] = w; }
     }
     let best = Infinity; for(let i = 0; i < n; i++) best = Math.min(best, dp[(FULL - 1) * n + i] + mi(P[i], yard));
-    return best;
+    return best - legs * PEN;
   };
   check('25.0 the yard resolves, so every tour below is a real round trip', !!(yard && typeof yard.lat === 'number'));
-  let checked = 0; const over = [];
+  let checked = 0, routes = 0; const over = [], back = [];
   const scan = function(){ H.api.installDays().forEach(function(d){
     H.api.crewIndexes().forEach(function(i){
       const hs = H.api.crewHousesFor(i, d) || [];
+      /* [[SCH-132]] every route, whatever its size: never back into an area it already left */
+      const all = hs.map(ptOfH).filter(function(p){ return p && typeof p.lat === 'number'; });
+      if(all.length > 1){ routes++; if(H.api.routeAreaReturns(all)) back.push(H.api.isoOf(H.api.dayDate(d)) + ' crew ' + (i + 1) + ' goes back ' + H.api.routeAreaReturns(all) + 'x'); }
       /* 15, not 12, since [[SCH-128]]: no crew goes out under ten, so the runs small enough to solve exactly are 10-15. */
       if(hs.length < 4 || hs.length > 15) return;
       const P = hs.map(ptOfH); if(P.some(function(p){ return !p || typeof p.lat !== 'number'; })) return;
@@ -1629,7 +1637,8 @@ suite('SCH-126 Every crew drives the shortest route, and who is on which crew do
     scan();
   });
   check('25.1 the run had routes small enough to check exactly', checked >= 3, String(checked));
-  check('25.2 every one of them is driven in the shortest possible order, yard to yard', over.length === 0, over.slice(0, 4).join(' | '));
+  check('25.2 every one of them is driven in the shortest order that finishes each area before leaving it, yard to yard', over.length === 0, over.slice(0, 4).join(' | '));
+  check('25.3 no crew route anywhere goes back into an area it already left (SCH-132)', routes >= 20 && back.length === 0, routes + ' routes; ' + back.slice(0, 4).join(' | '));
   /* (the order-independent crew split is proved by 25.2: undone, routes come back longer than the shortest — measured) */
 }
 /* ======================================================================================= */

@@ -147,7 +147,7 @@ const seasonRules = ['every Confirmed customer is on a day after Recalculate (SC
 check('and it still checks every standing schedule rule',
   seasonRules.every(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") !== -1; }),
   'missing: ' + seasonRules.filter(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") === -1; }).join(' | '));
-const seasonCfg = (season.match(/\{name: '[^']+', seed: \d+, n: \d+, rate: [\d.]+, warehouse: \d+, joins: [\d.]+, maxHops: [\d.]+, meanHops: [\d.]+\}/g) || []);
+const seasonCfg = (season.match(/\{name: '[^']+', seed: \d+, n: \d+, rate: [\d.]+, warehouse: \d+, joins: [\d.]+, maxHops: [\d.]+, meanHops: [\d.]+(, christmasNoteOnly: true)?\}/g) || []);
 check('over at least three seasons', seasonCfg.length >= 3, 'found ' + seasonCfg.length);
 const BOUNDS = {maxHops: 12, meanHops: 3};   /* tightened 2026-10-13 by [[SCH-131]]: was 18 / 9.5 */
 check('and its long-hop bounds have only ever been tightened (max ' + BOUNDS.maxHops + ', mean ' + BOUNDS.meanHops + ')',
@@ -155,6 +155,14 @@ check('and its long-hop bounds have only ever been tightened (max ' + BOUNDS.max
     const mx = +c.match(/maxHops: ([\d.]+)/)[1], mn = +c.match(/meanHops: ([\d.]+)/)[1];
     return mx <= BOUNDS.maxHops && mn <= BOUNDS.meanHops;
   }), 'lower the bounds here when the schedule improves; raising them is how the five-mile rule erodes');
+/* [[SCH-132]] (2026-10-13): "hung by Christmas" is a note, not a check, for the 60%-finish season ONLY — measured, five of six
+   seeds of that season already ran past 23 December before SCH-132. Every other season must still finish, and the note may never
+   spread to a season whose crews finish more than 60% of their stops. */
+const noteOnly = seasonCfg.filter(function (c) { return /christmasNoteOnly: true/.test(c); });
+check('the Christmas finish is still a hard check for every season but the 60% one',
+  noteOnly.length <= 1 && noteOnly.every(function (c) { return +c.match(/rate: ([\d.]+)/)[1] <= 0.6; }) &&
+  seasonCfg.length - noteOnly.length >= 2 && /check\('and every house was hung by Christmas \(but for the five-mile overflow\)'/.test(season),
+  noteOnly.length + ' season(s) marked note-only');
 check('npm test still runs it', /npm run test:season-sim/.test(chain) && pkg.scripts['test:season-sim'] === 'node schedule-season.test.js');
 check('CI still runs it as its own named step', /run: npm run test:season-sim/.test(ci));
 check('SCH-129 is still in the rulings map', /^\| SCH-129 \|/m.test(qmap));

@@ -76136,17 +76136,66 @@ function missedStopStart(points, aim){
    placement (Addie 2026-08-21, Dax 2026-09-26). Where one of them is also the shortest drive it still happens; where it costs
    gas, gas wins. Which houses are on a day is untouched — that is the builder's, by priority.
    ⚠ PURE: points in, points out, the yard passed in. No yard (a sandbox, a book with no yard record) is an open path. */
+/* ⭐⭐ [[SCH-132]] ONCE A CREW LEAVES AN AREA IT HAS FINISHED THERE (2026-10-13). Dax: "ive seen multiple instances where they are
+   in one area and then in that same area later in the day after they already left that area fix that". The live 14 October,
+   crew 2: Lehi, Saratoga Springs, out to Eagle Mountain, then BACK to Saratoga Springs and back to Lehi. That was the shortest
+   loop — yard to yard, the houses near the yard split between the drive out and the drive home — and SCH-126 drove it because
+   it was shortest. ⛔ THIS NARROWS SCH-126 (R-024): gas still decides the order, but only among orders that finish each area
+   before leaving it.
+   AN AREA is houses chained within AREA_LINK_MILES of each other (the "around a mile" of [[SCH-131]]) — so any two houses within
+   a mile of each other are always in the same area, and a later house within a mile of an earlier one is never reached by
+   leaving and coming back. HOW: every drive between two areas is priced AREA_LEAVE_PENALTY_MILES extra inside the search, so the
+   search first minimises how many times the crew changes area (once per area, the least possible) and only then the miles.
+   Up to fifteen stops that is exact; past it, routeFinishEachArea gathers any area the search still split. ⚠ The penalty is a
+   search price only — every mile reported anywhere is a real mile. The drive out of the yard and home are not area changes. */
+const AREA_LINK_MILES = 1;
+const AREA_LEAVE_PENALTY_MILES = 1000;
+function routeAreaIds(points){
+  const pts = points || [], n = pts.length, up = [];
+  for(let i = 0; i < n; i++) up.push(i);
+  const top = function(i){ while(up[i] !== i){ up[i] = up[up[i]]; i = up[i]; } return i; };
+  const pinned = function(p){ return p && typeof p.lat === 'number' && typeof p.lng === 'number' && isFinite(p.lat) && isFinite(p.lng); };
+  for(let i = 0; i < n; i++){
+    if(!pinned(pts[i])) continue;
+    for(let j = i + 1; j < n; j++){
+      if(pinned(pts[j]) && haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng) <= AREA_LINK_MILES) up[top(i)] = top(j);
+    }
+  }
+  return pts.map(function(p, i){ return top(i); });
+}
+/* How many times a route walks back into an area it had already left. 0 is the rule. */
+function routeAreaReturns(points){
+  const ids = routeAreaIds(points), left = new Set();
+  let back = 0;
+  for(let i = 1; i < ids.length; i++){
+    if(ids[i] === ids[i - 1]) continue;
+    left.add(ids[i - 1]);
+    if(left.has(ids[i])) back++;
+  }
+  return back;
+}
+/* Gathers each area into one visit, at the place the route first reaches it, keeping the order the houses were in. */
+function routeFinishEachArea(points){
+  const ids = routeAreaIds(points), seq = [], byArea = new Map();
+  (points || []).forEach(function(p, i){
+    if(!byArea.has(ids[i])){ byArea.set(ids[i], []); seq.push(ids[i]); }
+    byArea.get(ids[i]).push(p);
+  });
+  return [].concat.apply([], seq.map(function(a){ return byArea.get(a); }));
+}
 function gasShortestOrder(points, home){
   const pts = (points || []).filter(function(p){ return p && typeof p.lat === 'number' && typeof p.lng === 'number' && isFinite(p.lat) && isFinite(p.lng); });
   const n = pts.length;
   if(n < 3) return pts.slice();
+  /* [[SCH-132]] leaving an area is priced in the search, never in the miles reported */
+  const area = routeAreaIds(pts);
   /* index n is the yard; with no yard it is a free end — every distance to it is 0, which makes the round trip an open path */
   const D = [];
   for(let i = 0; i <= n; i++){
     D.push(new Float64Array(n + 1));
     for(let j = 0; j <= n; j++){
       if(i === n || j === n) D[i][j] = home ? (i === j ? 0 : haversine((i === n ? home : pts[i]).lat, (i === n ? home : pts[i]).lng, (j === n ? home : pts[j]).lat, (j === n ? home : pts[j]).lng)) : 0;
-      else D[i][j] = haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng);
+      else D[i][j] = haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng) + (area[i] === area[j] ? 0 : AREA_LEAVE_PENALTY_MILES);
     }
   }
   const Y = n;
@@ -76225,7 +76274,9 @@ function gasShortestOrder(points, home){
     const m = cost(r);
     if(m < bestM - 1e-9){ bestM = m; best = r.slice(1, r.length - 1); }
   });
-  return best ? best.map(function(i){ return pts[i]; }) : pts.slice();
+  const found = best ? best.map(function(i){ return pts[i]; }) : pts.slice();
+  /* [[SCH-132]] past fifteen stops the search is not exact; an area it still split is gathered into one visit */
+  return routeAreaReturns(found) ? routeFinishEachArea(found) : found;
 }
 function orderHousesForDriving(list, opts){
   const houses=(list||[]).slice();
@@ -76308,12 +76359,23 @@ function orderHousesForDriving(list, opts){
     }
   }
   catch(err){ console.error('Route order failed:', err); return houses; }
-  /* [[SCH-126]] gas decides: keep whichever of the two orders is the shorter drive, yard to yard */
+  /* [[SCH-126]] gas decides: keep whichever of the two orders is the shorter drive, yard to yard —
+     ⭐ [[SCH-132]] after the area rule: an order that goes back to an area it left loses to one that does not, whatever the miles */
   try{
     const gasHome = (typeof routeHomePoint==='function') ? routeHomePoint() : null;
     const pinnedNow = (ordered || []).filter(stopHasPin), bareNow = (ordered || []).filter(function(p){ return !stopHasPin(p); });
     const gas = gasShortestOrder(pinnedNow, gasHome);
-    if(gas.length === pinnedNow.length && tourMiles(gas, gasHome, gasHome) < tourMiles(pinnedNow, gasHome, gasHome) - 1e-6) ordered = gas.concat(bareNow);
+    const backGas = routeAreaReturns(gas), backNow = routeAreaReturns(pinnedNow);
+    if(gas.length === pinnedNow.length && (backGas < backNow ||
+       (backGas === backNow && tourMiles(gas, gasHome, gasHome) < tourMiles(pinnedNow, gasHome, gasHome) - 1e-6))) ordered = gas.concat(bareNow);
+    /* [[SCH-132]] a round trip from the yard is the same miles driven either way round, so it is driven the way that reaches
+       houses already missed once EARLIER — otherwise the same far area can sit at the end of the day, and be missed, day after day */
+    if(gasHome && typeof houseMissedCount === 'function'){
+      const pin = (ordered || []).filter(stopHasPin), bare2 = (ordered || []).filter(function(p){ return !stopHasPin(p); });
+      const lateness = function(list){ let s = 0; list.forEach(function(p, i){ if(p.ref && houseMissedCount(p.ref) > 0) s += i; }); return s; };
+      const rev = pin.slice().reverse();
+      if(lateness(rev) < lateness(pin) && Math.abs(tourMiles(rev, gasHome, gasHome) - tourMiles(pin, gasHome, gasHome)) < 1e-6) ordered = rev.concat(bare2);
+    }
   }catch(err){ console.error('Shortest route search failed — keeping the order already worked out:', err); }
   const out=[], seen=new Set();
   (ordered||[]).forEach(function(s){
@@ -80363,14 +80425,17 @@ function crewFiveMileKeep(crew, ptOf){
   return new Set(pool);
 }
 /* [[SCH-131]] would the day still hold together — every crew in one small area — with house h added? Leaves the day as it was. */
-function dayHoldsWithHouse(day, h){
+function dayHoldsWithHouse(day, h){ return dayHoldsWithHouses(day, [h]); }
+/* the same question for several houses at once — a whole short day folded in together */
+function dayHoldsWithHouses(day, list){
   const live = function(x){ return x && !x.done && !x.hiddenDone && !x.isFix && !x.isTakedown; };
   const ptOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(x, (c && c.data) || {}) : null; return (p && typeof p.lat === 'number') ? p : null; };
-  day.houses.push(h);
+  const before = day.houses.length;
+  (list || []).forEach(function(h){ day.houses.push(h); });
   let ok = true;
   try{ ok = (dayCrewHouses(day) || []).every(function(c){ const cs = (c || []).filter(live); return crewFiveMileKeep(cs, ptOf).size === cs.filter(function(x){ return ptOf(x); }).length; }); }
   catch(e){ ok = false; }
-  day.houses.splice(day.houses.lastIndexOf(h), 1);
+  day.houses.length = before;
   return ok;
 }
 function enforceFiveMileCrews(){

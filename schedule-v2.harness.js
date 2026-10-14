@@ -30,7 +30,7 @@ module.exports = function makeHarness(liftDeep){
     'isOneManDay', 'dayCrewCount', 'houseGeoPoint', 'tourMiles', 'haversine',
     'advancePriorityHouses', 'placeJoinedHouses', 'validateSeasonPlan', 'lockedDaySnapshot', 'placementReasons',
     'houseSchedulingProfile', 'bestEarlierDayFor', 'milesFromDay', 'generateDayRoutes', 'INVARIANT_NAMES', 'PRIORITY_CLASS_LABELS',
-    'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
+    'routeAreaIds', 'routeAreaReturns', 'dayHoldsWithHouses', 'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
     'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
@@ -124,7 +124,7 @@ module.exports = function makeHarness(liftDeep){
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
     '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
-    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, frozenCrewSplit: frozenCrewSplit}',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses}',
     '};'
   ].join('\n');
 
