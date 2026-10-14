@@ -76861,7 +76861,7 @@ function areaScore(h,day){
   const zn=zipNum(h.zip);let best=9e9;day.houses.forEach(x=>{const hz=zipNum(x.zip);if(hz)best=Math.min(best,Math.abs(hz-zn));});
   return 3+Math.min(best/1000,6);
 }
-function fixToHouse(fx){return {id:fx.id,name:fx.name,address:fx.address,city:fx.city,zip:fx.zip,phone:fx.phone,cu:'',price:0,details:'FIX: '+fx.issue,done:false,isFix:true,issue:fx.issue,addedDate:fx.addedDate};}
+function fixToHouse(fx){return {id:fx.id,name:fx.name,address:fx.address,city:fx.city,zip:fx.zip,phone:fx.phone,cu:'',price:0,details:'FIX: '+(fx.issue||''),done:false,isFix:true,issue:fx.issue||'',addedDate:fx.addedDate};}
 function sendFixToList(id){const f=findHouse(id);if(!f)return;f.day.houses=f.day.houses.filter(x=>x!==f.house);
   FIXLIST.push({id:f.house.id,name:f.house.name,address:f.house.address,city:f.house.city,zip:f.house.zip,phone:f.house.phone,issue:f.house.issue,addedDate:f.house.addedDate});renderAll();toast(f.house.name+' moved to the fix list');}
 function addListFixToDay(id,dayId){const idx=FIXLIST.findIndex(x=>x.id===id);if(idx<0)return;const fx=FIXLIST[idx];const day=getDay(dayId);if(!day)return;
@@ -82306,7 +82306,7 @@ function followPlanLive(){
 }
 async function saveNow(){
   savePending=false;
-  const data=serialize(), k=planKey(data);
+  const data=planDropUndefined(serialize()), k=planKey(data);
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
@@ -82323,6 +82323,25 @@ async function saveNow(){
 /* What in a plan Firestore will refuse, as a path a person can find — or '' when nothing is wrong with it.
    Two things only: a list directly inside a list, and an undefined value. Pure, so schedule-v2.test.js runs it. */
 let saveFailTold=false;
+/* ⛔ A MISSING FIELD NEVER SINKS THE WHOLE SAVE (2026-10-14). Firestore refuses a document
+   holding `undefined` anywhere — the whole write, not the one field — and on 13 October a
+   fix whose description had never been typed (fixList[0].issue, then a day's house the same
+   way) stopped the Schedule saving at all, so every other computer kept the old plan. Absent
+   and undefined mean the same thing here (hydrate reads either as "not set"), so it is
+   dropped from what is written and nothing else changes. planKey ignores undefined already,
+   so the saved-or-not comparison is untouched. planSaveProblem still names anything else
+   Firestore would refuse. */
+function planDropUndefined(v){
+  if(Array.isArray(v)) return v.map(function(x){ return x === undefined ? null : planDropUndefined(x); });
+  /* Plain objects only: a Date or a Firestore Timestamp is passed through untouched, because
+     rebuilding one as a plain object would lose what makes it a date. */
+  if(v && typeof v==='object' && Object.getPrototypeOf(v)===Object.prototype){
+    const out={};
+    Object.keys(v).forEach(function(k){ if(v[k]!==undefined) out[k]=planDropUndefined(v[k]); });
+    return out;
+  }
+  return v;
+}
 function planSaveProblem(o){
   let found='';
   (function walk(v,path,inArray){
