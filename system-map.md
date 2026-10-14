@@ -3545,6 +3545,12 @@ the hand-back is still a hand-back rather than a leveller.
 re-asserted beside the three-crew ones, because the expensive failure is not "three does
 not work", it is "three works and two quietly changed".*
 
+### Why a route map can show Google's "Oops! Something went wrong" box
+
+Added 2026-10-13. Dax pasted the two route maps for a day, both reading *"Oops! Something went wrong. This page didn't load Google Maps correctly."*
+
+**It is the map key, not the route.** Measured on the live site: Google refuses the old script-tag key on both admin addresses (highlighting-utah.netlify.app and highlightingutah.com) with `RefererNotAllowedMapError` — the same words are filed under Admin Errors in the Inbox — and draws maps with the Firebase key on both. The page loads the Firebase key now; the old key is `MAPS_KEY_SPARE` in `rmMapsKeys`, tried once if Google ever refuses the first. ⚠ Before this, that swap only rebuilt the roof-measure maps, so every Schedule route map stayed on the Oops box until the page was reloaded; `window.scheduleMapsRebuild` redraws them too. If the box comes back: read Admin Errors for the Google error name first — it says which rule refused the key.
+
 ### Why the forecast beside the map can be blank
 
 Added 2026-09-10. Dax, looking at a day's two route maps: *"the only issue is I cant see

@@ -1404,7 +1404,8 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM"></script>
+<!-- 2026-10-13: this key draws maps on both admin addresses; the other is refused (RefererNotAllowedMapError) and is kept as the spare in rmMapsKeys -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 </head>
 <body>
@@ -30982,6 +30983,7 @@ function rmPaneBusy(which, msg){
    something Google supports, and it is only defensible here because there is
    nothing left to break. It is attempted ONCE. */
 let rmMapsKeyRetried = false;
+const MAPS_KEY_SPARE = 'AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
 function rmTryOtherMapsKey(){
   if(rmMapsKeyRetried) return false;
   const tag = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
@@ -31001,6 +31003,8 @@ function rmTryOtherMapsKey(){
     /* Everything built against the dead library has to be built again. */
     rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;
     if(rmOrigin){ rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin); }
+    /* and the schedule's route maps, which were never rebuilt and stayed on Google's "Oops" box */
+    if(typeof window.scheduleMapsRebuild === 'function') window.scheduleMapsRebuild();
   };
   next.onerror = function(){ window.gm_authFailure(); };
   document.head.appendChild(next);
@@ -31027,6 +31031,10 @@ function rmMapsKeys(){
     try{ const k = new URL(s.src).searchParams.get('key'); if(k) out.push(k); } catch(err){ /* malformed tag */ }
   }
   if(typeof firebaseConfig === 'object' && firebaseConfig && firebaseConfig.apiKey) out.push(firebaseConfig.apiKey);
+  /* ⭐ 2026-10-13: the script tag now carries the Firebase key, which draws maps on both admin addresses; the old map key
+     (refused there with RefererNotAllowedMapError, measured on highlighting-utah.netlify.app and highlightingutah.com) stays
+     on the list as the spare, so a refusal still has somewhere to go if the console settings change again. */
+  out.push(MAPS_KEY_SPARE);
   return out.filter(function(k, i){ return k && out.indexOf(k) === i; });
 }
 /* The key that worked last time is tried first, so the second capture does
@@ -77429,6 +77437,15 @@ function dayMapWrap(){
   return (typeof document === 'undefined') ? null : document.getElementById('scheduleMaps');
 }
 /* One pane, built once and then kept for the life of the page. */
+/* ⭐ 2026-10-13: when Google refuses the map key mid-session the page loads the library again with the spare key
+   (rmTryOtherMapsKey). Every route map built on the refused library stays on Google's "Oops" box for good, so they are
+   thrown away and drawn again on the new one — before this only the roof-measure maps were rebuilt. */
+if(typeof window !== 'undefined') window.scheduleMapsRebuild = function(){
+  dayMapPanes.forEach(function(p){ if(p && p.box && p.box.parentNode) p.box.parentNode.removeChild(p.box); });
+  dayMapPanes.length = 0;
+  try{ if(lastMappedDay) renderDayMaps(lastMappedDay); }
+  catch(err){ console.error('[HU] could not redraw the route maps on the new key', err); }
+};
 function dayMapPaneAt(wrap, i){
   if(dayMapPanes[i]) return dayMapPanes[i];
   const box = document.createElement('div');
