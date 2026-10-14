@@ -149,7 +149,7 @@ check('and it still checks every standing schedule rule',
   'missing: ' + seasonRules.filter(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") === -1; }).join(' | '));
 const seasonCfg = (season.match(/\{name: '[^']+', seed: \d+, n: \d+, rate: [\d.]+, warehouse: \d+, joins: [\d.]+, maxHops: [\d.]+, meanHops: [\d.]+(, christmasNoteOnly: true)?\}/g) || []);
 check('over at least three seasons', seasonCfg.length >= 3, 'found ' + seasonCfg.length);
-const BOUNDS = {maxHops: 12, meanHops: 3};   /* tightened 2026-10-13 by [[SCH-131]]: was 18 / 9.5 */
+const BOUNDS = {maxHops: 6, meanHops: 1};   /* tightened 2026-10-14 by [[SCH-133]]: was 12 / 3 (and 18 / 9.5 before SCH-131) */
 check('and its long-hop bounds have only ever been tightened (max ' + BOUNDS.maxHops + ', mean ' + BOUNDS.meanHops + ')',
   seasonCfg.length >= 3 && seasonCfg.every(function (c) {
     const mx = +c.match(/maxHops: ([\d.]+)/)[1], mn = +c.match(/meanHops: ([\d.]+)/)[1];

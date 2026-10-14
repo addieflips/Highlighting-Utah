@@ -281,9 +281,9 @@ const RULES = [
   'no house is more than five miles from the rest of its crew (SCH-131)',
   'no crew goes out under ten when its houses could join another day (SCH-128)'];
 const SEASONS = [
-  {name: 'a normal season (420 houses, crews finish 85%)', seed: 41, n: 420, rate: 0.85, warehouse: 3, joins: 0.5, maxHops: 12, meanHops: 3},
-  {name: 'a bad-weather season (360 houses, crews finish 60%)', seed: 52, n: 360, rate: 0.6, warehouse: 2, joins: 0.4, maxHops: 12, meanHops: 3, christmasNoteOnly: true},
-  {name: 'a perfect season (480 houses, nothing missed, a busy warehouse)', seed: 63, n: 480, rate: 1.0, warehouse: 6, joins: 0.7, maxHops: 12, meanHops: 2}];
+  {name: 'a normal season (420 houses, crews finish 85%)', seed: 41, n: 420, rate: 0.85, warehouse: 3, joins: 0.5, maxHops: 6, meanHops: 1},
+  {name: 'a bad-weather season (360 houses, crews finish 60%)', seed: 52, n: 360, rate: 0.6, warehouse: 2, joins: 0.4, maxHops: 6, meanHops: 1, christmasNoteOnly: true},
+  {name: 'a perfect season (480 houses, nothing missed, a busy warehouse)', seed: 63, n: 480, rate: 1.0, warehouse: 6, joins: 0.7, maxHops: 6, meanHops: 1}];
 if(H){
   SEASONS.forEach(function(cfg){
     suite('SCH-129 ' + cfg.name);

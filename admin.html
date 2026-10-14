@@ -76212,6 +76212,9 @@ function missedStopStart(points, aim){
    search price only — every mile reported anywhere is a real mile. The drive out of the yard and home are not area changes. */
 const AREA_LINK_MILES = 1;
 const AREA_LEAVE_PENALTY_MILES = 1000;
+/* [[SCH-133]] a drive of more than MAX_CREW_HOP_MILES between two houses is priced too, below leaving an area but far above any
+   real mileage: where an order exists that walks the crew's short links, it is driven. The yard legs are not hops. */
+const LONG_HOP_PENALTY_MILES = 100;
 function routeAreaIds(points){
   const pts = points || [], n = pts.length, up = [];
   for(let i = 0; i < n; i++) up.push(i);
@@ -76224,6 +76227,13 @@ function routeAreaIds(points){
     }
   }
   return pts.map(function(p, i){ return top(i); });
+}
+function routeHopLimitMiles(){ return (typeof MAX_CREW_HOP_MILES === 'number') ? MAX_CREW_HOP_MILES : 5; }
+/* How many drives between two houses are longer than that. */
+function routeLongHops(points){
+  let n = 0; const p = (points || []).filter(function(x){ return x && typeof x.lat === 'number' && isFinite(x.lat); });
+  for(let i = 1; i < p.length; i++) if(haversine(p[i - 1].lat, p[i - 1].lng, p[i].lat, p[i].lng) > routeHopLimitMiles()) n++;
+  return n;
 }
 /* How many times a route walks back into an area it had already left. 0 is the rule. */
 function routeAreaReturns(points){
@@ -76257,7 +76267,7 @@ function gasShortestOrder(points, home){
     D.push(new Float64Array(n + 1));
     for(let j = 0; j <= n; j++){
       if(i === n || j === n) D[i][j] = home ? (i === j ? 0 : haversine((i === n ? home : pts[i]).lat, (i === n ? home : pts[i]).lng, (j === n ? home : pts[j]).lat, (j === n ? home : pts[j]).lng)) : 0;
-      else D[i][j] = haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng) + (area[i] === area[j] ? 0 : AREA_LEAVE_PENALTY_MILES);
+      else D[i][j] = haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng) + (area[i] === area[j] ? 0 : AREA_LEAVE_PENALTY_MILES) + (haversine(pts[i].lat, pts[i].lng, pts[j].lat, pts[j].lng) > routeHopLimitMiles() ? LONG_HOP_PENALTY_MILES : 0);
     }
   }
   const Y = n;
@@ -76427,9 +76437,9 @@ function orderHousesForDriving(list, opts){
     const gasHome = (typeof routeHomePoint==='function') ? routeHomePoint() : null;
     const pinnedNow = (ordered || []).filter(stopHasPin), bareNow = (ordered || []).filter(function(p){ return !stopHasPin(p); });
     const gas = gasShortestOrder(pinnedNow, gasHome);
-    const backGas = routeAreaReturns(gas), backNow = routeAreaReturns(pinnedNow);
-    if(gas.length === pinnedNow.length && (backGas < backNow ||
-       (backGas === backNow && tourMiles(gas, gasHome, gasHome) < tourMiles(pinnedNow, gasHome, gasHome) - 1e-6))) ordered = gas.concat(bareNow);
+    const backGas = routeAreaReturns(gas), backNow = routeAreaReturns(pinnedNow), longGas = routeLongHops(gas), longNow = routeLongHops(pinnedNow);
+    if(gas.length === pinnedNow.length && (backGas < backNow || (backGas === backNow && longGas < longNow) ||
+       (backGas === backNow && longGas === longNow && tourMiles(gas, gasHome, gasHome) < tourMiles(pinnedNow, gasHome, gasHome) - 1e-6))) ordered = gas.concat(bareNow);
     /* [[SCH-132]] a round trip from the yard is the same miles driven either way round, so it is driven the way that reaches
        houses already missed once EARLIER — otherwise the same far area can sit at the end of the day, and be missed, day after day */
     if(gasHome && typeof houseMissedCount === 'function'){
@@ -80598,6 +80608,7 @@ function enforceFiveMileOnce(){
     })[0] || null;
   };
   const byDate = function(){ return SEASON.filter(function(d){ return isOpen(d) && !tailSet.has(dsOf(d)); }).sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; }); };
+  const kept = [];
   strays.forEach(function(s){
     const h = s.h, name = h.name || '(no name)';
     let crewHit = null;
@@ -80624,8 +80635,70 @@ function enforceFiveMileOnce(){
         takeOff(s); h.fiveMileTail = ds; d.houses.push(h); res.tail.push({name: name, from: dsOf(s.from), to: ds}); return;
       }
     }
-    /* a last day is a promise ("all Oct houses need to be hung in October still") — it stays where it was */
-    res.keptOutlier.push({name: name, day: dsOf(s.from), until: until});
+    /* a last day is a promise ("all Oct houses need to be hung in October still") — it stays where it was, for now */
+    kept.push({h: h, from: s.from, until: until});
+  });
+  /* ⭐⭐ [[SCH-133]] AN OCTOBER HOUSE WITH NOBODY NEAR IT GETS A CREW OF ITS NEIGHBOURS (2026-10-13). Dax: "on the schedule I am
+     seeing massive hops that shouldnt be there almost every schedule has a hop thats like american fork to orem which is way to
+     big of a hop". Every one over five miles was a house with a last day (October) and no crew within five miles before it:
+     it was left riding on a crew miles away — Salem to Provo 16.6, Cottonwood Heights to Draper 9.1. ⛔ Its neighbours were
+     there all along, laid out later because they have no date ("Normal Schedule"). So they are brought forward to it: the
+     house plus the dateless houses chained within MAX_CREW_HOP_MILES of it (inside MAX_CREW_RADIUS_MILES of it, up to a crew),
+     put on the earliest open day before its last day where every crew still keeps its five miles (dayHoldsWithHouses). Other
+     houses with a last day near it join the same group. Only when no such day exists does it stay where it was, named. */
+  const used = new Set();
+  kept.forEach(function(k){
+    if(used.has(k.h)) return;
+    const o = k.h, group = [o];
+    const until = k.until;
+    /* who may join: on an open day (the overflow included — that is where the dateless wait), not stuck, close to o */
+    const pool = [];
+    SEASON.forEach(function(d){
+      if(!isOpen(d)) return;
+      (d.houses || []).forEach(function(h){
+        if(h === o || used.has(h) || !movable(h)) return;
+        if(mi(o, h) > MAX_CREW_RADIUS_MILES) return;
+        const u = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
+        /* a house with an earlier last day than o cannot wait for o's day; one with no last day, or a later one, can */
+        if(u && u < until) return;
+        pool.push({h: h, d: d, kept: kept.some(function(x){ return x.h === h; })});
+      });
+    });
+    /* grow along hops of at most five miles, the houses that also have nowhere else first, then the nearest */
+    while(group.length < cap){
+      let best = null, bestKey = Infinity;
+      pool.forEach(function(c){
+        if(group.indexOf(c.h) !== -1) return;
+        let hop = Infinity; group.forEach(function(g){ const m = mi(g, c.h); if(m < hop) hop = m; });
+        if(hop > MAX_CREW_HOP_MILES) return;
+        const key = (c.kept ? 0 : 1000) + mi(o, c.h);
+        if(key < bestKey){ bestKey = key; best = c; }
+      });
+      if(!best) break;
+      group.push(best.h);
+    }
+    if(group.length < 2) { res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
+    /* the earliest open day before the last day where every house in the group may go and every crew keeps its five miles */
+    const fromOf = new Map();
+    group.forEach(function(h){ const p = pool.filter(function(c){ return c.h === h; })[0]; fromOf.set(h, h === o ? k.from : (p && p.d)); });
+    const lift = function(){ group.forEach(function(h){ const d = fromOf.get(h); const i = d ? d.houses.indexOf(h) : -1; if(i !== -1) d.houses.splice(i, 1); }); };
+    const putBack = function(){ group.forEach(function(h){ const d = fromOf.get(h); if(d && d.houses.indexOf(h) === -1) d.houses.push(h); }); };
+    lift();
+    const target = byDate().find(function(d){
+      const ds = dsOf(d);
+      if(until && ds > until) return false;
+      if(d.houses.filter(live).length + group.length > capFor(ds)) return false;
+      if(!group.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) return false;
+      return dayHoldsWithHouses(d, group);
+    });
+    if(!target){ putBack(); res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
+    group.forEach(function(h){
+      target.houses.push(h); used.add(h);
+      if(h.fiveMileTail) delete h.fiveMileTail;
+      const was = fromOf.get(h);
+      res.moved.push({name: h.name || '(no name)', from: was ? dsOf(was) : '', to: dsOf(target)});
+    });
+    crewMemo.clear();
   });
   SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || d.printedAt || (d.houses || []).length; });
   if(typeof GEO_SPLIT_CACHE !== 'undefined' && GEO_SPLIT_CACHE.clear) GEO_SPLIT_CACHE.clear();
@@ -82750,6 +82823,12 @@ RT.addEventListener('click',e=>{const t=e.target;
           /* The override lasts one press. The new next two days are frozen as they now stand. */
           PRINTED_OVERRIDE=false;
           if(unlockPrinted){ try{ refreshLockedDates(); freezePrintedDays(); computeDates(); renderAll(); scheduleSave(); }catch(err){ console.error('[HU] could not re-freeze the printed days',err); } }
+          /* ⚠ THE LOCK MOVES DURING THE PRESS (2026-10-13). Somebody who said No is left on a locked day — the crew holds that
+             sheet — but once the press builds days in front of it, that day can stop being one of the next two. Found by the
+             season simulator: a No on 1 December, kept as locked at the start of the press and unlocked at the end, so a
+             customer out of the season sat on an open day until the next sync. Asked again here, against the lock as it now is. */
+          try{ refreshLockedDates(); const gone=dropHousesWhoLeftSeason(); if(gone && gone.dropped && gone.dropped.length){ computeDates(); renderAll(); scheduleSave(); } }
+          catch(err){ console.error('[HU] could not take the leavers off the days that are no longer locked',err); }
         }
       });
     return;
