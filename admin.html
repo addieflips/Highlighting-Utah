@@ -1571,12 +1571,17 @@
   var origError = console.error;
   console.error = function(){
     try {
+      /* ⭐ AND WHERE A THROWN ERROR CAME FROM (2026-10-14). "[HU] recalculate failed Cannot read
+         properties of undefined (reading 'getFullYear')" reached the Errors folder naming no
+         function, so the line it died on had to be guessed out of seventy candidates. The same
+         first-frame-of-ours rule the unhandled-promise report uses, added to the first Error only. */
+      var where = '';
       var parts = Array.prototype.map.call(arguments, function(a){
-        if(a instanceof Error) return a.message;
+        if(a instanceof Error){ if(!where) where = rejectionWhere(a); return a.message; }
         if(typeof a === 'object') { try { return JSON.stringify(a).slice(0,200); } catch(x){ return '[object]'; } }
         return String(a);
       });
-      add(parts.join(' '));
+      add(parts.join(' ') + where);
     } catch(x){ /* quiet on purpose: this IS the error reporter. Anything thrown while building the copy of a console line must not replace the real message, which is passed straight through on the next line. */ }
     origError.apply(console, arguments);
   };
@@ -25742,7 +25747,21 @@ const FIXED_ERRORS = [
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' },
   { match: 'found in field quotefirstsentat.todate', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
-    note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' }
+    note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' },
+  /* ⚠ THE TWO BELOW SHIPPED ON 13 OCTOBER AND CLEAR NOTHING YET. Their reports are from the fix day itself, which
+     survives by design (fixedErrorFloor), so those rows have to be deleted by hand once nothing newer has arrived.
+     They are here so a row written AFTER the fix is read as news, and because §9.9 item 7 says every fixed fault
+     gets one — both were fixed on 13 October and neither was written down. */
+  { match: '.issue is undefined', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-13',
+    note: 'Admin. A fix whose description had never been typed put an undefined field in the Schedule plan and Firestore refused the whole save, so other computers kept the old plan. planDropUndefined drops it before the write. 969d0ec.' },
+  { match: 'RefererNotAllowedMapError', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-13',
+    note: 'Admin. The script tag carried the map key Google refuses on both admin addresses; it carries the Firebase key now and the old one is the spare. ca70c6b.' },
+  { match: 'setMap: not an instance of Map', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. When the map key is swapped mid-session the library is loaded again, and the Routes map, the overview map and the address previews were kept from the refused copy, so the next marker put on one threw. rmTryOtherMapsKey forgets them now so each is rebuilt on the new library. Both wordings (Map; and StreetViewPanorama) share this prefix. 2026-10-14 admin-errors change.' },
+  { match: "recalculate failed Cannot read properties of undefined (reading 'getFullYear')", topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. A day pushed into the season and read before computeDates had dated it — the same shape as Fix placement failed on 9 October. dayDate now works the date out from the pin or the base when _date is not set yet. The exact line was not in the report (console lines now carry it), so a row after this date means it was somewhere else and survives. 2026-10-14 admin-errors change.' },
+  { match: '[HU] no normals for', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. Not a fault: one year of past weather out of ten failing to download, which the loader is built to step over. It is a console warning now and does not reach this folder; only every year failing is reported. 2026-10-14 admin-errors change.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -31002,6 +31021,15 @@ function rmTryOtherMapsKey(){
   next.onload = function(){
     /* Everything built against the dead library has to be built again. */
     rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;
+    /* ⛔ AND EVERY OTHER MAP ON THE PAGE (2026-10-14). Only the measure tool and the schedule were rebuilt, so the
+       Routes map, the customer overview map and the address previews kept a map made by the REFUSED library, and the
+       next marker or line put on one threw "InvalidValueError: setMap: not an instance of Map" — twice in the Errors
+       folder on 13 October. A map object from one copy of the library is not a Map to the next copy. Each of these is
+       built on demand from null, so forgetting them is all a rebuild needs; the old markers went with the old maps. */
+    overviewMapInstance = null; overviewMapMarkers = [];
+    routeMapInstance = null; routeMapMarkers = []; routeMapPolyline = null;
+    mapPreviewInstances = {};
+    rmHomeMarker = null; rmCornerMarkers = []; rmModelLines = [];
     if(rmOrigin){ rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin); }
     /* and the schedule's route maps, which were never rebuilt and stayed on Google's "Oops" box */
     if(typeof window.scheduleMapsRebuild === 'function') window.scheduleMapsRebuild();
@@ -64435,8 +64463,13 @@ function loadSeasonNormals(force){
         });
         got++;
       })["catch"](function(err){
-        /* Named in the console and then stepped over — see the note above. */
-        console.error("[HU] no normals for " + y, err);
+        /* Named in the console and then stepped over — see the note above.
+           ⚠ A WARNING, NOT AN ERROR (2026-10-14). One year out of ten failing is the case
+           this loop is built to absorb ("a year that fails does not lose the other nine"),
+           so it is not a fault — yet console.error filed it in Admin Errors ("[HU] no
+           normals for 2016 Load failed", an iPhone on a patchy connection). The case that
+           IS news — every year failing — is reported once, below. */
+        console.warn("[HU] no normals for " + y, err);
       });
     });
   }, Promise.resolve()).then(function(){
@@ -64446,6 +64479,7 @@ function loadSeasonNormals(force){
       if(Object.keys(curve).length) byTown[t] = curve;
     });
     const n = Object.keys(byTown).length;
+    if(!got) console.error("[HU] past weather could not be read for any of the " + years.length + " years — the typical highs are blank");
     SEASON_NORMALS = {at: Date.now(), byTown: byTown, towns: n, years: got,
       error: n ? "" : "Past weather could not be reached, so there is nothing to " +
                       "show for dates beyond the forecast.",
@@ -74704,7 +74738,22 @@ function computeDates(){
   SEASON.filter(d=>d.isFixRoute).forEach(d=>{d._date=new Date(d.pin);});
   ORDER=SEASON.slice().sort((a,b)=>a._date-b._date||((a.isFixRoute?1:0)-(b.isFixRoute?1:0))||a.base-b.base);
 }
-function dayDate(day){return day._date;}
+/* ⛔ A DAY ALWAYS HAS A DATE, EVEN BEFORE computeDates HAS SEEN IT (2026-10-14). _date is only
+   filled in by computeDates, and a pass that pushes a new day into SEASON and then reads it
+   before the next computeDates got undefined back — "Fix placement failed … reading 'getDay'"
+   on 9 October and "[HU] recalculate failed … reading 'getFullYear'" on 13 October, both
+   from the Errors folder, both that shape. The season simulator finds ~470 such reads in
+   its seasons (all guarded today, which is why it stayed green). Rather than guard each of
+   seventy callers, the answer is worked out here the same way computeDates would: its pin,
+   else where its base and shift put it. Not written back — the next computeDates is still
+   the one that settles collisions and day-offs. */
+function dayDate(day){
+  if(!day) return undefined;
+  if(day._date) return day._date;
+  if(day.pin) return new Date(day.pin);
+  if(typeof day.base==='number' && startFor(day)) return desired(day);
+  return undefined;
+}
 function getDay(id){return SEASON.find(d=>d.id===id);}
 function orderedDays(){return ORDER.slice();}
 function installDays(){return ORDER.filter(d=>!d.isFixRoute&&!d.isTakedown);}
@@ -82644,7 +82693,7 @@ async function saveNow(){
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
-  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;mirrorStampsSoon();}catch(e){planSyncedKey=prev;
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;planSaveRunaway(Date.now(),data);mirrorStampsSoon();}catch(e){planSyncedKey=prev;
     /* ⛔ SAID, AND WITH THE REAL REASON (2026-10-12). This read "check connection" whatever went wrong and logged
        nothing, so a plan Firestore was REFUSING — not a network fault at all — failed in five grey words for twelve
        days while each computer went on showing its own schedule. planSaveProblem names the field when it is ours. */
@@ -82653,6 +82702,25 @@ async function saveNow(){
     RT.getElementById('saveNote').textContent='⚠ NOT SAVED — other computers cannot see these changes ('+why+')';
     if(!saveFailTold){saveFailTold=true;toast('The schedule could not be saved, so other computers will not see these changes — '+why);}
   }
+}
+/* ⭐ A PLAN THAT SAVES ITSELF OVER AND OVER IS SAID OUT LOUD (2026-10-14). At 1 AM on 14 October Firestore refused this
+   project's writes: "This database has exceeded their maximum bandwidth for writes" (resource-exhausted), with the
+   Routes tab open on a Windows computer. Nobody was working at that hour, so something was writing by itself, and the
+   plan is the one large document on that tab that saves on most redraws. What wrote it could not be proved from that
+   one line. So this counts the plan's own successful saves; past PLAN_RUNAWAY_SAVES in a minute it files ONE error
+   naming how many and how big, which is what the next occurrence needs to be diagnosed rather than guessed at.
+   ⚠ IT REPORTS, IT NEVER STOPS A SAVE: holding back the plan is how two computers end up on different schedules,
+   which is worse than a burst of writes. Pure apart from the console line, so a test can run it. */
+const PLAN_RUNAWAY_SAVES=30, PLAN_RUNAWAY_MS=60000;   // one every two seconds for a whole minute — faster than anybody ticks a list
+let planSaveTimes=[], planRunawayTold=false;
+function planSaveRunaway(now,data){
+  planSaveTimes.push(now);
+  while(planSaveTimes.length&&now-planSaveTimes[0]>PLAN_RUNAWAY_MS) planSaveTimes.shift();
+  if(planSaveTimes.length<PLAN_RUNAWAY_SAVES||planRunawayTold) return false;
+  planRunawayTold=true;
+  let kb='?'; try{ kb=String(Math.round(JSON.stringify(data).length/1024)); }catch(e){ /* size is decoration on this line; the count is the news */ }
+  console.error('[HU] the schedule saved itself '+planSaveTimes.length+' times in one minute ('+kb+' KB each). If nobody was working the Schedule, another open computer may be bouncing it back — close the Routes tab on the other computers.');
+  return true;
 }
 /* What in a plan Firestore will refuse, as a path a person can find — or '' when nothing is wrong with it.
    Two things only: a list directly inside a list, and an undefined value. Pure, so schedule-v2.test.js runs it. */

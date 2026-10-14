@@ -539,6 +539,57 @@ const sweepChecks = (async function () {
 }
 
 /* ---------------------------------------------------------------------------
+ * The 14 October read of the folder (2026-10-14). Five more faults fixed — two the
+ * day before and never written down, three in this change — typed exactly as the
+ * Admin Errors rows read, because an invented wording can pass while missing the
+ * one that happened.
+ *
+ * ⛔ AND TWO THINGS IN THAT SAME FOLDER MUST NOT BE CLEARED BY ANY OF THEM. The RSVP
+ * "internal" rows from 8–12 October are the billing outage: Google refused the call
+ * before our code ran, so those Yes answers were NOT saved, and the rows are the
+ * only list of who to check. And the 1 AM "maximum bandwidth for writes" refusal has
+ * no proven cause — it is only instrumented (planSaveRunaway), and §9.9 item 7 says
+ * an instrumented fault gets no entry.
+ * ------------------------------------------------------------------------- */
+{
+  const key = t => 'admin error|' + String(t).toLowerCase().replace(/[0-9]+/g, '#').replace(/\s+/g, ' ').trim();
+  const OCT = [
+    { what: 'the plan save refused over an undefined fix description', on: '2026-10-13',
+      real: '[HU] the schedule could not be saved — other computers are NOT seeing these changes: days[37].houses[0].issue is undefined Function setDoc() called with invalid data.' },
+    { what: 'the same refusal on the fix list', on: '2026-10-13',
+      real: '[HU] the schedule could not be saved — other computers are NOT seeing these changes: fixList[0].issue is undefined Function setDoc() called with invalid data.' },
+    { what: 'the map key Google refused', on: '2026-10-13',
+      real: 'Google Maps JavaScript API error: RefererNotAllowedMapError https://developers.google.com/maps/documentation/javascript/error-messages#referer-not-allowed-map-error' },
+    { what: 'a line put on a map from the refused library', on: '2026-10-14',
+      real: 'InvalidValueError: setMap: not an instance of Map' },
+    { what: 'a marker put on a map from the refused library', on: '2026-10-14',
+      real: 'InvalidValueError: setMap: not an instance of Map; and not an instance of StreetViewPanorama' },
+    { what: 'Recalculate reading the date of a day not dated yet', on: '2026-10-14',
+      real: "[HU] recalculate failed Cannot read properties of undefined (reading 'getFullYear')" },
+    { what: 'one year of past weather not downloading', on: '2026-10-14',
+      real: '[HU] no normals for 2016 Load failed' }
+  ];
+  for (const f of OCT) {
+    check('cleared: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysBefore(f.on, 1)).data) !== null,
+      'the real report is still in the badge after the fix shipped');
+    check('but a fresh one survives: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysAfter(f.on, 1)).data) === null,
+      'a fix that did not take must be able to re-report itself');
+    check('and the member side is left alone: ' + f.what,
+      api.errorFixedBy(row('x', MEMBER_TOPIC, key(f.real), daysBefore(f.on, 1)).data) === null,
+      'an admin-scoped entry reached a member report');
+  }
+  const memberKey = (doing, reason) => 'member error|' + doing.toLowerCase() + '|' + reason.toLowerCase();
+  check('an RSVP answer lost to the billing outage is NOT cleared',
+    api.errorFixedBy(row('x', MEMBER_TOPIC, memberKey('Answering Yes to the RSVP email', 'internal'), daysBefore('2026-10-12', 2)).data) === null,
+    'those rows are the only list of customers whose Yes may not have saved');
+  check('the write-bandwidth refusal is NOT cleared — it is only instrumented',
+    api.errorFixedBy(row('x', ADMIN_TOPIC, key('@firebase/firestore: Firestore (10.12.2): FirebaseError: [code=resource-exhausted]: This database has exceeded their maximum bandwidth for writes'), daysBefore('2026-10-14', 1)).data) === null,
+    'an entry reached a fault nobody has proved fixed');
+}
+
+/* ---------------------------------------------------------------------------
  * Wiring. STRUCTURAL, and said so on purpose.
  * ------------------------------------------------------------------------- */
 const loadMessages = extractFn(admin, 'loadMessages');
