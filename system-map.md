@@ -3118,6 +3118,8 @@ purpose, and the priority and colour-change cases.
 
 **What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
 
+⭐ **THE PHOTO COMES OFF THE LIVE RECORD, AND PRINTS ON THE BACK** (2026-10-14). Dax: *"when i printed rachel oslund it said she didnt have a picture even though I added her today"* and *"it should just appear on the back side of the new hang paper"*. Her picture was in the record's **layout map** slot (`layoutMapUrl`) and the sheet read only the house-photo slots. `printNewHangPhotoList` is now the one rule for the photo block, the photo letters and the "no photo on file" line: the house photos, then the layout map picture, and — only when the record holds neither — the photos on the quote they were converted from (`closedQuoteFor`). Each caption says which it is. And everything that is a picture sits in `printBackSideHtml`, which starts a page of its own (the back of the sheet when printed double-sided); on the whole-day sheet both crews' photos go on the back after every table. When any sheet in one print has a back, `schedOpenPrintPages` gives every other sheet a blank one, so each crew sheet starts on its own paper. run-all Suite 381.
+
 ### Three things that move somebody up a season
 
 Added 2026-09-03. Dax asked for three new priorities and put two limits on all of them:

@@ -83511,7 +83511,7 @@ function printDaySheet(dayId){
      ⚠ A HOUSE IN NEITHER CREW'S CITY GETS ITS OWN BLOCK rather than being left off.
      It is already reported on screen as nobody's; a printed sheet that silently drops it
      is how it gets missed on the road. */
-  const blocks=[];
+  const blocks=[], backs=[];
   (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c,i){
     const mine=printCrewDayList(day,i);
     if(!mine.length) return;
@@ -83527,10 +83527,11 @@ function printDaySheet(dayId){
        houses on it. */
     blocks.push('<h2>'+esc(crewName(i))+' — '+esc(crewCityFor(i,day)||'no city set')+
       ' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</h2>'+
-      printTableHtml(mine,printCrewColumns(mine))+
-      printPhotosHtml(printCrewPhotos(day,i))+
-      printPhotoGapsHtml(printCrewPhotoGaps(day,i))+
-      printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos'));
+      printTableHtml(mine,printCrewColumns(mine)));
+    /* [2026-10-14] the photos go on the BACK of the sheet, under the crew's name — see printBackSideHtml */
+    const back=printPhotosHtml(printCrewPhotos(day,i))+printPhotoGapsHtml(printCrewPhotoGaps(day,i))+
+      printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos');
+    if(back) backs.push('<h2>'+esc(crewName(i))+'</h2>'+back);
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
   if(spare.length){
@@ -83538,6 +83539,7 @@ function printDaySheet(dayId){
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
       printTableHtml(sr,printCrewColumns(sr)));
   }
+  blocks.push(printBackSideHtml(backs.join('')));
   const title='Schedule — '+what+' — '+l.wd+', '+l.full;
   schedOpenPrintPages(title,[{
     title:title,
@@ -84161,7 +84163,7 @@ function printNewHangKeys(day){
       if(keys.has(id)) return;
       const d = printCustData(h);
       if(!printIsNewHang(d, h)) return;
-      const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+      const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
         .filter(function(p){ return p && p.url; });
       if(!photos.length) return;
       let letter = '', k = n;
@@ -84220,6 +84222,23 @@ function printTableHtml(rows, columns){
 
    Numbered "2 of 3" when there is more than one, because four pictures of the same
    house with identical captions is a puzzle rather than a help. */
+/* ⭐ WHAT A NEW HANG'S PHOTO IS, READ OFF THE LIVE CUSTOMER FILE (2026-10-14). Dax: "when we get a new hang it should pull the
+   picture from their live customer file so when i printed rachel oslund it said she didnt have a picture even though I added
+   her today". Her picture was uploaded that morning into the record's LAYOUT MAP slot (layoutMapUrl), and the sheet read the
+   house-photo slots alone (customerPhotoList), which were empty — so it printed "no photo on file" with a picture on file.
+   Now: the house photos, then the layout map picture, both off the record the plan points at (printCustData is the live
+   jobAddresses copy); and only when the record holds neither, the photos on the quote they were converted from — a new hang
+   always has one, and the crew is better off with the quote's picture than with none. ONE answer for the photo block and the
+   "no photo on file" line (printCrewPhotoGaps), so the two can never disagree about the same house. */
+function printNewHangPhotoList(d, h){
+  const own = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : []).filter(function(p){ return p && p.url; });
+  const seen = new Set(own.map(function(p){ return p.url; }));
+  if(d && d.layoutMapUrl && !seen.has(d.layoutMapUrl)) own.push({url: d.layoutMapUrl, label: 'layout map'});
+  if(own.length) return own;
+  const q = (typeof closedQuoteFor === 'function') ? closedQuoteFor(h) : null;
+  const fromQuote = (q && q.data && typeof quotePhotoList === 'function') ? quotePhotoList(q.data) : [];
+  return fromQuote.filter(function(p){ return p && p.url; }).map(function(p){ return {url: p.url, label: p.label || 'from their quote'}; });
+}
 function printCrewPhotos(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
   const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
@@ -84227,7 +84246,7 @@ function printCrewPhotos(day, i){
   mine.forEach(function(h){
     const d = printCustData(h);
     if(!printIsNewHang(d, h)) return;
-    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+    const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
       .filter(function(p){ return p && p.url; });
     if(!photos.length) return;
     const who = d.name || h.name || '';
@@ -84235,7 +84254,8 @@ function printCrewPhotos(day, i){
     const key = keys.get(String(h && h.id)) || null;
     photos.forEach(function(p, k){
       out.push({url: p.url, number: num, name: who,
-                of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : '',
+                /* the label says which picture this is — "layout map", "from their quote" — beside the count */
+                of: [photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : '', p.label || ''].filter(Boolean).join(' · '),
                 key: key ? key.letter : '', color: key ? key.color : ''});
     });
   });
@@ -84270,7 +84290,7 @@ function printCrewPhotoGaps(day, i){
   mine.forEach(function(h){
     const d = printCustData(h);
     if(!printIsNewHang(d, h)) return;
-    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+    const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
       .filter(function(p){ return p && p.url; });
     if(photos.length) return;
     const num = d.customerNumber || h.cu || '';
@@ -84332,6 +84352,9 @@ function printFixPhotos(day, i){
    have worked this morning and drifted by the next time the box size is tuned — the
    owner has already had this size corrected once. One constant, both stylesheets. */
 const PRINT_PHOTO_CSS =
+  /* [2026-10-14] the back of the sheet — see printBackSideHtml; .blankback pads a sheet with none */
+  '.backside{page-break-before:always;break-before:page;}' +
+  '.blankback{page-break-before:always;break-before:page;font-size:10px;color:#999;text-align:center;padding-top:40px;}' +
   '.photos{margin-top:14px;page-break-inside:avoid;}' +
   '.photos h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 6px;}' +
   '.photos figure{display:inline-block;margin:0 10px 10px 0;vertical-align:top;' +
@@ -84468,9 +84491,9 @@ function printCrewSheetPage(day, i){
        sheet they belong to rather than on a page of their own. */
     body: rows.length
       ? (printTableHtml(rows, printCrewColumns(rows)) +
-         printPhotosHtml(printCrewPhotos(day, i)) +
-         printPhotoGapsHtml(printCrewPhotoGaps(day, i)) +
-         printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos'))
+         printBackSideHtml(printPhotosHtml(printCrewPhotos(day, i)) +
+           printPhotoGapsHtml(printCrewPhotoGaps(day, i)) +
+           printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos')))
       : '',
     empty: who + ' has nothing on this day.'
   };
@@ -84507,11 +84530,17 @@ function schedOpenPrintPages(docTitle, pages){
   if(!live.length){ toast('Nothing to print'); return; }
   const today = new Date().toLocaleDateString('en-US',
     {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+  /* [2026-10-14] when any sheet carries a back (printBackSideHtml), every sheet in this print gets one — a sheet with none
+     gets a blank back — so on a double-sided print each sheet starts on its own paper and the photos land on the back of
+     the sheet they belong to, never on the back of the one before it. */
+  const anyBack = live.some(function(p){ return String(p.body || '').indexOf('class="backside"') !== -1; });
   const body = live.map(function(p){
+    const hasBack = String(p.body || '').indexOf('class="backside"') !== -1;
     return '<div class="sheet"><h1>' + esc(p.title) + '</h1>' +
       '<div class="sub">Printed ' + esc(today) +
       (p.summary ? ' &middot; ' + esc(p.summary) : '') + '</div>' +
       (p.body || '<div class="empty">' + esc(p.empty || 'Nothing to print.') + '</div>') +
+      (anyBack && !hasBack ? '<div class="blankback">(back of this sheet left blank)</div>' : '') +
       '</div>';
   }).join('');
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
@@ -84526,6 +84555,15 @@ function schedOpenPrintPages(docTitle, pages){
    says "New hangs on this sheet". Print Whole Plan is many days on one document, where
    that wording would be repeated down the page saying nothing — it names the day
    instead. One builder, one caption format; only the title above the block moves. */
+/* ⭐ THE PHOTOS PRINT ON THE BACK OF THE SHEET (2026-10-14). Dax: "the picture attempts to appear on the wrong page number when
+   it should just appear on the back side of the new hang paper". The photos used to hang off the bottom of the table, so they
+   landed wherever the table happened to end — halfway down page one, or split onto page two. Now everything that is a
+   picture (new-hang photos, the no-photo line, fix photos) starts a page of its own, which on a double-sided print is the
+   back of that crew's sheet. Empty in, empty out: a sheet with nothing to show on the back gets no back page from here
+   (schedOpenPrintPages pads it when another sheet in the same print has one, so every sheet still starts on a fresh paper). */
+function printBackSideHtml(inner){
+  return inner ? '<div class="backside">' + inner + '</div>' : '';
+}
 function printPhotosHtml(photos, heading){
 
   if(!photos || !photos.length) return '';
