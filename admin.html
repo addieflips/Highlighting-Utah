@@ -2884,7 +2884,7 @@
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
             <div class="ec-grid">
-              <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Add a discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
               <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
             </div>
             <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
@@ -2903,7 +2903,7 @@
                  necessary." -->
             <div id="editCustCreditLines" style="margin-top:8px;"></div>
             <div id="editCustCreditLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone. Press &times; on any line to take it off &mdash; that saves straight away and is recorded in their history.</p>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Type an amount and a reason and Save to ADD a discount &mdash; every discount already on the bill stays, so you can add as many as you need. Press &times; on any line to take it off &mdash; that saves straight away and is recorded in their history.</p>
           </div>
           <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
             <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
@@ -30289,7 +30289,7 @@ function renderInvoicesList(){
           }
         }
         toast('Credit added' + (applyNow>0 ? ' (' + fmtMoney(applyNow) + ' off now)' : '') + carryNote);
-        logActivity('Added a ' + fmtMoney(amount) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
+        logActivity('Added a ' + fmtMoney(amt) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
         panel.style.display = 'none';
       });
       /* ⭐ ONE × PER FEE, REPLACING A BUTTON THAT CLEARED THE LOT (2026-09-02).
@@ -58978,10 +58978,8 @@ document.addEventListener('DOMContentLoaded', function(){
           document.getElementById('editCustFeeReason').value = '';
           updateEditCustFeeSummary();
         }
-        if(ledger === 'credit' && kind === 'manual'){
-          document.getElementById('editCustManualDiscount').value = '';
-          document.getElementById('editCustDiscountReason').value = '';
-        }
+        /* A manual discount line no longer lives in the box ([[MON-83]]), so crossing one off
+           leaves the box alone — clearing it would throw away a discount being typed. */
         if(ledger === 'credit' && kind === 'referral'){
           document.getElementById('editCustReferralCount').value = '';
         }
@@ -59845,8 +59843,14 @@ function openEditCustomerModal(id){
   const ecNotes = (ecInv && Array.isArray(ecInv.data.creditNotes)) ? ecInv.data.creditNotes : [];
   const ecManual = ecNotes.find(c => c.kind === 'manual')
     || ecNotes.find(c => !c.kind && !/^Referral \u2014 /.test(c.reason || ''));
-  document.getElementById('editCustManualDiscount').value = ecManual ? (Number(ecManual.amount) || '') : '';
-  document.getElementById('editCustDiscountReason').value = ecManual ? (ecManual.reason || '') : '';
+  /* ⭐ THE BOX ADDS, IT NO LONGER HOLDS ONE (2026-10-14, [[MON-83]]). Addie: "Why can't add more
+     then one discount manually". It used to be filled with the one manual line and rebuilt from it
+     on save, so a second discount replaced the first — and a credit added on the Invoices tab
+     (which carries no `kind`) was loaded INTO the box and written back as a second line beside
+     itself, doubling it. The lines are listed below with their own ×; the box starts empty. */
+  void ecManual;
+  document.getElementById('editCustManualDiscount').value = '';
+  document.getElementById('editCustDiscountReason').value = '';
   document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
   /* Only the manual fee is editable here. Automatic light-change fees stay on
      the invoice and are managed from the Invoices tab. */
@@ -62535,8 +62539,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            carryover applied by hand from the Invoices tab — is kept untouched,
            so editing a phone number can't quietly wipe someone's credit. */
         const priorNotes = Array.isArray(inv.data.creditNotes) ? inv.data.creditNotes : [];
+        /* ⭐ MANUAL DISCOUNTS ARE KEPT AND THE BOX APPENDS ([[MON-83]]). Only referrals are still
+           rebuilt here; every manual line already on the bill stays, and comes off with its ×. */
         const keptNotes = priorNotes.filter(function(c){
-          if(c.kind === 'referral' || c.kind === 'manual') return false;
+          if(c.kind === 'referral') return false;
           if(!c.kind && /^Referral \u2014 /.test(c.reason || '')) return false;
           return true;
         });
@@ -62557,6 +62563,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             kind: 'manual',
             date: new Date().toISOString()
           });
+          /* Emptied once it is on the bill, so a second Save cannot add it twice. */
+          document.getElementById('editCustManualDiscount').value = '';
+          document.getElementById('editCustDiscountReason').value = '';
         }
         const rebuiltCredits = rebuiltNotes.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
         invoiceUpdates.creditNotes = rebuiltNotes;

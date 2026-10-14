@@ -452,7 +452,11 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    set-up-fee box used to win over the referral; seven referred quotes had it ticked.
    `quoteChargesSetupFee` asks a current referral link first now, so the box is ignored for
    them and Convert pre-fills the customer's fee box unticked. A retired or invented link
-   still pays. And the nightly invoice run (`looksLikeNewMember` in functions/index.js) never
+   still pays.
+   ⭐ **AS MANY MANUAL DISCOUNTS AS NEEDED** (2026-10-14, [[MON-83]]). Edit Customer's box is
+   **Add a discount**: Save appends a `kind:'manual'` credit line and empties the box; lines
+   already on the bill stay and come off with their ×. Only referral lines are rebuilt on save.
+   And the nightly invoice run (`looksLikeNewMember` in functions/index.js) never
    charges the $30 to a customer carrying `referredByCustomerId`, whatever their fee box says.
 
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
