@@ -7174,6 +7174,13 @@ same write), pushing its 30-day archive a month out. `quoteFirstSentFromHistory`
 earliest send already on the record. Quotes nudged before this have lost that date; archive
 them by hand from the quote card.
 
+⭐ **CARD PAYMENTS STOPPED ON 13 OCTOBER — PAYPAL'S SIDE (2026-10-14).** Read the payment logs
+showed every order before 8:19 AM was captured within minutes, and the nine created after it
+(SuAnne four times) were never approved — no change on our side. The cause is on the PayPal
+account. Every portal payment failure (starting, PayPal refusing, finishing) now raises a Member
+Error, so the office hears first. And the server prints every date in Utah time: the 7 PM run is
+after 6 PM Mountain, so un-zoned dates read as tomorrow ("Issued Oct 13" on an Oct 12 invoice).
+
 ⭐ **TWO SAVES THAT FAILED WHOLE (fixed 2026-10-14).** Send Email on a quote first sent before 13
 October copied a look-alike date into `quoteFirstSentAt` and Firestore refused the write, so the
 send failed; it writes a plain Date now. And the Schedule refused to save at all when a fix had

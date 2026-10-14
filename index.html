@@ -8084,6 +8084,10 @@ function renderPaypalButtons(){
         return result.data.orderID;
       }).catch(function(err){
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong starting the payment — please try again or call/text us at (801) 901-0011.'; }
+        /* ⭐ A FAILED PAYMENT TELLS US, NOT ONLY THE CUSTOMER (2026-10-14). On 13 October card
+           payments stopped for a whole day and the office heard it from SuAnne's email. Every
+           way a payment can fail here now lands in Errors › Member Errors, with who it was. */
+        reportMemberError('Starting a card or PayPal payment', err);
         throw err;
       });
     },
@@ -8127,13 +8131,16 @@ function renderPaypalButtons(){
           var paidMsg = document.getElementById('invPaidMsg');
           if(paidMsg) paidMsg.style.display = 'block';
         }
-      }).catch(function(){
+      }).catch(function(err){
         var errEl = document.getElementById('paypalErrorMsg');
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Payment may not have gone through — please call/text us at (801) 901-0011 to double check before paying again.'; }
+        reportMemberError('Finishing a card or PayPal payment', err);
       });
     },
-    onError: function(){
+    onError: function(err){
       paypalFlowOpen = false;
+      /* PayPal's own refusal — a declined card, or the account itself held — arrives here. */
+      reportMemberError('Paying by card or PayPal', err || {message: 'PayPal reported an error'});
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong with PayPal — please try again or call/text us at (801) 901-0011.'; }
     }
