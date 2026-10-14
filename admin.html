@@ -14202,7 +14202,12 @@ function quoteFirstSentFromHistory(d){
   const prior = [d.quoteSentAt, d.quoteManuallySentAt].filter(function(t){ return t && toJsDate(t); });
   if(!prior.length) return {};
   prior.sort(function(a, b){ return toJsDate(a) - toJsDate(b); });
-  return {quoteFirstSentAt: prior[0]};
+  /* ⛔ A PLAIN DATE, NEVER THE CACHED VALUE ITSELF (fixed 2026-10-14). The cache can hold the
+     look-alike {toDate} the screen mirrors in after a send (quoteSentNowStamp), and Firestore
+     refuses an object carrying a function — so the first Send Email on a quote sent before
+     today failed outright: "Unsupported field value: a function (found in field
+     quoteFirstSentAt.toDate)". A Date is stored as a real Timestamp. */
+  return {quoteFirstSentAt: toJsDate(prior[0])};
 }
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
@@ -25726,7 +25731,9 @@ const FIXED_ERRORS = [
   { match: 'fix photo destroy call failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-12',
     note: 'Admin. Not a fault in the page: billing on the Firebase project was off from 8 to 12 October and Google refused destroyFixPhoto before it ran (its Cloud Run log line for 9 October says so). Billing was restored on the 12th. A row after this date is a different cause and survives. The photo it failed to remove is still in Cloudinary.' },
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
-    note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' }
+    note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' },
+  { match: 'found in field quotefirstsentat.todate', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
