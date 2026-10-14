@@ -48,6 +48,15 @@ function logs(filter, limit) {
       '  statuses ' + JSON.stringify(b.statuses) + '  last call ' + mt(b.last) + (b.lastOk ? ', last OK ' + mt(b.lastOk) : ''));
   });
 
+  /* 1b. Every real (non-preflight) create and capture, in time order — times only. An order
+     created and never captured is somebody who reached PayPal and did not get through it. */
+  console.log('\n--- each PayPal step, oldest first (OPTIONS preflights left out) ---');
+  reqs.filter(e => /paypal(create|capture)order/.test(e.resource.labels.service_name) &&
+    e.httpRequest && e.httpRequest.requestMethod === 'POST')
+    .sort((a, b) => a.timestamp < b.timestamp ? -1 : 1)
+    .forEach(e => console.log('   ' + mt(e.timestamp).padEnd(22) + (e.resource.labels.service_name === 'paypalcreateorder' ? 'order created ' : 'PAYMENT TAKEN ') +
+      ' status ' + e.httpRequest.status + '  ' + (e.httpRequest.latency || '')));
+
   /* 2. Errors written by the functions themselves, newest first, scrubbed. */
   console.log('\n--- error lines from the PayPal functions (newest first) ---');
   const errs = logs(base + ' AND severity>=WARNING AND NOT log_id("run.googleapis.com/requests")', 60);
