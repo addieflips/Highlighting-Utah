@@ -73,5 +73,18 @@ check('a name is escaped', /&lt;b&gt;/.test(api.referralPeopleHtml([{ name: '<b>
 const noComments = admin.replace(/\/\*[\s\S]*?\*\//g, '');
 check('the Discounts box draws the table', /statusLine\.innerHTML\s*=\s*money\.join\(''\)\s*\+\s*\r?\n?\s*referralPeopleHtml\(referralPeopleRows\(d,/.test(noComments));
 
+/* [[REF-46]] — a referred friend never pays the $30, whatever the card's box says. The real
+   quoteChargesSetupFee is run; the holder lookup is given the two answers it can give. */
+{
+  const fn = new Function('referralHolderFor', 'isRequote', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
+    extractFn(admin, 'quoteChargesSetupFee') + '\nreturn quoteChargesSetupFee;')(
+    t => t === 'LIVE' ? { current: true } : (t === 'OLD' ? { current: false } : null),
+    () => false, () => new Set(['x']), () => false);
+  check('a referred quote with the box TICKED is not charged', fn({ referredByToken: 'LIVE', chargeSetupFee: true }) === false);
+  check('a retired link with the box ticked still pays (REF-25)', fn({ referredByToken: 'OLD', chargeSetupFee: true }) === true);
+  check('an invented link with the box ticked still pays', fn({ referredByToken: 'MADEUP', chargeSetupFee: true }) === true);
+  check('an ordinary quote still follows the office\'s tick', fn({ chargeSetupFee: true }) === true && fn({ chargeSetupFee: false }) === false);
+}
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

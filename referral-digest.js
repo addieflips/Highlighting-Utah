@@ -87,5 +87,13 @@ const day = v => { const t = v && v.toDate ? v.toDate() : (v ? new Date(v) : nul
       '[' + day(e.creditedAt) + ' season ' + e.season + (e.revoked ? ' revoked ' + day(e.revokedAt) : '') + (e.waived ? ' waived' : '') +
       (custById[e.referredCustomerId] ? '' : ' friend-record-gone') + ']').join(' '));
   });
+  console.log('\n--- referred friends who are customers: were they charged the $30 set-up fee? ---');
+  custs.filter(c => c.d.referredByCustomerId).forEach(c => {
+    const b = inv[keyOf(c.d)];
+    console.log('  customer #' + (c.d.customerNumber || '?') + ' (referred by ' + nick(c.d.referredByCustomerId) + ')' +
+      '  fee box ' + (c.d.chargeNewMemberFee === true ? 'TICKED' : 'off') +
+      '  bill: ' + (b ? 'fee applied ' + (b.newMemberFeeApplied === true ? 'YES' : 'no') + ', install $' + (Number(b.install) || 0) +
+        ', paid $' + (Number(b.deposit) || 0) + ', status ' + (b.status || '?') + (b.invoiceEmailSent ? ', invoice sent' : '') : 'no invoice'));
+  });
   console.log('\n(this year = ' + year + '; an entry only counts on the bill for the season it is stamped with)');
 })().catch(e => { console.error('referral-digest failed: ' + (e && e.message)); process.exit(1); });
