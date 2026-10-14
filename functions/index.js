@@ -6605,7 +6605,10 @@ async function runInvoiceBatch(triggeredBy) {
         const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
                        : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
         const dueOn = invoiceDueDateServer(issuedOn);
-        const niceDay = function (dt) { return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+        /* ⛔ IN UTAH TIME (2026-10-14). The server runs in UTC, and the 7 PM run is after 6 PM
+           Mountain, so a date formatted without a zone was TOMORROW's: SuAnne's invoice, emailed
+           Oct 12 at 7:36 PM, read "Issued Oct 13". Every date this file prints says the zone. */
+        const niceDay = function (dt) { return dt.toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }); };
         /* The invoice itself, under the wording (EM-27) — the block admin.html's test
            copy draws, from the figures this run just billed. ⚠ BEFORE any code is
            filled in: the placing rule reads the codes. `active` is the list the total
@@ -6636,7 +6639,7 @@ async function runInvoiceBatch(triggeredBy) {
         body = body.split('{{new_member_fee_line}}').join(newMemberLine);
         body = body.split('{{credit_lines}}').join(creditLines);
         body = body.split('{{fee_lines}}').join(feeLines);
-        body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
@@ -7921,7 +7924,7 @@ async function runLateFeeBatch(source, opts) {
         amount: fee,
         kind: LATE_FEE_KIND,
         reason: 'Late fee — invoice unpaid after ' +
-          invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          invoiceDueDateServer(issued).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric', year: 'numeric' }),
         date: new Date().toISOString()
       });
       await docSnap.ref.update({
@@ -7960,7 +7963,7 @@ async function runLateFeeBatch(source, opts) {
       body = body.split('{{amount_due}}').join('$' + newDue.toFixed(2));
       body = body.split('{{amount_paid}}').join('$' + (Number(inv.deposit) || 0).toFixed(2));
       body = body.split('{{due_date}}').join(
-        invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        invoiceDueDateServer(issued).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }));
       body = body.split('{{portal_link}}').join(portalUrl);
       body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
       body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');

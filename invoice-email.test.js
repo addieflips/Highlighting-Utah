@@ -189,5 +189,19 @@ check('the 7 PM run still turns newlines into <br> AFTER the invoice is placed',
 check('the Invoices tab no longer claims the printable invoice is what the email sends',
   adminSrc.indexOf('exactly what the Nightly Invoice Automation sends') === -1);
 
+/* ⛔ THE SERVER PRINTS DATES IN UTAH TIME (2026-10-14). It runs in UTC, the 7 PM run is after
+   6 PM Mountain, and an un-zoned date came out as TOMORROW — SuAnne's invoice, sent Oct 12 at
+   7:36 PM, read "Issued Oct 13". Every toLocaleDateString in functions/index.js names the zone,
+   and the run's own formatter is RUN on that exact moment. */
+{
+  const unzoned = (stripComments(fnsSrc).match(/toLocaleDateString\([^)]*\)/g) || []).filter(x => x.indexOf('timeZone') === -1);
+  check('every date the server prints names the Utah time zone', unzoned.length === 0, unzoned.join(' | '));
+  const m = /const niceDay = (function \(dt\) \{[^\n]*\});/.exec(fnsSrc);
+  const niceDay = m ? new Function('return ' + m[1])() : null;
+  check('an invoice sent at 7:36 PM on Oct 12 (01:36 UTC Oct 13) is dated Oct 12',
+    !!niceDay && niceDay(new Date('2026-10-13T01:36:00Z')) === 'Oct 12, 2026',
+    niceDay ? niceDay(new Date('2026-10-13T01:36:00Z')) : 'niceDay not found');
+}
+
 console.log('\ninvoice-email: ' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

@@ -194,6 +194,19 @@ const FOLDER_OF = extractFn(admin, 'messageFolderOf');
 const MEMBER_BLOCK = between(index, "var MEMBER_ERROR_TOPIC = 'Member Error';",
   'function setQuoteConfirmSub(', 'the member reporter');
 
+/* ⭐ A FAILED PAYMENT REPORTS ITSELF (2026-10-14). Card payments stopped for a day on 13 October
+   and the office heard it from a customer's email. All three ways a payment can fail on the
+   portal — starting the order, PayPal refusing, finishing it — now raise a Member Error. */
+{
+  const pp = (function(){ const i = index.indexOf('var ppConfig = {'); const j = index.indexOf('var ppBtn = window.paypal.Buttons', i); return i > -1 && j > i ? index.slice(i, j) : ''; })();
+  check('the payment flow was found', pp.length > 500);
+  ['Starting a card or PayPal payment', 'Finishing a card or PayPal payment', 'Paying by card or PayPal'].forEach(function(doing){
+    check('a payment failure reports itself: "' + doing + '"', pp.indexOf("reportMemberError('" + doing + "'") !== -1);
+  });
+  check('and the PayPal refusal always carries a reason, never a bare string',
+    /reportMemberError\('Paying by card or PayPal', err \|\| \{message:/.test(pp));
+}
+
 check('every piece this file runs was found',
   !!ERROR_CONSTS && !!ADMIN_BLOCK && !!SEED_FN && !!HOME_MAP && !!FOLDER_OF && !!MEMBER_BLOCK,
   'renamed or moved? repoint the lift — do NOT paste a copy in here, or this file starts ' +
