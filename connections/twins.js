@@ -79,6 +79,8 @@ const TWINS = [
   /* --- different names, one rule. The census cannot find these by name, so they are
      listed by hand and the gate only checks both still exist. --- */
   T('quoteFirstSentDays', 'quoteFirstSentMs', null, 'when a quote first went out — the clock for the Send text list and the 30-day archive ([[QT-52]])',
+    { byHand: true }),
+  T('invoiceWasSent', 'invoiceWasSentServer', 'invoice-not-sent.test.js', 'whether a bill ever reached them — the office\'s not-sent list and the April late fee ([[EM-33]])',
     { byHand: true })
 ];
 

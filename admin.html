@@ -3590,6 +3590,7 @@
                 <label><input type="checkbox" id="invFilterPartial"> Partial Payment</label>
                 <label><input type="checkbox" id="invFilterPaid"> Paid in Full</label>
                 <label><input type="checkbox" id="invFilterOverdue"> Overdue (30+ days unpaid)</label>
+                <label><input type="checkbox" id="invFilterNotSent"> Invoice not sent (billed, never reached them)</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyInvFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -11446,6 +11447,13 @@ function lateFeeRenderReport(res, wasDry){
       ? '<div style="margin-top:6px; max-height:180px; overflow:auto; color:var(--slate);">'+
           res.names.map(function(s){ return esc(s); }).join('<br>')+
           (n > res.names.length ? '<br><em>&hellip; and '+(n - res.names.length)+' more</em>' : '')+'</div>'
+      : '')+
+    /* EM-33: never sent, never fined — and NAMED, because a count tells her somebody's
+       invoice is missing and not whose. */
+    ((res.notSent && res.notSent.length)
+      ? '<div style="margin-top:8px; color:var(--ember);"><strong>'+res.notSent.length+' not charged because their invoice was never sent:</strong><br>'+
+          res.notSent.map(function(s){ return esc(s); }).join('<br>')+
+          '<br><span style="color:var(--slate);">Send it, or give it to them by hand and tick the box on the Invoice List.</span></div>'
       : '')+
     ((res.errors && res.errors.length)
       ? '<div style="margin-top:8px; color:var(--ember);"><strong>'+res.errors.length+' problem'+(res.errors.length===1?'':'s')+':</strong><br>'+
@@ -28819,7 +28827,7 @@ let allInvoicesCache = [];
 // invoice doc id (phone digits, or lowercase email) -> the cached entry.
 // Rebuilt with allInvoicesCache in loadInvoices; read by allCustInvoiceFor.
 let invoiceById = new Map();
-let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false };
+let activeInvFilters = { unpaid:false, partial:false, paid:false, overdue:false, notsent:false };
 let invoiceSearchTerm = '';
 /* ⭐ OVERDUE MEANS PAST THE DATE ON THEIR INVOICE (changed 2026-09-11).
    Payment ran 30 days from the invoice date until Addie moved the terms to a
@@ -29658,9 +29666,13 @@ async function resendMissingReceipts(){
 function renderInvStatusStrip(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
-  const tally = { 'Paid in Full':{n:0,money:0}, 'Partial Payment':{n:0,money:0}, 'Unpaid':{n:0,money:0} };
+  const tally = { 'Paid in Full':{n:0,money:0}, 'Partial Payment':{n:0,money:0}, 'Unpaid':{n:0,money:0}, 'Not sent':{n:0,money:0} };
   allInvoicesCache.forEach(function(item){
     const d = item.data;
+    if(invoiceNotSentReason(item)){
+      tally['Not sent'].n++;
+      tally['Not sent'].money += Math.max(0, (Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0) - (Number(d.credits)||0) - (Number(d.deposit)||0));
+    }
     const st = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
     if(!tally[st]) return;
     tally[st].n++;
@@ -29670,8 +29682,11 @@ function renderInvStatusStrip(){
   const cards = [
     { key:'paid',    st:'Paid in Full',    label:'Paid in Full', sub:'collected',  ink:'#2E6B3E', bg:'#E6F2EA' },
     { key:'partial', st:'Partial Payment', label:'Partial',      sub:'still owed', ink:'#8A6D1F', bg:'#FFF8E9' },
-    { key:'unpaid',  st:'Unpaid',          label:'Not Paid',     sub:'still owed', ink:'#E0574B', bg:'#FDECEA' }
-  ];
+    { key:'unpaid',  st:'Unpaid',          label:'Not Paid',     sub:'still owed', ink:'#E0574B', bg:'#FDECEA' },
+    /* EM-33: billed and never sent. Shown only when there is one, so a clean season keeps
+       the three cards it always had. */
+    { key:'notsent', st:'Not sent',        label:'Invoice Not Sent', sub:'on bills nobody has had', ink:'#B23A2E', bg:'#FBE3DF' }
+  ].filter(function(c){ return c.key !== 'notsent' || tally['Not sent'].n > 0 || activeInvFilters.notsent; });
   wrap.innerHTML = cards.map(function(c){
     const t = tally[c.st];
     const on = !!activeInvFilters[c.key];
@@ -29686,6 +29701,7 @@ function renderInvStatusStrip(){
       const key = btn.dataset.invstrip;
       const wasOn = !!activeInvFilters[key];
       activeInvFilters.unpaid = false; activeInvFilters.partial = false; activeInvFilters.paid = false;
+      activeInvFilters.notsent = false;
       if(!wasOn) activeInvFilters[key] = true;
       syncInvFilterControls();
       renderInvoicesList();
@@ -29695,7 +29711,7 @@ function renderInvStatusStrip(){
 /* Push whatever the strip just did back into the Filter dropdown and its
    summary line, so the two controls always read the same. */
 function syncInvFilterControls(){
-  const boxes = { unpaid:'invFilterUnpaid', partial:'invFilterPartial', paid:'invFilterPaid', overdue:'invFilterOverdue' };
+  const boxes = { unpaid:'invFilterUnpaid', partial:'invFilterPartial', paid:'invFilterPaid', overdue:'invFilterOverdue', notsent:'invFilterNotSent' };
   Object.keys(boxes).forEach(function(k){
     const el = document.getElementById(boxes[k]);
     if(el) el.checked = !!activeInvFilters[k];
@@ -29705,6 +29721,7 @@ function syncInvFilterControls(){
   if(activeInvFilters.partial) parts.push('Partial Payment');
   if(activeInvFilters.paid) parts.push('Paid in Full');
   if(activeInvFilters.overdue) parts.push('Overdue');
+  if(activeInvFilters.notsent) parts.push('Invoice not sent');
   const sum = document.getElementById('invFilterSummary');
   if(sum) sum.textContent = parts.length ? '(Filtered: '+parts.join(', ')+')' : '';
 }
@@ -29719,6 +29736,31 @@ function syncInvFilterControls(){
    trigger the email anyway.
    ⛔ IT STOPS THE EMAIL, NEVER THE BILLING. The run still raises the invoice and adds
    any fee; see the matching branch in runInvoiceBatch (functions/index.js). */
+/* ⭐ WHOSE INVOICE DID NOT GO OUT ([[EM-33]], 2026-10-13). Addie: "if invoice was never sent
+   than they should not get a fee however we need something to tell us whos invoice did not
+   get sent." The April late fee refuses a bill nobody sent (invoiceWasSentServer in
+   functions/index.js — the twin of this), and this is the half that tells the office.
+   ⚠ SENT IS ON THE HOUSES, NEVER `invoicedAt`: the 7 PM run stamps that when it works the
+   bill out, above the send, so a failed or impossible email still carries it.
+   ⚠ NOT SENT MEANS BILLED AND NOT SENT. A bill the run has not reached yet (no invoicedAt) is
+   not late with anything; listing it would bury the real ones under every house still to be
+   hung. */
+function invoiceWasSent(invoiceKey){
+  return billedHousesFor(invoiceKey).some(function(h){
+    const d = h.data || {};
+    return d.invoiceEmailSent === true || d.invoiceSentByHand === true;
+  });
+}
+function invoiceNotSentReason(item){
+  const d = (item && item.data) || {};
+  if(!d.invoicedAt) return '';
+  const houses = billedHousesFor(item.id);
+  if(!houses.length || invoiceWasSent(item.id)) return '';
+  const noEmail = !String(d.email || '').trim() && !houses.some(function(h){ return String((h.data || {}).email || '').trim(); });
+  return noEmail || houses.some(function(h){ return (h.data || {}).cannotBillNoEmail === true; })
+    ? 'no email address on file — give it to them by hand and tick Invoice given by hand'
+    : 'the email did not go out — resend it, or give it to them by hand and tick the box';
+}
 function invoiceHandState(invoiceKey){
   const houses = billedHousesFor(invoiceKey);
   const hand = houses.find(function(h){ return h.data && h.data.invoiceSentByHand === true; });
@@ -29735,9 +29777,11 @@ function invoiceByHandRowHtml(invoiceKey){
   /* No customer behind this invoice (an archived one): there is nothing the 7 PM run
      could email, so a tick would record nothing. Say nothing rather than offer it. */
   if(!st.houses.length) return '';
+  const notSent = invoiceNotSentReason(allInvoicesCache.find(function(i){ return i.id === invoiceKey; }));
   const note = st.byHand
     ? ('Marked as given by hand' + (st.byHandAt ? ' ' + niceDate(st.byHandAt) : '') + ' — the 7 PM run will not email it')
-    : (st.emailedAt ? ('Emailed by the 7 PM run ' + niceDate(st.emailedAt)) : 'Not sent yet');
+    : (st.emailedAt ? ('Emailed by the 7 PM run ' + niceDate(st.emailedAt))
+       : (notSent ? ('\u26a0 Invoice NOT sent \u2014 ' + notSent) : 'Not sent yet'));
   return '<div class="rtext" style="margin-top:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'+
     '<label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:600;">'+
       '<input type="checkbox" data-invbyhand="'+esc(invoiceKey)+'"'+(st.byHand ? ' checked' : '')+' style="width:auto;">'+
@@ -29812,6 +29856,7 @@ function renderInvoicesList(){
   if(activeInvFilters.partial) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Partial Payment');
   if(activeInvFilters.unpaid) filtered = filtered.filter(item => computeInvoiceStatus(item.data.install, item.data.removal, item.data.deposit, item.data.credits, item.data.changeFees) === 'Unpaid');
   if(activeInvFilters.overdue) filtered = filtered.filter(item => isInvoiceOverdue(item.data));
+  if(activeInvFilters.notsent) filtered = filtered.filter(item => !!invoiceNotSentReason(item));
   if(!filtered.length){ list.innerHTML = '<div class="empty-note">No invoices match this view.</div>'; return; }
   let html = '';
   filtered.forEach(function(item){
@@ -30271,13 +30316,15 @@ document.getElementById('applyInvFilterBtn').addEventListener('click', function(
     unpaid: document.getElementById('invFilterUnpaid').checked,
     partial: document.getElementById('invFilterPartial').checked,
     paid: document.getElementById('invFilterPaid').checked,
-    overdue: document.getElementById('invFilterOverdue').checked
+    overdue: document.getElementById('invFilterOverdue').checked,
+    notsent: document.getElementById('invFilterNotSent').checked
   };
   const parts = [];
   if(activeInvFilters.unpaid) parts.push('Unpaid');
   if(activeInvFilters.partial) parts.push('Partial Payment');
   if(activeInvFilters.paid) parts.push('Paid in Full');
   if(activeInvFilters.overdue) parts.push('Overdue');
+  if(activeInvFilters.notsent) parts.push('Invoice not sent');
   document.getElementById('invFilterSummary').textContent = parts.length ? '(Filtered: '+parts.join(', ')+')' : '';
   document.getElementById('invFilterDropdown').classList.remove('open');
   renderInvoicesList();

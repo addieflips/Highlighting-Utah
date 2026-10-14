@@ -36,7 +36,9 @@ function between(src, from, to) {
 /* ---- The office half, RUN. The three functions are lifted as one slice; what they
    stand on (the bill's houses, Firestore, the toast) is faked, because the claim here
    is what THESE functions write and draw, not how a bill's houses are found. ---- */
-const lifted = between(adminSrc, 'function invoiceHandState(invoiceKey){', '\nfunction renderInvoicesList(){');
+/* ⚠ FROM invoiceWasSent ([[EM-33]]): the row now also says when a billed invoice never went out,
+   and that rule sits just above. Lifted with it, never stubbed. */
+const lifted = between(adminSrc, 'function invoiceWasSent(invoiceKey){', '\nfunction renderInvoicesList(){');
 check('the by-hand functions were found', lifted.length > 500);
 
 function sandbox(houses, opts) {
@@ -46,6 +48,7 @@ function sandbox(houses, opts) {
   const jobAddresses = houses.map(h => ({ id: h.id, data: Object.assign({}, h.data) }));
   const env = {
     billedHousesFor: () => (opts.noHouses ? [] : houses),
+    allInvoicesCache: opts.invoices || [],
     toJsDate: v => (v instanceof Date ? v : (v && v.toDate ? v.toDate() : null)),
     niceDate: d => 'D' + d.getDate(),
     esc: s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),

@@ -7835,12 +7835,48 @@ async function runRsvpDailyBatch(source) {
  * roll into the following February (see js/money.js) has its own later April,
  * and a calendar check would charge it eleven months early.
  * ------------------------------------------------------------------------- */
+/* ⛔ NO LATE FEE ON A BILL NOBODY SENT THEM ([[EM-33]], 2026-10-13). Addie: "if invoice was
+ * never sent than they should not get a fee however we need something to tell us whos
+ * invoice did not get sent."
+ * ⚠ `invoicedAt` CANNOT ANSWER IT. The 7 PM run stamps it when the bill is WORKED OUT, above
+ * the send — so a bill whose email failed (the EmailJS block, 9 Sep to 12 Oct 2026), or that
+ * went to somebody with no email address, carries an invoicedAt and was never sent. What
+ * records a real send is on the HOUSES: `invoiceEmailSent`, set by the run after a send that
+ * worked and on a by-hand bill, and `invoiceSentByHand`, the office's own tick ([[EM-28]]).
+ * Start New Season clears both, in step with the invoice it resets.
+ * ⚠ ANY HOUSE ON THE BILL — the same question the run itself asks, because one email goes to
+ * the payer for the whole bill. The houses are the bill's own `billedHouseIds` where it has
+ * them, else every house filed under the invoice's key (bill-to first, then their own).
+ * ⚠ ITS OWN FUNCTION, AND THE OFFICE'S `invoiceWasSent` IS ITS TWIN, so the list of who was
+ * not sent and the houses the April run refuses to fine are the same people. */
+function invoiceWasSentServer(houses) {
+  return (Array.isArray(houses) ? houses : []).some(function (h) {
+    return !!h && (h.invoiceEmailSent === true || h.invoiceSentByHand === true);
+  });
+}
+function invoiceHousesServer(inv, key, book) {
+  const ids = (inv && Array.isArray(inv.billedHouseIds)) ? inv.billedHouseIds : [];
+  if (ids.length) return ids.map(function (id) { return book.byId[id]; }).filter(Boolean);
+  return (book.byKey[key] || []).slice();
+}
+function invoiceBookServer(docs) {
+  const book = { byId: {}, byKey: {} };
+  (docs || []).forEach(function (d) {
+    const data = d.data() || {};
+    book.byId[d.id] = data;
+    const key = digitsOnly(data.billToPhone) || invoiceKeyFor(data);
+    if (!key) return;
+    (book.byKey[key] = book.byKey[key] || []).push(data);
+  });
+  return book;
+}
+
 async function runLateFeeBatch(source, opts) {
   const o = opts || {};
   const dryRun = o.dryRun === true;
   const nowMs = Number(o.nowMs) || Date.now();
   const out = { charged: 0, wouldCharge: 0, skipped: 0, amount: 0, errors: [],
-                names: [], source: source, dryRun: dryRun, stopped: '' };
+                names: [], notSent: [], source: source, dryRun: dryRun, stopped: '' };
 
   const cfgSnap = await db.collection('settings').doc('emailjs').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -7865,6 +7901,8 @@ async function runLateFeeBatch(source, opts) {
   const subject = templateSubjectOr(tplData, 'Your Highlighting Utah invoice is past due');
 
   const snap = await db.collection('invoices').get();
+  /* The whole book once, so "was this bill ever sent?" is one lookup per invoice. */
+  const book = invoiceBookServer((await db.collection('jobAddresses').get()).docs);
   for (const docSnap of snap.docs) {
     const inv = docSnap.data() || {};
 
@@ -7903,6 +7941,15 @@ async function runLateFeeBatch(source, opts) {
        owner a late fee on a debt she does not have. */
     if (inv.isTestRecord === true) { out.skipped++; continue; }
     if (digitsOnly(inv.phone) === '3853912235' && String(inv.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
+
+    /* ⛔ NEVER SENT, NEVER FINED ([[EM-33]]). Last of the refusals, so a bill that owes
+       nothing or is already charged is not reported here as one that was missed — this list
+       is only the people who WOULD have been fined, which is who the office must chase. */
+    if (!invoiceWasSentServer(invoiceHousesServer(inv, docSnap.id, book))) {
+      out.skipped++;
+      if (out.notSent.length < 60) out.notSent.push(inv.name || docSnap.id);
+      continue;
+    }
 
     const fee = lateFeeAmountServer(inv);
     const newDue = owedNow + fee;

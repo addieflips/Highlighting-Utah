@@ -7161,6 +7161,12 @@ manifest, named one by one), test-record tools (`quiet`, each with its reason, r
 ever stops matching), and a name between the halves of a ternary. `connections.test.js` plants
 each from the other side so none can widen into a blanket excuse.
 
+⭐ **NO LATE FEE ON A BILL NOBODY SENT, AND WHO THEY ARE ([[EM-33]], 2026-10-13).** The 1 April
+run skips any bill no house on it was emailed or handed (`invoiceWasSentServer`) and names them in
+its report. **Invoices › Invoice List** gains an **Invoice Not Sent** card and filter, and each
+such row reads "Invoice NOT sent" with the reason (no email, or the email did not go out).
+`invoicedAt` does not mean sent — the run stamps it before the send.
+
 ⭐ **THE NOT PAID RSVP ASKS THE SHARED RULE (2026-10-13).** Found reading the amber on
 `rsvpStatus`: `runArrearsRsvpBatch` (the Not Paid RSVP, its switch off but its Run now button
 live) decided "have they answered?" with `if (rsvpStatus)`, so everybody on Unanswered was
