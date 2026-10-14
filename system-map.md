@@ -448,6 +448,12 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    **Pending $25** / held / crossed off / taken back / refused. A pending row is a quote
    from their link still waiting on Convert — the $25 lands when it is converted.
 
+   ⛔ **AND A REFERRED FRIEND NEVER PAYS THE $30** (2026-10-14, [[REF-46]]). The quote card's
+   set-up-fee box used to win over the referral; seven referred quotes had it ticked.
+   `quoteChargesSetupFee` asks a current referral link first now, so the box is ignored for
+   them and Convert pre-fills the customer's fee box unticked. A retired or invented link
+   still pays.
+
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
    RS-47). Addie approved a Test customer through the emailed link and the badge stayed
    **On hold**, with *"Not scheduled — no RSVP yet"* under it.
