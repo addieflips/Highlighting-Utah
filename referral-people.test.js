@@ -86,5 +86,17 @@ check('the Discounts box draws the table', /statusLine\.innerHTML\s*=\s*money\.j
   check('an ordinary quote still follows the office\'s tick', fn({ chargeSetupFee: true }) === true && fn({ chargeSetupFee: false }) === false);
 }
 
+{
+  const fns = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+  const at = fns.indexOf('function looksLikeNewMember(cust)');
+  const body = at > 0 ? fns.slice(at, fns.indexOf('\n    }', at) + 6) : '';
+  const looks = body ? new Function(body + '\nreturn looksLikeNewMember;')() : null;
+  check('the nightly run found its new-member rule', !!looks);
+  check('the nightly run never charges the $30 to a referred customer, box ticked or not',
+    looks && looks({ chargeNewMemberFee: true, referredByCustomerId: 'r1' }) === false);
+  check('and still charges an ordinary new member whose box is ticked',
+    looks && looks({ chargeNewMemberFee: true }) === true && looks({}) === false);
+}
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

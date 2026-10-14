@@ -452,7 +452,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    set-up-fee box used to win over the referral; seven referred quotes had it ticked.
    `quoteChargesSetupFee` asks a current referral link first now, so the box is ignored for
    them and Convert pre-fills the customer's fee box unticked. A retired or invented link
-   still pays.
+   still pays. And the nightly invoice run (`looksLikeNewMember` in functions/index.js) never
+   charges the $30 to a customer carrying `referredByCustomerId`, whatever their fee box says.
 
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
    RS-47). Addie approved a Test customer through the emailed link and the badge stayed
