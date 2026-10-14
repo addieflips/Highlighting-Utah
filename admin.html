@@ -25860,7 +25860,13 @@ const FIXED_ERRORS = [
   { match: 'issue is undefined function setdoc()', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
     note: 'Admin. A fix with no issue typed left `issue: undefined` on the plan, and Firestore refused the whole Schedule save (days[n].houses[n] and fixList[n] alike). planDropUndefined strips undefined before the save (merged the evening of 13 October) and fixes default the issue to blank (14 October). Both reports are from the 13th. A row after this date survives.' },
   { match: 'fix placement failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
-    note: 'Admin. A second entry for this fault, and the reason is not a second repair: fixes stopped being placed on Schedule days altogether on 14 October ([[FIX-09]]) — the placement this error came from no longer runs. The 9 October entry above stays, because its own row came back the same day and that was news. A row after this date means something still places fixes, and survives.' }
+    note: 'Admin. A second entry for this fault, and the reason is not a second repair: fixes stopped being placed on Schedule days altogether on 14 October ([[FIX-09]]) — the placement this error came from no longer runs. The 9 October entry above stays, because its own row came back the same day and that was news. A row after this date means something still places fixes, and survives.' },
+  { match: 'setmap: not an instance of map', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. After Google refused the map key, Maps was loaded a second time with the spare key; the Routes map, the overview map and the address previews kept the map made by the first copy, and a marker put on it threw. mapsInstanceIsCurrent rebuilds any map from the discarded copy. A row after this date survives.' },
+  { match: '[hu] no normals for', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. Not a fault: one year of weather history failed to download on a weak connection and was skipped, exactly as designed. It is a console warning now rather than an Admin Error, so nothing new can arrive under this wording; a row after this date means something else logs it as an error.' },
+  { match: 'snapshot listener failed: an internal error', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-12',
+    note: 'Admin. Not a fault in the page: billing on the Firebase project was off from 8 to 12 October and Google refused live updates. Billing was restored on the 12th. A row after this date is a different cause and survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -31101,6 +31107,13 @@ function rmPaneBusy(which, msg){
    something Google supports, and it is only defensible here because there is
    nothing left to break. It is attempted ONCE. */
 let rmMapsKeyRetried = false;
+/* Was this map made by the copy of Google Maps loaded NOW? A null map answers true (there is
+   nothing to rebuild). After rmTryOtherMapsKey a map from the first copy answers false. */
+function mapsInstanceIsCurrent(m){
+  if(!m) return true;
+  try{ return !!(window.google && google.maps && google.maps.Map && m instanceof google.maps.Map); }
+  catch(err){ return false; /* a broken check rebuilds the map, which is the safe direction */ }
+}
 const MAPS_KEY_SPARE = 'AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
 function rmTryOtherMapsKey(){
   if(rmMapsKeyRetried) return false;
@@ -41112,6 +41125,9 @@ function showMapPreview(containerId, lat, lng, label){
     return;
   }
   if(box.querySelector('.map-preview-placeholder')) box.innerHTML = '';
+  if(mapPreviewInstances[containerId] && !mapsInstanceIsCurrent(mapPreviewInstances[containerId].map)){
+    mapPreviewInstances[containerId] = null;
+  }
   if(!mapPreviewInstances[containerId]){
     mapPreviewInstances[containerId] = {
       map: new google.maps.Map(box, {zoom:15, center:{lat:lat,lng:lng}}),
@@ -51690,6 +51706,7 @@ function renderOverviewMap(){
   if(!withCoords.length){ mapDiv.innerHTML = '<div class="empty-note" style="padding-top:160px;">No addresses match this view.</div>'; overviewMapInstance = null; return; }
   if(mapDiv.querySelector('.empty-note')) mapDiv.innerHTML = '';
   const bounds = new google.maps.LatLngBounds();
+  if(!mapsInstanceIsCurrent(overviewMapInstance)) overviewMapInstance = null;
   if(!overviewMapInstance){
     overviewMapInstance = new google.maps.Map(mapDiv, {zoom:11, center:{lat:withCoords[0].data.lat, lng:withCoords[0].data.lng}});
   }
@@ -64563,8 +64580,11 @@ function loadSeasonNormals(force){
         });
         got++;
       })["catch"](function(err){
-        /* Named in the console and then stepped over — see the note above. */
-        console.error("[HU] no normals for " + y, err);
+        /* Named in the console and then stepped over — see the note above. ⚠ A WARNING, NOT AN
+           ERROR (2026-10-14): one archive year failing on a weak connection ("Load failed", Safari,
+           13 October) was filed in Admin Errors, where nobody can act on it — the year is simply
+           left out of the average and the forecast still works. */
+        console.warn("[HU] no normals for " + y, err);
       });
     });
   }, Promise.resolve()).then(function(){
@@ -68334,6 +68354,11 @@ let routeMapPolyline = null;
 function renderRouteMap(ordered, startPoint){
   const mapDiv = document.getElementById('routeMap');
   const bounds = new google.maps.LatLngBounds();
+  /* ⭐ A MAP FROM THE LIBRARY THAT WAS THROWN AWAY IS BUILT AGAIN (2026-10-14). When Google refuses
+     the key, rmTryOtherMapsKey loads Maps a second time; a map made by the first copy is not an
+     instance of the second copy's Map, and putting a marker on it threw "setMap: not an instance
+     of Map" (Admin Errors, Routes, twice on 13 October). */
+  if(!mapsInstanceIsCurrent(routeMapInstance)){ routeMapInstance = null; routeMapMarkers = []; routeMapPolyline = null; }
   const isFirstRender = !routeMapInstance;
   if(isFirstRender){
     routeMapInstance = new google.maps.Map(mapDiv, {zoom:12, center:{lat:ordered[0].lat, lng:ordered[0].lng}});
@@ -77676,6 +77701,7 @@ function dayMapPaneAt(wrap, i){
   return pane;
 }
 function dayMapDraw(pane, route, home){
+  if(!mapsInstanceIsCurrent(pane.map)){ pane.map = null; pane.markers = []; pane.line = null; }
   if(!pane.map){
     pane.map = new google.maps.Map(pane.canvas, {
       zoom: 12, center: {lat: route.stops[0].lat, lng: route.stops[0].lng},
