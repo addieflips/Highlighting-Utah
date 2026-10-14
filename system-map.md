@@ -57,6 +57,8 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 8. **Crew installs** — the crew works Today's Route in the Crew Portal and marks each stop Done (or Flag Issue / Didn't Get To).
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
+    ⭐ **A card that keeps failing is said out loud** (2026-10-14). A card PayPal declines is answered inside PayPal's own card form and never reaches our server, so on 13 October a customer tried four times and the office heard about it from her email. The portal now counts payments started this visit without one going through (`paypalNoteRetry` in index.html): the second start tells them Venmo is there, the third files a Member Error naming them. One unfinished try says nothing, because about half of all orders are started and abandoned on an ordinary day. ⚠ PayPal was not down: card payments went through at 10:52 PM on the 13th and 7:54 AM on the 14th.
+    ⭐ **And an admin error carries its line** (2026-10-14). `console.error` with an Error now appends the first `admin.html:NNN` frame, the same rule unhandled promises already used, because "[HU] recalculate failed … getFullYear" reached Admin Errors with nothing saying where.
 11. **RSVP "no"** — records the answer and takes them off any upcoming route. **It does NOT touch their lights** (changed 2026-09-03, RS-51). Dax: *"when they click no they move to maybe next year and only go to archive if they actually go through the process of canceling their lights in member portal."* `seasonBadgeKey` already reads a bare `no` as **Maybe Next Year**, so that is what the office sees.
 
     ⛔ **`needsLightRecycle` now has exactly one door: `portalSave`'s `cancel` section** — the Cancel tab a No lands them on (RS-33), where they press *Cancel My Lights*. That is the step which takes the bundle apart and returns the customer number to the pool, and it used to fire off a single tap in an email with no confirmation anywhere in front of it. A misread email cost a rebuild.
@@ -439,6 +441,12 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    ⚠ **A referral credit is derived, not stored**, which is why it survives: it is a
    `kind:'referral'` line rebuilt on the referrer's invoice, and when there is no invoice
    yet the count stays on the customer and the next save writes it.
+
+   ⭐ **WHO THEY REFERRED, AS A LIST** (2026-10-14, [[REF-45]]). Under Discounts in Edit
+   Customer, `referralPeopleHtml` draws one row per friend from `referralPeopleRows`: name,
+   the day they used the link, whether they are a customer yet, and **$25 off** /
+   **Pending $25** / held / crossed off / taken back / refused. A pending row is a quote
+   from their link still waiting on Convert — the $25 lands when it is converted.
 
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
    RS-47). Addie approved a Test customer through the emailed link and the badge stayed
