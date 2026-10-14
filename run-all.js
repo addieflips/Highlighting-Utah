@@ -57376,9 +57376,11 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
         sv.f({ referredByToken: 'undated1' }) === false,
         'every link minted before the stamp existed is unstamped; reading those as ' +
         'expired would charge the $30 to friends told in writing they would not pay it');
-      check('S312', 'the office can still tick the fee ON for a referred quote',
-        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === true,
-        'the office\'s own answer wins in BOTH directions, same as every other case here');
+      /* ⛔ REVERSED 2026-10-14 ([[REF-46]]): this asserted the office could tick the fee back ON for
+         a referred quote. Addie: "No one that was refered should have a 30 dollar set up fee." */
+      check('S312', 'a tick on the card does NOT charge a friend on a current referral link',
+        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === false,
+        'seven referred quotes carried a tick on 14 October and would have been charged');
       check('S312', 'and OFF for one the rule would have charged',
         sv.f({ referredByToken: 'stale1', chargeSetupFee: false }) === false);
       check('S312', 'the office can still tick the fee OFF for an ordinary quote',
