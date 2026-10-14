@@ -79545,6 +79545,10 @@ function rebuildSeasonDays(){
   /* moving strays can leave a short day that now has a run within five miles — fold it in, and check the crews again */
   try{ if(typeof mergeShortOpenDays === 'function'){ const m2 = mergeShortOpenDays(); if(m2 && m2.merged && m2.merged.length){ shortMerged.merged = shortMerged.merged.concat(m2.merged); const f2 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f2.moved); fiveMile.tail = fiveMile.tail.concat(f2.tail); fiveMile.keptOutlier = f2.keptOutlier; } } }
   catch(err){ console.error('Could not fold the short days in after the five-mile pass:', err); }
+  /* [[SCH-133]] the five-mile pass can open a day for a lone dated house and its neighbours; a priority customer near it
+     is offered that earlier day now rather than on the next press, so one press settles */
+  try{ if(typeof advancePriorityHouses === 'function'){ const p2 = advancePriorityHouses(); if(p2 && p2.moved) prio.moved = prio.moved.concat(p2.moved); } }
+  catch(err){ console.error('Could not place the priority customers after the five-mile pass:', err); }
   /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
      Addie: "if anyone has a confirmed tag they should be scheduled somehow no
      exceptions." Asked here rather than only on the button, because this is the moment
@@ -80677,20 +80681,44 @@ function enforceFiveMileOnce(){
       if(!best) break;
       group.push(best.h);
     }
-    if(group.length < 2) { res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
+    /* alone with nobody within five miles: no existing day can take it (the stray step already asked them all), but a day of
+       its own can — a one-man day, which is where [[SCH-69]] puts a real outlier */
     /* the earliest open day before the last day where every house in the group may go and every crew keeps its five miles */
     const fromOf = new Map();
     group.forEach(function(h){ const p = pool.filter(function(c){ return c.h === h; })[0]; fromOf.set(h, h === o ? k.from : (p && p.d)); });
     const lift = function(){ group.forEach(function(h){ const d = fromOf.get(h); const i = d ? d.houses.indexOf(h) : -1; if(i !== -1) d.houses.splice(i, 1); }); };
     const putBack = function(){ group.forEach(function(h){ const d = fromOf.get(h); if(d && d.houses.indexOf(h) === -1) d.houses.push(h); }); };
     lift();
-    const target = byDate().find(function(d){
+    let target = group.length < 2 ? null : byDate().find(function(d){
       const ds = dsOf(d);
       if(until && ds > until) return false;
       if(d.houses.filter(live).length + group.length > capFor(ds)) return false;
       if(!group.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) return false;
       return dayHoldsWithHouses(d, group);
     });
+    /* ⭐ AND A DAY OF ITS OWN WHEN NO DAY IN FRONT OF THE LAST ONE CAN TAKE THEM (2026-10-14). The live plan had nothing on 21-30
+       October, so a late October house had no day to be grouped onto and stayed on a crew twelve miles off. The earliest empty
+       working date before its last day, outside the lock, is opened for the group. */
+    if(!target && until){
+      const taken = new Set(SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown; }).map(dsOf));
+      const t0 = new Date(today.slice(0, 4) * 1, today.slice(5, 7) * 1 - 1, today.slice(8, 10) * 1);
+      for(let step = 1; step <= 120 && !target; step++){
+        const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + step);
+        const ds = isoOf(dt);
+        if(ds > until) break;
+        if(taken.has(ds) || tailSet.has(ds)) continue;
+        if(typeof isWorkingDay === 'function' && !isWorkingDay(dt)) continue;
+        if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
+        if(!group.every(function(h){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) continue;
+        /* ⚠ only if no other day moves: the calendar packs days in order, and a new one can push the rest along */
+        const before = new Map(SEASON.map(function(d){ return [d, dsOf(d)]; }));
+        const nd = tailDay(ds);
+        if(!nd) continue;
+        const shifted = SEASON.some(function(d){ return d !== nd && before.has(d) && before.get(d) !== dsOf(d); });
+        if(shifted || nd.houses.length){ if(!nd.houses.length){ SEASON.splice(SEASON.indexOf(nd), 1); computeDates(); } continue; }
+        target = nd;
+      }
+    }
     if(!target){ putBack(); res.keptOutlier.push({name: o.name || '(no name)', day: dsOf(k.from), until: until}); return; }
     group.forEach(function(h){
       target.houses.push(h); used.add(h);
