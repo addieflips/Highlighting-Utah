@@ -49183,7 +49183,10 @@ if (!JSDOM) {
        through a change to who gets $25 — the one thing it exists to protect. */
     'referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
-    'referralShareLinkFromToken'];
+    'referralShareLinkFromToken',
+    /* ⚠ AND THE WHO-THEY-REFERRED TABLE ([[REF-45]]), drawn in the same Discounts box. Lifted,
+       never stubbed, for the reason every name above gives. */
+    'referralPeopleRows', 'referralPeopleHtml', 'toJsDate'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,

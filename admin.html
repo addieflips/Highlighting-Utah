@@ -1572,7 +1572,11 @@
   console.error = function(){
     try {
       var parts = Array.prototype.map.call(arguments, function(a){
-        if(a instanceof Error) return a.message;
+        /* ⭐ AND WHERE IT BROKE (2026-10-14). "[HU] recalculate failed Cannot read properties of
+           undefined (reading 'getFullYear')" reached Admin Errors with no line, and the
+           Recalculate press runs dozens of functions — the message alone could not be traced.
+           The same first-frame-of-ours rule the unhandled-promise line already uses. */
+        if(a instanceof Error) return a.message + rejectionWhere(a);
         if(typeof a === 'object') { try { return JSON.stringify(a).slice(0,200); } catch(x){ return '[object]'; } }
         return String(a);
       });
@@ -13555,6 +13559,85 @@ function referralTokensOf(data){
     if(p && p.token) out.push(String(p.token));
   });
   return out;
+}
+/* ⭐ WHO THEY ENROLLED, WHEN, AND WHETHER IT HAS TURNED INTO MONEY (2026-10-14, [[REF-45]]).
+   Addie: "we need a way to show who someone enrolled and when they enrolled them and if they
+   converted to costumer or not. This can come up in discount and if not converted to costumer
+   than can show pending discount."
+   ⚠ THE COUNTS WERE ALREADY THERE AND WERE NOT ENOUGH. "1 quote waiting to be converted" says
+   that something is owed and never WHO — and the office converts a person, not a number.
+   ⚠ IT READS THE THREE RECORDS THE MONEY ALREADY READS and decides nothing new: an entry in
+   `referralCredits` is a friend who became a customer (with that entry's own revoked / waived /
+   held state), `referralPendingQuotes` is a friend still waiting on Convert, and
+   `referralBlocks` is a use that was refused. A fourth opinion here would be a list that
+   disagrees with the bill underneath it.
+   ⚠ "WHEN THEY ENROLLED" IS THE DAY THE FRIEND USED THE LINK — their quote's date — and the
+   converted date is when the $25 was given. A credit whose quote has since gone falls back to
+   the day it was credited rather than showing nothing. */
+function referralPeopleRows(data, quotes){
+  const d = data || {};
+  const mine = referralTokensOf(d);
+  const list = Array.isArray(quotes) ? quotes : [];
+  const quoteFor = function(custId){
+    if(!custId) return null;
+    return list.find(function(q){
+      const qd = (q && q.data) || {};
+      return String(qd.convertedToCustomerId || '') === String(custId) &&
+             mine.indexOf(String(qd.referredByToken || '')) !== -1;
+    }) || null;
+  };
+  const rows = [];
+  (Array.isArray(d.referralCredits) ? d.referralCredits : []).forEach(function(e){
+    if(!e) return;
+    const q = quoteFor(e.referredCustomerId);
+    const season = referralSeasonForBill(e, d);
+    const thisYear = new Date().getFullYear();
+    let state = 'customer';
+    if(e.revoked) state = 'revoked';
+    else if(e.waived) state = 'waived';
+    else if(season !== null && season > thisYear) state = 'held';
+    rows.push({ name: String(e.referredName || '').trim() || 'a customer',
+                usedAt: toJsDate(q && q.data && q.data.createdAt) || toJsDate(e.creditedAt),
+                convertedAt: toJsDate(e.creditedAt), state: state, season: season });
+  });
+  referralPendingQuotes(d, list).forEach(function(q){
+    const qd = q.data || {};
+    rows.push({ name: String(qd.name || '').trim() || 'someone', usedAt: toJsDate(qd.createdAt),
+                convertedAt: null, state: 'pending', quoteId: q.id });
+  });
+  (Array.isArray(d.referralBlocks) ? d.referralBlocks : []).forEach(function(b){
+    if(!b) return;
+    rows.push({ name: String(b.referredName || '').trim() || 'someone', usedAt: toJsDate(b.at),
+                convertedAt: null, state: 'refused', why: String(b.why || '') });
+  });
+  rows.sort(function(a, b){ return (b.usedAt ? b.usedAt.getTime() : 0) - (a.usedAt ? a.usedAt.getTime() : 0); });
+  return rows;
+}
+function referralPeopleHtml(rows){
+  if(!rows || !rows.length) return '';
+  const day = function(t){ return t ? t.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '\u2014'; };
+  const said = {
+    customer: ['Customer', 'var(--green, #2E6B3E)', fmtMoney(REFERRAL_CREDIT) + ' off'],
+    pending:  ['Not converted yet', 'var(--gold, #D89F3D)', 'Pending ' + fmtMoney(REFERRAL_CREDIT)],
+    held:     ['Customer', 'var(--slate)', fmtMoney(REFERRAL_CREDIT) + ' off next season'],
+    waived:   ['Customer', 'var(--slate)', 'Crossed off'],
+    revoked:  ['Cancelled before install', 'var(--slate)', 'Taken back'],
+    refused:  ['Did not count', 'var(--ember)', 'Nothing']
+  };
+  const tr = rows.map(function(r){
+    const s = said[r.state] || said.customer;
+    return '<tr data-refrow="' + esc(r.state) + '">' +
+      '<td style="padding:2px 10px 2px 0;">' + esc(r.name) + '</td>' +
+      '<td style="padding:2px 10px 2px 0; white-space:nowrap;">' + esc(day(r.usedAt)) + '</td>' +
+      '<td style="padding:2px 10px 2px 0; color:' + s[1] + ';">' + esc(s[0]) +
+        (r.convertedAt && r.state !== 'pending' && r.state !== 'refused' ? ' ' + esc(day(r.convertedAt)) : '') +
+        (r.state === 'refused' && r.why ? ' \u2014 ' + esc(r.why) : '') + '</td>' +
+      '<td style="padding:2px 0; white-space:nowrap; font-weight:600; color:' + s[1] + ';">' + esc(s[2]) + '</td></tr>';
+  }).join('');
+  return '<div style="flex-basis:100%; overflow-x:auto;"><table id="editCustReferPeople" style="border-collapse:collapse; font-size:12px; margin-top:4px;">' +
+    '<thead><tr style="color:var(--slate); text-align:left;"><th style="font-weight:600; padding-right:10px;">Who they referred</th>' +
+    '<th style="font-weight:600; padding-right:10px;">Used the link</th><th style="font-weight:600; padding-right:10px;">Customer?</th>' +
+    '<th style="font-weight:600;">Discount</th></tr></thead><tbody>' + tr + '</tbody></table></div>';
 }
 function referralPendingQuotes(data, quotes){
   const mine = referralTokensOf(data);
@@ -25742,7 +25825,11 @@ const FIXED_ERRORS = [
   { match: 'recipients address is corrupted', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-12',
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' },
   { match: 'found in field quotefirstsentat.todate', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
-    note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' }
+    note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' },
+  { match: 'issue is undefined function setdoc()', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. A fix with no issue typed left `issue: undefined` on the plan, and Firestore refused the whole Schedule save (days[n].houses[n] and fixList[n] alike). planDropUndefined strips undefined before the save (merged the evening of 13 October) and fixes default the issue to blank (14 October). Both reports are from the 13th. A row after this date survives.' },
+  { match: 'fix placement failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. A second entry for this fault, and the reason is not a second repair: fixes stopped being placed on Schedule days altogether on 14 October ([[FIX-09]]) — the placement this error came from no longer runs. The 9 October entry above stays, because its own row came back the same day and that was news. A row after this date means something still places fixes, and survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -59314,7 +59401,8 @@ function editCustRenderReferLine(){
     statusLine.style.flexWrap = 'wrap';
     statusLine.style.alignItems = 'center';
     statusLine.style.gap = '8px';
-    statusLine.innerHTML = money.join('');
+    statusLine.innerHTML = money.join('') +
+      referralPeopleHtml(referralPeopleRows(d, (typeof quotesCache !== 'undefined' ? quotesCache : [])));
   }
 }
 /* ⚠ NAMED AND DELEGATED, for the reason written above editCustTabsClick: an inline
