@@ -200,7 +200,7 @@ function reviveDates(obj) {
      the real function. An observer is not a second opinion. */
   const sandbox = LIFTED.map(lift).join('\n\n') + `
 const __realFind = findTemplateSnapByName;
-findTemplateSnapByName = async function(n){ __asked.push(n); return __realFind(n); };
+findTemplateSnapByName = async function(n){ const r = await __realFind(n); __asked.push({ name: n, found: !(r && r.empty) }); return r; };
 function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'DRYRUN-TOKEN'; }
 const NEW_MEMBER_FEE = ${num(/const NEW_MEMBER_FEE = (\d+)/)};
@@ -238,7 +238,29 @@ return runInvoiceBatch('dry-run');
   /* ---- 2. WHAT THE EMAIL ACTUALLY SAYS --------------------------------- */
   say('2. WHAT THE EMAIL ACTUALLY SAYS');
   say('-'.repeat(72));
-  say('   template asked for: ' + (asked.length ? [...new Set(asked)].join(', ') : '(none)'));
+  /* ⛔ ASKED FOR IS NOT FOUND, AND THAT GAP IS THE WHOLE POINT OF PRINTING BOTH. The run
+     falls back to a built-in body rather than stopping a bill — right, and it means a
+     renamed template sends wording nobody wrote in a run nobody is watching. The first
+     real read of this said "Template missing" ten times over 24 live bills. QT-42's shape:
+     a template found on the screen and not by the thing that sends.
+     ⚠ TEMPLATE NAMES ARE OUR OWN SETTINGS, NOT ANYBODY'S DETAILS, so they may be printed
+     where a customer's name may not — and they have to be, or "missing" leaves nothing to
+     act on. PROC-36 is about people. */
+  const wanted = [];
+  asked.forEach(a => { if (!wanted.some(w => w.name === a.name)) wanted.push(a); });
+  if (!wanted.length) say('   template asked for: (none)');
+  wanted.forEach(w => say('   template asked for: ' + w.name +
+    (w.found ? '   ✓ on file' : '   ⛔ NOT ON FILE — the built-in wording went out instead')));
+  if (wanted.some(w => !w.found)) {
+    say('');
+    say('   ⛔ THE WORDING YOU EDITED IS NOT THE WORDING THIS RUN SENDS.');
+    say('      Either rename a template below to the name above, or pick it in');
+    say('      Automation → Nightly Invoice (that writes unpaidTemplateName /');
+    say('      paidTemplateName on settings/nightlyInvoiceAutomation).');
+    say('      The ' + templates.length + ' templates on file are named:');
+    templates.map(t => String(t && t.name || '(unnamed)').trim())
+      .sort().forEach(n => say('        · ' + n));
+  }
   if (!sent.length) {
     say('   No email would go out, so there is no body to show.');
   } else {
