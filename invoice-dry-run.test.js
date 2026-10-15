@@ -122,17 +122,24 @@ check('the lift census is asserted before anything runs, and really stops the ru
 check('the constants are read out of the source, never typed here',
   /NEW_MEMBER_FEE = \$\{num\(/.test(live) && /BILL_HELD_DAYS = \$\{num\(/.test(live),
   'a typed copy goes on passing against a number the app has moved off');
-check('it uses her REAL templates rather than the built-in fallback',
-  /__tpl\[__flat\(n\)\]/.test(live),
-  'the office edits templates, and every token hole found so far lived in the edited half');
-/* ⚠ THE RULE, NOT THE SPELLING. The first draft pinned the \u2010 escape form and
-   failed on correct code the moment the file carried the characters themselves — §7's
-   slow fuse, pinned to where a string happens to sit rather than to what must be true. */
-const flatSrc = (live.match(/const flat = s =>[^;]*;/) || [''])[0];
-check('template names are matched with dashes and case flattened',
-  /toLowerCase\(\)/.test(flatSrc) && /replace\(\/\[[^\]]+\]\/g, ''\)/.test(flatSrc) && /\\s\+/.test(flatSrc),
-  'an em dash and a hyphen are indistinguishable in a text box, and that difference once ' +
-  'sent the built-in wording instead of hers. found: ' + flatSrc);
+/* ⛔ REPOINTED 2026-10-15, NOT WEAKENED — and the first real run is why. These two
+   used to assert that the script had its OWN template matcher and its own dash-flattener.
+   It did, it disagreed with the server's `tplNameKey`, and every bill fell back to the
+   built-in wording while her templates sat on file. The claim worth holding was never
+   "does it flatten dashes" but "is the matching under test the matching that ships". */
+check('the template lookup is the SERVER\'s own, never a stub written here',
+  !/async function findTemplateSnapByName\s*\(/.test(live) && /__realFind/.test(live),
+  'a matcher of my own is a second opinion that answers about itself');
+check('and the real templates are seeded into the fake database for it to read',
+  /emailTemplates: templates\.reduce/.test(live),
+  'the lookup reads emailTemplates off the db handle it is given, so they must be there');
+check('the lift list is COMPUTED from the source, never typed',
+  /function liftClosure\(/.test(live) && /liftClosure\(\['runInvoiceBatch'\]\)/.test(live),
+  'a hand-kept list must be edited whenever somebody else refactors, and this repo has ' +
+  'been caught by exactly that thirteen times — the first run of this script included');
+check('and ensureToken is held back from the closure on purpose',
+  /NEVER_LIFT = new Set\(\['ensureToken'\]\)/.test(live),
+  'the real one WRITES a portal token; lifting it would make the dry run edit the book');
 
 /* ⛔ THE REASON THE WHOLE THING EXISTS. 41 customers saw {{credit_lines}} because nothing
    looked at the rendered bytes for leftover codes. */

@@ -56,14 +56,38 @@ function lift(name) {
   }
   return '';
 }
-/* ⚠ THE SAME CENSUS nightly-invoice.test.js KEEPS, and for the same reason: a name that
-   stops being lifted arrives as a bare ReferenceError from the middle of a run. This repo
-   records being caught by that twelve times. */
-const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
-  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer',
-  'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
-  'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
-  'clearHeldBill', 'toMillis', 'logNightlyInvoiceRun', 'nightlyInvoiceTemplateNameServer'];
+/* ⛔ THE LIFT LIST IS WORKED OUT, NOT TYPED — and the FIRST real run of this script is
+   why. It shipped with a hand-written list copied from nightly-invoice.test.js, main had
+   since split four helpers out of the invoice body, and every single bill died on
+   `invoiceEmailPlaceServer is not defined`. The run reported 0 bills would send, which
+   read as a fact about the book and was a fact about my list.
+   ⚠ THAT IS THE EXTRACTION-LIST TRAP FOR THE THIRTEENTH TIME in this repo, and twelve
+   hand-maintained lists is enough: a list that must be edited whenever somebody else
+   refactors is a list that will be wrong again. So the closure is computed — start at
+   runInvoiceBatch, add every name it calls that this file DEFINES, repeat until nothing
+   new appears.
+   ⚠ `ensureToken` IS HELD BACK DELIBERATELY and is the one name that must never be
+   lifted: the real one WRITES a portal token, and a dry run that edits the book by being
+   looked at is not a dry run. Everything else is better taken from the source than
+   described by me — which is how the real `findTemplateSnapByName` and `tplNameKey` now
+   arrive, replacing a flattener of my own that disagreed with the server's and sent every
+   bill to the built-in wording. */
+const NEVER_LIFT = new Set(['ensureToken']);
+const DEFINED = new Set([...fns.matchAll(/^(?:async )?function ([A-Za-z0-9_]+)\(/gm)].map(m => m[1]));
+function liftClosure(seed) {
+  const want = new Set(seed);
+  for (let pass = 0; pass < 20; pass++) {
+    const body = [...want].map(lift).join('\n');
+    let added = 0;
+    for (const m of body.matchAll(/(?<![.\w])([A-Za-z0-9_]+)\s*\(/g)) {
+      const n = m[1];
+      if (DEFINED.has(n) && !want.has(n) && !NEVER_LIFT.has(n)) { want.add(n); added++; }
+    }
+    if (!added) return [...want];
+  }
+  return [...want];
+}
+const LIFTED = liftClosure(['runInvoiceBatch']);
 const num = re => Number((fns.match(re) || [])[1]);
 const str = re => (fns.match(re) || [])[1];
 
@@ -153,15 +177,11 @@ function reviveDates(obj) {
   const fake = makeFakeDb({
     settings: { emailjs, nightlyInvoiceAutomation: autoDoc },
     pricing: { config: pricing.config || pricing || {} },
-    jobAddresses, invoices, messages: {}
+    jobAddresses, invoices, messages: {},
+    /* ⚠ SEEDED so the server's OWN findTemplateSnapByName can read them out of the fake
+       database exactly as it reads the real one — that is what removes my flattener. */
+    emailTemplates: templates.reduce((o, t, i) => { o['t' + i] = t; return o; }, {})
   });
-
-  /* ⚠ THE REAL TEMPLATES, matched the way the server matches them — flattened dashes
-     and case, because an em dash and a hyphen are indistinguishable in a text box and
-     that difference once sent the built-in wording instead of hers. */
-  const flat = s => String(s || '').toLowerCase().replace(/[‐-―−-]/g, '').replace(/\s+/g, '');
-  const tplByName = {};
-  templates.forEach(t => { if (t.name) tplByName[flat(t.name)] = t; });
 
   const sent = [];
   const asked = [];
@@ -169,12 +189,18 @@ function reviveDates(obj) {
     try { sent.push(JSON.parse(init.body).template_params); } catch (e) { sent.push({}); }
     return { ok: true, text: async () => 'ok' };
   };
+  /* ⛔ THE TEMPLATE LOOKUP IS THE SERVER'S OWN, not a stub. The first version matched
+     names with a flattener I wrote here, it disagreed with `tplNameKey`, and EVERY bill
+     fell back to the built-in wording while the templates sat right there on file — a
+     second opinion answering about itself, which is the mistake this repo has been bitten
+     by over the bins count and the put-into wording. `findTemplateSnapByName` now comes
+     in with the closure and reads `emailTemplates` out of the FAKE database, seeded above
+     from the real one, so the matching under test is the matching that ships.
+     ⚠ `__record` only WATCHES: it notes which name was asked for and hands straight to
+     the real function. An observer is not a second opinion. */
   const sandbox = LIFTED.map(lift).join('\n\n') + `
-async function findTemplateSnapByName(n){
-  __asked.push(n);
-  const t = __tpl[__flat(n)];
-  return t ? { empty:false, docs:[{ data: () => t }] } : { empty:true, docs:[] };
-}
+const __realFind = findTemplateSnapByName;
+findTemplateSnapByName = async function(n){ __asked.push(n); return __realFind(n); };
 function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'DRYRUN-TOKEN'; }
 const NEW_MEMBER_FEE = ${num(/const NEW_MEMBER_FEE = (\d+)/)};
@@ -184,8 +210,8 @@ const NIGHTLY_PAID_TEMPLATE = ${JSON.stringify(str(/const NIGHTLY_PAID_TEMPLATE 
 return runInvoiceBatch('dry-run');
 `;
   const quiet = { log: () => {}, error: () => {}, warn: () => {} };
-  const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', '__tpl', '__flat', sandbox);
-  const res = await fn(fake, adminStub, fakeFetch, quiet, asked, tplByName, flat);
+  const fn = new Function('db', 'admin', 'fetch', 'console', '__asked', sandbox);
+  const res = await fn(fake, adminStub, fakeFetch, quiet, asked);
 
   /* ---- 1. WHO WOULD GET ONE ------------------------------------------- */
   say('1. WHO WOULD BE EMAILED');
