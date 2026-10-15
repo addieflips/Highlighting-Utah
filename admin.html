@@ -84474,7 +84474,14 @@ const PRINT_COLUMNS = {
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
               {k: 'todo', label: 'What to do'}, {k: 'bins', label: 'Bins'},
               {k: 'notes', label: 'Notes'}],
-  warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
+  /* ⭐ THE PULL LIST CARRIES THE WAREHOUSE NOTES ([[WH-49]], 2026-10-15). Addie: "for
+     warehouse notes I need the crews to see the notes before they load the bins. Can we
+     put any warehouse notes on the warehouse list somehow?" This is the sheet somebody
+     holds while loading the van — page one of Print today — and it was Cust # and Name
+     alone. A note written FOR the warehouse reached both BUILD sheets ([[WH-37]]) and
+     never the morning the bins actually went out. Notes goes last, as on every sheet. */
+  warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'notes', label: 'Warehouse notes'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
      forgot to include on everything crew related printing it need to include
      timer(yes/no), that should come before notes." Notes is the wide free-text column
@@ -84641,7 +84648,12 @@ function printNeedsBuildList(){
 function printWarehouseDayList(day){
   return ((day && day.houses) || []).map(function(h){
     const d = printCustData(h);
-    return {number: d.customerNumber || h.cu || '', name: d.name || h.name || ''};
+    /* [[WH-49]] the same two boxes the Warehouse tab and both build sheets read, through
+       whNoteText — never the crew's Permanent Notes ([[WH-48]]), and NOT whNotesCell: its
+       GOES INTO THE BIN THEY ALREADY HAVE line is a building instruction, and nobody
+       builds anything off this sheet; they load bins. */
+    return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
+            notes: (typeof whNoteText === 'function') ? whNoteText(d) : ''};
   });
 }
 /* ⭐ [[SCH-109]] WHICH PHOTO IS WHICH HOUSE. Dax: "when we print a new hang it should color coordinate
@@ -85005,9 +85017,12 @@ function printWarehousePage(day){
   /* [[SCH-120]] the warehouse builds from this day's list, so printing it locks the day too. */
   if(typeof markDayPrinted === 'function') markDayPrinted(day);
   const rows = printWarehouseDayList(day);
+  /* [[WH-49]] the heading counts the notes so a sheet with one on row 30 is read to row 30. */
+  const noted = rows.filter(function(r){ return r.notes; }).length;
   return {
     title: 'Warehouse — ' + printDayLabel(day),
-    summary: rows.length + ' house' + (rows.length === 1 ? '' : 's') + ' to pull',
+    summary: rows.length + ' house' + (rows.length === 1 ? '' : 's') + ' to pull' +
+      (noted ? ' \u00b7 ' + noted + ' with a warehouse note' : ''),
     body: printTableHtml(rows, PRINT_COLUMNS.warehouse),
     empty: 'Nothing on that day.'
   };
