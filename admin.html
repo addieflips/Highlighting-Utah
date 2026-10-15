@@ -83072,38 +83072,6 @@ RT.addEventListener('change',e=>{const t=e.target;
     f.house.done=t.checked;
     planTickCustomer(f.house, t.checked);
     renderAll();}return;}
-  if(t.dataset.print){
-    const what = t.dataset.print;
-    if(what === 'today'){ printToday(); return; }
-    if(what === 'warehouse'){
-      const d = printWarehouseDay();
-      if(!d){ toast('No day to print for the warehouse'); return; }
-      schedOpenPrintPages('Warehouse', [printWarehousePage(d)]);
-      return;
-    }
-    if(what === 'crew0' || what === 'crew1'){
-      const d = printCrewDay();
-      if(!d){ toast('No day left to print'); return; }
-      schedOpenPrintPages('Crew sheet', [printCrewSheetPage(d, what === 'crew1' ? 1 : 0)]);
-      return;
-    }
-    if(what === 'build'){
-      printOneList('build', 'Needs building', printNeedsBuildList(),
-        printNeedsBuildList().length + ' to make up', 'Nothing needs building.');
-      return;
-    }
-    if(what === 'recycle'){
-      printOneList('recycle', 'Recycles', printRecycleList(),
-        printRecycleList().length + ' to take apart', 'Nothing to recycle.');
-      return;
-    }
-    if(what === 'colors'){
-      printOneList('colors', 'Color changes', printColorChangeList(),
-        printColorChangeList().length + ' changing', 'No color changes.');
-      return;
-    }
-    return;
-  }
   if(t.dataset.daylimit){
     const d=getDay(t.dataset.daylimit);
     const dt=d?dayDate(d):null;
@@ -83473,6 +83441,43 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(printCrewEl){printCrewSheet(printCrewEl.dataset.printcrew,printCrewEl.dataset.crew);return;}
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');
   if(printDayEl){printDaySheet(printDayEl.dataset.printday);return;}
+  /* ⭐ THE PRINTING TAB'S BUTTONS ARE ANSWERED HERE, IN THE CLICK LISTENER (fixed 2026-10-14). Dax: "printing Oct 14 isnt working
+     figure out why i think it may be a printer error". It was never the printer: from the day this tab was built (8858cbe,
+     2026-08-20) this branch sat inside the CHANGE listener above, and a button never fires change — so every Print on the
+     tab did nothing at all, no window, no toast, no error. The per-day buttons on Scheduling always lived here and worked. */
+  const printEl=t.dataset.print?t:t.closest('[data-print]');
+  if(printEl){
+    const what = printEl.dataset.print;
+    if(what === 'today'){ printToday(); return; }
+    if(what === 'warehouse'){
+      const d = printWarehouseDay();
+      if(!d){ toast('No day to print for the warehouse'); return; }
+      schedOpenPrintPages('Warehouse', [printWarehousePage(d)]);
+      return;
+    }
+    if(what === 'crew0' || what === 'crew1'){
+      const d = printCrewDay();
+      if(!d){ toast('No day left to print'); return; }
+      schedOpenPrintPages('Crew sheet', [printCrewSheetPage(d, what === 'crew1' ? 1 : 0)]);
+      return;
+    }
+    if(what === 'build'){
+      printOneList('build', 'Needs building', printNeedsBuildList(),
+        printNeedsBuildList().length + ' to make up', 'Nothing needs building.');
+      return;
+    }
+    if(what === 'recycle'){
+      printOneList('recycle', 'Recycles', printRecycleList(),
+        printRecycleList().length + ' to take apart', 'Nothing to recycle.');
+      return;
+    }
+    if(what === 'colors'){
+      printOneList('colors', 'Color changes', printColorChangeList(),
+        printColorChangeList().length + ' changing', 'No color changes.');
+      return;
+    }
+    return;
+  }
   const dayEl=t.closest('.day');if(dayEl){const L=dayEl.dataset.list;if(L==='fix')selFix=dayEl.dataset.day;else if(L==='take')selTake=dayEl.dataset.day;else selSchedule=dayEl.dataset.day;renderActive();return;}
   if(t.dataset.allbtn){const d=getDay(t.dataset.allbtn);const all=d.houses.length&&d.houses.every(x=>x.done);
     /* ⭐ ASK ONCE, AND SAY WHAT IT COSTS. The individual tick stays silent — it is one
@@ -83668,7 +83673,7 @@ function schedOpenPrint(title,summary,tableHtml,emptyNote){
   const w=window.open('','_blank');
   if(!w){toast('Allow pop-ups to print the sheet');return;}
   w.document.write(html);w.document.close();
-  setTimeout(()=>{w.focus();w.print();},300);
+  printWhenImagesReady(w);
 }
 function printDaySheet(dayId){
   const day=getDay(dayId);
@@ -84726,7 +84731,23 @@ function schedOpenPrintPages(docTitle, pages){
   const w = window.open('', '_blank');
   if(!w){ toast('Allow pop-ups to print'); return; }
   w.document.write(html); w.document.close();
-  setTimeout(function(){ w.focus(); w.print(); }, 300);
+  printWhenImagesReady(w);
+}
+/* ⭐ THE PRINT DIALOG WAITS FOR THE PHOTOS (2026-10-14). It used to open 300ms after the sheet was written, and a
+   house photo from Cloudinary takes ~100-600ms to arrive (measured that day) — so a sheet could go to the printer
+   with blank frames where the new hangs' pictures belong. It now waits until every picture has loaded or failed,
+   and never longer than PRINT_IMAGE_WAIT_MS, so one picture that never answers cannot stop the sheet printing. */
+const PRINT_IMAGE_WAIT_MS = 8000;
+function printWhenImagesReady(w){
+  let done = false;
+  const go = function(){ if(done) return; done = true; try{ w.focus(); w.print(); }catch(err){ console.error('[HU] print failed', err); } };
+  const imgs = Array.prototype.slice.call((w.document && w.document.images) || []);
+  const left = imgs.filter(function(im){ return !im.complete; });
+  if(!left.length){ setTimeout(go, 300); return; }
+  let n = left.length;
+  const one = function(){ n--; if(n <= 0) setTimeout(go, 100); };
+  left.forEach(function(im){ im.addEventListener('load', one); im.addEventListener('error', one); });
+  setTimeout(go, PRINT_IMAGE_WAIT_MS);
 }
 /* `heading` is optional and every existing caller leaves it off, so a crew sheet still
    says "New hangs on this sheet". Print Whole Plan is many days on one document, where
