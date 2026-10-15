@@ -25934,6 +25934,55 @@ function errorFixedBy(d, list){
   }
   return null;
 }
+/* ⭐ A MEMBER'S ERROR ROW CLEARS ITSELF ONCE THEIR RECORD SAYS IT WENT THROUGH (2026-10-15,
+   [[MSG-34]]). Addie, pasting the Errors folder: "can you update things that are still showing
+   errors". Twelve "Answering Yes to the RSVP email — internal" rows from the billing outage sat
+   there for a week; checked one by one against the customers they name, every one of those
+   people has "yes" on their record. The row's only job was to say "go and check", and the
+   record has now answered it.
+   ⛔ IT CLEARS ONLY WHAT THE RECORD PROVES, AND NOTHING ELSE. An RSVP row clears when that
+   customer's saved answer IS the answer they were giving (Yes → yes, No → no, Back Next Year →
+   backnextyear). A card-payment row clears when their bill records a payment made AFTER the
+   row. Every other row, a row that names nobody, and a row whose record says something else
+   all stay — those are still somebody to ring.
+   ⚠ IT NEEDS THE CUSTOMER LIST, so an empty book answers null (the row stays) rather than
+   "nothing matches". Pure apart from the two look-ups it is handed, so a test can RUN it. */
+const ERROR_SETTLED_ANSWERS = [
+  ['answering yes to the rsvp', 'yes'],
+  ['answering no to the rsvp', 'no'],
+  ['answering back next year', 'backnextyear']
+];
+function errorSettledBy(d, cust, bill){
+  d = d || {};
+  if(String(d.topic || '') !== MEMBER_ERROR_TOPIC) return '';
+  if(!cust) return '';
+  const doing = String(d.errorKey || '').split('|')[0].toLowerCase();
+  if(!doing) return '';
+  for(const pair of ERROR_SETTLED_ANSWERS){
+    if(doing.indexOf(pair[0]) === 0){
+      return String(cust.rsvpStatus || '').trim().toLowerCase() === pair[1] ? 'answer on record' : '';
+    }
+  }
+  if(/card or paypal payment|paying by card or paypal/.test(doing)){
+    const when = toJsDate(d.createdAt), paid = toJsDate(bill && bill.lastPaymentAt);
+    return (when && paid && paid.getTime() > when.getTime()) ? 'paid since' : '';
+  }
+  return '';
+}
+function errorSettledFor(d){
+  try{
+    const who = (typeof msgErrorWhoIs === 'function') ? msgErrorWhoIs(d) : null;
+    if(!who || !who.cust || !who.cust.data) return '';
+    const c = who.cust.data;
+    const key = String(c.billToPhone || '').replace(/\D/g, '') || custInvoiceKey(c);
+    const bill = (typeof allInvoicesCache !== 'undefined' && key)
+      ? ((allInvoicesCache.find(function(i){ return i.id === key; }) || {}).data || null) : null;
+    return errorSettledBy(d, c, bill);
+  } catch(err){
+    /* A look-up that fails leaves the row where it is — the cautious direction. */
+    return '';
+  }
+}
 /* An entry that cannot be used is named where somebody will see it rather than skipped on
    the quiet: a typo in a date reads exactly like a fault that never got cleared. */
 function fixedErrorsBadEntries(list){
@@ -25962,7 +26011,7 @@ async function clearFixedErrors(){
     const due = [];
     for(const m of allMessages){
       if(!m || !m.id || fixedErrorsTried.has(m.id)) continue;
-      if(errorFixedBy(m.data)) due.push(m.id);
+      if(errorFixedBy(m.data) || errorSettledFor(m.data)) due.push(m.id);
       if(due.length >= FIXED_ERROR_MAX_PER_SWEEP) break;
     }
     if(!due.length) return;
@@ -25977,7 +26026,7 @@ async function clearFixedErrors(){
         done++;
       } catch(err){ console.warn('[HU] could not clear a fixed error report', err); }
     }
-    if(done) console.log('[HU] cleared ' + done + ' error report(s) whose fault is already fixed');
+    if(done) console.log('[HU] cleared ' + done + ' error report(s) whose fault is already fixed or whose answer or payment is now on the record');
   } catch(err){
     console.warn('[HU] clearing fixed error reports failed', err);
   } finally {
@@ -52484,6 +52533,9 @@ function loadJobAddresses(){
       try{ errBadgeSeedFromStored(true); }
       catch(err){ console.error('[HU] could not put the stored errors on the badge', err); }
     }
+    /* [[MSG-34]]: a member's error row settled by their record can only be judged once the
+       customers are here. Not awaited; clearFixedErrors never rejects and skips if busy. */
+    if(typeof clearFixedErrors === 'function') clearFixedErrors();
   });
 }
 let warehouseExtras = [];
