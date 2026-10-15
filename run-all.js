@@ -52546,6 +52546,10 @@ suite('291. An RSVP link to text, for everyone with no email');
       'let rsvpTextTemplateName = "";' + NL287 +
       'let etTemplatesLoaded = true;' + NL287 +
       'let emailTemplates = [];' + NL287 +
+      /* ⚠ LIFTED, NEVER STUBBED ([[EM-35]]): getEmailTemplateByName now asks which of two
+         same-named templates is the newest, and a stub here would answer that for it. */
+      extractFn(admin, 'tplEditedMillis') + NL287 +
+      extractFn(admin, 'pickNewestTemplate') + NL287 +
       extractFn(admin, 'getEmailTemplateByName') + NL287 +
       extractFn(admin, 'htmlEmailToPlainText') + NL287 +
       extractFn(admin, 'properName') + NL287 +
