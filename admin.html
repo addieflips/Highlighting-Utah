@@ -2885,7 +2885,7 @@
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
             <div class="ec-grid">
-              <div class="form-row"><label>Manual Discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Add a discount ($)</label><input type="number" id="editCustManualDiscount" min="0" step="1" placeholder="0"></div>
               <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
             </div>
             <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
@@ -2904,7 +2904,7 @@
                  necessary." -->
             <div id="editCustCreditLines" style="margin-top:8px;"></div>
             <div id="editCustCreditLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone. Press &times; on any line to take it off &mdash; that saves straight away and is recorded in their history.</p>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Type an amount and a reason and Save to ADD a discount &mdash; every discount already on the bill stays, so you can add as many as you need. Press &times; on any line to take it off &mdash; that saves straight away and is recorded in their history.</p>
           </div>
           <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
             <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
@@ -10712,9 +10712,26 @@ function quoteForButtons(phone){
   if(!open.length) return null;
   return open.slice().sort(function(a, b){ return when(b) - when(a); })[0];
 }
+/* ⭐ A CODE TYPED WITHOUT ITS UNDERSCORES IS STILL THE CODE (2026-10-14). Dax: "the rsvp is showing this:
+   {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix that". The live RSVP template had
+   the three button codes saved without their underscores; every renderer matches the exact spelling, so the email went out
+   with the codes as text. This puts the canonical spelling back — case, spaces, underscores and hyphens do not matter —
+   for the RSVP and referral codes only. ⚠ THE SAME TEXT IS canonicalEmailCodesServer IN functions/index.js; run-all compares
+   the two, because the 9 AM batch renders on the server. ⚠ It never touches {{link:her words}} or any code it does not know. */
+const EMAIL_CANONICAL_CODES = ['rsvp_yes_button', 'rsvp_no_button', 'rsvp_back_button', 'rsvp_yes_link', 'rsvp_no_link',
+  'rsvp_back_link', 'rsvp_link', 'rsvp_button', 'referral_button', 'referral_link'];
+function canonicalEmailCodes(text){
+  const squash = function(s){ return String(s).toLowerCase().replace(/[\s_\-]+/g, ''); };
+  const byKey = {};
+  EMAIL_CANONICAL_CODES.forEach(function(c){ byKey[squash(c)] = c; });
+  return String(text == null ? '' : text).replace(/\{\{\s*([A-Za-z][A-Za-z _\-]*?)\s*\}\}/g, function(m, inner){
+    const hit = byKey[squash(inner)];
+    return hit ? '{{' + hit + '}}' : m;
+  });
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
-  let out = text;
+  let out = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(text) : text;
   const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
   if(opts.price !== undefined){
@@ -13561,6 +13578,85 @@ function referralTokensOf(data){
   });
   return out;
 }
+/* ⭐ WHO THEY ENROLLED, WHEN, AND WHETHER IT HAS TURNED INTO MONEY (2026-10-14, [[REF-45]]).
+   Addie: "we need a way to show who someone enrolled and when they enrolled them and if they
+   converted to costumer or not. This can come up in discount and if not converted to costumer
+   than can show pending discount."
+   ⚠ THE COUNTS WERE ALREADY THERE AND WERE NOT ENOUGH. "1 quote waiting to be converted" says
+   that something is owed and never WHO — and the office converts a person, not a number.
+   ⚠ IT READS THE THREE RECORDS THE MONEY ALREADY READS and decides nothing new: an entry in
+   `referralCredits` is a friend who became a customer (with that entry's own revoked / waived /
+   held state), `referralPendingQuotes` is a friend still waiting on Convert, and
+   `referralBlocks` is a use that was refused. A fourth opinion here would be a list that
+   disagrees with the bill underneath it.
+   ⚠ "WHEN THEY ENROLLED" IS THE DAY THE FRIEND USED THE LINK — their quote's date — and the
+   converted date is when the $25 was given. A credit whose quote has since gone falls back to
+   the day it was credited rather than showing nothing. */
+function referralPeopleRows(data, quotes){
+  const d = data || {};
+  const mine = referralTokensOf(d);
+  const list = Array.isArray(quotes) ? quotes : [];
+  const quoteFor = function(custId){
+    if(!custId) return null;
+    return list.find(function(q){
+      const qd = (q && q.data) || {};
+      return String(qd.convertedToCustomerId || '') === String(custId) &&
+             mine.indexOf(String(qd.referredByToken || '')) !== -1;
+    }) || null;
+  };
+  const rows = [];
+  (Array.isArray(d.referralCredits) ? d.referralCredits : []).forEach(function(e){
+    if(!e) return;
+    const q = quoteFor(e.referredCustomerId);
+    const season = referralSeasonForBill(e, d);
+    const thisYear = new Date().getFullYear();
+    let state = 'customer';
+    if(e.revoked) state = 'revoked';
+    else if(e.waived) state = 'waived';
+    else if(season !== null && season > thisYear) state = 'held';
+    rows.push({ name: String(e.referredName || '').trim() || 'a customer',
+                usedAt: toJsDate(q && q.data && q.data.createdAt) || toJsDate(e.creditedAt),
+                convertedAt: toJsDate(e.creditedAt), state: state, season: season });
+  });
+  referralPendingQuotes(d, list).forEach(function(q){
+    const qd = q.data || {};
+    rows.push({ name: String(qd.name || '').trim() || 'someone', usedAt: toJsDate(qd.createdAt),
+                convertedAt: null, state: 'pending', quoteId: q.id });
+  });
+  (Array.isArray(d.referralBlocks) ? d.referralBlocks : []).forEach(function(b){
+    if(!b) return;
+    rows.push({ name: String(b.referredName || '').trim() || 'someone', usedAt: toJsDate(b.at),
+                convertedAt: null, state: 'refused', why: String(b.why || '') });
+  });
+  rows.sort(function(a, b){ return (b.usedAt ? b.usedAt.getTime() : 0) - (a.usedAt ? a.usedAt.getTime() : 0); });
+  return rows;
+}
+function referralPeopleHtml(rows){
+  if(!rows || !rows.length) return '';
+  const day = function(t){ return t ? t.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '\u2014'; };
+  const said = {
+    customer: ['Customer', 'var(--green, #2E6B3E)', fmtMoney(REFERRAL_CREDIT) + ' off'],
+    pending:  ['Not converted yet', 'var(--gold, #D89F3D)', 'Pending ' + fmtMoney(REFERRAL_CREDIT)],
+    held:     ['Customer', 'var(--slate)', fmtMoney(REFERRAL_CREDIT) + ' off next season'],
+    waived:   ['Customer', 'var(--slate)', 'Crossed off'],
+    revoked:  ['Cancelled before install', 'var(--slate)', 'Taken back'],
+    refused:  ['Did not count', 'var(--ember)', 'Nothing']
+  };
+  const tr = rows.map(function(r){
+    const s = said[r.state] || said.customer;
+    return '<tr data-refrow="' + esc(r.state) + '">' +
+      '<td style="padding:2px 10px 2px 0;">' + esc(r.name) + '</td>' +
+      '<td style="padding:2px 10px 2px 0; white-space:nowrap;">' + esc(day(r.usedAt)) + '</td>' +
+      '<td style="padding:2px 10px 2px 0; color:' + s[1] + ';">' + esc(s[0]) +
+        (r.convertedAt && r.state !== 'pending' && r.state !== 'refused' ? ' ' + esc(day(r.convertedAt)) : '') +
+        (r.state === 'refused' && r.why ? ' \u2014 ' + esc(r.why) : '') + '</td>' +
+      '<td style="padding:2px 0; white-space:nowrap; font-weight:600; color:' + s[1] + ';">' + esc(s[2]) + '</td></tr>';
+  }).join('');
+  return '<div style="flex-basis:100%; overflow-x:auto;"><table id="editCustReferPeople" style="border-collapse:collapse; font-size:12px; margin-top:4px;">' +
+    '<thead><tr style="color:var(--slate); text-align:left;"><th style="font-weight:600; padding-right:10px;">Who they referred</th>' +
+    '<th style="font-weight:600; padding-right:10px;">Used the link</th><th style="font-weight:600; padding-right:10px;">Customer?</th>' +
+    '<th style="font-weight:600;">Discount</th></tr></thead><tbody>' + tr + '</tbody></table></div>';
+}
 function referralPendingQuotes(data, quotes){
   const mine = referralTokensOf(data);
   if(!mine.length) return [];
@@ -14367,6 +14463,19 @@ function quoteChargesSetupFee(d){
   /* ⭐ THE OFFICE'S OWN ANSWER ALWAYS WINS, in both directions. `!== undefined` rather
      than truthiness, or a box they deliberately UNticked would be silently re-charged.
      Everything below is only what to do when nobody has answered. */
+  /* ⛔ A REFERRED FRIEND NEVER PAYS IT, WHATEVER THE BOX SAYS ([[REF-46]], 2026-10-14). Addie: "No
+     one that was refered should have a 30 dollar set up fee. Get rid of those." On that day all
+     seven referred quotes waiting to be converted carried `chargeSetupFee: true` — set by a click
+     on the card, the only thing that writes it — so the office's answer, which the line below lets
+     win, was charging exactly the people [[REF-29]] promised it would not. So a CURRENT referral
+     link is asked FIRST. ⚠ STILL ONLY A CURRENT LINK: a retired one pays ([[REF-25]]), and an
+     invented token resolves to nobody and is charged, which is what keeps a made-up /r/ address
+     from buying $30 off. */
+  const referredFirst = String(q.referredByToken || '').trim();
+  if(referredFirst){
+    const h = referralHolderFor(referredFirst);
+    if(h && h.current) return false;
+  }
   if(q.chargeSetupFee !== undefined) return !!q.chargeSetupFee;
   /* ⚠ A RE-QUOTE IS NEVER A JOIN. They joined once and paid it once. */
   if(isRequote(q) || q.convertedToCustomerAt) return false;
@@ -20305,10 +20414,11 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
   const statusEl = document.getElementById('etSaveStatus');
   const name = document.getElementById('etTemplateName').value.trim();
   const folderId = document.getElementById('etTemplateFolder').value || null;
-  const body = document.getElementById('etTemplateBody').value;
+  /* [2026-10-14] saved with the codes spelled properly, so a code typed without its underscores is fixed at the source */
+  const body = canonicalEmailCodes(document.getElementById('etTemplateBody').value);
   /* Written even when blank, so clearing the box really does go back to the
      standard subject rather than leaving the old one on the record. */
-  const subject = document.getElementById('etTemplateSubject').value.trim();
+  const subject = canonicalEmailCodes(document.getElementById('etTemplateSubject').value.trim());
   if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
   const editingId = document.getElementById('etEditingId').value;
   try{
@@ -22158,7 +22268,7 @@ async function emailSubjectFor(template, phone, vars){
 function etTemplateIsRsvp(t){
   const d = (t && t.data) ? t.data : t;
   if(!d) return false;
-  const body = String(d.body || '');
+  const body = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(String(d.body || '')) : String(d.body || '');
   if(/\{\{rsvp_(yes|no|back)_(button|link)\}\}/.test(body)) return true;
   return String(d.folderName || '').trim().toLowerCase() === 'rsvp';
 }
@@ -25748,12 +25858,11 @@ const FIXED_ERRORS = [
     note: 'Admin. EmailJS answers a bad recipient with a 422 naming no part of the problem, and the whole send stops — so one unusable address on the book cost a run of 258 its last rows. emailSendSkipReason now reads the address BEFORE the send, skips that one recipient with a sentence saying which part is wrong, and lets the rest go. A row after this date means the guard let something through, which is news and survives.' },
   { match: 'found in field quotefirstsentat.todate', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
     note: 'Admin. Send Email on a quote sent before 13 October copied the screen\'s look-alike date (an object carrying a function) into quoteFirstSentAt and Firestore refused the whole write, so that send failed. quoteFirstSentFromHistory writes a plain Date now. A row after this date survives.' },
-  /* ⚠ THE TWO BELOW SHIPPED ON 13 OCTOBER AND CLEAR NOTHING YET. Their reports are from the fix day itself, which
+  /* ⚠ THE ONE BELOW SHIPPED ON 13 OCTOBER AND CLEARS NOTHING YET. Its reports are from the fix day itself, which
      survives by design (fixedErrorFloor), so those rows have to be deleted by hand once nothing newer has arrived.
-     They are here so a row written AFTER the fix is read as news, and because §9.9 item 7 says every fixed fault
-     gets one — both were fixed on 13 October and neither was written down. */
-  { match: '.issue is undefined', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-13',
-    note: 'Admin. A fix whose description had never been typed put an undefined field in the Schedule plan and Firestore refused the whole save, so other computers kept the old plan. planDropUndefined drops it before the write. 969d0ec.' },
+     It is here so a row written AFTER the fix is read as news (§9.9 item 7). The other 13 October fault, the
+     Schedule save refusing an undefined `issue`, is the 'issue is undefined function setdoc()' entry further down,
+     dated the 14th when its second half (fixes default the issue to blank) shipped, so its 13th reports do clear. */
   { match: 'RefererNotAllowedMapError', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-13',
     note: 'Admin. The script tag carried the map key Google refuses on both admin addresses; it carries the Firebase key now and the old one is the spare. ca70c6b.' },
   { match: 'setMap: not an instance of Map', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
@@ -25761,7 +25870,13 @@ const FIXED_ERRORS = [
   { match: "recalculate failed Cannot read properties of undefined (reading 'getFullYear')", topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
     note: 'Admin. A day pushed into the season and read before computeDates had dated it — the same shape as Fix placement failed on 9 October. dayDate now works the date out from the pin or the base when _date is not set yet. The exact line was not in the report (console lines now carry it), so a row after this date means it was somewhere else and survives. 2026-10-14 admin-errors change.' },
   { match: '[HU] no normals for', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
-    note: 'Admin. Not a fault: one year of past weather out of ten failing to download, which the loader is built to step over. It is a console warning now and does not reach this folder; only every year failing is reported. 2026-10-14 admin-errors change.' }
+    note: 'Admin. Not a fault: one year of past weather out of ten failing to download, which the loader is built to step over. It is a console warning now and does not reach this folder; only every year failing is reported. 2026-10-14 admin-errors change.' },
+  { match: 'issue is undefined function setdoc()', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. A fix with no issue typed left `issue: undefined` on the plan, and Firestore refused the whole Schedule save (days[n].houses[n] and fixList[n] alike). planDropUndefined strips undefined before the save (merged the evening of 13 October) and fixes default the issue to blank (14 October). Both reports are from the 13th. A row after this date survives.' },
+  { match: 'fix placement failed', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-14',
+    note: 'Admin. A second entry for this fault, and the reason is not a second repair: fixes stopped being placed on Schedule days altogether on 14 October ([[FIX-09]]) — the placement this error came from no longer runs. The 9 October entry above stays, because its own row came back the same day and that was news. A row after this date means something still places fixes, and survives.' },
+  { match: 'snapshot listener failed: an internal error', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-10-12',
+    note: 'Admin. Not a fault in the page: billing on the Firebase project was off from 8 to 12 October and Google refused live updates. Billing was restored on the 12th. A row after this date is a different cause and survives.' }
 ];
 /* Both sides of the comparison go through this, so an entry above can be typed the way the
    error actually reads rather than in whichever key spelling it happens to land in. */
@@ -30190,7 +30305,7 @@ function renderInvoicesList(){
           }
         }
         toast('Credit added' + (applyNow>0 ? ' (' + fmtMoney(applyNow) + ' off now)' : '') + carryNote);
-        logActivity('Added a ' + fmtMoney(amount) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
+        logActivity('Added a ' + fmtMoney(amt) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
         panel.style.display = 'none';
       });
       /* ⭐ ONE × PER FEE, REPLACING A BUTTON THAT CLEARED THE LOT (2026-09-02).
@@ -31002,6 +31117,13 @@ function rmPaneBusy(which, msg){
    something Google supports, and it is only defensible here because there is
    nothing left to break. It is attempted ONCE. */
 let rmMapsKeyRetried = false;
+/* Was this map made by the copy of Google Maps loaded NOW? A null map answers true (there is
+   nothing to rebuild). After rmTryOtherMapsKey a map from the first copy answers false. */
+function mapsInstanceIsCurrent(m){
+  if(!m) return true;
+  try{ return !!(window.google && google.maps && google.maps.Map && m instanceof google.maps.Map); }
+  catch(err){ return false; /* a broken check rebuilds the map, which is the safe direction */ }
+}
 const MAPS_KEY_SPARE = 'AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
 function rmTryOtherMapsKey(){
   if(rmMapsKeyRetried) return false;
@@ -41022,6 +41144,9 @@ function showMapPreview(containerId, lat, lng, label){
     return;
   }
   if(box.querySelector('.map-preview-placeholder')) box.innerHTML = '';
+  if(mapPreviewInstances[containerId] && !mapsInstanceIsCurrent(mapPreviewInstances[containerId].map)){
+    mapPreviewInstances[containerId] = null;
+  }
   if(!mapPreviewInstances[containerId]){
     mapPreviewInstances[containerId] = {
       map: new google.maps.Map(box, {zoom:15, center:{lat:lat,lng:lng}}),
@@ -51600,6 +51725,7 @@ function renderOverviewMap(){
   if(!withCoords.length){ mapDiv.innerHTML = '<div class="empty-note" style="padding-top:160px;">No addresses match this view.</div>'; overviewMapInstance = null; return; }
   if(mapDiv.querySelector('.empty-note')) mapDiv.innerHTML = '';
   const bounds = new google.maps.LatLngBounds();
+  if(!mapsInstanceIsCurrent(overviewMapInstance)) overviewMapInstance = null;
   if(!overviewMapInstance){
     overviewMapInstance = new google.maps.Map(mapDiv, {zoom:11, center:{lat:withCoords[0].data.lat, lng:withCoords[0].data.lng}});
   }
@@ -58888,10 +59014,8 @@ document.addEventListener('DOMContentLoaded', function(){
           document.getElementById('editCustFeeReason').value = '';
           updateEditCustFeeSummary();
         }
-        if(ledger === 'credit' && kind === 'manual'){
-          document.getElementById('editCustManualDiscount').value = '';
-          document.getElementById('editCustDiscountReason').value = '';
-        }
+        /* A manual discount line no longer lives in the box ([[MON-83]]), so crossing one off
+           leaves the box alone — clearing it would throw away a discount being typed. */
         if(ledger === 'credit' && kind === 'referral'){
           document.getElementById('editCustReferralCount').value = '';
         }
@@ -59342,7 +59466,8 @@ function editCustRenderReferLine(){
     statusLine.style.flexWrap = 'wrap';
     statusLine.style.alignItems = 'center';
     statusLine.style.gap = '8px';
-    statusLine.innerHTML = money.join('');
+    statusLine.innerHTML = money.join('') +
+      referralPeopleHtml(referralPeopleRows(d, (typeof quotesCache !== 'undefined' ? quotesCache : [])));
   }
 }
 /* ⚠ NAMED AND DELEGATED, for the reason written above editCustTabsClick: an inline
@@ -59754,8 +59879,14 @@ function openEditCustomerModal(id){
   const ecNotes = (ecInv && Array.isArray(ecInv.data.creditNotes)) ? ecInv.data.creditNotes : [];
   const ecManual = ecNotes.find(c => c.kind === 'manual')
     || ecNotes.find(c => !c.kind && !/^Referral \u2014 /.test(c.reason || ''));
-  document.getElementById('editCustManualDiscount').value = ecManual ? (Number(ecManual.amount) || '') : '';
-  document.getElementById('editCustDiscountReason').value = ecManual ? (ecManual.reason || '') : '';
+  /* ⭐ THE BOX ADDS, IT NO LONGER HOLDS ONE (2026-10-14, [[MON-83]]). Addie: "Why can't add more
+     then one discount manually". It used to be filled with the one manual line and rebuilt from it
+     on save, so a second discount replaced the first — and a credit added on the Invoices tab
+     (which carries no `kind`) was loaded INTO the box and written back as a second line beside
+     itself, doubling it. The lines are listed below with their own ×; the box starts empty. */
+  void ecManual;
+  document.getElementById('editCustManualDiscount').value = '';
+  document.getElementById('editCustDiscountReason').value = '';
   document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
   /* Only the manual fee is editable here. Automatic light-change fees stay on
      the invoice and are managed from the Invoices tab. */
@@ -62444,8 +62575,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            carryover applied by hand from the Invoices tab — is kept untouched,
            so editing a phone number can't quietly wipe someone's credit. */
         const priorNotes = Array.isArray(inv.data.creditNotes) ? inv.data.creditNotes : [];
+        /* ⭐ MANUAL DISCOUNTS ARE KEPT AND THE BOX APPENDS ([[MON-83]]). Only referrals are still
+           rebuilt here; every manual line already on the bill stays, and comes off with its ×. */
         const keptNotes = priorNotes.filter(function(c){
-          if(c.kind === 'referral' || c.kind === 'manual') return false;
+          if(c.kind === 'referral') return false;
           if(!c.kind && /^Referral \u2014 /.test(c.reason || '')) return false;
           return true;
         });
@@ -62466,6 +62599,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
             kind: 'manual',
             date: new Date().toISOString()
           });
+          /* Emptied once it is on the bill, so a second Save cannot add it twice. */
+          document.getElementById('editCustManualDiscount').value = '';
+          document.getElementById('editCustDiscountReason').value = '';
         }
         const rebuiltCredits = rebuiltNotes.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
         invoiceUpdates.creditNotes = rebuiltNotes;
@@ -68240,6 +68376,11 @@ let routeMapPolyline = null;
 function renderRouteMap(ordered, startPoint){
   const mapDiv = document.getElementById('routeMap');
   const bounds = new google.maps.LatLngBounds();
+  /* ⭐ A MAP FROM THE LIBRARY THAT WAS THROWN AWAY IS BUILT AGAIN (2026-10-14). When Google refuses
+     the key, rmTryOtherMapsKey loads Maps a second time; a map made by the first copy is not an
+     instance of the second copy's Map, and putting a marker on it threw "setMap: not an instance
+     of Map" (Admin Errors, Routes, twice on 13 October). */
+  if(!mapsInstanceIsCurrent(routeMapInstance)){ routeMapInstance = null; routeMapMarkers = []; routeMapPolyline = null; }
   const isFirstRender = !routeMapInstance;
   if(isFirstRender){
     routeMapInstance = new google.maps.Map(mapDiv, {zoom:12, center:{lat:ordered[0].lat, lng:ordered[0].lng}});
@@ -77599,6 +77740,8 @@ function dayMapPaneAt(wrap, i){
   return pane;
 }
 function dayMapDraw(pane, route, home){
+  /* asked only when the main app supplies it: the widget is lifted on its own by run-all Suite 123 */
+  if(typeof mapsInstanceIsCurrent === 'function' && !mapsInstanceIsCurrent(pane.map)){ pane.map = null; pane.markers = []; pane.line = null; }
   if(!pane.map){
     pane.map = new google.maps.Map(pane.canvas, {
       zoom: 12, center: {lat: route.stops[0].lat, lng: route.stops[0].lng},
@@ -83493,7 +83636,7 @@ function printDaySheet(dayId){
      ⚠ A HOUSE IN NEITHER CREW'S CITY GETS ITS OWN BLOCK rather than being left off.
      It is already reported on screen as nobody's; a printed sheet that silently drops it
      is how it gets missed on the road. */
-  const blocks=[];
+  const blocks=[], backs=[];
   (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c,i){
     const mine=printCrewDayList(day,i);
     if(!mine.length) return;
@@ -83509,10 +83652,11 @@ function printDaySheet(dayId){
        houses on it. */
     blocks.push('<h2>'+esc(crewName(i))+' — '+esc(crewCityFor(i,day)||'no city set')+
       ' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</h2>'+
-      printTableHtml(mine,printCrewColumns(mine))+
-      printPhotosHtml(printCrewPhotos(day,i))+
-      printPhotoGapsHtml(printCrewPhotoGaps(day,i))+
-      printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos'));
+      printTableHtml(mine,printCrewColumns(mine)));
+    /* [2026-10-14] the photos go on the BACK of the sheet, under the crew's name — see printBackSideHtml */
+    const back=printPhotosHtml(printCrewPhotos(day,i))+printPhotoGapsHtml(printCrewPhotoGaps(day,i))+
+      printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos');
+    if(back) backs.push('<h2>'+esc(crewName(i))+'</h2>'+back);
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
   if(spare.length){
@@ -83520,6 +83664,7 @@ function printDaySheet(dayId){
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
       printTableHtml(sr,printCrewColumns(sr)));
   }
+  blocks.push(printBackSideHtml(backs.join('')));
   const title='Schedule — '+what+' — '+l.wd+', '+l.full;
   schedOpenPrintPages(title,[{
     title:title,
@@ -84143,7 +84288,7 @@ function printNewHangKeys(day){
       if(keys.has(id)) return;
       const d = printCustData(h);
       if(!printIsNewHang(d, h)) return;
-      const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+      const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
         .filter(function(p){ return p && p.url; });
       if(!photos.length) return;
       let letter = '', k = n;
@@ -84202,6 +84347,23 @@ function printTableHtml(rows, columns){
 
    Numbered "2 of 3" when there is more than one, because four pictures of the same
    house with identical captions is a puzzle rather than a help. */
+/* ⭐ WHAT A NEW HANG'S PHOTO IS, READ OFF THE LIVE CUSTOMER FILE (2026-10-14). Dax: "when we get a new hang it should pull the
+   picture from their live customer file so when i printed rachel oslund it said she didnt have a picture even though I added
+   her today". Her picture was uploaded that morning into the record's LAYOUT MAP slot (layoutMapUrl), and the sheet read the
+   house-photo slots alone (customerPhotoList), which were empty — so it printed "no photo on file" with a picture on file.
+   Now: the house photos, then the layout map picture, both off the record the plan points at (printCustData is the live
+   jobAddresses copy); and only when the record holds neither, the photos on the quote they were converted from — a new hang
+   always has one, and the crew is better off with the quote's picture than with none. ONE answer for the photo block and the
+   "no photo on file" line (printCrewPhotoGaps), so the two can never disagree about the same house. */
+function printNewHangPhotoList(d, h){
+  const own = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : []).filter(function(p){ return p && p.url; });
+  const seen = new Set(own.map(function(p){ return p.url; }));
+  if(d && d.layoutMapUrl && !seen.has(d.layoutMapUrl)) own.push({url: d.layoutMapUrl, label: 'layout map'});
+  if(own.length) return own;
+  const q = (typeof closedQuoteFor === 'function') ? closedQuoteFor(h) : null;
+  const fromQuote = (q && q.data && typeof quotePhotoList === 'function') ? quotePhotoList(q.data) : [];
+  return fromQuote.filter(function(p){ return p && p.url; }).map(function(p){ return {url: p.url, label: p.label || 'from their quote'}; });
+}
 function printCrewPhotos(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
   const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
@@ -84209,7 +84371,7 @@ function printCrewPhotos(day, i){
   mine.forEach(function(h){
     const d = printCustData(h);
     if(!printIsNewHang(d, h)) return;
-    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+    const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
       .filter(function(p){ return p && p.url; });
     if(!photos.length) return;
     const who = d.name || h.name || '';
@@ -84217,7 +84379,8 @@ function printCrewPhotos(day, i){
     const key = keys.get(String(h && h.id)) || null;
     photos.forEach(function(p, k){
       out.push({url: p.url, number: num, name: who,
-                of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : '',
+                /* the label says which picture this is — "layout map", "from their quote" — beside the count */
+                of: [photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : '', p.label || ''].filter(Boolean).join(' · '),
                 key: key ? key.letter : '', color: key ? key.color : ''});
     });
   });
@@ -84252,7 +84415,7 @@ function printCrewPhotoGaps(day, i){
   mine.forEach(function(h){
     const d = printCustData(h);
     if(!printIsNewHang(d, h)) return;
-    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+    const photos = ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
       .filter(function(p){ return p && p.url; });
     if(photos.length) return;
     const num = d.customerNumber || h.cu || '';
@@ -84314,6 +84477,9 @@ function printFixPhotos(day, i){
    have worked this morning and drifted by the next time the box size is tuned — the
    owner has already had this size corrected once. One constant, both stylesheets. */
 const PRINT_PHOTO_CSS =
+  /* [2026-10-14] the back of the sheet — see printBackSideHtml; .blankback pads a sheet with none */
+  '.backside{page-break-before:always;break-before:page;}' +
+  '.blankback{page-break-before:always;break-before:page;font-size:10px;color:#999;text-align:center;padding-top:40px;}' +
   '.photos{margin-top:14px;page-break-inside:avoid;}' +
   '.photos h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;margin:0 0 6px;}' +
   '.photos figure{display:inline-block;margin:0 10px 10px 0;vertical-align:top;' +
@@ -84450,9 +84616,9 @@ function printCrewSheetPage(day, i){
        sheet they belong to rather than on a page of their own. */
     body: rows.length
       ? (printTableHtml(rows, printCrewColumns(rows)) +
-         printPhotosHtml(printCrewPhotos(day, i)) +
-         printPhotoGapsHtml(printCrewPhotoGaps(day, i)) +
-         printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos'))
+         printBackSideHtml(printPhotosHtml(printCrewPhotos(day, i)) +
+           printPhotoGapsHtml(printCrewPhotoGaps(day, i)) +
+           printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos')))
       : '',
     empty: who + ' has nothing on this day.'
   };
@@ -84489,11 +84655,17 @@ function schedOpenPrintPages(docTitle, pages){
   if(!live.length){ toast('Nothing to print'); return; }
   const today = new Date().toLocaleDateString('en-US',
     {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+  /* [2026-10-14] when any sheet carries a back (printBackSideHtml), every sheet in this print gets one — a sheet with none
+     gets a blank back — so on a double-sided print each sheet starts on its own paper and the photos land on the back of
+     the sheet they belong to, never on the back of the one before it. */
+  const anyBack = live.some(function(p){ return String(p.body || '').indexOf('class="backside"') !== -1; });
   const body = live.map(function(p){
+    const hasBack = String(p.body || '').indexOf('class="backside"') !== -1;
     return '<div class="sheet"><h1>' + esc(p.title) + '</h1>' +
       '<div class="sub">Printed ' + esc(today) +
       (p.summary ? ' &middot; ' + esc(p.summary) : '') + '</div>' +
       (p.body || '<div class="empty">' + esc(p.empty || 'Nothing to print.') + '</div>') +
+      (anyBack && !hasBack ? '<div class="blankback">(back of this sheet left blank)</div>' : '') +
       '</div>';
   }).join('');
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>' +
@@ -84508,6 +84680,28 @@ function schedOpenPrintPages(docTitle, pages){
    says "New hangs on this sheet". Print Whole Plan is many days on one document, where
    that wording would be repeated down the page saying nothing — it names the day
    instead. One builder, one caption format; only the title above the block moves. */
+/* ⭐ THE PHOTOS PRINT ON THE BACK OF THE SHEET (2026-10-14). Dax: "the picture attempts to appear on the wrong page number when
+   it should just appear on the back side of the new hang paper". The photos used to hang off the bottom of the table, so they
+   landed wherever the table happened to end — halfway down page one, or split onto page two. Now everything that is a
+   picture (new-hang photos, the no-photo line, fix photos) starts a page of its own, which on a double-sided print is the
+   back of that crew's sheet. Empty in, empty out: a sheet with nothing to show on the back gets no back page from here
+   (schedOpenPrintPages pads it when another sheet in the same print has one, so every sheet still starts on a fresh paper). */
+/* ⭐ EVERY PRINTED PHOTO IS ASKED FOR AS A JPG (2026-10-14). Dax: "it might be like certain picture file types dont print
+   corretly too if thats the case have it auto fix that". A phone can save a picture as HEIC, which a browser cannot draw or
+   print. The pictures live on Cloudinary, which converts on delivery: '/upload/f_jpg,q_auto,w_1200,c_limit/' hands back a
+   JPG no wider than 1200px whatever was uploaded — and smaller files load before the print dialog opens. A URL that already
+   carries a transformation, or is not a Cloudinary upload, is left exactly as it is. (Measured that day: every picture on
+   file was JPG or PNG, Rachel Oslund's included — her missing photo was the slot it was in, not its type.) */
+function printPhotoSrc(url){
+  const u = String(url || '');
+  const m = u.match(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.*)$/);
+  if(!m) return u;
+  if(/^[a-z]{1,3}_[^/]*\//.test(m[2])) return u;
+  return m[1] + 'f_jpg,q_auto,w_1200,c_limit/' + m[2];
+}
+function printBackSideHtml(inner){
+  return inner ? '<div class="backside">' + inner + '</div>' : '';
+}
 function printPhotosHtml(photos, heading){
 
   if(!photos || !photos.length) return '';
@@ -84516,7 +84710,7 @@ function printPhotosHtml(photos, heading){
       /* [[SCH-109]] the same letter and colour as the house's row on the sheet above. */
       const keyed = !!p.key;
       return '<figure' + (keyed ? ' class="pkeyed" style="border-color:' + esc(p.color || '#333') + ';"' : '') + '>' +
-        '<img src="' + esc(p.url) + '" alt="">' +
+        '<img src="' + esc((typeof printPhotoSrc === 'function') ? printPhotoSrc(p.url) : p.url) + '" alt="">' +
         '<figcaption>' + (keyed ? '<b class="pkey" style="background:' + esc(p.color || '#333') + ';">' + esc(p.key) + '</b> ' : '') +
           esc((p.number ? '#' + p.number + ' ' : '') + p.name +
           (p.of ? ' \u00b7 ' + p.of : '')) +

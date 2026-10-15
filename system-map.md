@@ -57,6 +57,9 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
 8. **Crew installs** — the crew works Today's Route in the Crew Portal and marks each stop Done (or Flag Issue / Didn't Get To).
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
+    ⭐ **A card that keeps failing is said out loud** (2026-10-14). A card PayPal declines is answered inside PayPal's own card form and never reaches our server, so on 13 October a customer tried four times and the office heard about it from her email. The portal now counts payments started this visit without one going through (`paypalNoteRetry` in index.html): the second start tells them Venmo is there, the third files a Member Error naming them. One unfinished try says nothing, because about half of all orders are started and abandoned on an ordinary day. ⚠ PayPal was not down: card payments went through at 10:52 PM on the 13th and 7:54 AM on the 14th.
+    ⭐ **A map survives the key swap** (2026-10-14). When Google refuses the map key, `rmTryOtherMapsKey` loads Maps a second time; a map made by the first copy is not a map to the second, and adding a pin to it threw "setMap: not an instance of Map". `mapsInstanceIsCurrent` is asked before the Routes map, the overview map, the address previews and the schedule's day maps are reused, and any map from the discarded copy is built again.
+    ⭐ **And an admin error carries its line** (2026-10-14). `console.error` with an Error now appends the first `admin.html:NNN` frame, the same rule unhandled promises already used, because "[HU] recalculate failed … getFullYear" reached Admin Errors with nothing saying where.
 11. **RSVP "no"** — records the answer and takes them off any upcoming route. **It does NOT touch their lights** (changed 2026-09-03, RS-51). Dax: *"when they click no they move to maybe next year and only go to archive if they actually go through the process of canceling their lights in member portal."* `seasonBadgeKey` already reads a bare `no` as **Maybe Next Year**, so that is what the office sees.
 
     ⛔ **`needsLightRecycle` now has exactly one door: `portalSave`'s `cancel` section** — the Cancel tab a No lands them on (RS-33), where they press *Cancel My Lights*. That is the step which takes the bundle apart and returns the customer number to the pool, and it used to fire off a single tap in an email with no confirmation anywhere in front of it. A misread email cost a rebuild.
@@ -439,6 +442,23 @@ bundle is least likely to exist. ⚠ An **undated** `needsLightBuild` holds nobo
    ⚠ **A referral credit is derived, not stored**, which is why it survives: it is a
    `kind:'referral'` line rebuilt on the referrer's invoice, and when there is no invoice
    yet the count stays on the customer and the next save writes it.
+
+   ⭐ **WHO THEY REFERRED, AS A LIST** (2026-10-14, [[REF-45]]). Under Discounts in Edit
+   Customer, `referralPeopleHtml` draws one row per friend from `referralPeopleRows`: name,
+   the day they used the link, whether they are a customer yet, and **$25 off** /
+   **Pending $25** / held / crossed off / taken back / refused. A pending row is a quote
+   from their link still waiting on Convert — the $25 lands when it is converted.
+
+   ⛔ **AND A REFERRED FRIEND NEVER PAYS THE $30** (2026-10-14, [[REF-46]]). The quote card's
+   set-up-fee box used to win over the referral; seven referred quotes had it ticked.
+   `quoteChargesSetupFee` asks a current referral link first now, so the box is ignored for
+   them and Convert pre-fills the customer's fee box unticked. A retired or invented link
+   still pays.
+   ⭐ **AS MANY MANUAL DISCOUNTS AS NEEDED** (2026-10-14, [[MON-83]]). Edit Customer's box is
+   **Add a discount**: Save appends a `kind:'manual'` credit line and empties the box; lines
+   already on the bill stay and come off with their ×. Only referral lines are rebuilt on save.
+   And the nightly invoice run (`looksLikeNewMember` in functions/index.js) never
+   charges the $30 to a customer carrying `referredByCustomerId`, whatever their fee box says.
 
    ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
    RS-47). Addie approved a Test customer through the emailed link and the badge stayed
@@ -3109,6 +3129,8 @@ purpose, and the priority and colour-change cases.
 **Texting a day's customers** (2026-10-05): each Schedule day has **📱 Numbers: whole day** and one **📱 Numbers: <crew>** per crew with houses, beside Print This Day / Print Crew. Dax: *"i need a way to bulk text everyone on a given day, have it formatted for full day, crew 1 or crew 2, and then i can go to google voice and bulk text it to them."* `dayPhoneList` takes the numbers off the customer record (`printCustData`), formats them (801) 555-1234, lists a shared phone once, leaves out anybody who texted STOP (`smsOptedOut`) and names them, and names anybody with no usable number. `showDayPhones` copies the list and shows it under the day's buttons with a warning: Google Voice has no send-separately, so numbers pasted into one To box become ONE group text (everyone sees everyone, about eight at most). The same box writes the MESSAGE too (`dayTextMessage`): pick **Sending tonight** and it says *tomorrow*, **Sending this morning** and it says *today*, always with the date beside the word; it pre-picks morning when the day is today (`dayTextDefaultWhen`). Dax: *"have it so you select if your sending it at night or morning so it says like tomorrow or today."* No name (one message for everybody) and no arrival time (the plan has none). Takedown and fixer days get their own verb. `day-phones.test.js` runs both rules.
 
 **What is printed**: every photo on the record (`housePhotos`), numbered "2 of 3", under the crew sheet, the whole-day sheet and Print Whole Plan. A new hang with NO photo gets no empty frame but is named in one line under the photos — "New hang with no photo on file: #977 Kim New — take one at the house" (`printCrewPhotoGaps` / `printPhotoGapsHtml`), so the crew is warned and the office learns a photo is missing.
+
+⭐ **THE PHOTO COMES OFF THE LIVE RECORD, AND PRINTS ON THE BACK** (2026-10-14). Dax: *"when i printed rachel oslund it said she didnt have a picture even though I added her today"* and *"it should just appear on the back side of the new hang paper"*. Her picture was in the record's **layout map** slot (`layoutMapUrl`) and the sheet read only the house-photo slots. `printNewHangPhotoList` is now the one rule for the photo block, the photo letters and the "no photo on file" line: the house photos, then the layout map picture, and — only when the record holds neither — the photos on the quote they were converted from (`closedQuoteFor`). Each caption says which it is. And everything that is a picture sits in `printBackSideHtml`, which starts a page of its own (the back of the sheet when printed double-sided); on the whole-day sheet both crews' photos go on the back after every table. When any sheet in one print has a back, `schedOpenPrintPages` gives every other sheet a blank one, so each crew sheet starts on its own paper. And every printed photo is asked for as a JPG (`printPhotoSrc`: Cloudinary's f_jpg,q_auto,w_1200,c_limit on delivery), so a picture a phone saved as HEIC still prints — Dax: *"certain picture file types dont print corretly too if thats the case have it auto fix that"*. run-all Suite 381.
 
 ### Three things that move somebody up a season
 
@@ -6986,6 +7008,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
           - ⚠ **AND THE RENDERER IS SHARED, NOT COPIED.** The RSVP body builder moved out of the
             unpaid chase into `rsvpEmailBodyServer` so the drip would not be a third copy — the
             `{{photo}}` and `{{link}}` pairings in this repo are both about two renderers drifting.
+          - ⭐ **A CODE TYPED WITHOUT ITS UNDERSCORES STILL RENDERS** (2026-10-14). Dax: *"the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons"*. The live RSVP template had the three button codes saved without underscores and every renderer matches the exact spelling, so the email carried the codes as text. The template was corrected in Firestore, and `canonicalEmailCodes` (admin.html) / `canonicalEmailCodesServer` (functions/index.js) now put the spelling of the RSVP and referral codes back — case, spaces, underscores and hyphens ignored — at the start of `resolveLinkTokens` and `rsvpEmailBodyServer`, when a template is saved, and in `etTemplateIsRsvp`. Anything else, `{{link:her words}}` included, is left as typed. run-all Suite 380 runs both copies and requires the same answer.
           - ⚠ **THE OFFICE'S OWN BUTTON WARNS BUT NEVER REFUSES** (`rsvpWholeSendWarning`). A guard
             that blocks a legitimate send has no way round it at all. It is its own function because
             the check for it was weak: a red-check proved `/total > RSVP_DRIP_DEFAULT_PER_DAY/` stays

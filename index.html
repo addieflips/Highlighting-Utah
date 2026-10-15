@@ -7979,6 +7979,33 @@ var paypalButtonInstances = [];
    that. This is what lets the page say so instead of leaving them to find out on their
    statement. */
 var paypalFlowOpen = false;
+/* ⭐ A CARD THAT WILL NOT GO THROUGH IS SAID, TO THEM AND TO US (2026-10-14).
+   SuAnne tried four times in five minutes on 13 October and the office heard it from her
+   email. Nothing on our side failed: every order was created, and a card PayPal declines
+   is answered INSIDE PayPal's own card form — no callback reaches this page, so no error
+   could ever be reported. What this page CAN see is a payment started again without the
+   last one finishing. The second start tells them Venmo is there; the third files a
+   Member Error naming them, so the office can ring before they give up.
+   ⚠ COUNTED PER VISIT AND RESET BY A REAL PAYMENT. About half of all orders are started
+   and abandoned on an ordinary day (measured 12 October), so one unfinished try is
+   normal and must say nothing. */
+var paypalStartsUnpaid = 0;
+function paypalNoteRetry(){
+  paypalStartsUnpaid++;
+  if(paypalStartsUnpaid >= 2){
+    var sw = document.getElementById('paypalSwitchMsg');
+    if(sw){
+      sw.style.display = 'block';
+      sw.textContent = 'Card not going through? PayPal sometimes declines a card without saying why. ' +
+        'You can pay by Venmo instead, or call/text us at (801) 901-0011 and we will sort it out.';
+    }
+  }
+  if(paypalStartsUnpaid === 3){
+    reportMemberError('Paying by card or PayPal',
+      {message: 'started a card payment 3 times this visit without one going through ' +
+                '\u2014 PayPal is probably declining their card inside its own form'});
+  }
+}
 function resetPaypalButtons(){
   if(!paypalButtonsRendered) return;
   paypalButtonInstances.forEach(function(inst){
@@ -8076,6 +8103,7 @@ function renderPaypalButtons(){
     createOrder: function(){
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl) errEl.style.display = 'none';
+      paypalNoteRetry();
       // currentPortalPhone holds the invoice doc key: phone digits, or the
       // lowercase email for customers without a phone. The Cloud Function
       // treats it as an opaque invoice ID either way.
@@ -8095,6 +8123,7 @@ function renderPaypalButtons(){
       paypalFlowOpen = false;
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
+        paypalStartsUnpaid = 0;
         /* ⚠ IT USED TO SAY "Paid in Full" AND $0 WHATEVER HAD JUST BEEN PAID, and
            from 2026-09-01 that is wrong: a customer who still owes for last season is
            charged THAT and nothing else, so the commonest payment on this page is now

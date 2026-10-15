@@ -5,7 +5,12 @@
 name: Read the payment logs
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      lookup:
+        description: 'Optional: part of one customer name to check their referrals'
+        required: false
+        default: ''
 
 concurrency:
   group: payment-digest
@@ -33,3 +38,9 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
           GOOGLE_CLOUD_PROJECT: highlighting-utah
         run: node payment-digest.js
+      - name: Read referrals (read-only, names nobody)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+          LOOKUP: ${{ inputs.lookup }}
+        run: node referral-digest.js

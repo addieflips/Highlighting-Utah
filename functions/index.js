@@ -6154,6 +6154,12 @@ async function runInvoiceBatch(triggeredBy) {
       // install was marked complete. Charging nobody by mistake is a bad day;
       // charging 945 people by mistake is a much worse one, so an unset box
       // now means no fee and the office ticks it for anyone who owes it.
+      /* ⛔ AND NEVER SOMEBODY WHO JOINED THROUGH A REFERRAL ([[REF-46]], 2026-10-14). Addie: "No one
+         that was refered should have a 30 dollar set up fee. Get rid of those." A credited referral
+         stamps `referredByCustomerId` on the friend; one converted while the quote card's box was
+         ticked (customer #1044, 25 September) still carried the fee box, and this run would have
+         added the $30 the night their lights were marked done. The office's box cannot overrule her. */
+      if (cust.referredByCustomerId) return false;
       return cust.chargeNewMemberFee === true;
     }
 
@@ -7412,6 +7418,20 @@ async function runArrearsRsvpBatch(source) {
  * fills tokens; it does not know whether it is building the ordinary RSVP or the
  * Not Paid one, which is exactly why it can be shared.
  * ------------------------------------------------------------------------- */
+/* ⭐ A CODE TYPED WITHOUT ITS UNDERSCORES IS STILL THE CODE (2026-10-14) — the server copy of canonicalEmailCodes in admin.html,
+   same text; run-all compares the two. The live RSVP template carried {{rsvpyesbutton}} and friends, and every renderer matches
+   the exact spelling, so the codes went out as text. RSVP and referral codes only; anything else is left exactly as typed. */
+const EMAIL_CANONICAL_CODES_SERVER = ['rsvp_yes_button', 'rsvp_no_button', 'rsvp_back_button', 'rsvp_yes_link', 'rsvp_no_link',
+  'rsvp_back_link', 'rsvp_link', 'rsvp_button', 'referral_button', 'referral_link'];
+function canonicalEmailCodesServer(text){
+  const squash = function(s){ return String(s).toLowerCase().replace(/[\s_\-]+/g, ''); };
+  const byKey = {};
+  EMAIL_CANONICAL_CODES_SERVER.forEach(function(c){ byKey[squash(c)] = c; });
+  return String(text == null ? '' : text).replace(/\{\{\s*([A-Za-z][A-Za-z _\-]*?)\s*\}\}/g, function(m, inner){
+    const hit = byKey[squash(inner)];
+    return hit ? '{{' + hit + '}}' : m;
+  });
+}
 async function rsvpEmailBodyServer(custId, d, templateBody) {
   const token = await ensureToken(custId, d);
   const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
@@ -7422,7 +7442,7 @@ async function rsvpEmailBodyServer(custId, d, templateBody) {
      same order. A chase that looked different from the RSVP email it follows
      would read as a different question. */
   const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-  let body = templateBody;
+  let body = canonicalEmailCodesServer(templateBody);
   body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
   body = body.split('{{rsvp_yes_link}}').join(yesUrl);
   body = body.split('{{rsvp_no_link}}').join(noUrl);
