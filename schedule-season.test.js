@@ -173,7 +173,8 @@ function season(cfg){
       if(assigned !== n) add('every house on a day is on exactly one crew (SCH-67)', label + ' ' + x + ': ' + assigned + ' of ' + n);
       if(!locked && sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) > 3) add('two crews are never more than three apart (SCH-97)', label + ' ' + x + ': ' + sizes.join('/'));
       if(!locked && x < lastDs && x < TAIL0 && sizes.some(function(k){ return k < 10; })){
-        const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }) && H.api.dayHoldsWithHouses(o, mine); });
+        /* [[SCH-134]] (2026-10-15): an October day is never a fault for not folding into a November one — October room goes to the any-time houses first */
+        const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(x.slice(5) <= '10-31' && ds(o).slice(5) > '10-31') return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }) && H.api.dayHoldsWithHouses(o, mine); });
         /* [[SCH-131]] (2026-10-13): "could join" also means the crews on that day stay within five miles with them — the planner's own
            test (dayHoldsWithHouses). A join that breaks a crew's five miles is not one the planner may make. */
         if(could && label === 'press') add('no crew goes out under ten when its houses could join another day (SCH-128)', label + ' ' + x + ': ' + sizes.join('/'));
