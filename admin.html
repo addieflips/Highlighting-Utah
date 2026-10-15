@@ -77701,7 +77701,8 @@ function dayMapPaneAt(wrap, i){
   return pane;
 }
 function dayMapDraw(pane, route, home){
-  if(!mapsInstanceIsCurrent(pane.map)){ pane.map = null; pane.markers = []; pane.line = null; }
+  /* asked only when the main app supplies it: the widget is lifted on its own by run-all Suite 123 */
+  if(typeof mapsInstanceIsCurrent === 'function' && !mapsInstanceIsCurrent(pane.map)){ pane.map = null; pane.markers = []; pane.line = null; }
   if(!pane.map){
     pane.map = new google.maps.Map(pane.canvas, {
       zoom: 12, center: {lat: route.stops[0].lat, lng: route.stops[0].lng},
