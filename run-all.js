@@ -26055,8 +26055,14 @@ suite('Suite 104. The Printing tab');
     check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
       /put it in their bin/.test(extractFn(admin, 'whBuildTodo')) && /,notes$/.test(keys('build')),
       'the EXTENSION sentence names the bin; got ' + keys('build'));
-    check('S104', 'the daily warehouse list is only number and name',
-      keys('warehouse') === 'number,name',
+    /* ⭐ AND THE PULL LIST CARRIES THE WAREHOUSE NOTES, LAST ([[WH-49]], 2026-10-15). Addie:
+       "I need the crews to see the notes before they load the bins. Can we put any warehouse
+       notes on the warehouse list somehow?" This check used to pin the list to number and
+       name ("a pull list, not a spec sheet") — still true of everything else: no colours,
+       no feet, no bins arithmetic. Asserted as the WHOLE list in order, like the build sheet
+       above, because the position is the half that matters. warehouse-note.test.js RUNS it. */
+    check('S104', 'the daily warehouse list is number, name and the warehouse notes — nothing else',
+      keys('warehouse') === 'number,name,notes',
       'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
     /* ⭐ TIMER SITS BEFORE NOTES. Owner: "i forgot to include on everything crew
        related printing it need to include timer(yes/no), that should come before
