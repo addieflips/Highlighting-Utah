@@ -11,6 +11,10 @@ on:
         description: 'Optional: part of one customer name to check their referrals'
         required: false
         default: ''
+      tails:
+        description: 'Optional: last six characters of customer links from the Errors folder'
+        required: false
+        default: ''
 
 concurrency:
   group: payment-digest
@@ -44,3 +48,10 @@ jobs:
           GOOGLE_CLOUD_PROJECT: highlighting-utah
           LOOKUP: ${{ inputs.lookup }}
         run: node referral-digest.js
+      - name: Did RSVP answers in the Errors folder save (read-only)
+        if: ${{ inputs.tails != '' }}
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          GOOGLE_CLOUD_PROJECT: highlighting-utah
+          TAILS: ${{ inputs.tails }}
+        run: node rsvp-error-check.js
