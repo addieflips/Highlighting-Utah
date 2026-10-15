@@ -137,7 +137,16 @@ module.exports = [
       { file: 'admin', fn: 'computeColorDemand', where: 'Warehouse › Build', when: 'bulbs are ordered',
         rules: ['This is what orders the bulbs, so a wrong house here costs money.'] },
       { file: 'admin', fn: 'computePendingHouseCount', where: 'Warehouse › Build', when: 'the tab header is drawn' },
-      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' }
+      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'isWaitingOnBuild', where: 'Schedule › Scheduling', when: 'a house is asked whether it is still waiting on its bundle' },
+      { file: 'admin', fn: 'renderWarehouseColorChangeQueue', where: 'Warehouse › Build', when: 'the colour-change list is drawn' },
+      { file: 'admin', fn: 'scheduleHoldEndsMillis', where: 'Schedule › Scheduling', when: 'the 72-hour build hold is worked out' },
+      { file: 'admin', fn: 'stampBuildQueued', where: 'Warehouse › Build', when: 'the date a build was queued is stamped' },
+      { file: 'admin', fn: 'whSheetRowsForBuild', where: 'Schedule › Printing', when: 'the build sheet decides its rows' },
+      { file: 'admin', fn: 'whTimerOnlyQueue', where: 'Warehouse › Build', when: 'a timer-only change decides its own queue' },
+      { file: 'admin', fn: 'whTimerRemovalQueue', where: 'Warehouse › Build', when: 'the Remove Timer list is drawn' },
+      { file: 'server', fn: 'stampBuildQueuedServer', where: 'Member Portal › My Lights', when: 'the date a portal change queued a build is stamped' },
     ]
   },
 
@@ -187,7 +196,10 @@ module.exports = [
     ],
     reads: [
       { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse \u203a Tools', when: 'Check The Build Queue is run',
-        rules: ['A missing date reads "no build recorded", never "never built" \u2014 every customer on file before this shipped has none.'] }
+        rules: ['A missing date reads "no build recorded", never "never built" \u2014 every customer on file before this shipped has none.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'warehouseRebuildFields', where: 'Customers › All Customers', when: 'a change decides whether the warehouse rebuilds' },
+      { file: 'server', fn: 'warehouseRebuildFields', where: 'Member Portal › My Lights', when: 'a portal change decides whether the warehouse rebuilds' },
     ]
   },
 
@@ -246,7 +258,13 @@ module.exports = [
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes something that affects their set' },
       { file: 'admin', fn: 'printRecycleList', where: 'Schedule › Printing', when: 'the sheet prints' },
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
-        rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] }
+        rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer record is saved' },
+      { file: 'admin', fn: 'isWaitingOnRecycle', where: 'Warehouse › Recycle', when: 'a house is asked whether its lights are still waiting to come back' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers the RSVP' },
+      { file: 'server', fn: 'rejoinNeedsBuildServer', where: 'Member Portal › RSVP', when: 'somebody coming back is asked whether their lights must be built again' },
     ]
   },
 
@@ -302,7 +320,16 @@ module.exports = [
         rules: ['The office screen and the nightly run always agree.'] },
       { file: 'admin', fn: 'allCustRouteStatus', where: 'Customers › All Customers', when: 'the Install Complete filter runs',
         rules: ['Feeds the Install Complete filter on All Customers.'] },
-      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' }
+      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'clawBackReferralIfAny', where: 'Customers › All Customers', when: 'a referral credit is taken back when the friend cancels before install' },
+      { file: 'admin', fn: 'installStampDiffs', where: 'Schedule › Scheduling', when: 'the hang day is copied onto customer records' },
+      { file: 'admin', el: 'pibLoadBtn', where: 'Invoices › Import / Export', when: 'a post-install billing preview is loaded' },
+      { file: 'admin', fn: 'rebuildTakedownDays', where: 'Schedule › Scheduling', when: 'takedown days are laid out' },
+      { file: 'admin', fn: 'referralClawbackAllowed', where: 'Customers › All Customers', when: 'a referral credit is asked whether it may still be taken back' },
+      { file: 'admin', fn: 'takedownOwed', where: 'Schedule › Scheduling', when: 'a house is asked whether its lights still have to come down' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Member Portal › Cancel', when: 'a referral credit is taken back off a bill' },
+      { file: 'server', fn: 'heldBillWorkDoneAt', where: 'Invoices › Nightly Automation', when: 'a held shared bill is dated from its last house done' },
     ]
   },
 
@@ -366,7 +393,12 @@ module.exports = [
       { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
         rules: ['The invoice total is the sum of the house prices on the bill.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
-      { file: 'server', fn: 'houseBillingRow', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'houseBillingRow', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'fixMissingInvoicesBtn', where: 'Invoices › Invoice List', when: 'Fix Missing Invoices makes a bill for everybody priced' },
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'server', fn: 'createNextYearCustomerFromQuote', where: 'Quote Requests', when: 'a next-year quote becomes a customer' },
     ]
   },
 
@@ -435,7 +467,14 @@ module.exports = [
         rules: ['Two houses on one phone are already one bill, even with nothing set.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
       { file: 'server', fn: 'billedHousesByKey', where: 'Invoices › Nightly Automation', when: 'the nightly run groups a bill',
-        rules: ['A house with no Bill To whose own key matches is already on that bill.'] }
+        rules: ['A house with no Bill To whose own key matches is already on that bill.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'errorSettledFor', where: 'Customer Messages › Inbox', when: 'an error row is checked against the bill it names' },
+      { file: 'admin', fn: 'houseArrearsYear', where: 'Customers › All Customers', when: 'the season a house still owes for is worked out' },
+      { file: 'admin', fn: 'noticeArrearsPaidNotApproved', where: 'Customer Messages › Inbox', when: 'the office is told last season was paid but the season is not approved' },
+      { file: 'admin', fn: 'renderOwesLastYear', where: 'Customers › All Customers', when: 'the owes-last-season list is drawn' },
+      { file: 'server', fn: 'invoiceBookServer', where: 'Invoices › Nightly Automation', when: 'the late-fee run looks up each bill' },
+      { file: 'server', fn: 'payerHouseOfServer', where: 'Invoices › Nightly Automation', when: 'whose name goes on a shared bill' },
     ]
   },
 
@@ -590,7 +629,10 @@ module.exports = [
     ],
     reads: [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'next season\'s first bill is built',
-        rules: ['Summed across the whole bill, not just the payer.'] }
+        rules: ['Summed across the whole bill, not just the payer.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'the invoice list shows a charge carried to next season' },
     ]
   },
 
@@ -759,7 +801,9 @@ module.exports = [
          red on correct code. The map view is what really reads the stops. */
       { file: 'admin', fn: 'dayMapDraw', where: 'Routes › Map View', when: 'the day is drawn on the map' },
       { file: 'admin', fn: 'renderCalendar', where: 'Schedule › Scheduling', when: 'the calendar counts what is on each day' },
-      { file: 'admin', fn: 'renderDayMaps', where: 'Routes › Map View', when: 'the day maps are drawn' }
+      { file: 'admin', fn: 'renderDayMaps', where: 'Routes › Map View', when: 'the day maps are drawn' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'scheduledDayIsReal', where: 'Customers › All Customers', when: 'the hang day on a row is checked against a real route' },
     ],
     /* ⚠ THE TEST SWEEP AND THE DUPLICATE TOOLS READ STOPS FOR THEIR OWN REASONS, not as
        a connection. The duplicate finders check whether a copy is on a route before
@@ -969,6 +1013,8 @@ module.exports = [
       { file: 'server', fn: 'portalChangeAddress', where: 'Member Portal › My Lights', when: 'a customer asks to move address' },
       { file: 'server', fn: 'rejoinNeedsBuildServer', where: 'Member Portal › RSVP', when: 'somebody coming back is asked whether their lights must be built again' },
       { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9 AM RSVP run checks each person still needs asking' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'errorSettledBy', where: 'Customer Messages › Inbox', when: 'an RSVP error row clears once the answer is on the record' },
     ]
   },
   {
@@ -1022,7 +1068,11 @@ module.exports = [
          the wrong place, reporting a connection as present for the wrong reason. */
       { file: 'admin', near: "if(said === 'yes' && d.rsvpRespondedAt) return true;",
         where: 'Customers › Bulk Updates', when: 'the Yes tab of the workbook is filled',
-        rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] }
+        rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'backInYearOf', where: 'Customers › All Customers', when: 'the year somebody sitting out comes back is worked out' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9 AM RSVP run checks each person still needs asking' },
     ]
   },
   {
@@ -1083,7 +1133,10 @@ module.exports = [
         rules: ['260 ft per bin, and the rule lives in one place.'] },
       { file: 'admin', fn: 'houseBundleNeed', where: 'Warehouse › Build', when: 'the bundles are counted' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'an invoice is printed or emailed' },
-      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' }
+      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run prints feet on the invoice' },
     ]
   },
   /* ⭐ THE FIVE DATES, DECLARED THE DAY AFTER THEY SHIPPED (2026-08-29). Addie, looking
@@ -1146,7 +1199,9 @@ module.exports = [
          there. The row in HISTORY_STEPS is what actually puts this field on the page,
          and it is the only place the name is written down. */
       { file: 'admin', near: "field: 'lightsQueuedAt'", where: 'Customers › All Customers', when: 'their history is opened',
-        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'scheduleHoldEndsMillis', where: 'Schedule › Scheduling', when: 'the 72-hour build hold is worked out' },
     ]
   },
 
@@ -1232,7 +1287,10 @@ module.exports = [
          there. The row in HISTORY_STEPS is what actually puts this field on the page,
          and it is the only place the name is written down. */
       { file: 'admin', near: "field: 'fixRaisedAt'", where: 'Customers › All Customers', when: 'their history is opened',
-        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'openFixItems', where: 'Schedule › Scheduling', when: 'the daily fix list is built' },
+      { file: 'admin', fn: 'renderFixTray', where: 'Schedule › Scheduling', when: 'the daily fix list is drawn' },
     ]
   },
 
@@ -1437,7 +1495,11 @@ module.exports = [
       { file: 'admin', fn: 'validateSeasonPlan', where: 'Schedule › Scheduling', when: 'Recalculate everything checks itself' },
       { file: 'server', near: "'scheduledDate', 'completed', 'removalDone'", where: 'Member Portal › My Lights', when: 'a customer opens their portal',
         rules: ['The date only — never the crew and never the stop order.'] },
-      { file: 'server', fn: 'houseBillingRow', where: 'Member Portal › Pay', when: 'the houses on a bill are listed' }
+      { file: 'server', fn: 'houseBillingRow', where: 'Member Portal › Pay', when: 'the houses on a bill are listed' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'the All Customers row shows the hang day' },
+      { file: 'admin', fn: 'clearStaleInstallBookingsRun', where: 'Schedule › Scheduling', when: 'an old crew-routes booking is cleared' },
+      { file: 'admin', el: 'memberExportBtn', where: 'Customers › Bulk Updates', when: 'the member list is exported' },
     ],
     only: [
       {
@@ -1659,7 +1721,9 @@ module.exports = [
       { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' },
       { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'the office finds who has no gate code' },
       { file: 'admin', fn: 'resolveLinkTokens', where: 'Automation Emails › Recipients', when: 'an email is filled in' },
-      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a yes decides whether to ask for one' }
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a yes decides whether to ask for one' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their gate code' },
     ]
   },
   /* ⭐ BATCH 3 (2026-10-13): light colours, the timer, the difficulty grade. */
@@ -1771,7 +1835,25 @@ module.exports = [
       { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the Timers list is drawn' },
       { file: 'admin', fn: 'whSheetRowsForBuild', where: 'Schedule › Printing', when: 'the build sheet prints',
         rules: ['Both timer jobs reach paper — a removal reads TAKE OUT, never YES.'] },
-      { file: 'admin', fn: 'printCrewRow', where: 'Schedule › Printing', when: 'the crew sheet prints' }
+      { file: 'admin', fn: 'printCrewRow', where: 'Schedule › Printing', when: 'the crew sheet prints' },
+      /* ⭐ DECLARED 2026-10-15 (batch 8): every named reader of the timer. The two left inside `norm` belong to warehouseRebuildFields and are named by it. */
+      { file: 'admin', fn: 'applyRequoteFormAnswers', where: 'Quote Requests', when: 'a re-quote form’s timer answer is applied' },
+      { file: 'admin', fn: 'fillAddCustFromQuote', where: 'Customers › Add a Customer', when: 'a quote fills in the Add Customer form' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'the timer box is filled when a customer is opened' },
+      { file: 'admin', fn: 'printNeedsBuildList', where: 'Schedule › Printing', when: 'the build sheet prints its Timer column' },
+      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the master sheet' },
+      { file: 'admin', fn: 'renderQuoteRows', where: 'Quote Requests', when: 'a quote card shows the timer answer' },
+      { file: 'admin', fn: 'renderRouteOrderedList', where: 'Routes › Install', when: 'a route stop shows whether to fit a timer' },
+      { file: 'admin', fn: 'renderWarehouseQueue', where: 'Warehouse › Build', when: 'the Timers and Remove Timer lists are drawn' },
+      { file: 'admin', fn: 'requoteFormSummary', where: 'Quote Requests', when: 'a re-quote card summarises what changed' },
+      { file: 'admin', fn: 'warehouseRebuildFields', where: 'Customers › All Customers', when: 'a timer change decides whether the warehouse rebuilds' },
+      { file: 'admin', el: 'whAddExtraBtn', where: 'Warehouse › Tools', when: 'buffer stock is added' },
+      { file: 'admin', fn: 'whBuildTodo', where: 'Warehouse › Build', when: 'a build row says what to make' },
+      { file: 'admin', fn: 'whExtraSync', where: 'Warehouse › Tools', when: 'buffer stock is kept in step' },
+      { file: 'admin', fn: 'whHouseFactsHtml', where: 'Warehouse › Build', when: 'a house’s chips show the timer' },
+      { file: 'server', fn: 'portalChangeLabels', where: 'Member Portal › My Lights', when: 'a portal change is named in the office note' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their timer answer' },
+      { file: 'server', fn: 'warehouseRebuildFields', where: 'Member Portal › My Lights', when: 'a portal timer change decides whether the warehouse rebuilds' },
     ]
   },
 
@@ -1799,7 +1881,9 @@ module.exports = [
     reads: [
       { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the list is drawn or filtered' },
       { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
-      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' }
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'allCustExportBtn', where: 'Customers › All Customers', when: 'All Customers is exported' },
     ]
   },
   /* ⭐ BATCH 4 (2026-10-13): the house photos — the last field on the original
@@ -1836,7 +1920,9 @@ module.exports = [
     ],
     reads: [
       { file: 'admin', fn: 'customerPhotoList', where: 'Schedule › Printing', when: 'the crew sheet, the record and the route card show photos',
-        rules: ['THE reader: the list when there is one, else the old single photo. The new-hang crew sheet reads through it.'] }
+        rules: ['THE reader: the list when there is one, else the old single photo. The new-hang crew sheet reads through it.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'a photo is opened from a customer row' },
     ],
     only: [
       {
