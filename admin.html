@@ -4367,6 +4367,7 @@
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="pictures" style="font-weight:700;">Waiting for pictures<span id="quoteStageCountPictures" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Awaiting Response<span id="quoteStageCountSend" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Ready to Convert<span id="quoteStageCountForm" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="requote" style="font-weight:700;">Re-quotes<span id="quoteStageCountRequote" class="folder-count"></span></button>
@@ -8363,6 +8364,9 @@ const HISTORY_STEPS = [
      often weeks apart, and the gap between them is a real thing to look at. */
   { field: 'createdAt',                from: 'cust',  what: 'Added to the customer list' },
   { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
+  /* ⭐ [[QT-57]]: the office pressed Waiting for pictures after emailing for photos of the
+     house. On the QUOTE, like the send above — it is a stage of the quote, not of the customer. */
+  { field: 'waitingForPhotosAt',       from: 'quote', what: 'Asked them for pictures of the house' },
   { field: 'quoteLastNudgedAt',        from: 'quote', what: 'Nudged about it' },
   /* ⚠ TWO FIELDS, TWO ACTORS, TWO ROWS — NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
      stamps `approvalRespondedAt` when the CUSTOMER presses the button in their email;
@@ -14659,6 +14663,20 @@ function quoteFolder(d){
      — a re-quote still being written stays in Re-quotes, which is what that tab is for
      now: the ones with something left to do before they go out. */
   if(stage === 'send') return 'send';
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
+     section that says waiting for pictures with a place to push waiting for pictures or
+     something shorter than that for new quotes. This is when we email for pictures of
+     there house."
+     ⚠ A HAND-SET MARK, NEVER DERIVED. Nothing on a quote says an email asking for pictures
+     went out, so the office presses the button when it does (waitingForPhotosAt) and
+     presses Pictures arrived when they come back. Guessing it from "no photo on file"
+     would file every quote that arrives without one here, which is most of them.
+     ⚠ ONLY WHILE THE QUOTE IS STILL OURS TO PRICE AND SEND. Once it has been priced and
+     sent it is waiting on an ANSWER, not on pictures, and it joins Awaiting Response
+     with everybody else — the mark stays on the record and simply stops deciding
+     anything. Closed is still one folder. And a re-quote is a house we already have
+     pictures of, so it keeps its own tab: she asked for this "for new quotes". */
+  if(stage === 'new' && !isRequote(d) && d.waitingForPhotosAt) return 'pictures';
   return isRequote(d) ? 'requote' : stage;
 }
 /* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
@@ -16175,8 +16193,8 @@ async function wireSweepClear(found){
 document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
   const btn = this;
   const stage = quoteStageFilter;
-  const label = ({new: 'Quotes', send: 'Awaiting Response', form: 'Ready to Convert',
-                  requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
+  const label = ({new: 'Quotes', pictures: 'Waiting for pictures', send: 'Awaiting Response',
+                  form: 'Ready to Convert', requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
   if(!confirm('Build a test customer in ' + label + '?' + '\n\n' +
     'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
     '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
@@ -16303,9 +16321,10 @@ function renderQuotesList(){
   }
   const stageTabsEl = document.getElementById('quoteStageTabs');
   if(stageTabsEl){
-    const stageCounts = {new:0, send:0, form:0, requote:0, closed:0};
+    const stageCounts = {new:0, pictures:0, send:0, form:0, requote:0, closed:0};
     quotesCache.forEach(function(item){ stageCounts[quoteFolder(item.data)]++; });
     document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
+    document.getElementById('quoteStageCountPictures').textContent = ' (' + stageCounts.pictures + ')';
     document.getElementById('quoteStageCountSend').textContent = ' (' + stageCounts.send + ')';
     document.getElementById('quoteStageCountForm').textContent = ' (' + stageCounts.form + ')';
     document.getElementById('quoteStageCountRequote').textContent = ' (' + stageCounts.requote + ')';
@@ -16362,6 +16381,7 @@ function renderQuotesList(){
   if(!filtered.length){
     const emptyMsg = {
       new: 'Nothing here to price or send.',
+      pictures: 'Nobody is waiting on pictures. Press Waiting for pictures on a quote in Quotes after you email them asking for photos of the house, and it moves here.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
       requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
@@ -17891,6 +17911,11 @@ function testQuoteCreateFields(){
 function testQuoteStageUpdates(stage){
   const f = {};
   if(stage === 'new') return f;
+  /* Waiting for pictures: unpriced, like a new one, with the office's mark on it. */
+  if(stage === 'pictures'){
+    f.waitingForPhotosAt = new Date();
+    return f;
+  }
   f.quotedPrice = 250;
   /* Awaiting Response: priced and sent, still waiting on them. */
   if(stage === 'send'){
@@ -18359,6 +18384,16 @@ function renderQuoteRows(filtered){
               : '')+
             (photos.length > 1
               ? '<div class="rtext" style="color:var(--slate); margin-top:4px;">All '+photos.length+' go in the quote email, one under another. The first one is the main photo — that is the one the text message and the customer record use.</div>'
+              : '')+
+            /* ⭐ WAITING FOR PICTURES ([[QT-57]]). Only on a card that is still ours to price
+               and send, and never on a re-quote — the same two conditions quoteFolder reads,
+               so the button is never offered where pressing it would move nothing. */
+            ((quoteStage(d) === 'new' && !isRequote(d))
+              ? (d.waitingForPhotosAt
+                  ? '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:600;">&#9993; Waiting for pictures'+(toJsDate(d.waitingForPhotosAt) ? ' &mdash; asked '+fmtDate(d.waitingForPhotosAt) : '')+'</div>'+
+                    '<button type="button" class="btn btn-outline btn-sm" data-gotphotos="'+item.id+'" style="margin-top:4px;">Pictures arrived &mdash; back to Quotes</button>'
+                  : '<button type="button" class="btn btn-outline btn-sm" data-waitphotos="'+item.id+'" style="margin-top:8px;">Waiting for pictures</button>'+
+                    '<div class="rtext" style="color:var(--slate); margin-top:4px;">Press this after you email them asking for pictures of the house. The card moves to Waiting for pictures until you say they arrived.</div>')
               : '')+
           '</div>';
         })()+
@@ -19600,6 +19635,36 @@ function renderQuoteRows(filtered){
   });
   list.querySelectorAll('[data-downloadquotephoto]').forEach(function(btn){
     btn.addEventListener('click', function(){ downloadQuotePhoto(btn.dataset.downloadquotephoto); });
+  });
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]]). The mark is the office's own word that the
+     email asking for pictures went out; nothing here sends one. Cleared by hand too,
+     because nothing on the record can tell an arrived picture from one the office
+     uploaded itself. */
+  list.querySelectorAll('[data-waitphotos]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.waitphotos;
+      try{
+        await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: serverTimestamp()});
+        followQuoteToItsStage(id, {waitingForPhotosAt: new Date()});
+        toast('Moved to Waiting for pictures.');
+      } catch(err){
+        console.error('Could not mark the quote as waiting for pictures:', err);
+        toast('Could not move it \u2014 ' + ((err && err.message) || err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-gotphotos]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.gotphotos;
+      try{
+        await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: null});
+        followQuoteToItsStage(id, {waitingForPhotosAt: null});
+        toast('Back in Quotes.');
+      } catch(err){
+        console.error('Could not clear waiting for pictures:', err);
+        toast('Could not move it back \u2014 ' + ((err && err.message) || err));
+      }
+    });
   });
   list.querySelectorAll('[data-marksent]').forEach(function(btn){
     btn.addEventListener('click', async function(){
@@ -21597,38 +21662,26 @@ async function phoneBatchOpen(host, key, current, extraOpts){
         textedOut: c.textedOut || 0, textedIn: c.textedIn || 0}));
     }
   };
-  /* RS-80: `keepTexted` — a new list holds everybody pending, texted or not. */
   if(extraOpts) Object.assign(opts, extraOpts);
+  /* ⭐ NO BATCHES ON Text the RSVP (2026-10-15, [[RS-84]]) — see phoneAllRender. The list is whoever is
+     pending now; the only thing read off the saved document is `done`, the people marked sent. */
+  if(opts.allAtOnce){
+    const run = phoneRunBuild(now.numbers, now.names, Math.max(1, now.numbers.length));
+    /* A mark for somebody no longer pending (they answered) is dropped on the way in: kept, the
+       saved marks would grow all season, and somebody put back to Unanswered later is a new
+       question, not one already asked. */
+    const pendingNow = new Set(now.numbers.map(String));
+    run.done = saved ? (saved.done || []).map(String).filter(function(n){ return pendingNow.has(n); }) : [];
+    if(saved && saved.createdAt) run.createdAt = saved.createdAt;
+    phoneAllRender(host, now.numbers, now.names, Object.assign({}, opts, {run: run, textedIn: now.textedIn || 0}));
+    return {saved: !!saved, count: now.numbers.length, run: run,
+      left: phoneBatchLeft(run.batches[0] || {numbers: []}, run).numbers.length};
+  }
   if(saved){
     const extra = phoneRunNewPeople(saved, now.numbers, now.names);
-    /* ⭐ ON Text the RSVP THEY ARE ADDED, NOT OFFERED (2026-10-15, [[RS-82]]). Addie: "on RSVP
-       sending text on the batches it only shows 257 but there are over 400 on hold. We need
-       everyone on hold wether they already got a text or not."
-       ⚠ HER SAVED LIST WAS CUT UNDER [[RS-78]], before [[RS-80]] put texted people back — so the
-       ~200 she had already texted were pending and on NO batch, and [[RS-75]] only COUNTED them
-       behind an "Add them" button. A saved list reopens on every press, so the number she saw
-       never moved however the new-list rule changed. Now anybody pending and on no batch goes
-       on as new batches at the END and is written down at once.
-       ⛔ EVERY BATCH ALREADY MADE, AND EVERY Sent TICK, IS EXACTLY AS IT WAS. That half of RS-75
-       stands and is why this is an append and never a re-cut: a tick vouches for the people
-       in that batch, and moving one across a batch line would make it vouch for somebody never
-       texted. Only the list that asks (`addNewToEnd`) — the Automation Emails list still offers.
-       ⚠ A SAVE THAT FAILS IS SAID, and they are added again on the next open: the stored list
-       is what phoneRunNewPeople compares against, so nobody is lost and nobody doubles. */
-    let added = 0, addFailed = false;
-    if(opts.addNewToEnd && extra.numbers.length){
-      phoneRunAddNew(saved, extra);
-      added = extra.numbers.length;
-      try{ await opts.save(saved); }
-      catch(err){
-        addFailed = true;
-        console.error('Could not save the people added to the phone batches:', err);
-      }
-    }
     phoneBatchRender(host, now.numbers, phoneRunFirstOpen(saved), now.names,
-      Object.assign({}, opts, {run: saved, extra: (!added && extra.numbers.length) ? extra : null,
-        added: added, addFailed: addFailed}));
-    return {saved: true, count: phoneRunNumbers(saved).length, run: saved, added: added, addFailed: addFailed};
+      Object.assign({}, opts, {run: saved, extra: extra.numbers.length ? extra : null}));
+    return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
   }
   if(!now.numbers.length) return {saved: false, count: 0};
   phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0, textedIn: now.textedIn || 0}));
@@ -21658,9 +21711,6 @@ function phoneBatchRender(host, numbers, index, names, opts){
   opts = opts || {};
   const prefs = phoneBatchPrefs();
   host._phoneOpts = opts;
-  /* RS-83: Put back undoes the last Submit on THIS list only — a fresh draw forgets it, or a new
-     list could put back people from the old one and unstamp them. */
-  host._phoneLastStop = null;
   host._phoneRun = opts.run || phoneRunBuild(numbers, names, prefs.size);
   host._phoneExtra = opts.extra || null;
   host._phoneNames = phoneRunNames(host._phoneRun) || (host._phoneRun.batches.length ? null : (names || null));
@@ -21671,8 +21721,6 @@ function phoneBatchRender(host, numbers, index, names, opts){
       '<div data-pb="runnote" style="font-size:12.5px; color:var(--slate); margin-bottom:8px;"></div>' +
       '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
         '<label>How many at a time <input type="number" min="1" step="1" data-pb="size" value="' + host._phoneRun.size + '" style="width:80px; margin-left:4px;"></label>' +
-        /* RS-83: "we can just send texts all at once" — one press puts the whole list in one batch. */
-        '<button type="button" class="btn btn-outline btn-sm" data-pb="all" title="One batch holding everybody on the list">Everyone at once</button>' +
         '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
           '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line</option>' +
           '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas, all on one line</option>' +
@@ -21694,27 +21742,12 @@ function phoneBatchRender(host, numbers, index, names, opts){
           '<input type="checkbox" data-pb="sent" style="width:18px; height:18px;"> <span data-pb="sentlabel">Sent</span></label>' +
         '<span data-pb="msg" style="font-size:12.5px; color:var(--slate);"></span>' +
       '</div>' +
-      /* ⭐ RS-83: WHERE SHE STOPPED. Only on the list that asks (stopAt) — Text the RSVP. The rows are
-         the current batch's people still to text, in the order the box lists them; ticking one ticks
-         everybody above it; Submit is the only thing that saves. */
-      (opts.stopAt
-        ? '<div data-pb="stopwrap" style="margin-top:10px; padding-top:8px; border-top:1px solid var(--line);">' +
-            '<div style="font-size:13px; font-weight:600; margin-bottom:2px;">Stopped early? Tick the last person you texted.</div>' +
-            '<div style="font-size:12.5px; color:var(--slate); margin-bottom:6px;">Everyone above them is ticked with them. Nothing is saved until you press Submit \u2014 after that only the people still to text are shown and copied.</div>' +
-            '<div data-pb="stoplist" style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:#fff; font-size:13px;"></div>' +
-            '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
-              '<button type="button" class="btn btn-gold btn-sm" data-pb="stopsubmit">Submit \u2014 mark the ticked ones as sent</button>' +
-              '<button type="button" class="btn btn-outline btn-sm" data-pb="stopback" style="display:none;"></button>' +
-              '<span data-pb="stopmsg" style="font-size:12.5px; color:var(--slate);"></span>' +
-            '</div>' +
-          '</div>'
-        : '') +
       '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--line);">' +
         '<button type="button" class="btn btn-outline btn-sm" data-pb="addnew" style="display:none;"></button>' +
         (typeof opts.fresh === 'function'
           ? '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start a new list</button>' : '') +
       '</div>' +
-      (typeof opts.markTexted === 'function' && !opts.keepTexted
+      (typeof opts.markTexted === 'function'
         ? '<details style="margin-top:8px; font-size:12.5px;"><summary style="cursor:pointer;">Already texted some of these? Paste their numbers to take them off</summary>' +
           '<textarea data-pb="paste" rows="3" placeholder="One number per line, or separated by commas" style="width:100%; margin-top:6px; font-family:monospace; font-size:12.5px;"></textarea>' +
           '<button type="button" class="btn btn-outline btn-sm" data-pb="markpaste" style="margin-top:6px;">Mark them as already texted</button> ' +
@@ -21749,65 +21782,6 @@ function phoneBatchRender(host, numbers, index, names, opts){
   q('size').addEventListener('change', function(){
     const v = Math.floor(Number(this.value) || 0);
     if(v < 1) this.value = String(host._phoneRun.size);
-  });
-  q('all').addEventListener('click', function(){
-    const n = (host._phoneNumbers || []).length;
-    if(!n) return;
-    const size = q('size');
-    size.value = String(n);
-    size.dispatchEvent(new Event('input'));
-  });
-  /* RS-83: ticking a row ticks it and every row above; unticking one unticks it and every row below.
-     The boxes are set in place — no node is rebuilt under the pointer. */
-  if(q('stoplist')) q('stoplist').addEventListener('change', function(e){
-    const box = e.target && e.target.matches && e.target.matches('input[data-pbstop]') ? e.target : null;
-    if(!box) return;
-    const boxes = Array.from(host.querySelectorAll('input[data-pbstop]'));
-    const k = boxes.indexOf(box);
-    boxes.forEach(function(bx, j){ if(box.checked ? j <= k : j >= k) bx.checked = box.checked; });
-    const sm = q('stopmsg');
-    const n = boxes.filter(function(bx){ return bx.checked; }).length;
-    if(sm) sm.textContent = n ? n + ' ticked \u2014 not saved yet, press Submit.' : '';
-  });
-  if(q('stopsubmit')) q('stopsubmit').addEventListener('click', async function(){
-    const i = host._phoneIndex;
-    const ticked = Array.from(host.querySelectorAll('input[data-pbstop]'))
-      .filter(function(bx){ return bx.checked; }).map(function(bx){ return bx.getAttribute('data-pbstop'); });
-    const sm = q('stopmsg');
-    if(!ticked.length){ if(sm) sm.textContent = 'Nobody is ticked \u2014 tick the last person you texted first.'; return; }
-    this.disabled = true;
-    phoneRunMarkDone(host._phoneRun, ticked, true);
-    host._phoneLastStop = ticked.slice();
-    let ok = await phoneRunPersist(host);
-    /* RS-78: written on each customer too, so every other list agrees about who was texted. */
-    if(typeof opts.markTexted === 'function'){
-      const r = await opts.markTexted(ticked, true);
-      if(r.failed) ok = false;
-    }
-    this.disabled = false;
-    show(i);
-    const left = phoneBatchLeft(host._phoneRun.batches[i] || {numbers: []}, host._phoneRun);
-    const m = q('stopmsg');
-    if(m) m.textContent = ok
-      ? '\u2713 ' + ticked.length + ' marked as sent and taken off the list \u2014 ' + left.numbers.length + ' still to text on this batch.'
-      : '\u26A0 Not saved \u2014 check the connection and press Submit again, or it will not be remembered.';
-  });
-  if(q('stopback')) q('stopback').addEventListener('click', async function(){
-    const i = host._phoneIndex;
-    const back = host._phoneLastStop || [];
-    if(!back.length) return;
-    this.disabled = true;
-    phoneRunMarkDone(host._phoneRun, back, false);
-    host._phoneLastStop = null;
-    let ok = await phoneRunPersist(host);
-    if(typeof opts.markTexted === 'function'){
-      const r = await opts.markTexted(back, false);
-      if(r.failed) ok = false;
-    }
-    this.disabled = false;
-    show(i);
-    const m = q('stopmsg');
-    if(m) m.textContent = ok ? back.length + ' put back on the list.' : '\u26A0 Not saved \u2014 check the connection and try again.';
   });
   q('sep').addEventListener('change', function(){
     phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
@@ -21897,6 +21871,178 @@ function phoneBatchRender(host, numbers, index, names, opts){
   });
   show(index);
 }
+/* ⭐ NO BATCHES ON Text the RSVP — EVERYONE AT ONCE (2026-10-15, [[RS-84]]). Addie: "It looks like we
+   still have batches. We no longer need batches we can do it all at once now."
+   ⚠ THIS LIST ONLY. She named this card; the Automation Emails list keeps its batch panel
+   (phoneBatchRender, [[RS-69]]). One box holding everybody still to text, one Copy, the tick list from
+   [[RS-83]] (tick the last person you texted, everybody above is ticked with them, Submit is the only
+   thing that saves, Put back undoes the last Submit) and Start over.
+   ⚠ THE LIST IS WHOEVER IS PENDING NOW, minus the people marked sent. With no batches there is no batch
+   line for a tick to vouch for, so [[RS-75]]'s reason to keep a list exactly as it was made went with
+   the batches: somebody who answers drops off, somebody newly pending joins, on every open. What is
+   kept is `run.done` — the marks — on the same settings document as before, so it is the same on every
+   computer; and Submit still stamps rsvpTextedAt on each customer ([[RS-78]]) so the Automation Emails
+   list agrees about who was texted.
+   ⚠ NOTHING IS WRITTEN ON OPEN. Submit, Put back and Start over are the only writes. Start over clears
+   the marks and nothing else — the rsvpTextedAt stamps are this season's record and stay. */
+function phoneAllRender(host, numbers, names, opts){
+  if(!host) return;
+  opts = opts || {};
+  const prefs = phoneBatchPrefs();
+  host._phoneOpts = opts;
+  host._phoneRun = opts.run || phoneRunBuild(numbers, names, Math.max(1, (numbers || []).length));
+  host._phoneNames = names || null;
+  host._phoneNumbers = numbers || [];
+  host._phoneLastStop = null;
+  host.innerHTML =
+    '<div style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:0 0 12px; background:var(--snow);">' +
+      '<div data-pb="runnote" style="font-size:12.5px; color:var(--slate); margin-bottom:8px;"></div>' +
+      '<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px;">' +
+        '<label>Separate with <select data-pb="sep" style="margin-left:4px;">' +
+          '<option value="line"' + (prefs.sep === 'line' ? ' selected' : '') + '>One per line</option>' +
+          '<option value="comma"' + (prefs.sep === 'comma' ? ' selected' : '') + '>Commas, all on one line</option>' +
+        '</select></label>' +
+        (host._phoneNames
+          ? '<label style="display:inline-flex; align-items:center; gap:5px;"><input type="checkbox" data-pb="names"' +
+            (prefs.names ? ' checked' : '') + '> Include names</label>'
+          : '') +
+      '</div>' +
+      '<div data-pb="where" style="font-size:13px; font-weight:600; margin-bottom:6px;"></div>' +
+      '<textarea readonly data-pb="box" rows="6" style="width:100%; font-family:monospace; font-size:12.5px;"></textarea>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
+        '<button type="button" class="btn btn-gold btn-sm" data-pb="copy">Copy</button>' +
+        '<span data-pb="msg" style="font-size:12.5px; color:var(--slate);"></span>' +
+      '</div>' +
+      '<div data-pb="stopwrap" style="margin-top:10px; padding-top:8px; border-top:1px solid var(--line);">' +
+        '<div style="font-size:13px; font-weight:600; margin-bottom:2px;">Stopped early? Tick the last person you texted.</div>' +
+        '<div style="font-size:12.5px; color:var(--slate); margin-bottom:6px;">Everyone above them is ticked with them. Nothing is saved until you press Submit \u2014 after that only the people still to text are shown and copied.</div>' +
+        '<div data-pb="stoplist" style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:#fff; font-size:13px;"></div>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">' +
+          '<button type="button" class="btn btn-gold btn-sm" data-pb="stopsubmit">Submit \u2014 mark the ticked ones as sent</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-pb="stopback" style="display:none;"></button>' +
+          '<span data-pb="stopmsg" style="font-size:12.5px; color:var(--slate);"></span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--line);">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-pb="fresh">Start over \u2014 show everyone again</button>' +
+      '</div>' +
+    '</div>';
+  const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
+  const show = function(){ phoneAllShow(host); };
+  q('sep').addEventListener('change', function(){
+    phoneBatchSavePrefs(phoneBatchPrefs().size, this.value === 'line' ? 'line' : 'comma');
+    show();
+  });
+  if(q('names')) q('names').addEventListener('change', function(){
+    const pr = phoneBatchPrefs();
+    phoneBatchSavePrefs(pr.size, pr.sep, this.checked);
+    show();
+  });
+  q('copy').addEventListener('click', async function(){
+    const box = q('box'), msg = q('msg');
+    const count = host._phoneBatchCount || 0;
+    if(!count){ if(msg) msg.textContent = 'Nobody left to copy.'; return; }
+    const ok = await phoneBatchCopyText(box.value, box);
+    if(msg) msg.textContent = ok
+      ? '\u2713 Copied ' + count + ' number' + (count === 1 ? '' : 's') + '.'
+      : 'The browser would not copy. The numbers are selected in the box \u2014 press Ctrl+C (\u2318C on a Mac).';
+  });
+  /* RS-83: ticking a row ticks it and every row above; unticking one unticks it and every row below.
+     The boxes are set in place — no node is rebuilt under the pointer. */
+  q('stoplist').addEventListener('change', function(e){
+    const box = e.target && e.target.matches && e.target.matches('input[data-pbstop]') ? e.target : null;
+    if(!box) return;
+    const boxes = Array.from(host.querySelectorAll('input[data-pbstop]'));
+    const k = boxes.indexOf(box);
+    boxes.forEach(function(bx, j){ if(box.checked ? j <= k : j >= k) bx.checked = box.checked; });
+    const sm = q('stopmsg');
+    const n = boxes.filter(function(bx){ return bx.checked; }).length;
+    if(sm) sm.textContent = n ? n + ' ticked \u2014 not saved yet, press Submit.' : '';
+  });
+  q('stopsubmit').addEventListener('click', async function(){
+    const ticked = Array.from(host.querySelectorAll('input[data-pbstop]'))
+      .filter(function(bx){ return bx.checked; }).map(function(bx){ return bx.getAttribute('data-pbstop'); });
+    const sm = q('stopmsg');
+    if(!ticked.length){ if(sm) sm.textContent = 'Nobody is ticked \u2014 tick the last person you texted first.'; return; }
+    this.disabled = true;
+    phoneRunMarkDone(host._phoneRun, ticked, true);
+    host._phoneLastStop = ticked.slice();
+    let ok = await phoneRunPersist(host);
+    /* RS-78: written on each customer too, so every other list agrees about who was texted. */
+    if(typeof opts.markTexted === 'function'){
+      const r = await opts.markTexted(ticked, true);
+      if(r.failed) ok = false;
+    }
+    this.disabled = false;
+    show();
+    const m = q('stopmsg');
+    if(m) m.textContent = ok
+      ? '\u2713 ' + ticked.length + ' marked as sent and taken off the list \u2014 ' + (host._phoneBatchCount || 0) + ' still to text.'
+      : '\u26A0 Not saved \u2014 check the connection and press Submit again, or it will not be remembered.';
+  });
+  q('stopback').addEventListener('click', async function(){
+    const back = host._phoneLastStop || [];
+    if(!back.length) return;
+    this.disabled = true;
+    phoneRunMarkDone(host._phoneRun, back, false);
+    host._phoneLastStop = null;
+    let ok = await phoneRunPersist(host);
+    if(typeof opts.markTexted === 'function'){
+      const r = await opts.markTexted(back, false);
+      if(r.failed) ok = false;
+    }
+    this.disabled = false;
+    show();
+    const m = q('stopmsg');
+    if(m) m.textContent = ok ? back.length + ' put back on the list.' : '\u26A0 Not saved \u2014 check the connection and try again.';
+  });
+  q('fresh').addEventListener('click', async function(){
+    const done = phoneRunDoneSet(host._phoneRun);
+    if(!done.size){ show(); const m = q('msg'); if(m) m.textContent = 'Everyone still to answer is already shown.'; return; }
+    if(!confirm('Show everyone again?\n\n' + done.size + ' ' + (done.size === 1 ? 'person is' : 'people are') +
+      ' marked sent on this list, and those marks will be gone.')) return;
+    phoneRunMarkDone(host._phoneRun, Array.from(done), false);
+    host._phoneLastStop = null;
+    const ok = await phoneRunPersist(host);
+    show();
+    const m = q('msg');
+    if(m) m.textContent = ok ? 'Everyone still to answer is shown again.' : '\u26A0 Not saved \u2014 check the connection and try again.';
+  });
+  show();
+}
+/* Text only, except the tick rows — rebuilt here, which runs after the click that asked for it. */
+function phoneAllShow(host){
+  const q = function(k){ return host.querySelector('[data-pb="' + k + '"]'); };
+  const prefs = phoneBatchPrefs();
+  const run = host._phoneRun || {batches: [], done: []};
+  const b = run.batches[0] || {numbers: [], names: null};
+  const left = phoneBatchLeft(b, run);
+  host._phoneBatchCount = left.numbers.length;
+  const useNames = (host._phoneNames && prefs.names) ? left.names : null;
+  q('where').textContent = left.numbers.length + ' still to text' +
+    (left.done ? ' \u00b7 ' + left.done + ' marked sent and not shown' : '') +
+    ' \u2014 ' + b.numbers.length + ' still to answer in all';
+  q('box').value = phoneBatchJoin(left.numbers, prefs.sep, useNames);
+  q('copy').textContent = 'Copy all ' + left.numbers.length;
+  q('stoplist').innerHTML = left.numbers.length
+    ? left.numbers.map(function(num, k){
+        const nm = left.names ? phoneBatchName(left.names[k], 'line') : '';
+        return '<label style="display:flex; gap:8px; align-items:center; padding:3px 0; cursor:pointer;">' +
+          '<input type="checkbox" data-pbstop="' + esc(num) + '"> <span>' + (nm ? esc(nm) + ' <span style="color:var(--slate);">' + esc(num) + '</span>' : esc(num)) + '</span></label>';
+      }).join('')
+    : '<div style="color:var(--slate); padding:3px 0;">Everybody still to answer is marked sent. Start over shows them again.</div>';
+  const back = q('stopback');
+  const n = (host._phoneLastStop || []).length;
+  if(back){ back.style.display = n ? '' : 'none'; back.textContent = n ? 'Put the last ' + n + ' back' : ''; }
+  const note = q('runnote');
+  if(note){
+    const textedIn = (host._phoneOpts && host._phoneOpts.textedIn) || 0;
+    note.textContent = 'Everyone still to answer who has a phone number, all at once \u2014 texted before or not' +
+      (textedIn ? '; ' + textedIn + ' of them ' + (textedIn === 1 ? 'was' : 'were') + ' already texted this season' : '') +
+      '. Tick the last person you texted and press Submit, and only the rest stay on the list. ' +
+      'Start over shows everyone again.';
+  }
+}
 /* ⛔ OPENING THE PANEL COPIES NOTHING (2026-09-24, [[RS-72]]). Addie: "Okay but I told you
    I don't want to copy all phone numbers just a small bulk at a time." The press used to copy
    batch 1 straight away at the saved size — 50 until she changes it — so on a list shorter
@@ -21921,28 +22067,12 @@ function phoneBatchShow(host, index){
   let from = 0;
   for(let k = 0; k < i; k++) from += run.batches[k].numbers.length;
   host._phoneIndex = i;
-  /* RS-83: a person marked sent stays in the batch and is not shown or copied. */
-  const left = phoneBatchLeft(b, run);
-  host._phoneBatchCount = left.numbers.length;
-  const batchNames = (host._phoneNames && prefs.names) ? left.names : null;
+  host._phoneBatchCount = b.numbers.length;
+  const batchNames = (host._phoneNames && prefs.names) ? b.names : null;
   q('where').textContent = 'Batch ' + (i + 1) + ' of ' + total + ' — numbers ' +
     (b.numbers.length ? (from + 1) + '–' + (from + b.numbers.length) : '0') +
-    ' of ' + (host._phoneNumbers || []).length +
-    (left.done ? ' · ' + left.numbers.length + ' still to text, ' + left.done + ' marked sent' : '');
-  q('box').value = phoneBatchJoin(left.numbers, prefs.sep, batchNames);
-  const stopList = q('stoplist');
-  if(stopList){
-    stopList.innerHTML = left.numbers.length
-      ? left.numbers.map(function(num, k){
-          const nm = left.names ? phoneBatchName(left.names[k], 'line') : '';
-          return '<label style="display:flex; gap:8px; align-items:center; padding:3px 0; cursor:pointer;">' +
-            '<input type="checkbox" data-pbstop="' + esc(num) + '"> <span>' + (nm ? esc(nm) + ' <span style="color:var(--slate);">' + esc(num) + '</span>' : esc(num)) + '</span></label>';
-        }).join('')
-      : '<div style="color:var(--slate); padding:3px 0;">Everybody on this batch is marked sent.</div>';
-    const back = q('stopback');
-    const n = (host._phoneLastStop || []).length;
-    if(back){ back.style.display = n ? '' : 'none'; back.textContent = n ? 'Put the last ' + n + ' back' : ''; }
-  }
+    ' of ' + (host._phoneNumbers || []).length;
+  q('box').value = phoneBatchJoin(b.numbers, prefs.sep, batchNames);
   q('copy').textContent = 'Copy batch ' + (i + 1);
   q('prev').disabled = i === 0;
   q('next').disabled = i >= total - 1;
@@ -21976,20 +22106,8 @@ function phoneBatchShow(host, index){
     const textedOut = (host._phoneOpts && host._phoneOpts.textedOut) || 0;
     if(textedOut && !(host._phoneOpts && host._phoneOpts.run)) t += '  ' + textedOut + ' already texted this season ' +
       (textedOut === 1 ? 'is' : 'are') + ' left out.';
-    const textedIn = (host._phoneOpts && host._phoneOpts.textedIn) || 0;
-    if(textedIn && !(host._phoneOpts && host._phoneOpts.run)) t += '  Everybody still pending is on it, texted or not \u2014 ' +
-      textedIn + ' of them ' + (textedIn === 1 ? 'was' : 'were') + ' already texted this season.';
     if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
       (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
-    const doneAll = phoneRunDoneSet(run).size;
-    if(doneAll) t += '  ' + doneAll + ' ' + (doneAll === 1 ? 'person is' : 'people are') + ' marked sent and not shown.';
-    /* RS-82: on Text the RSVP they were added rather than offered, and the line says so. */
-    const added = (host._phoneOpts && host._phoneOpts.added) || 0;
-    if(added) t += '  ' + added + ' ' + (added === 1 ? 'person' : 'people') + ' pending now and on no batch ' +
-      (added === 1 ? 'was' : 'were') + ' added as new batches at the end \u2014 every batch you already had, and every Sent tick, is as it was.' +
-      (host._phoneOpts.addFailed
-        ? ' \u26A0 That could not be saved \u2014 check the connection and press the button again; until it saves they are added again on every open.'
-        : '');
     note.textContent = t;
   }
   const addNew = q('addnew');
@@ -22023,30 +22141,23 @@ async function rsvpCopyPhones(){
      THIS list only (R-024): a reminder round goes to everybody who has not answered, and the
      card above already counts them all. The Sent tick still stamps `rsvpTextedAt`, and the
      Automation Emails list still leaves texted people out — she named this one.
-     ⭐ AND A SAVED LIST GROWS ON ITS OWN (2026-10-15, [[RS-82]]): `addNewToEnd` — anybody pending and
-     on no batch is added as new batches at the end when the panel opens, ticks untouched. See
-     phoneBatchOpen. */
+     ⭐ AND THEN THE BATCHES WENT (2026-10-15, [[RS-84]]): `allAtOnce` — one list of everybody still to
+     text, with the tick-where-you-stopped list. See phoneAllRender. RS-82 (added at the end) is moot
+     with no batches to add to. */
   const opened = await phoneBatchOpen(host, 'rsvp', function(){
     const all = rsvpLinkSheetTargets();
     const r = rsvpPhoneListRows(all);
     const textedIn = all.filter(function(it){ return rsvpTextedThisSeason((it && it.data) || {}); }).length;
     return {numbers: r.numbers, names: r.names, textedIn: textedIn};
-  }, {keepTexted: true, addNewToEnd: true, stopAt: true});
+  }, {allAtOnce: true});
   if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;
   }
   phoneBatchFocusSize(host);
-  if(opened.saved){
-    if(statusEl) statusEl.textContent = opened.added
-      ? 'Your saved list is open \u2014 the same batches as before, plus ' + opened.added + ' ' +
-        (opened.added === 1 ? 'person' : 'people') + ' pending now who ' + (opened.added === 1 ? 'was' : 'were') +
-        ' on no batch, added as new batches at the end. Everybody still to answer is on it, texted or not. Tick each batch as you send it.'
-      : 'Your saved list is open, the same batches as before. Everybody still to answer is on it, texted or not. Tick each batch as you send it.';
-    return opened.count;
-  }
-  if(statusEl) statusEl.textContent = res.numbers.length + ' number' +
-    (res.numbers.length === 1 ? '' : 's') + ' of people still pending (not answered yet), digits only \u2014 nothing is copied yet: type how many at a time below, then press Copy batch 1.' +
+  if(statusEl) statusEl.textContent = opened.left + ' number' + (opened.left === 1 ? '' : 's') +
+    ' of people still pending (not answered yet), all at once, digits only \u2014 nothing is copied yet: press Copy all.' +
+    (opened.count > opened.left ? '  ' + (opened.count - opened.left) + ' marked sent ' + (opened.count - opened.left === 1 ? 'is' : 'are') + ' not shown.' : '') +
     (res.stopped ? '  ' + res.stopped + ' left out \u2014 they replied STOP.' : '') +
     (res.odd.length ? '  \u26A0 ' + res.odd.length + ' are not 10 digits and went in as they are: ' +
       res.odd.slice(0, 5).join('; ') + (res.odd.length > 5 ? ' and others' : '') : '');
