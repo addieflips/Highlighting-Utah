@@ -21626,9 +21626,34 @@ async function phoneBatchOpen(host, key, current, extraOpts){
   if(extraOpts) Object.assign(opts, extraOpts);
   if(saved){
     const extra = phoneRunNewPeople(saved, now.numbers, now.names);
+    /* ⭐ ON Text the RSVP THEY ARE ADDED, NOT OFFERED (2026-10-15, [[RS-82]]). Addie: "on RSVP
+       sending text on the batches it only shows 257 but there are over 400 on hold. We need
+       everyone on hold wether they already got a text or not."
+       ⚠ HER SAVED LIST WAS CUT UNDER [[RS-78]], before [[RS-80]] put texted people back — so the
+       ~200 she had already texted were pending and on NO batch, and [[RS-75]] only COUNTED them
+       behind an "Add them" button. A saved list reopens on every press, so the number she saw
+       never moved however the new-list rule changed. Now anybody pending and on no batch goes
+       on as new batches at the END and is written down at once.
+       ⛔ EVERY BATCH ALREADY MADE, AND EVERY Sent TICK, IS EXACTLY AS IT WAS. That half of RS-75
+       stands and is why this is an append and never a re-cut: a tick vouches for the people
+       in that batch, and moving one across a batch line would make it vouch for somebody never
+       texted. Only the list that asks (`addNewToEnd`) — the Automation Emails list still offers.
+       ⚠ A SAVE THAT FAILS IS SAID, and they are added again on the next open: the stored list
+       is what phoneRunNewPeople compares against, so nobody is lost and nobody doubles. */
+    let added = 0, addFailed = false;
+    if(opts.addNewToEnd && extra.numbers.length){
+      phoneRunAddNew(saved, extra);
+      added = extra.numbers.length;
+      try{ await opts.save(saved); }
+      catch(err){
+        addFailed = true;
+        console.error('Could not save the people added to the phone batches:', err);
+      }
+    }
     phoneBatchRender(host, now.numbers, phoneRunFirstOpen(saved), now.names,
-      Object.assign({}, opts, {run: saved, extra: extra.numbers.length ? extra : null}));
-    return {saved: true, count: phoneRunNumbers(saved).length, run: saved};
+      Object.assign({}, opts, {run: saved, extra: (!added && extra.numbers.length) ? extra : null,
+        added: added, addFailed: addFailed}));
+    return {saved: true, count: phoneRunNumbers(saved).length, run: saved, added: added, addFailed: addFailed};
   }
   if(!now.numbers.length) return {saved: false, count: 0};
   phoneBatchRender(host, now.numbers, 0, now.names, Object.assign({}, opts, {textedOut: now.textedOut || 0, textedIn: now.textedIn || 0}));
@@ -21886,6 +21911,13 @@ function phoneBatchShow(host, index){
       textedIn + ' of them ' + (textedIn === 1 ? 'was' : 'were') + ' already texted this season.';
     if(host._phoneExtra) t += '  ' + host._phoneExtra.numbers.length + ' ' +
       (host._phoneExtra.numbers.length === 1 ? 'person is' : 'people are') + ' pending now and on no batch.';
+    /* RS-82: on Text the RSVP they were added rather than offered, and the line says so. */
+    const added = (host._phoneOpts && host._phoneOpts.added) || 0;
+    if(added) t += '  ' + added + ' ' + (added === 1 ? 'person' : 'people') + ' pending now and on no batch ' +
+      (added === 1 ? 'was' : 'were') + ' added as new batches at the end \u2014 every batch you already had, and every Sent tick, is as it was.' +
+      (host._phoneOpts.addFailed
+        ? ' \u26A0 That could not be saved \u2014 check the connection and press the button again; until it saves they are added again on every open.'
+        : '');
     note.textContent = t;
   }
   const addNew = q('addnew');
@@ -21918,20 +21950,27 @@ async function rsvpCopyPhones(){
      texted or not when I push start a new list." This REVERSES [[RS-78]]'s leave-them-out for
      THIS list only (R-024): a reminder round goes to everybody who has not answered, and the
      card above already counts them all. The Sent tick still stamps `rsvpTextedAt`, and the
-     Automation Emails list still leaves texted people out — she named this one. */
+     Automation Emails list still leaves texted people out — she named this one.
+     ⭐ AND A SAVED LIST GROWS ON ITS OWN (2026-10-15, [[RS-82]]): `addNewToEnd` — anybody pending and
+     on no batch is added as new batches at the end when the panel opens, ticks untouched. See
+     phoneBatchOpen. */
   const opened = await phoneBatchOpen(host, 'rsvp', function(){
     const all = rsvpLinkSheetTargets();
     const r = rsvpPhoneListRows(all);
     const textedIn = all.filter(function(it){ return rsvpTextedThisSeason((it && it.data) || {}); }).length;
     return {numbers: r.numbers, names: r.names, textedIn: textedIn};
-  }, {keepTexted: true});
+  }, {keepTexted: true, addNewToEnd: true});
   if(!opened.count){
     if(statusEl) statusEl.textContent = 'No numbers to copy \u2014 nobody is waiting to answer, or none of them has a phone.';
     return 0;
   }
   phoneBatchFocusSize(host);
   if(opened.saved){
-    if(statusEl) statusEl.textContent = 'Your saved list is open, the same batches as before. Tick each batch as you send it.';
+    if(statusEl) statusEl.textContent = opened.added
+      ? 'Your saved list is open \u2014 the same batches as before, plus ' + opened.added + ' ' +
+        (opened.added === 1 ? 'person' : 'people') + ' pending now who ' + (opened.added === 1 ? 'was' : 'were') +
+        ' on no batch, added as new batches at the end. Everybody still to answer is on it, texted or not. Tick each batch as you send it.'
+      : 'Your saved list is open, the same batches as before. Everybody still to answer is on it, texted or not. Tick each batch as you send it.';
     return opened.count;
   }
   if(statusEl) statusEl.textContent = res.numbers.length + ' number' +

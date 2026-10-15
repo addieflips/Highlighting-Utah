@@ -64555,7 +64555,8 @@ suite('350. The numbers on their own, and the people who have none');
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
     /* REPOINTED again 2026-10-13 (RS-80, superseding RS-78 here): everybody pending, texted or not. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true\}\);/.test(copyFn) &&
+    /* And 2026-10-15 (RS-82): a saved list adds anybody pending and on no batch at the end — `addNewToEnd`. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(copyFn) &&
     !/phoneNotTextedYet/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
@@ -65569,8 +65570,9 @@ suite('364. Texted people stay off every new list');
   check('S364', 'the Automation Emails list builds new lists from people not texted yet',
     (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 1 &&
     /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\)/.test(stripped));
+  /* RS-82 (2026-10-15): the same call also asks for `addNewToEnd`; Suite 382 runs what that does. */
   check('S364', 'Text the RSVP\'s new list keeps everybody pending, and hides the take-them-off box',
-    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true\}\);/.test(stripped) &&
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(stripped) &&
     /typeof opts\.markTexted === 'function' && !opts\.keepTexted/.test(panel));
   check('S364', 'the paste box and the up-to-a-name box are both wired',
     /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
@@ -66800,4 +66802,156 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
   check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
   check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
     (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
+}
+
+/* =====================================================================
+ * Suite 382. Everyone on hold is on the Text the RSVP batches without
+ * pressing anything (2026-10-15, RS-82). Addie: "on RSVP sending text on
+ * the batches it only shows 257 but there are over 400 on hold. We need
+ * everyone on hold wether they already got a text or not."
+ *
+ * Her saved list was cut under RS-78 (texted people left out). RS-80 then
+ * put them back on a NEW list — but a saved list reopens on every press, so
+ * the ~200 she had texted sat pending and on no batch, offered behind an
+ * "Add them" button (RS-75). This RUNS phoneBatchOpen against a saved list:
+ * on Text the RSVP they are appended as new batches at the end and written
+ * down at once; every batch already made and every Sent tick is exactly as
+ * it was; the Automation Emails list still only offers. phoneRunLoad,
+ * phoneRunStore and phoneMarkTexted are stubbed BY NAME because they reach
+ * Firestore — everything else is the real lifted code.
+ * ===================================================================== */
+suite('382. Everyone on hold is on the Text the RSVP batches without pressing anything');
+{
+  const lift = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize',
+    'phoneRunSetSent', 'phoneRunFirstOpen', 'phoneRunNewPeople', 'phoneRunAddNew', 'phoneRunFromDoc', 'phoneRunWhen',
+    'phoneRunPersist', 'phoneBatchOpen'];
+  const srcs = names.map(lift);
+  check('S382', 'every piece of the panel was found, phoneBatchOpen included', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  const stripped = stripComments(admin);
+  check('S382', 'Text the RSVP asks for the add, and the Automation Emails list does not',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(stripped) &&
+    (stripped.match(/addNewToEnd: true/g) || []).length === 1,
+    'she named Text the RSVP; the other list was not asked about');
+  check('S382', 'the add is an APPEND through phoneRunAddNew, written through the list\'s own save',
+    /if\(opts\.addNewToEnd && extra\.numbers\.length\)\{\s*phoneRunAddNew\(saved, extra\);[\s\S]*?await opts\.save\(saved\);/
+      .test(stripComments(lift('phoneBatchOpen') || '')),
+    'a re-cut would move people across batch lines and a tick would vouch for somebody never texted');
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
+  if (!JSDOM) note('S382: jsdom missing — run npm install; the panel was not driven');
+  if (srcs.every(Boolean) && JSDOM) {
+    pendingAsync.push((async function () {
+      const w = new JSDOM('<div id="h"></div>').window;
+      const stores = [];
+      let failStore = false;
+      let savedDoc = null;
+      let api = null;
+      api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm',
+        'phoneRunLoad', 'phoneRunStore', 'phoneMarkTexted', 'auth',
+        'const PHONE_BATCH_DEFAULT = 50;' + srcs.join('\n') + ';return { phoneBatchOpen, phoneRunFromDoc };')(
+        w.document, { clipboard: { writeText: async function () {} } },
+        { getItem: k => (k === 'hu.phoneBatchSize' ? '2' : null), setItem: function () {} },
+        { error: function () {} }, function () { return true; },
+        async function () { return savedDoc ? api.phoneRunFromDoc(JSON.parse(JSON.stringify(savedDoc))) : null; },
+        function (key, run) {
+          if (failStore) return Promise.reject(new Error('offline'));
+          stores.push({ key: key, run: JSON.parse(JSON.stringify(run)) });
+          return Promise.resolve();
+        },
+        async function () { return { marked: 0, failed: 0, skipped: 0, matched: new Set() }; },
+        null);
+      const host = w.document.getElementById('h');
+      const q = k => host.querySelector('[data-pb="' + k + '"]');
+      const tick = async function () { await new Promise(r => setTimeout(r, 0)); };
+      const rsvpOpts = { keepTexted: true, addNewToEnd: true };
+      /* Read through these rather than indexing: a sabotage that leaves a batch missing must FAIL a
+         check, never throw out of the async body and get blamed on whichever suite is printing. */
+      const bat = (r, i) => ((r && r.run && r.run.batches) || [])[i] || {};
+      const nums = (r, i) => (bat(r, i).numbers || []).join();
+      const nb = r => ((r && r.run && r.run.batches) || []).length;
+
+      /* Her saved list: two batches of two, batch 1 ticked Sent — cut when texted people were
+         left out, so three people she had texted are pending today and on no batch. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'office@x.com' },
+        { numbers: ['8015550003', '8015550004'], names: ['Cara', 'Dan'], sentAt: 0, sentBy: '' }] };
+      const today = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005', '8015550006', '8015550007'];
+      const todayNames = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve', 'Fay', 'Gus'];
+      const current = () => ({ numbers: today.slice(), names: todayNames.slice(), textedIn: 3 });
+
+      const r1 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'Text the RSVP: the three pending and on no batch are ADDED, as new batches at the end',
+        r1.saved && r1.added === 3 && r1.count === 7 && nb(r1) === 4 &&
+        nums(r1, 2) === '8015550005,8015550006' &&
+        nums(r1, 3) === '8015550007' && (bat(r1, 3).names || []).join() === 'Gus',
+        'offered behind a button is the 257 she kept seeing');
+      check('S382', 'every batch already made, and the Sent tick on it, is exactly as it was',
+        nums(r1, 0) === '8015550001,8015550002' && bat(r1, 0).sentAt === 5000 &&
+        bat(r1, 0).sentBy === 'office@x.com' && nums(r1, 1) === '8015550003,8015550004' &&
+        !bat(r1, 1).sentAt && !bat(r1, 2).sentAt && r1.run.size === 2,
+        'RS-75: a tick vouches for the people in that batch and must never move');
+      check('S382', 'and it is written down at once, to the Text the RSVP list',
+        stores.length === 1 && stores[0].key === 'rsvp' && nb(stores[0]) === 4 && bat(stores[0], 0).sentAt === 5000,
+        'a list grown only on screen is 257 again on the next press');
+      check('S382', 'the line under the batches says so, and nothing is left to offer',
+        /3 people pending now and on no batch were added as new batches at the end/.test(host.textContent) &&
+        !/pending now and on no batch\./.test(host.textContent) && q('addnew').style.display === 'none' &&
+        !/could not be saved/.test(host.textContent));
+      check('S382', 'it opens on the first batch not ticked', /Batch 2 of 4/.test(host.textContent));
+
+      /* Reopen: the stored list now holds everybody, so nothing is added and nothing is written. */
+      savedDoc = stores.length ? stores[0].run : savedDoc;
+      const r2 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'reopening with nobody new adds nobody and writes nothing',
+        r2.added === 0 && stores.length === 1 && nb(r2) === 4 &&
+        !/added as new batches/.test(host.textContent) && q('addnew').style.display === 'none');
+
+      /* Somebody newly pending tomorrow joins the end the same way, with nothing pressed. */
+      today.push('8015550008'); todayNames.push('Hal');
+      const r3 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'somebody newly pending tomorrow is added the same way',
+        r3.added === 1 && nb(r3) === 5 && nums(r3, 4) === '8015550008' &&
+        stores.length === 2 && /1 person pending now and on no batch was added/.test(host.textContent));
+
+      /* The Automation Emails list was not named by her and still only offers. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'x' }] };
+      const before = stores.length;
+      const r4 = await api.phoneBatchOpen(host, 'et',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedOut: 0 }), {});
+      await tick();
+      check('S382', 'the Automation Emails list still OFFERS new people rather than adding them',
+        !r4.added && nb(r4) === 1 && stores.length === before &&
+        /1 person is pending now and on no batch\./.test(host.textContent) && q('addnew').style.display !== 'none',
+        'the other list was not asked about and keeps RS-75 whole');
+
+      /* A save that fails is said on the line; the next open adds them again rather than losing them. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'x' }] };
+      failStore = true;
+      const r5 = await api.phoneBatchOpen(host, 'rsvp',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedIn: 0 }), rsvpOpts);
+      await tick();
+      check('S382', 'a save that fails is said on the line, never a quiet green',
+        r5.added === 1 && r5.addFailed === true && /could not be saved/.test(host.textContent) &&
+        /1 person pending now and on no batch was added/.test(host.textContent));
+      failStore = false;
+      const r6 = await api.phoneBatchOpen(host, 'rsvp',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedIn: 0 }), rsvpOpts);
+      await tick();
+      check('S382', 'and once the save works they are added once, not twice',
+        r6.added === 1 && nb(r6) === 2 && nums(r6, 1) === '8015550009' &&
+        nb(stores[stores.length - 1]) === 2);
+    })());
+  }
 }
