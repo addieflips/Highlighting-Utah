@@ -22759,6 +22759,38 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
     admin.indexOf("getElementById('quoteStageCountRequote').textContent") > 0,
     'a folder with no number beside it is a folder nobody opens');
 
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
+     section that says waiting for pictures with a place to push waiting for pictures or
+     something shorter than that for new quotes. This is when we email for pictures of
+     there house." A hand-set mark on the quote (waitingForPhotosAt), a tab of its own,
+     and a way back. The folder rule is RUN below; these hold the tab and the two writers. */
+  check('S65', 'there is a Waiting for pictures tab',
+    /data-quotestage="pictures"/.test(admin) && /id="quoteStageCountPictures"/.test(admin),
+    'she asked for a section; a folder rule with no tab is a card that vanishes');
+  check('S65', 'and its count is filled in with the others',
+    admin.indexOf("getElementById('quoteStageCountPictures').textContent") > 0 &&
+    /const stageCounts = \{new:0, pictures:0,/.test(admin),
+    'a tab whose count is never written reads as empty whatever is in it');
+  check('S65', 'the card offers Waiting for pictures, and a way back',
+    /data-waitphotos="'\+item\.id\+'"/.test(admin) && /data-gotphotos="'\+item\.id\+'"/.test(admin),
+    'a folder nothing can file into is an empty tab');
+  check('S65', 'and only where pressing it would move the card',
+    /\(\(quoteStage\(d\) === 'new' && !isRequote\(d\)\)\s*\r?\n\s*\? \(d\.waitingForPhotosAt/.test(admin),
+    'the button and the folder rule must read the same two conditions, or a press moves nothing');
+  check('S65', 'pressing it stamps the mark and follows the card to its tab',
+    /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: serverTimestamp\(\)\}\)/.test(admin) &&
+    /followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
+    'a write with no local mirror leaves the office on a tab the card has left');
+  check('S65', 'and Pictures arrived clears it the same way',
+    /* ⚠ THE WRITE ITSELF, NOT THE NAME. A red-check that emptied the updateDoc passed the
+       first draft, because the local mirror on the next line spells the same object. */
+    /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: null\}\)/.test(admin) &&
+    /followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
+    'a mark with no way off leaves a quote waiting for pictures for ever');
+  check('S65', 'the empty tab says how a card gets there',
+    /pictures: 'Nobody is waiting on pictures\./.test(admin),
+    'an empty tab with no instruction reads as broken');
+
   {
     const at = admin.indexOf('function quoteFolder(');
     let src = '';
@@ -22788,6 +22820,22 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         f({}) === 'new' && f({quotedPrice: 400}) === 'send' &&
         f({quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'diverting re-quotes must not move anybody else');
+
+      /* ⭐ WAITING FOR PICTURES ([[QT-57]]) — the folder rule, run. */
+      check('S65', 'a new quote marked waiting for pictures is filed there',
+        f({waitingForPhotosAt: 1}) === 'pictures' && f({}) === 'new',
+        'the mark is the only thing that files a card there, and nothing else must');
+      check('S65', 'and once priced and sent it waits with everybody else',
+        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' &&
+        f({waitingForPhotosAt: 1, quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
+        'a sent quote is waiting on an answer, not on pictures');
+      check('S65', 'a re-quote keeps its own tab whatever the mark says',
+        f({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === 'requote',
+        'she asked for this for new quotes; a re-quoted house is one we already have pictures of');
+      check('S65', 'and a closed one is still history',
+        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' &&
+        f({waitingForPhotosAt: 1, approvalStatus: 'declined'}) === 'closed',
+        'Closed is one folder');
 
       /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
          rather than shown in both: a card in two places is a job two people do, or
@@ -29535,7 +29583,7 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'Quotes needs no second write, because that is where a new one lands',
       Object.keys(staged('new')).length === 0);
     check('S113', 'and every other section does move the card',
-      ['send', 'form', 'requote', 'closed'].every(function(st){
+      ['pictures', 'send', 'form', 'requote', 'closed'].every(function(st){
         return Object.keys(staged(st)).length > 0;
       }),
       'a stage with no updates leaves the card sitting in Quotes');
@@ -29554,7 +29602,7 @@ suite('Suite 113. Build Test Customer');
       'an empty update is a write for nothing');
   }
   /* ⚠ AND THE ROUND TRIP. */
-  const stages = ['new', 'send', 'form', 'requote', 'closed'];
+  const stages = ['new', 'pictures', 'send', 'form', 'requote', 'closed'];
   stages.forEach(function(st){
     const f = fields(st, base);
     /* Re-quotes is the one that needs a customer behind it, which the button builds
