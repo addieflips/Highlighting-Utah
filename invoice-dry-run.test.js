@@ -137,7 +137,19 @@ check('the lift list is COMPUTED from the source, never typed',
   /function liftClosure\(/.test(live) && /liftClosure\(\['runInvoiceBatch'\]\)/.test(live),
   'a hand-kept list must be edited whenever somebody else refactors, and this repo has ' +
   'been caught by exactly that thirteen times — the first run of this script included');
-check('and ensureToken is held back from the closure on purpose',
+/* ⛔ ADDED 2026-10-15, AFTER THE FIRST REAL READ. The run asked for two templates, neither
+   was on file, and all 24 bills went out in the built-in wording — which the report could
+   only say as "template asked for", leaving it to be read as "template used". Asked for and
+   FOUND are two facts and the gap between them is the finding. */
+check('the report says whether each template was actually FOUND, not only asked for',
+  /found: !\(r && r\.empty\)/.test(live) && /NOT ON FILE/.test(live),
+  'the run falls back to built-in wording rather than stopping a bill, so a renamed ' +
+  'template is silent unless the report names the gap');
+check('and a missing one lists the template names on file, so there is something to act on',
+  /templates\.map\(t => String\(t && t\.name/.test(live) && /wanted\.some\(w => !w\.found\)/.test(live),
+  'a template name is our own setting, not a person — "missing" with no list is a report ' +
+  'nobody can act on');
+check('ensureToken is held back from the closure on purpose',
   /NEVER_LIFT = new Set\(\['ensureToken'\]\)/.test(live),
   'the real one WRITES a portal token; lifting it would make the dry run edit the book');
 
