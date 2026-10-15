@@ -194,6 +194,19 @@ const FOLDER_OF = extractFn(admin, 'messageFolderOf');
 const MEMBER_BLOCK = between(index, "var MEMBER_ERROR_TOPIC = 'Member Error';",
   'function setQuoteConfirmSub(', 'the member reporter');
 
+/* ⭐ A FAILED PAYMENT REPORTS ITSELF (2026-10-14). Card payments stopped for a day on 13 October
+   and the office heard it from a customer's email. All three ways a payment can fail on the
+   portal — starting the order, PayPal refusing, finishing it — now raise a Member Error. */
+{
+  const pp = (function(){ const i = index.indexOf('var ppConfig = {'); const j = index.indexOf('var ppBtn = window.paypal.Buttons', i); return i > -1 && j > i ? index.slice(i, j) : ''; })();
+  check('the payment flow was found', pp.length > 500);
+  ['Starting a card or PayPal payment', 'Finishing a card or PayPal payment', 'Paying by card or PayPal'].forEach(function(doing){
+    check('a payment failure reports itself: "' + doing + '"', pp.indexOf("reportMemberError('" + doing + "'") !== -1);
+  });
+  check('and the PayPal refusal always carries a reason, never a bare string',
+    /reportMemberError\('Paying by card or PayPal', err \|\| \{message:/.test(pp));
+}
+
 check('every piece this file runs was found',
   !!ERROR_CONSTS && !!ADMIN_BLOCK && !!SEED_FN && !!HOME_MAP && !!FOLDER_OF && !!MEMBER_BLOCK,
   'renamed or moved? repoint the lift — do NOT paste a copy in here, or this file starts ' +
@@ -1221,8 +1234,8 @@ check('an upload failure with no reason at all still reads as a sentence',
 const adviceCallers = (admin.split('uploadFailText(err)').length - 1) -
   (admin.indexOf('function uploadFailText(err){') !== -1 ? 1 : 0);
 check('every upload door that tells the office anything says WHY (structural)',
-  adviceCallers === 8,
-  'expected the extra house photo, the expense receipt, the Gallery, the fix-note photo, ' +
+  adviceCallers === 7,
+  'expected the extra house photo, the expense receipt, the Gallery, ' +
   'How It Works, Areas We Serve, the Blueprint Maps drawing and the Add Fix popup’s ' +
   'photo; found ' + adviceCallers +
   '. An upload added later without this line says "Upload failed" exactly as all of them used to');
@@ -1234,7 +1247,10 @@ check('every upload door that tells the office anything says WHY (structural)',
    ⚠ 7 → 8 ON 2026-10-06, [[FIX-07]]. showAddFixPopup is an EIGHTH, separate from the
    existing fix-note photo door (the Edit Note panel's `.note-fixphoto-input`, which this
    change does not touch) — raising a fix now opens its own popup with its own upload
-   input, so there are two places a fix photo can be added rather than one. */
+   input, so there are two places a fix photo can be added rather than one.
+   ⚠ 8 → 7 ON 2026-10-09, [[FIX-08]]. The Edit Note panel's fix photo door is GONE, not missed: it
+   wrote one photo over a list of several, so it now opens the Add Fix popup instead. One door, and
+   that one takes several photos. */
 
 /* ⛔ THREE CHECKS CAME OUT HERE ON 2026-09-12 ([[QT-41]]), WITH THE CODE THEY COVERED.
    They guarded the wording of the Twilio authentication failure on the quote card — added
@@ -1762,6 +1778,30 @@ console.log('--- wiring ---');
   check('while the runaway guard inside add() stays small',
     /caught\.length >= 40/.test(addBody),
     'that one is about a page failing right now, not about a season of history');
+}
+
+/* ⭐ A LOST REPLY IS NOT CALLED SAVED (2026-10-12). Billing on the Firebase project was off
+   from 8 October and every portalRsvp call was refused before our code ran. The browser
+   reports that as `internal`, the same code a lost response gives, and twelve rows told
+   the office "this one has probably gone through" about answers that never arrived.
+   ⚠ READ OFF THE STRING LITERALS, NOT THE FILE: the comment above the wording quotes the
+   retired sentence in order to explain it, and a plain search finds that and fails a
+   correct file. */
+{
+  const at = index.indexOf('(opts && opts.maybeSaved');
+  const end = at === -1 ? -1 : index.indexOf(": 'They were shown an apology", at);
+  const branch = (at === -1 || end === -1) ? '' : index.slice(at, end);
+  const said = (branch.match(/'(?:[^'\\]|\\.)*'/g) || []).join(' ');
+  check('the maybe-saved wording was found',
+    said.length > 100,
+    'the anchors moved, so the two checks below would pass on nothing');
+  check('a reply we got no answer for is never reported as probably saved',
+    !/probably gone through|has gone through|is saved\b/i.test(said),
+    'no answer back cannot tell a lost confirmation from a request that never reached us');
+  check('and it still sends the office to the record, and says both outcomes',
+    /CHECK THE RECORD BEFORE ACTING/.test(said) && /never reached us/.test(said) &&
+    /only the confirmation was lost/.test(said),
+    'softened to nothing, a real loss reads as a maybe and is never chased');
 }
 
 seedChecks.then(() => {

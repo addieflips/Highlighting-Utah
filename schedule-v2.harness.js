@@ -30,11 +30,13 @@ module.exports = function makeHarness(liftDeep){
     'isOneManDay', 'dayCrewCount', 'houseGeoPoint', 'tourMiles', 'haversine',
     'advancePriorityHouses', 'placeJoinedHouses', 'validateSeasonPlan', 'lockedDaySnapshot', 'placementReasons',
     'houseSchedulingProfile', 'bestEarlierDayFor', 'milesFromDay', 'generateDayRoutes', 'INVARIANT_NAMES', 'PRIORITY_CLASS_LABELS',
-    'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
+    'routeAreaIds', 'routeAreaReturns', 'dayHoldsWithHouses', 'dropHousesWhoLeftSeason', 'isOffTheSchedule', 'isWaitingOnColorChange', 'installStampDiffs',
     'syncHousesFromCustomers', 'rehomeMovedHouses', 'placeUnscheduledOnNextDay', 'takedownsNoLongerOwed', 'rebuildTakedownDays', 'routeDayIsLocked',
     'refreshLockedDates', 'freezePrintedDays', 'frozenCrewSplit', 'PRINTED_OVERRIDE', 'LOCKED_DATES',
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
-    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'isInWarehouse', 'isWaitingOnTimer'],
+    'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
+    /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
+    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -61,6 +63,8 @@ module.exports = function makeHarness(liftDeep){
     '__D.UTC = __RealDate.UTC; __D.parse = __RealDate.parse;',
     'var Date = __D;',
     'function serverTimestamp(){ return null; }',
+    /* declared mid-statement in the page (let fixOpen=true, FIXLIST=[], fixRouteSeq=0, …), which the lifter cannot see */
+    'var FIXLIST = [], fixRouteSeq = 0;',
     gridSrc.replace(/^import[^;]+;/gm, ''),
     moneySrc,
     'var gridPlanBlocks = planBlocks;',
@@ -70,7 +74,7 @@ module.exports = function makeHarness(liftDeep){
   const post = [
     /* the Mountain clock is pinned to the same "today" */
     'window.scheduleHangDay = function(r){ return hangDayOn(r); };',
-    'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: 7, minute: 0}; };',
+    'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: d.getHours(), minute: d.getMinutes()}; };',
     'return {',
     '  setNow: function(d){ __NOW = d.getTime(); },',
     '  load: function(book, opts){',
@@ -97,7 +101,7 @@ module.exports = function makeHarness(liftDeep){
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
-    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); return {r: r, g: g, lb: lb}; },',
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
     '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
@@ -114,11 +118,13 @@ module.exports = function makeHarness(liftDeep){
     '        advancePriorityHouses: advancePriorityHouses, placeJoinedHouses: placeJoinedHouses,',
     '        validateSeasonPlan: validateSeasonPlan, lockedDaySnapshot: lockedDaySnapshot, placementReasons: placementReasons,',
     '        houseSchedulingProfile: houseSchedulingProfile, bestEarlierDayFor: bestEarlierDayFor, milesFromDay: milesFromDay,',
-    '        pullBackPastDeadline: pullBackPastDeadline, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
+    '        pullBackPastDeadline: pullBackPastDeadline, enforceFiveMileCrews: enforceFiveMileCrews, generateDayRoutes: generateDayRoutes, INVARIANT_NAMES: INVARIANT_NAMES,',
     '        dropHousesWhoLeftSeason: dropHousesWhoLeftSeason, isOffTheSchedule: isOffTheSchedule, installStampDiffs: installStampDiffs,',
     '        sweepGoneDaysForward: sweepGoneDaysForward, scheduleTodayStr: scheduleTodayStr, hangDayOn: hangDayOn,',
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
-    '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden}',
+    '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
+    '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses}',
     '};'
   ].join('\n');
 

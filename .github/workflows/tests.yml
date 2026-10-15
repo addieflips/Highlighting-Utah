@@ -250,6 +250,12 @@ jobs:
       # like a good week.
       - name: Errors reach the Inbox (member and admin)
         run: npm run test:errors
+      # ⭐ THE SERVER IS NOT ANSWERING, SAID ON SCREEN. Billing on the Firebase project
+      # lapsed for four days in October 2026 and the admin page looked healthy
+      # throughout. Named separately because if this check breaks, the symptom is a
+      # banner that never appears — which reads exactly like a server that is up.
+      - name: The admin page says when the server is down
+        run: npm run test:serverdown
       # ⭐ GMAIL FIRST, THE INBOX ONLY ON FAILURE. Named separately because a break here
       # is silent in the worst direction: the Inbox copy is now the FALLBACK, so a bug
       # that makes the sender report success when it did not send drops every customer
@@ -340,6 +346,16 @@ jobs:
       # October, November, the two Thanksgiving timings — to exactly what it decided before.
       - name: Their own calendar (away dates and wanted window)
         run: npm run test:awaycal
+      # The itemised invoice inside the invoice email is one block written twice — the
+      # office test copy and the 7 PM run. Named so a red build says the two bills have
+      # stopped matching, rather than a generic npm test failure.
+      - name: The invoice inside the invoice email
+        run: npm run test:invoice-email
+      # The by-hand mark stops the 7 PM run emailing a bill the office already handed over.
+      # Named because its two failures are opposite and both silent: a mark the run ignores
+      # sends a customer the same bill twice, and a mark read too early waives their fee.
+      - name: Invoice given by hand
+        run: npm run test:invoice-by-hand
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
@@ -381,12 +397,23 @@ jobs:
       - name: The headline rules still hold (Confirmed = scheduled, All Customers = Schedule)
         run: npm run test:headline
 
+      # ⭐⭐ [[SCH-129]] THE WHOLE SEASON, EVERY RULE, EVERY DAY. Plays three seasons through the real Recalculate and
+      # checks every standing schedule rule after every sync and every press. Its own named step so a red here reads
+      # as "the schedule broke a rule" — see schedule-season.test.js. Fix the change, never the season.
+      - name: The schedule keeps every rule over a whole season
+        run: npm run test:season-sim
+
       - name: Run the fast suite
         run: npm test
 
   browser-tests:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest
+    # ⚠ A CEILING, ADDED 2026-10-07. With none, GitHub's default is SIX HOURS: PR #541 sat on
+    # "Install Chromium" for over four hours on a download that had simply hung, never reaching a
+    # single spec, while the required check blocked the merge the whole time. A real run takes a
+    # few minutes; 45 is generous and still turns a hang into a red that can be re-run.
+    timeout-minutes: 45
     steps:
       - name: Get the code
         # ⚠ FULL HISTORY, NOT THE DEFAULT SHALLOW CLONE. docs-current.test.js asks git
@@ -408,8 +435,18 @@ jobs:
 
       # --with-deps also installs the system libraries headless Chromium needs
       # on a bare Ubuntu runner. Without it the browser installs but won't launch.
+      # ⚠ RETRIED, AND EACH TRY IS TIMED. The download is the one step that depends on somebody
+      # else's servers, and on 2026-10-07 it hung rather than failing — so a plain retry would never
+      # have fired. `timeout 300` turns a hang into a failure, and the loop tries again; three
+      # strikes is a genuine outage and the step goes red with the reason in the log.
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 20
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install --with-deps chromium && exit 0
+            echo "Chromium install attempt $i hung or failed — retrying"
+          done
+          exit 1
 
       - name: Run the browser specs
         run: npm run test:browser

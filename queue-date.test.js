@@ -271,7 +271,10 @@ check('the one place that sets the flag without queuing is still excluded',
        flag into the local cache afterwards, so the note/photo popup does not read its
        own stale copy on the next render. */
     showAddFixPopup: 'mirrors the flag into the local cache after Save Fix calls ' +
-      'hlxMarkJobDone, which is the dated write'
+      'hlxMarkJobDone, which is the dated write',
+    /* [[FIX-09]] the Fixes list's Done button: mirrors the flag off so the row leaves at once, then
+       calls hlxMarkJobDone — the dated write — and puts it back if that fails. */
+    markFixDoneFromList: 'mirrors the flag around hlxMarkJobDone, which is the dated write'
   };
   const strangers = [...doors.keys()].filter(f => !(f in FIX_DOORS));
   check('no new place writes the fix flag without a decision about it',
@@ -1100,6 +1103,7 @@ const PATH_STEPS = [
   ['they are marked maybe next year', 'maybeNextYearAt',       'admin.html'],
   ['their old set comes back',     'lightsRecycledAt',         'admin.html'],
   ['the invoice email goes out',   'invoiceEmailSentAt',       'functions/index.js'],
+  ['the invoice is given by hand', 'invoiceSentByHandAt',      'admin.html'],
   ['they are re-quoted',           'requotedAt',               'admin.html'],
   /* ⚠ THESE SEVEN WERE ALREADY ON THE HISTORY OR ON THE PICTURE AND ON NO PATH, which is
      how they came to be reported as "strangers" by both of the other censuses for weeks
@@ -1282,6 +1286,17 @@ check('the path still has every step in it',
        markers ([[QT-49]]): they say which rung a quote has reached so the next one can be
        measured from it. Drawn as steps they would put the same event on the picture twice.
        The same shape as portalChangeEmailAt below. */
+    /* ⭐ QT-52 / QT-53 (2026-10-13). The SEND is already on the path as quoteSentAt; this is
+       the clock the archive and the first nudge are measured from, kept because the office
+       Nudge rewrites quoteSentAt. One event, two stamps — drawn twice it is the same send on
+       the picture twice. */
+    quoteFirstSentAt: 'the first time the quote went out, kept separately only because a ' +
+      're-send rewrites quoteSentAt — the send itself is already on the path as quoteSentAt',
+    lastArchiveRunAt: 'the daily quote-archive pass\'s own marker on settings/quoteNudgeAutomation, ' +
+      'like lastRunAt — not about any customer',
+    quoteNudgeTextedAt: 'the office ticking "texted" on the Quotes tab text list ([[QT-54]]). ' +
+      'The text itself goes from somebody\'s phone and the app never sees it, so this is our own ' +
+      'note that a person did it — it moves the ladder on, it is not a stage the app witnessed',
     quoteNudgeTextAskedAt: 'when the office was TOLD to text somebody about their quote — ' +
       'rung one of the nudge ladder. Nothing reached the customer, so nothing happened to ' +
       'them: a person sends the text, and that conversation is not something the app sees',

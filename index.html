@@ -7159,12 +7159,21 @@ function reportMemberError(doing, err, who, opts){
              ⚠ AND THE OLD SENTENCE IS KEPT FOR THE CASES IT IS STILL TRUE OF — a refused
              write, a stale link, anything that failed before the write. Softening it for
              everything would be the opposite mistake: a real loss reading as a maybe is how
-             an answer nobody has is never chased. The CALLER says which it is. */
+             an answer nobody has is never chased. The CALLER says which it is.
+             \u26a0 AND "PROBABLY GONE THROUGH" WAS A CLAIM THIS PAGE CANNOT MAKE (2026-10-12).
+             Billing on the Firebase project was off from 8 October and Google refused
+             every call before portalRsvp ran at all. The browser sees that as the same
+             `internal` a lost response gives, so twelve rows told the office the answer
+             had probably saved when the server had never been reached. From here the two
+             are indistinguishable, so the row says so and sends her to the record. */
           (opts && opts.maybeSaved
             ? 'They were shown our phone number and told their reply may already be saved, ' +
-              'so they may ring. CHECK THE RECORD BEFORE ACTING: our system was slow to ' +
-              'answer rather than refusing, and an RSVP answer is written before that ' +
-              'happens \u2014 so this one has probably gone through.'
+              'so they may ring. CHECK THE RECORD BEFORE ACTING: we got no answer back, ' +
+              'which happens two ways that look the same from here \u2014 the reply saved ' +
+              'and only the confirmation was lost, or the request never reached us and ' +
+              'nothing saved. Their record is the only thing that says which. Several of ' +
+              'these in a row usually means our server is down, not that customers are ' +
+              'unlucky.'
             : 'They were shown an apology and our phone number, so they may ring. Whatever ' +
               'they were trying to do did NOT save \u2014 if this was an RSVP or a quote ' +
               'answer, we still do not have it, and to them it will look like they already ' +
@@ -7970,6 +7979,33 @@ var paypalButtonInstances = [];
    that. This is what lets the page say so instead of leaving them to find out on their
    statement. */
 var paypalFlowOpen = false;
+/* ⭐ A CARD THAT WILL NOT GO THROUGH IS SAID, TO THEM AND TO US (2026-10-14).
+   SuAnne tried four times in five minutes on 13 October and the office heard it from her
+   email. Nothing on our side failed: every order was created, and a card PayPal declines
+   is answered INSIDE PayPal's own card form — no callback reaches this page, so no error
+   could ever be reported. What this page CAN see is a payment started again without the
+   last one finishing. The second start tells them Venmo is there; the third files a
+   Member Error naming them, so the office can ring before they give up.
+   ⚠ COUNTED PER VISIT AND RESET BY A REAL PAYMENT. About half of all orders are started
+   and abandoned on an ordinary day (measured 12 October), so one unfinished try is
+   normal and must say nothing. */
+var paypalStartsUnpaid = 0;
+function paypalNoteRetry(){
+  paypalStartsUnpaid++;
+  if(paypalStartsUnpaid >= 2){
+    var sw = document.getElementById('paypalSwitchMsg');
+    if(sw){
+      sw.style.display = 'block';
+      sw.textContent = 'Card not going through? PayPal sometimes declines a card without saying why. ' +
+        'You can pay by Venmo instead, or call/text us at (801) 901-0011 and we will sort it out.';
+    }
+  }
+  if(paypalStartsUnpaid === 3){
+    reportMemberError('Paying by card or PayPal',
+      {message: 'started a card payment 3 times this visit without one going through ' +
+                '\u2014 PayPal is probably declining their card inside its own form'});
+  }
+}
 function resetPaypalButtons(){
   if(!paypalButtonsRendered) return;
   paypalButtonInstances.forEach(function(inst){
@@ -8067,6 +8103,7 @@ function renderPaypalButtons(){
     createOrder: function(){
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl) errEl.style.display = 'none';
+      paypalNoteRetry();
       // currentPortalPhone holds the invoice doc key: phone digits, or the
       // lowercase email for customers without a phone. The Cloud Function
       // treats it as an opaque invoice ID either way.
@@ -8075,6 +8112,10 @@ function renderPaypalButtons(){
         return result.data.orderID;
       }).catch(function(err){
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong starting the payment — please try again or call/text us at (801) 901-0011.'; }
+        /* ⭐ A FAILED PAYMENT TELLS US, NOT ONLY THE CUSTOMER (2026-10-14). On 13 October card
+           payments stopped for a whole day and the office heard it from SuAnne's email. Every
+           way a payment can fail here now lands in Errors › Member Errors, with who it was. */
+        reportMemberError('Starting a card or PayPal payment', err);
         throw err;
       });
     },
@@ -8082,6 +8123,7 @@ function renderPaypalButtons(){
       paypalFlowOpen = false;
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
+        paypalStartsUnpaid = 0;
         /* ⚠ IT USED TO SAY "Paid in Full" AND $0 WHATEVER HAD JUST BEEN PAID, and
            from 2026-09-01 that is wrong: a customer who still owes for last season is
            charged THAT and nothing else, so the commonest payment on this page is now
@@ -8118,13 +8160,16 @@ function renderPaypalButtons(){
           var paidMsg = document.getElementById('invPaidMsg');
           if(paidMsg) paidMsg.style.display = 'block';
         }
-      }).catch(function(){
+      }).catch(function(err){
         var errEl = document.getElementById('paypalErrorMsg');
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Payment may not have gone through — please call/text us at (801) 901-0011 to double check before paying again.'; }
+        reportMemberError('Finishing a card or PayPal payment', err);
       });
     },
-    onError: function(){
+    onError: function(err){
       paypalFlowOpen = false;
+      /* PayPal's own refusal — a declined card, or the account itself held — arrives here. */
+      reportMemberError('Paying by card or PayPal', err || {message: 'PayPal reported an error'});
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong with PayPal — please try again or call/text us at (801) 901-0011.'; }
     }

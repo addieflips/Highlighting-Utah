@@ -24,6 +24,8 @@ const WHERE_TO_DEST = {
   'Customers › All Customers':    'Customers',
   'Customers › Bulk Updates':     'Customers',
   'Customers › Who Pays for Whom':'Customers',
+  /* Added 2026-10-13 with the hang day: Start New Season clears every booking. */
+  'Customers › Danger Zone':      'Customers',
   'Customer Numbers':             'Warehouse',
   'Warehouse › Build':            'Warehouse',
   'Warehouse › Recycle':          'Warehouse',
@@ -43,6 +45,9 @@ const WHERE_TO_DEST = {
      customer has to a recycle, where answering no used to be a second one. */
   'Member Portal › Cancel':       'Portal',
   'Quote Requests':               'Customers',
+  /* Added 2026-10-13: the wire picked off a System Message's picture (WH-40) writes the
+     customer record, so it lands in the Customers column like every other customer edit. */
+  'Customer Messages › Inbox':    'Customers',
   /* ⚠ AUTOMATION EMAILS HAS NO COLUMN IN THE MOCKUP, and it is folded here rather than
      dropped. Say so if it ever carries a connection the office needs to see on its own —
      silently merging a destination is the same failure as silently losing one. */

@@ -129,6 +129,44 @@ check('CI still runs this file as its own named step',
 check('CI still runs the whole chain',
   /run: npm test\b/.test(ci));
 
+/* ---- 6. [[SCH-129]] the whole-season gate cannot be quietly switched off or loosened either ----
+   Dax, 2026-10-12: "make sure its impossible for it to break again". schedule-season.test.js plays three seasons through
+   the real Recalculate and checks every standing rule on every day; this is what stops it being deleted, thinned, given
+   fewer seasons, or having its long-hop bounds raised to get a change through. Tighten those bounds freely — lower is
+   allowed — but raising one fails here. */
+let season = '';
+try { season = read('schedule-season.test.js'); } catch (e) { season = ''; }
+check('schedule-season.test.js still exists', !!season);
+const seasonRules = ['every Confirmed customer is on a day after Recalculate (SCH-85)', 'no house is on two days',
+  'a locked day never gains a house', 'nobody on a warehouse list is on any day (SCH-117)',
+  'a missed house is on a later day after that evening\'s press (SCH-129)', 'nobody is on a day outside their window',
+  'every house on a day is on exactly one crew (SCH-67)', 'two crews are never more than three apart (SCH-97)',
+  'no crew goes out under ten when its houses could join another day (SCH-128)',
+  'a finished house is pushed to the front of the season (SCH-130)',
+  'no house is more than five miles from the rest of its crew (SCH-131)'];
+check('and it still checks every standing schedule rule',
+  seasonRules.every(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") !== -1; }),
+  'missing: ' + seasonRules.filter(function (r) { return season.indexOf("'" + r.replace(/'/g, "\\'") + "'") === -1; }).join(' | '));
+const seasonCfg = (season.match(/\{name: '[^']+', seed: \d+, n: \d+, rate: [\d.]+, warehouse: \d+, joins: [\d.]+, maxHops: [\d.]+, meanHops: [\d.]+(, christmasNoteOnly: true)?\}/g) || []);
+check('over at least three seasons', seasonCfg.length >= 3, 'found ' + seasonCfg.length);
+const BOUNDS = {maxHops: 6, meanHops: 1};   /* tightened 2026-10-14 by [[SCH-133]]: was 12 / 3 (and 18 / 9.5 before SCH-131) */
+check('and its long-hop bounds have only ever been tightened (max ' + BOUNDS.maxHops + ', mean ' + BOUNDS.meanHops + ')',
+  seasonCfg.length >= 3 && seasonCfg.every(function (c) {
+    const mx = +c.match(/maxHops: ([\d.]+)/)[1], mn = +c.match(/meanHops: ([\d.]+)/)[1];
+    return mx <= BOUNDS.maxHops && mn <= BOUNDS.meanHops;
+  }), 'lower the bounds here when the schedule improves; raising them is how the five-mile rule erodes');
+/* [[SCH-132]] (2026-10-13): "hung by Christmas" is a note, not a check, for the 60%-finish season ONLY — measured, five of six
+   seeds of that season already ran past 23 December before SCH-132. Every other season must still finish, and the note may never
+   spread to a season whose crews finish more than 60% of their stops. */
+const noteOnly = seasonCfg.filter(function (c) { return /christmasNoteOnly: true/.test(c); });
+check('the Christmas finish is still a hard check for every season but the 60% one',
+  noteOnly.length <= 1 && noteOnly.every(function (c) { return +c.match(/rate: ([\d.]+)/)[1] <= 0.6; }) &&
+  seasonCfg.length - noteOnly.length >= 2 && /check\('and every house was hung by Christmas \(but for the five-mile overflow\)'/.test(season),
+  noteOnly.length + ' season(s) marked note-only');
+check('npm test still runs it', /npm run test:season-sim/.test(chain) && pkg.scripts['test:season-sim'] === 'node schedule-season.test.js');
+check('CI still runs it as its own named step', /run: npm run test:season-sim/.test(ci));
+check('SCH-129 is still in the rulings map', /^\| SCH-129 \|/m.test(qmap));
+
 console.log('\n' + '='.repeat(55));
 console.log(pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('\nFailures:'); fails.forEach(f => console.log('  - ' + f)); }

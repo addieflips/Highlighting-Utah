@@ -84,7 +84,11 @@ function hits(ix, field) {
        broke twenty real declarations at once — every `updates.field = value` in the app
        became a read. Kept as a comment because the fix looks obviously right both ways
        round and is only correct one of them. */
-    else if (/^\s*:/.test(after)) kind = isProp ? 'read' : 'set';
+    /* ⚠ AND SO IS A BARE NAME STRAIGHT AFTER A `?`. `n ? housePhotos : []` puts a local
+       variable named after the field between the two halves of a ternary, and the colon
+       after it read as an object key — a phantom writer of the photo list on the one panel
+       that really does write it. An object key is never preceded by `?`. */
+    else if (/^\s*:/.test(after)) kind = (isProp || /\?\s*$/.test(s.slice(Math.max(0, m.index - 4), m.index))) ? 'read' : 'set';
     else if (isProp) kind = 'read';
     /* ⚠ A LOCAL DECLARATION IS NOT A WRITE TO THE RECORD. `const completed = !!d.completed`
        reads the field and names a local after it; `let deposit = 0` names one after a field
@@ -171,9 +175,125 @@ function otherRecord(ix, I, pos, spine) {
   return collectionsIn(ix).some(c => c !== mine && new RegExp('\\b' + c + '\\b').test(body));
 }
 
+/* ---------------------------------------------------------------------------
+ * ⭐ `only` — NOBODY ELSE MAY DO THIS (added 2026-10-13).
+ *
+ * Everything above answers "is the declared connection still there". A rule like the
+ * Schedule V2 one — "the Schedule is the ONLY thing that puts a hang day on a customer"
+ * ([[SCH-102]]) — is the other question: is there a connection that must NOT be there?
+ * Until this existed a second writer showed up as one more amber line among ~200, which
+ * is exactly how the retired crew-routes sweep came to be a second planner: nothing it
+ * did was undeclared-and-red, it was just more amber.
+ *
+ * A spine may carry `only: [{ rule, pattern, unless?, where, why, allow: [...] }]`.
+ *   pattern  a regex matched against the COMMENT-BLANKED source of every scanned file
+ *   unlessInFn  a regex the enclosing function (or the line, in a handler) may match to excuse it
+ *   unless   a regex tested against the matched text; a match it accepts is not a breach
+ *            (used for "writes null", which is a clear rather than a booking). A capture
+ *            group, never a negative lookahead after `\s*` — that backtracks and accepts
+ *            everything (CLAUDE.md, rsvp-text-link.test.js).
+ *   allow    the ONLY places permitted — the spine's declared writers are not. Each
+ *            one must still exist — an allowance naming a function that has gone is red,
+ *            or the list rots into a list of nothing. An allowance may carry `closed`:
+ *            checks that the door it describes is still SHUT. A permitted writer that is
+ *            only permitted because nothing can reach it is green only while that holds.
+ *
+ * ⚠ A BREACH IS RED, NOT AMBER, and that is the whole point of it. It gates the build
+ * through the same "every declared connection is still made" check as everything else,
+ * with `wrongValue` set so the message says a rule is being broken rather than lost.
+ * ------------------------------------------------------------------------- */
+function onlyRows(ix, spine, rows, declared) {
+  (spine.only || []).forEach(o => {
+    /* ⚠ ONLY THE EXPLICIT ALLOWANCES, NEVER THE SPINE'S DECLARED WRITERS. A declared
+       writer is declared for what it does today — `pullCustomerFromSeason` CLEARS a day —
+       and letting every declared writer through would let a clearer start booking with
+       nothing going red. Caught by the red-check, not by reading. */
+    const allowed = {};
+    /* …UNLESS THE RULE ASKS FOR THEM (`allowDeclared`). A READER census — "nobody
+       decides who is in the season for themselves" — is about who LOOKS, not what is
+       written, so every declared reader and writer is an answer already accounted for,
+       and listing each a second time under `allow` would be two lists to keep in step. */
+    if (o.allowDeclared) Object.keys(declared).forEach(fk => { allowed[fk] = declared[fk].slice(); });
+    (o.allow || []).forEach(a => {
+      const I = ix[a.file];
+      const label = a.fn ? a.fn + '()' : a.el ? '#' + a.el : 'near "' + String(a.near).slice(0, 40) + '"';
+      const base = { side: 'sets', where: o.where, when: 'allowed: ' + (a.why || ''), file: a.file,
+                     anchor: label, rules: [o.rule].concat(a.why ? [a.why] : []), found: true, why: '' };
+      const ranges = I ? anchorRanges(I, a) : [];
+      if (!ranges.length) {
+        rows.push(Object.assign(base, { found: false,
+          why: 'this rule allows ' + label + ', which is no longer in the file — repoint or remove the allowance' }));
+        return;
+      }
+      allowed[a.file] = (allowed[a.file] || []).concat(ranges);
+      /* An allowance IS a declaration — it names the place and says why — so it is not
+         also listed as amber underneath. */
+      declared[a.file] = (declared[a.file] || []).concat(ranges);
+      (a.closed || []).forEach(c => {
+        const CI = ix[c.file || a.file];
+        const cr = CI ? anchorRanges(CI, c) : [];
+        const shut = cr.length && (!c.pattern || cr.some(r => new RegExp(c.pattern).test(CI.blanked.slice(r[0], r[1]))));
+        if (!shut) rows.push(Object.assign({}, base, { found: false, wrongValue: true,
+          why: c.why || ('the door ' + label + ' was only allowed because it is shut, and it is no longer shut') }));
+      });
+    });
+    const unless = o.unless ? new RegExp(o.unless) : null;
+    Object.keys(ix).forEach(fk => {
+      const I = ix[fk];
+      const re = new RegExp(o.pattern, 'g');
+      let m;
+      while ((m = re.exec(I.blanked))) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        if (unless && unless.test(m[0])) continue;
+        /* `unlessInFn`: excused when the code AROUND the match also does the right thing —
+           the smallest named function containing it, or, inside an anonymous handler
+           where there is no function to read, the line itself. Written for the colour
+           census: reading lightsDescription is fine when the same function also reads
+           lightColors or asks houseLightsText. */
+        if (o.unlessInFn) {
+          const f = fnRange(I, m.index);
+          const around = f ? I.blanked.slice(f.start, f.end)
+            : I.blanked.slice(I.blanked.lastIndexOf('\n', m.index) + 1, I.blanked.indexOf('\n', m.index));
+          if (new RegExp(o.unlessInFn).test(around)) continue;
+        }
+        if (inAny(allowed[fk] || [], m.index)) continue;
+        rows.push({ side: 'sets', where: o.where, when: 'nobody else may do this', file: fk,
+          anchor: fk + ' · ' + (enclosing(I, m.index) || '(a handler)'), rules: [o.rule],
+          found: false, wrongValue: true, why: o.why + ' — found: ' + m[0].replace(/\s+/g, ' ').slice(0, 60) });
+      }
+    });
+  });
+}
+
+/* ⭐ A TABLE OF FIELD NAMES IS NOT A WRITE (2026-10-13). `RB_LEDGER_FIELD_RANK = {housePrice:2,
+   measuredFeet:3, …}`, the portal's change labels and the invoice self-test's expected
+   statuses all spell field names as object keys, so each read as a writer of half a dozen
+   watched fields — amber that sends somebody hunting a write that is only a word. The
+   manifest NAMES each such table (TABLES); a hit inside one is skipped for every field.
+   ⚠ NAMED, NEVER INFERRED: a rule like "any top-level const object" would also swallow a
+   real defaults object that IS written to a record, which is the false green this page
+   exists to refuse. */
+function tableRanges(I, names) {
+  const out = [];
+  (names || []).forEach(n => {
+    const m = new RegExp('\\b(?:const|let|var)\\s+' + n + '\\s*=\\s*[[{]').exec(I.blanked);
+    if (!m) return;
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    for (let i = open; i < I.blanked.length; i++) {
+      const ch = I.blanked[i];
+      if (ch === '{' || ch === '[') depth++;
+      else if ((ch === '}' || ch === ']') && --depth === 0) { out.push([m.index, i]); break; }
+    }
+  });
+  return out;
+}
+
 function check(files, manifest) {
   const ix = {};
   Object.keys(files).forEach(k => { ix[k] = index(files[k]); });
+  const tables = {};
+  Object.keys(ix).forEach(k => { tables[k] = tableRanges(ix[k], manifest.TABLES); });
   return manifest.map(spine => {
     const rows = [];
     const declared = {};
@@ -222,12 +342,29 @@ function check(files, manifest) {
         rows.push(r);
       });
     });
+    onlyRows(ix, spine, rows, declared);
+    /* ⭐ `quiet` — READ, AND NOT A CONNECTION (2026-10-13). A test-record tool that really
+       does write this field on the real record, from an anonymous handler `ignore` cannot
+       name. Each entry carries a `why`, and an anchor that matches nothing FAILS the spine
+       rather than being silently dropped — a quiet that has drifted off its code would
+       otherwise hide whatever moves in next to it. */
+    (spine.quiet || []).forEach(q => {
+      const I = ix[q.file];
+      const ranges = I ? anchorRanges(I, q) : [];
+      if (!ranges.length) {
+        rows.push({ side: 'sets', where: q.where, when: 'a quiet anchor is checked', file: q.file, anchor: 'near "' + String(q.near || q.fn || '').slice(0, 40) + '"',
+          rules: [], found: false, why: 'a quiet anchor matches nothing — ' + (q.why || '') });
+        return;
+      }
+      declared[q.file] = (declared[q.file] || []).concat(ranges);
+    });
     /* Anything touching the field outside every declared anchor. */
     const extra = {};
     Object.keys(ix).forEach(fk => {
       const dr = declared[fk] || [];
       hits(ix[fk], spine.field).forEach(h => {
         if (inAny(dr, h.pos)) return;
+        if (inAny(tables[fk], h.pos)) return;
         if ((spine.ignore || []).some(rx => new RegExp(rx).test(enclosing(ix[fk], h.pos) || ''))) return;
         if (otherRecord(ix, ix[fk], h.pos, spine)) return;
         const key = fk + ' · ' + (enclosing(ix[fk], h.pos) || '(a handler)') + ' · ' + h.kind;
@@ -248,4 +385,4 @@ function check(files, manifest) {
   });
 }
 
-module.exports = { check, hits, anchorRanges, otherRecord };
+module.exports = { check, hits, anchorRanges, otherRecord, tableRanges };

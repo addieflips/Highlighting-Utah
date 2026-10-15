@@ -12,14 +12,11 @@
  * cannot drift: the moment something here is really watched, this row has to go.
  */
 const NOT_WATCHED = [
-  ['scheduledRoutes', 'which houses a crew is sent to on a given day'],
-  ['lightColors / lightsDescription', 'what colours a house gets'],
-  ['difficulty', 'the easy / medium / hard grade'],
-  ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
-  ['gateCode', 'how a crew gets in'],
-  ['outletTimer', 'whether a house asked for a timer'],
-  ['maybeNextYear / isOutForSeason', 'who is in the season at all'],
-  ['lightsLockedUntil', 'the 48-hour route lock and free-change window'],
+  /* ⚠ NARROWED 2026-10-13. The hang day copied ONTO a customer is watched now (the
+     `scheduledDate` spine). What is still unwatched is the plan itself — which houses sit
+     on which day inside the Schedule — and the crew-routes documents fix and removal
+     routes are still saved to. */
+  ['scheduledRoutes', 'the saved fix and removal routes, and the Schedule plan itself (the hang day on a customer IS watched)'],
   /* ⭐ THE FIVE DATES ADDED 2026-08-28, AND WHY THEY ARE HERE RATHER THAN ON THE GRID.
    * Addie asked whether this page had picked them up. It had not, and writing the spines
    * is how the real reason surfaced: R-010 refuses a spine with a writer and no reader,
@@ -72,7 +69,7 @@ module.exports = [
     ],
     /* Route and plan documents carry a needsLightBuild of their own in fixtures and
        exports; those are not the customer record. Narrowed so amber stays readable. */
-    ignore: ['^hlxRowXml$'],
+    ignore: ['^(hlxRowXml|buildTestPerson|qBuildTestBtn handler)$'],
     sets: [
       { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
         rules: ['Every new house is flagged, colours or no colours.'] },
@@ -120,7 +117,17 @@ module.exports = [
         },
         rules: ['Clearing the colours must never cancel the build.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody rejoins after a recycle',
-        rules: ['Only re-queues a build if a recycle really happened.'] }
+        rules: ['Only re-queues a build if a recycle really happened.'] },
+      /* ⭐ DECLARED 2026-10-13, from the amber. Four writers that were real and right and
+         never written down — each read before it went on this list. */
+      { file: 'admin', fn: 'whBuiltUpdates', where: 'Warehouse › Build', when: 'a bundle is marked made, one house or a whole group',
+        rules: ['Both Mark Done buttons write through this one object, so clearing the flag and stamping the build cannot drift apart (WH-38).'] },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Tools', when: 'the office adds a request taken by phone, text or email',
+        rules: ['A timer on a house with no colours goes to needsTimerOnly instead (WH-27); anything else queues the build.'] },
+      { file: 'admin', fn: 'wirePickSet', where: 'Customer Messages › Inbox', when: 'a wire colour is picked from the System Message with the picture',
+        rules: ['Only queues a build when warehouseRebuildFields says the wire actually changed — it never clears the flag.'] },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote answered Maybe Next Year becomes a customer sitting out',
+        rules: ['Written false on purpose: somebody sitting the season out is not built for; Convert to Customer queues them when they come back.'] }
     ],
     reads: [
       { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the queue is drawn',
@@ -130,7 +137,16 @@ module.exports = [
       { file: 'admin', fn: 'computeColorDemand', where: 'Warehouse › Build', when: 'bulbs are ordered',
         rules: ['This is what orders the bulbs, so a wrong house here costs money.'] },
       { file: 'admin', fn: 'computePendingHouseCount', where: 'Warehouse › Build', when: 'the tab header is drawn' },
-      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' }
+      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'isWaitingOnBuild', where: 'Schedule › Scheduling', when: 'a house is asked whether it is still waiting on its bundle' },
+      { file: 'admin', fn: 'renderWarehouseColorChangeQueue', where: 'Warehouse › Build', when: 'the colour-change list is drawn' },
+      { file: 'admin', fn: 'scheduleHoldEndsMillis', where: 'Schedule › Scheduling', when: 'the 72-hour build hold is worked out' },
+      { file: 'admin', fn: 'stampBuildQueued', where: 'Warehouse › Build', when: 'the date a build was queued is stamped' },
+      { file: 'admin', fn: 'whSheetRowsForBuild', where: 'Schedule › Printing', when: 'the build sheet decides its rows' },
+      { file: 'admin', fn: 'whTimerOnlyQueue', where: 'Warehouse › Build', when: 'a timer-only change decides its own queue' },
+      { file: 'admin', fn: 'whTimerRemovalQueue', where: 'Warehouse › Build', when: 'the Remove Timer list is drawn' },
+      { file: 'server', fn: 'stampBuildQueuedServer', where: 'Member Portal › My Lights', when: 'the date a portal change queued a build is stamped' },
     ]
   },
 
@@ -174,11 +190,16 @@ module.exports = [
          the field, which is exactly what it is for. */
       { file: 'admin', near: 'function whBuiltUpdates()', where: 'Warehouse \u203a Build', when: 'either Mark Done is pressed \u2014 one house or a whole colour group',
         rules: ['It records the button being pressed, not a bundle being made \u2014 so every screen says "marked built", never "built".',
-                'A house that will not save is named, and stays on the build list.'] }
+                'A house that will not save is named, and stays on the build list.'] },
+      { file: 'admin', fn: 'renderWarehouseColorChangeQueue', where: 'Warehouse › Build', when: 'a colour change is marked done and its bundle was made too',
+        rules: ['Stamps only when the colour change WAS the build — a change done with nothing made records nothing.'] }
     ],
     reads: [
       { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse \u203a Tools', when: 'Check The Build Queue is run',
-        rules: ['A missing date reads "no build recorded", never "never built" \u2014 every customer on file before this shipped has none.'] }
+        rules: ['A missing date reads "no build recorded", never "never built" \u2014 every customer on file before this shipped has none.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'warehouseRebuildFields', where: 'Customers › All Customers', when: 'a change decides whether the warehouse rebuilds' },
+      { file: 'server', fn: 'warehouseRebuildFields', where: 'Member Portal › My Lights', when: 'a portal change decides whether the warehouse rebuilds' },
     ]
   },
 
@@ -237,7 +258,13 @@ module.exports = [
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes something that affects their set' },
       { file: 'admin', fn: 'printRecycleList', where: 'Schedule › Printing', when: 'the sheet prints' },
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
-        rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] }
+        rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer record is saved' },
+      { file: 'admin', fn: 'isWaitingOnRecycle', where: 'Warehouse › Recycle', when: 'a house is asked whether its lights are still waiting to come back' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers the RSVP' },
+      { file: 'server', fn: 'rejoinNeedsBuildServer', where: 'Member Portal › RSVP', when: 'somebody coming back is asked whether their lights must be built again' },
     ]
   },
 
@@ -293,7 +320,16 @@ module.exports = [
         rules: ['The office screen and the nightly run always agree.'] },
       { file: 'admin', fn: 'allCustRouteStatus', where: 'Customers › All Customers', when: 'the Install Complete filter runs',
         rules: ['Feeds the Install Complete filter on All Customers.'] },
-      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' }
+      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'clawBackReferralIfAny', where: 'Customers › All Customers', when: 'a referral credit is taken back when the friend cancels before install' },
+      { file: 'admin', fn: 'installStampDiffs', where: 'Schedule › Scheduling', when: 'the hang day is copied onto customer records' },
+      { file: 'admin', el: 'pibLoadBtn', where: 'Invoices › Import / Export', when: 'a post-install billing preview is loaded' },
+      { file: 'admin', fn: 'rebuildTakedownDays', where: 'Schedule › Scheduling', when: 'takedown days are laid out' },
+      { file: 'admin', fn: 'referralClawbackAllowed', where: 'Customers › All Customers', when: 'a referral credit is asked whether it may still be taken back' },
+      { file: 'admin', fn: 'takedownOwed', where: 'Schedule › Scheduling', when: 'a house is asked whether its lights still have to come down' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Member Portal › Cancel', when: 'a referral credit is taken back off a bill' },
+      { file: 'server', fn: 'heldBillWorkDoneAt', where: 'Invoices › Nightly Automation', when: 'a held shared bill is dated from its last house done' },
     ]
   },
 
@@ -336,7 +372,8 @@ module.exports = [
         rules: ['This writes the CUSTOMER, not the invoice — the invoice is rebuilt from house prices, so changing it here is what makes the bill follow.'] },
       { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
         rules: ['The agreed price is copied across, never worked out again.'] },
-      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house' }
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: "a quote answered Maybe Next Year becomes a customer sitting out" }
     ],
     reads: [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the bill is built',
@@ -356,7 +393,12 @@ module.exports = [
       { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
         rules: ['The invoice total is the sum of the house prices on the bill.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
-      { file: 'server', fn: 'houseBillingRow', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'houseBillingRow', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'fixMissingInvoicesBtn', where: 'Invoices › Invoice List', when: 'Fix Missing Invoices makes a bill for everybody priced' },
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'server', fn: 'createNextYearCustomerFromQuote', where: 'Quote Requests', when: 'a next-year quote becomes a customer' },
     ]
   },
 
@@ -387,6 +429,16 @@ module.exports = [
         rules: ['A payer who is not a customer is left as a note, never invented.'] }
     ],
     reads: [
+      /* ⭐ DECLARED 2026-10-13, from the amber. Every one was checked to find a bill BOTH ways —
+         billToPhone first, then the house's own key — which is the half this field has been
+         missed by before. */
+      { file: 'admin', fn: 'housePaidThisSeason', where: 'Customers › All Customers', when: 'a house is asked whether its bill is paid' },
+      { file: 'admin', fn: 'houseOwesFromLastSeason', where: 'Customers › All Customers', when: 'a house is asked whether it owes for last season' },
+      { file: 'admin', fn: 'houseArrearsOutstanding', where: 'Invoices › Invoice List', when: 'last season\u2019s unpaid balance is worked out' },
+      { file: 'admin', fn: 'approvePaidThisSeason', where: 'Invoices › Invoice List', when: 'a payment confirms somebody for the season' },
+      { file: 'admin', fn: 'referralBillKey', where: 'Customers › All Customers', when: 'a referral credit is put on a bill' },
+      { file: 'admin', fn: 'waiveLedgerLine', where: 'Invoices › Invoice List', when: 'a fee is waived' },
+      { file: 'admin', fn: 'editCustInvoiceNow', where: 'Customers › All Customers', when: 'Edit Customer shows the bill a house is on' },
       /* ⭐ DECLARED 2026-08-31. */
       { file: 'admin', fn: 'billedHousesFor', where: 'Customers › Who Pays for Whom', when: 'the houses on one bill are found',
         rules: ['A group has two halves: a house with billToPhone set, AND one with none whose invoice key matches. Reading only the first misses half of them.'] },
@@ -415,7 +467,14 @@ module.exports = [
         rules: ['Two houses on one phone are already one bill, even with nothing set.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
       { file: 'server', fn: 'billedHousesByKey', where: 'Invoices › Nightly Automation', when: 'the nightly run groups a bill',
-        rules: ['A house with no Bill To whose own key matches is already on that bill.'] }
+        rules: ['A house with no Bill To whose own key matches is already on that bill.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'errorSettledFor', where: 'Customer Messages › Inbox', when: 'an error row is checked against the bill it names' },
+      { file: 'admin', fn: 'houseArrearsYear', where: 'Customers › All Customers', when: 'the season a house still owes for is worked out' },
+      { file: 'admin', fn: 'noticeArrearsPaidNotApproved', where: 'Customer Messages › Inbox', when: 'the office is told last season was paid but the season is not approved' },
+      { file: 'admin', fn: 'renderOwesLastYear', where: 'Customers › All Customers', when: 'the owes-last-season list is drawn' },
+      { file: 'server', fn: 'invoiceBookServer', where: 'Invoices › Nightly Automation', when: 'the late-fee run looks up each bill' },
+      { file: 'server', fn: 'payerHouseOfServer', where: 'Invoices › Nightly Automation', when: 'whose name goes on a shared bill' },
     ]
   },
 
@@ -426,8 +485,13 @@ module.exports = [
       '^(pibLoadBtn handler|invTestSend|hcFixRow|buildAddressRowHtml|renderBillingGroups|attachAddressRowHandlers)$',
       '^(ibImportBtn handler|rbImportBtn handler|rbSettlePrepaid)$','^ssnBuildSnapshotRows$'],
     areas: ['Invoices'], record: 'inv',
-    title: 'The $30 colour-change fee',
-    plain: 'Added when a member changes their colours outside the free 48 hours.',
+    title: 'Fees on a bill',
+    /* ⚠ RENAMED 2026-10-13 while working through the amber. This field was declared as the $30
+       colour-change fee alone, and it is not: every fee line on a bill sums into it — the
+       colour change, last season's unpaid balance carried forward (ARREARS_KIND), and the
+       1 April late fee. Three undeclared writers were all legitimate and all one of those
+       three; the old title was why they read as strangers. */
+    plain: 'Every fee line on a bill, summed: the $30 colour change, last season\u2019s unpaid balance carried forward, and the late fee.',
     guard: 'money-parity.test.js runs the browser and server copies side by side over ~1,100 combinations — the strongest guard in the repo.',
     states: [
       ['Inside the free 48 hours', 'No fee'],
@@ -453,7 +517,14 @@ module.exports = [
       { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season clears last season\'s fees' },
       { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a fee is entered with a new customer' },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a member changes colours late',
-        rules: ['The office is always asked first. Never charged silently.'] }
+        rules: ['The office is always asked first. Never charged silently.'] },
+      /* ⭐ DECLARED 2026-10-13, from the amber. */
+      { file: 'admin', fn: 'addLightChangeFeeToInvoice', where: 'Customers › All Customers', when: 'the office charges a colour change',
+        rules: ['Re-reads the invoice immediately before adding: a stale read taken at the top of a long save must never be the basis of an addition.'] },
+      { file: 'admin', el: 'arrearsRunBtn', where: 'Invoices › Invoice List', when: 'last season\u2019s unpaid balances are carried onto this season\u2019s bills',
+        rules: ['Appended and re-summed, never assigned — overwriting the field with the arrears alone would delete a real colour-change fee.'] },
+      { file: 'server', fn: 'runLateFeeBatch', where: 'Invoices › Nightly Automation', when: 'the late fee is added',
+        rules: ['Dated from the bill\u2019s own chase date, not "is it April" — a late-issued bill has its own later April.'] }
     ],
     reads: [
       /* ⭐ DECLARED 2026-08-31. */
@@ -471,16 +542,30 @@ module.exports = [
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'a balance is worked out',
         rules: ['The office screen and the nightly run must always agree.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
+      /* ⭐ DECLARED 2026-10-13, from the amber — the readers that DECIDE something with the fee:
+         who is chased, who is red, what a bill totals. Each was checked to count it into the
+         balance (install + removal + changeFees − credits − deposit). */
+      { file: 'admin', fn: 'billTotalAmount', where: 'Invoices › Invoice List', when: 'a bill\u2019s total is worked out' },
+      { file: 'admin', fn: 'houseCardIsRed', where: 'Customers › All Customers', when: 'a house card turns red for money owed' },
+      { file: 'admin', fn: 'textChaseRecipients', where: 'Invoices › Invoice List', when: 'unpaid bills are chased by text' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Invoices › Nightly Automation', when: 'a referral credit is taken back' },
       { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card is charged',
         rules: ['The fee is part of what the card is charged, not an extra afterwards.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed',
-        rules: ['It is its own line, so the total adds up on the page.'] }
+        rules: ['It is its own line, so the total adds up on the page.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): the readers of the fee total that were missing. */
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices \u203a Invoice List', when: 'the invoice list draws each bill and its fee lines' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
     ]
   },
 
   {
     field: 'chargeNewMemberFee',
     areas: ['Quote Requests', 'Customers', 'Invoices'], record: 'cust',
+    quiet: [
+      { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', where: 'Customers › All Customers', why: 'The test-customer RSVP reset — test records only, never a real answer.' }
+    ],
     title: 'The $30 join fee',
     plain: 'Charged once, to somebody who joined this year through a quote.',
     guard: 'run-all.js has 63 checks, and season-state.test.js touches it — the every-season overcharge is specifically guarded.',
@@ -504,7 +589,18 @@ module.exports = [
       { file: 'server', fn: 'looksLikeNewMember', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
       { file: 'admin', fn: 'whBuildReasonKey', where: 'Warehouse › Build', when: 'the NEW badge is drawn' },
       { file: 'admin', fn: 'audienceNeverAsked', where: 'Automation Emails › Recipients', when: 'the RSVP audience is chosen',
-        rules: ['A first-year customer is never asked if they want lights AGAIN.'] }
+        rules: ['A first-year customer is never asked if they want lights AGAIN.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'audienceIsNew', where: 'Automation Emails › Recipients', when: 'the New vs returning filter decides who is new' },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice prints its set-up fee line' },
+      { file: 'admin', fn: 'houseInstallPriority', where: 'Schedule › Scheduling', when: 'a new member is put at the front of the season' },
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'isNewHangHouse', where: 'Schedule › Scheduling', when: 'a house is badged a new hang' },
+      { file: 'admin', fn: 'isNewHangUrgent', where: 'Schedule › Scheduling', when: 'a new member is past their week' },
+      { file: 'admin', fn: 'isNewMemberHouse', where: 'Schedule › Scheduling', when: 'a house is asked whether it is a new member' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'the fee box is filled when a customer is opened' },
+      { file: 'admin', fn: 'printIsNewHang', where: 'Schedule › Printing', when: 'the crew sheet decides whether to print a house photo' },
+      { file: 'admin', fn: 'resolveLinkTokens', where: 'Automation Emails › Recipients', when: 'an email fills in its set-up fee wording' },
     ]
   },
 
@@ -523,11 +619,20 @@ module.exports = [
       { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a fee is carried to next season',
         rules: ['It lives on the CUSTOMER, not the invoice — Start New Season zeroes invoice fees, so a charge parked there is deleted rather than carried.'] },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a late fee lands after the bill went out',
-        rules: ['It lives on the customer, not the invoice — Start New Season wipes invoices.'] }
+        rules: ['It lives on the customer, not the invoice — Start New Season wipes invoices.'] },
+      { file: 'admin', fn: 'lightChangeCarryoverUpdates', where: 'Customers › All Customers', when: 'a late colour-change fee is held for next season',
+        rules: ['The one builder of the carried charge — every door below copies its answer rather than adding its own.'] },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'colours are changed from the house-details panel after the bill went out' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Tools', when: 'a colour request taken by phone lands after the bill went out' },
+      { file: 'admin', fn: 'ledgerWaiveUpdates', where: 'Invoices › Invoice List', when: 'a carried charge is waived',
+        rules: ['Waiving a carried line writes only the two carried fields — never an invoice status onto the customer.'] }
     ],
     reads: [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'next season\'s first bill is built',
-        rules: ['Summed across the whole bill, not just the payer.'] }
+        rules: ['Summed across the whole bill, not just the payer.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'the invoice list shows a charge carried to next season' },
     ]
   },
 
@@ -630,7 +735,22 @@ module.exports = [
       { file: 'server', fn: 'sendPaymentReceipt', where: 'Member Portal › Pay', when: 'a receipt is sent' },
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'the balance is worked out' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
-      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): every remaining reader that asks what has been paid. Each one decides money or a message about money, so each is named. */
+      { file: 'admin', fn: 'addLightChangeFeeToInvoice', where: 'Customers \u203a All Customers', when: 'a $30 colour-change fee is added and the status is worked out again' },
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', el: 'arrearsRunBtn', where: 'Invoices › Invoice List', when: 'last season’s unpaid balances are carried forward' },
+      { file: 'admin', fn: 'houseCardIsRed', where: 'Customers \u203a All Customers', when: 'a card is coloured red for being seriously behind' },
+      { file: 'admin', fn: 'housePaidThisSeason', where: 'Customers \u203a All Customers', when: 'a house is asked whether it has paid this season' },
+      { file: 'admin', fn: 'ledgerWaiveUpdates', where: 'Customers \u203a All Customers', when: 'a fee or discount is crossed off and the status is worked out again' },
+      { file: 'admin', fn: 'paidThisSeason', where: 'Customers \u203a All Customers', when: 'a customer is asked whether they have paid this season' },
+      { file: 'admin', fn: 'receiptResendAmount', where: 'Invoices \u203a Invoice List', when: 'a receipt that never went out is sent again' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
+      { file: 'admin', fn: 'textChaseRecipients', where: 'Automation Emails › Recipients', when: 'who still owes is chosen for a chase text' },
+      { file: 'server', fn: 'arrearsOutstandingServer', where: 'Member Portal \u203a Pay', when: 'how much of last season is still owed is worked out' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Member Portal › Cancel', when: 'a referral credit is taken back off a bill' },
+      { file: 'server', fn: 'lateFeeAmountServer', where: 'Invoices \u203a Nightly Automation', when: 'the late fee is sized' },
+      { file: 'server', fn: 'runLateFeeBatch', where: 'Invoices \u203a Nightly Automation', when: 'the late-fee run decides who owes' },
     ]
   },
 
@@ -670,7 +790,8 @@ module.exports = [
         rules: ['A change inside 48 hours of a printed day must not silently rewrite the sheet.'] },
       { file: 'admin', fn: 'dayMapRoutes', where: 'Routes › Map View', when: 'a day is dragged into a new order' },
       { file: 'admin', fn: 'hcFixRow', where: 'Customers › All Customers', when: 'the health check repairs a route fault' },
-      { file: 'admin', el: 'markScheduledBtn', where: 'Routes › Install', when: 'a route is saved as scheduled' }
+      { file: 'admin', el: 'markScheduledBtn', where: 'Routes › Install', when: 'a route is saved as scheduled' },
+      { file: 'admin', fn: 'removeCustomersFromUpcomingRoutes', where: 'Routes › Install', when: 'several customers are taken off at once' }
     ],
     reads: [
       { file: 'admin', fn: 'evenOutDays', where: 'Schedule › Scheduling', when: 'a day is over the cap' },
@@ -680,7 +801,9 @@ module.exports = [
          red on correct code. The map view is what really reads the stops. */
       { file: 'admin', fn: 'dayMapDraw', where: 'Routes › Map View', when: 'the day is drawn on the map' },
       { file: 'admin', fn: 'renderCalendar', where: 'Schedule › Scheduling', when: 'the calendar counts what is on each day' },
-      { file: 'admin', fn: 'renderDayMaps', where: 'Routes › Map View', when: 'the day maps are drawn' }
+      { file: 'admin', fn: 'renderDayMaps', where: 'Routes › Map View', when: 'the day maps are drawn' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'scheduledDayIsReal', where: 'Customers › All Customers', when: 'the hang day on a row is checked against a real route' },
     ],
     /* ⚠ THE TEST SWEEP AND THE DUPLICATE TOOLS READ STOPS FOR THEIR OWN REASONS, not as
        a connection. The duplicate finders check whether a copy is on a route before
@@ -710,6 +833,9 @@ module.exports = [
       /* An INVOICE's status, not a quote's. Every one of these writes
          `status: computeInvoiceStatus(...)`. */
       '^(ssnRunBtn handler|fixMissingInvoicesBtn handler|rbImportBtn handler|ibImportBtn handler)$',
+      /* 2026-10-13: two more invoice-status writers (the arrears run, waiving a fee line), a message's
+         derived facets, and the email test's sample quote, which is never saved. */
+      '^(arrearsRunBtn handler|ledgerWaiveUpdates|msgFacets|qEmailTestBtn handler)$',
       /* Not a record at all: an HTTP response. sendSms was the third name here — an SMS
          delivery receipt's status — and went with Twilio on 2026-09-11. Dropped rather
          than left in place: a standing ignore for a function that no longer exists is
@@ -727,6 +853,15 @@ module.exports = [
          View fetch, the time-off calendar, the expenses chips, the finance scenarios and
          the Connections page reading its own summary file. None of them is a quote. */
       '^(paypalWebhook|getStreetViewFrontUrlAdmin|rmStaticFailMessage|renderAdminTimeOffCalendar|renderAtoUndated|whoIsOffOn|renderAddExpenseInvoiceChips|fcRunScenarios|loadConnectionsSummary|poolHtml)$',
+      /* ⭐ ADDED 2026-10-15 (batch 7): more things that are called status and are not a quote's.
+         Messages: the Inbox's own status (needs reply, waiting, resolved). */
+      '^(commChipsHtml|commFilterMatches|msgStatusOf|renderSystemMessagesTab)$',
+      /* A CSS class called status-pill, not a field. */
+      '^newHangChip$',
+      /* A web response or a send's outcome, not a record. */
+      '^(loadSeasonForecast|loadSeasonNormals|pingServer|serverPingOutcome|uploadOneToCloudinary|wirePickStreetView|reportEmailSendFailures|etSendTemplateRun|sendBulkUpdateEmailBtn handler|sendRsvpEmailBtn handler|pibSendPaidBtn handler|pibSendUnpaidBtn handler)$',
+      /* An INVOICE's status, printed inside the invoice email — the Money spines own it. */
+      '^(invoiceEmailBlock|invoiceEmailBlockServer)$',
       /* the original list */'^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
     states: [
       ['New', 'Waiting to be priced'],
@@ -768,7 +903,10 @@ module.exports = [
       { file: 'admin', fn: 'whBuildReasonChip', where: 'Warehouse › Build', when: 'the badge says why a bundle is being built',
         rules: ['A closed quote is what makes a house a NEW hang rather than a rebuild.'] },
       { file: 'server', fn: 'runQuoteNudgeBatch', where: 'Quote Requests', when: 'the 10am nudge chases unanswered quotes',
-        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] }
+        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 7): the two remaining readers of a quote’s status. */
+      { file: 'admin', fn: 'quoteForButtons', where: 'Quote Requests', when: 'the portal is told which quote is still open for a customer' },
+      { file: 'server', fn: 'quoteArchiveDueServer', where: 'Quote Requests', when: 'an unanswered quote is archived 30 days after its first email' },
     ]
   },
   /* ------------------------------------------------------------------------
@@ -781,6 +919,9 @@ module.exports = [
   {
     field: 'rsvpStatus',
     areas: ['Customers', 'Schedule', 'Invoices'], record: 'cust',
+    quiet: [
+      { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', where: 'Customers › All Customers', why: 'The test-customer RSVP reset — test records only, never a real answer.' }
+    ],
     /* ⚠ THE TEST-RECORD BUILDERS TOUCH THE RIGHT RECORD AND ARE NOT CONNECTIONS. They
        mint a throwaway customer so somebody can walk a flow; declaring them would put a
        row on the map for a house that is deleted the same afternoon. The record-aware
@@ -827,7 +968,10 @@ module.exports = [
          mirror that falls out of step with what was actually written is a screen
          confidently showing something that is not in the record. */
       { file: 'admin', fn: 'renderQuoteRows', where: 'Quote Requests', when: 'approving a quote marks them in for the season',
-        rules: ['Approving is one of the ways to say yes, so the card must mirror exactly what the shared rule wrote.'] }
+        rules: ['Approving is one of the ways to say yes, so the card must mirror exactly what the shared rule wrote.'] },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: "a quote answered Maybe Next Year — written Back Next Year" },
+      { file: 'admin', fn: 'approvePaidThisSeason', where: 'Invoices › Invoice List', when: 'somebody who has said nothing pays toward this season',
+        rules: ['Only somebody who has said nothing — money never overrules a no, a Back Next Year or a yes (RS-77).'] }
     ],
     reads: [
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
@@ -857,12 +1001,28 @@ module.exports = [
         rules: ['A stored yes with no reply date behind it is not an answer.'] },
       { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Nightly Automation', when: 'the bill is built',
         rules: ['A house that was hung is billed whatever they have said since.'] },
-      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'backInYearOf', where: 'Customers › All Customers', when: 'the year somebody sitting out comes back is worked out' },
+      { file: 'admin', fn: 'phoneMarkTexted', where: 'Automation Emails › Recipients', when: 'a texted RSVP is marked as sent' },
+      { file: 'admin', fn: 'rejoinNeedsBuild', where: 'Warehouse › Build', when: 'somebody coming back is asked whether their lights must be built again' },
+      { file: 'admin', fn: 'saidNoOrBackNextYear', where: 'Routes › Install', when: 'the Routes tab leaves out somebody who said no' },
+      { file: 'admin', fn: 'seasonBadgeKey', where: 'Customers › All Customers', when: 'the season badge is chosen' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'admin', fn: 'takedownSaidNo', where: 'Schedule › Scheduling', when: 'a takedown day skips somebody who said no' },
+      { file: 'server', fn: 'portalChangeAddress', where: 'Member Portal › My Lights', when: 'a customer asks to move address' },
+      { file: 'server', fn: 'rejoinNeedsBuildServer', where: 'Member Portal › RSVP', when: 'somebody coming back is asked whether their lights must be built again' },
+      { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9 AM RSVP run checks each person still needs asking' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'errorSettledBy', where: 'Customer Messages › Inbox', when: 'an RSVP error row clears once the answer is on the record' },
     ]
   },
   {
     field: 'rsvpRespondedAt',
     areas: ['Customers', 'Schedule'], record: 'cust',
+    quiet: [
+      { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', where: 'Customers › All Customers', why: 'The test-customer RSVP reset — test records only, never a real answer.' }
+    ],
     title: 'When they actually answered',
     plain: 'The date that turns a stored "yes" into a real reply.',
     guard: 'season-state.test.js runs it through every list an answer lands on.',
@@ -891,7 +1051,9 @@ module.exports = [
       { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a record is saved' },
       { file: 'admin', el: 'rsvpResetBtn', where: 'Customers › All Customers', when: 'everybody is moved to Unanswered',
         rules: ['The reset clears the ANSWER and its date together — a date left behind would make an emptied status read as a real reply.'] },
-      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' }
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: "a quote answered Maybe Next Year" },
+      { file: 'admin', fn: 'approvePaidThisSeason', where: 'Invoices › Invoice List', when: 'a payment toward this season approves them' }
     ],
     reads: [
       { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a status is shown',
@@ -906,7 +1068,11 @@ module.exports = [
          the wrong place, reporting a connection as present for the wrong reason. */
       { file: 'admin', near: "if(said === 'yes' && d.rsvpRespondedAt) return true;",
         where: 'Customers › Bulk Updates', when: 'the Yes tab of the workbook is filled',
-        rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] }
+        rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'backInYearOf', where: 'Customers › All Customers', when: 'the year somebody sitting out comes back is worked out' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9 AM RSVP run checks each person still needs asking' },
     ]
   },
   {
@@ -949,7 +1115,8 @@ module.exports = [
       { file: 'admin', el: 'whFillFeetFromPriceBtn', where: 'Warehouse › Tools', when: 'the feet are worked back out of the price',
         rules: ['A figure derived from the price is a guess — the warehouse builds to it all the same.'] },
       { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' },
-      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'a bulk import runs' }
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'a bulk import runs' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: "a quote answered Maybe Next Year becomes a customer sitting out" }
     ],
     reads: [
       /* ⭐ DECLARED 2026-08-31. One number decides four things, so the readers that
@@ -966,7 +1133,10 @@ module.exports = [
         rules: ['260 ft per bin, and the rule lives in one place.'] },
       { file: 'admin', fn: 'houseBundleNeed', where: 'Warehouse › Build', when: 'the bundles are counted' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'an invoice is printed or emailed' },
-      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' }
+      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run prints feet on the invoice' },
     ]
   },
   /* ⭐ THE FIVE DATES, DECLARED THE DAY AFTER THEY SHIPPED (2026-08-29). Addie, looking
@@ -1017,7 +1187,10 @@ module.exports = [
       { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the importer adds somebody' },
       { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds somebody' },
       { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse › Tools', when: 'a missed house is queued by hand' },
-      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed' }
+      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed' },
+      { file: 'admin', fn: 'renderWarehouseQueue', where: 'Warehouse › Build', when: 'Not needed takes a house off the list',
+        rules: ['Cleared WITH the flag, because nothing was queued after all — unlike Mark Done, which keeps the date.'] },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Tools', when: 'a request taken by phone queues a build' }
     ],
     reads: [
       /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
@@ -1026,7 +1199,9 @@ module.exports = [
          there. The row in HISTORY_STEPS is what actually puts this field on the page,
          and it is the only place the name is written down. */
       { file: 'admin', near: "field: 'lightsQueuedAt'", where: 'Customers › All Customers', when: 'their history is opened',
-        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'scheduleHoldEndsMillis', where: 'Schedule › Scheduling', when: 'the 72-hour build hold is worked out' },
     ]
   },
 
@@ -1073,7 +1248,9 @@ module.exports = [
     sets: [
       { file: 'admin', fn: 'scheduledFieldForType', where: 'Schedule › Scheduling', when: 'a house is put on a crew’s day' },
       { file: 'admin', fn: 'freeUpFieldForType', where: 'Schedule › Scheduling', when: 'a house comes off a crew’s day',
-        rules: ['Cleared with the booking. A date left behind would claim a crew is going.'] }
+        rules: ['Cleared with the booking. A date left behind would claim a crew is going.'] },
+      { file: 'admin', fn: 'syncInstallStampsFromSchedule', where: 'Schedule › Scheduling', when: 'the Schedule plan is saved or recalculated',
+        rules: ['Schedule V2: the plan mirror is the only live writer of a booking (SCH-102); the two above are doors the retired sweep used.'] }
     ],
     reads: [
       /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
@@ -1110,7 +1287,10 @@ module.exports = [
          there. The row in HISTORY_STEPS is what actually puts this field on the page,
          and it is the only place the name is written down. */
       { file: 'admin', near: "field: 'fixRaisedAt'", where: 'Customers › All Customers', when: 'their history is opened',
-        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'openFixItems', where: 'Schedule › Scheduling', when: 'the daily fix list is built' },
+      { file: 'admin', fn: 'renderFixTray', where: 'Schedule › Scheduling', when: 'the daily fix list is drawn' },
     ]
   },
 
@@ -1196,7 +1376,8 @@ module.exports = [
       { file: 'admin', el: 'cnBulkAssignBtn', where: 'Customer Numbers', when: 'numbers are assigned in bulk' },
       { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
         rules: ['Crossing 260 ft moves them to the 5000 series, and the office is told which number changed.'] },
-      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' }
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: "a quote answered Maybe Next Year becomes a customer sitting out — written blank, no number is taken from the pool" }
     ],
     reads: [
       /* ⭐ THE READERS THAT DECIDE SOMETHING, declared 2026-08-31 — as opposed to the
@@ -1244,10 +1425,526 @@ module.exports = [
       { file: 'admin', fn: 'payerHouseOf', where: 'Customers › Who Pays for Whom', when: 'a shared bill picks a name',
         rules: ['The lowest customer number pays — the longest-standing account.'] },
       { file: 'admin', fn: 'whWhoLabel', where: 'Warehouse › Build', when: 'a build row is named' },
-      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' }
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', el: 'editCustColorChangeBtn', where: 'Customers › All Customers', when: 'a colour change is sent to the warehouse from Edit Customer' },
+      { file: 'admin', fn: 'fixListPrintRow', where: 'Schedule › Printing', when: 'the daily fix list is printed' },
+      { file: 'admin', fn: 'msgErrorWhoLabel', where: 'Customer Messages › Inbox', when: 'an error row names the customer' },
+      { file: 'admin', fn: 'quoteContactMatchHtml', where: 'Quote Requests', when: 'a quote shows which customer it matches' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'admin', fn: 'rsvpTextRender', where: 'Automation Emails › Recipients', when: 'the text-message RSVP list is drawn' },
+      { file: 'admin', fn: 'systemNoticeWireRows', where: 'Customer Messages › Inbox', when: 'a wire-colour notice lists its houses' },
+      { file: 'admin', fn: 'wireSweepClassify', where: 'Warehouse › Tools', when: 'the wire sweep sorts houses' },
+    ]
+  },
+
+  /* ⭐⭐ THE HANG DAY — added 2026-10-13, the first spine with an `only` rule.
+   * Addie, choosing where to start expanding this page: "go with your recommendation,
+   * start with the hang day". It was first on NOT_WATCHED in spirit ("which houses a
+   * crew is sent to on a given day") and it is the field both locked headline rules end
+   * at: SCH-86 is about this exact date reaching All Customers.
+   *
+   * ⛔ THE RULE THIS SPINE EXISTS FOR IS [[SCH-102]]: the Schedule is the ONLY thing that
+   * puts a house on a day. `syncInstallStampsFromSchedule` copies the plan onto the
+   * record through `installStampDiffs`, and every other writer of these three fields may
+   * only CLEAR them. Before Schedule V2 the crew-routes sweep was a second writer and the
+   * customer's portal showed its day — a day the office never printed. Nothing went red,
+   * because a second writer was one more amber line.
+   *
+   * ⚠ THREE FIELDS, ONE BOOKING. `scheduled`, `scheduledDate` and `assignedCrew` are
+   * written together everywhere, so the spine is the date (what the customer reads) and
+   * the `only` rules hold all three — a writer that set the flag alone would still be a
+   * second planner.
+   * ⚠ employee.html IS NOT SCANNED by this page. The crew portal is not in use this
+   * season and only ever writes `scheduled:false` (measured 2026-10-13). */
+  {
+    field: 'scheduledDate',
+    areas: ['Schedule', 'Customers'], record: 'cust',
+    title: 'Hang day',
+    plain: 'The day a house is booked to be hung — copied off the Schedule, never decided anywhere else.',
+    guard: 'run-all Suite 347 and headline-rules.test.js (SCH-86), schedule-v2.test.js (SCH-102)',
+    states: [
+      ['On a Schedule day', 'The same day on the customer, in All Customers and in their portal'],
+      ['Moved on the Schedule', 'The mirror rewrites it — nothing else may'],
+      ['Off the Schedule, or out for the season', 'Cleared'],
+      ['Hung and not on the plan', 'Left alone — it is the day they were hung'],
+      ['Start New Season', 'Cleared for everybody']
+    ],
+    sets: [
+      { file: 'admin', fn: 'installStampDiffs', where: 'Schedule › Scheduling', when: 'the Schedule plan is saved, or Recalculate everything runs',
+        rules: ['The ONLY place a hang day is put on a customer (SCH-102). It decides nothing — it copies the plan.',
+                'No plan loaded means "cannot say" and writes nothing; reading it as "nobody is booked" would clear ~950 real days.'] },
+      { file: 'admin', fn: 'scheduledFieldForType', where: 'Schedule › Scheduling', when: 'an old crew-routes door books a house',
+        rules: ['A RETIRED door. It still books fix and removal routes; every caller that could book an install is held shut (see the rule below).'] },
+      { file: 'admin', fn: 'freeUpFieldForType', where: 'Routes › Install', when: 'a stop comes off a saved route',
+        rules: ['Clears only.'] },
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office takes somebody out of the season',
+        rules: ['Clears only.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved as out for the season',
+        rules: ['Clears only.'] },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › Danger Zone', when: 'Start New Season runs',
+        rules: ['Clears everybody — last season’s day must never read as this season’s.'] },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'a customer sits the season out',
+        rules: ['Clears only.'] },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer',
+        rules: ['A new customer starts with no day; the Schedule places them once they are Confirmed.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'nextVisitFor', where: 'Customers › All Customers', when: 'All Customers is drawn',
+        rules: ['Only a fallback for the moment before the plan loads — the Schedule is what that column shows (SCH-86).'] },
+      { file: 'admin', fn: 'validateSeasonPlan', where: 'Schedule › Scheduling', when: 'Recalculate everything checks itself' },
+      { file: 'server', near: "'scheduledDate', 'completed', 'removalDone'", where: 'Member Portal › My Lights', when: 'a customer opens their portal',
+        rules: ['The date only — never the crew and never the stop order.'] },
+      { file: 'server', fn: 'houseBillingRow', where: 'Member Portal › Pay', when: 'the houses on a bill are listed' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'the All Customers row shows the hang day' },
+      { file: 'admin', fn: 'clearStaleInstallBookingsRun', where: 'Schedule › Scheduling', when: 'an old crew-routes booking is cleared' },
+      { file: 'admin', el: 'memberExportBtn', where: 'Customers › Bulk Updates', when: 'the member list is exported' },
+    ],
+    only: [
+      {
+        rule: 'Only the Schedule puts a house on a day (SCH-102).',
+        where: 'Schedule › Scheduling',
+        pattern: '\\bscheduled\\s*(?::|=(?!=))\\s*true\\b',
+        why: 'something other than the Schedule marks a customer as booked — a second planner, which is what SCH-102 retired',
+        allow: [
+          { file: 'admin', fn: 'installStampDiffs', why: 'The Schedule mirror — the one writer SCH-102 names.' },
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'The retired door; its callers are held shut by the third rule.' }
+        ]
+      },
+      {
+        rule: 'Only the Schedule puts a house on a day (SCH-102).',
+        where: 'Schedule › Scheduling',
+        /* A capture, then `unless`, never a lookahead after \s* — see engine.js. */
+        pattern: '\\b(?:scheduledDate|assignedCrew)\\s*(?::|=(?!=))\\s*[^\\s,;})]+',
+        unless: '[:=]\\s*null$',
+        why: 'something other than the Schedule writes a hang day or a crew onto a customer',
+        allow: [
+          { file: 'admin', fn: 'installStampDiffs', why: 'The Schedule mirror — the one writer SCH-102 names.' },
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'The retired door; its callers are held shut by the third rule.' },
+          { file: 'server', fn: 'houseBillingRow',
+            why: 'Copies the date onto a row the portal draws. Never written back to a record.' }
+        ]
+      },
+      {
+        /* ⭐ THE DOOR CENSUS. scheduledFieldForType can book an install, so every call to
+           it that does not name 'fix' or 'removal' is a door — and each one is green ONLY
+           while the reason it cannot open still holds. A new caller is red. */
+        rule: 'Every old door to an install day is shut (SCH-102).',
+        where: 'Schedule › Scheduling',
+        pattern: '\\bscheduledFieldForType\\(\\s*[^,)]*',
+        unless: '\\(\\s*[\'"](?:fix|removal)[\'"]$',
+        why: 'a new caller of scheduledFieldForType that can book an install day',
+        allow: [
+          { file: 'admin', fn: 'scheduledFieldForType', why: 'Its own declaration.' },
+          { file: 'admin', fn: 'autoScheduleNewCustomer',
+            why: 'Adding a customer used to put them on a crew-routes day. Shut by AUTO_ROUTE_NEW_CUSTOMERS.',
+            closed: [{ near: 'const AUTO_ROUTE_NEW_CUSTOMERS = false;', why: 'AUTO_ROUTE_NEW_CUSTOMERS is no longer false — adding a customer books a crew-routes day again' },
+                     { fn: 'autoScheduleNewCustomer', pattern: 'if\\(!AUTO_ROUTE_NEW_CUSTOMERS\\)\\{\\s*return',
+                       why: 'adding a customer can book them onto a crew-routes day again — a second planner' }] },
+          { file: 'admin', fn: 'reconcileUpcomingRoutes',
+            why: 'The fifteen-minute sweep that built its own days. Shut by RECONCILE_SWEEP_ENABLED; kept because suites still run it.',
+            closed: [{ near: 'const RECONCILE_SWEEP_ENABLED = false;', why: 'RECONCILE_SWEEP_ENABLED is no longer false — the crew-routes sweep books its own days again' },
+                     { fn: 'startReconcileAuto', pattern: 'if\\(!RECONCILE_SWEEP_ENABLED\\) return;',
+                       why: 'the crew-routes sweep can run again — it books its own days onto customers' }] },
+          { file: 'admin', el: 'markScheduledBtn',
+            why: 'Save to Calendar on the Routes tab. Fix and removal routes still save; an install route is refused.',
+            closed: [{ el: 'markScheduledBtn', pattern: 'if\\(currentRouteType === \'install\'\\)\\{\\s*toast\\([^;]*\\);\\s*return;',
+                       why: 'Save to Calendar on the Routes tab can book an install day again' }] }
+        ]
+      }
+    ]
+  },
+  /* ⭐ BATCH 2 OF THE EXPANSION (2026-10-13): who is in the season, the 48-hour lock and
+   * the gate code — the next three off NOT_WATCHED, picked because the first two fit the
+   * same `only` shape the hang day introduced. */
+
+  /* ⭐ SITTING THE SEASON OUT. ONE QUESTION, ONE ANSWER: `isOutForSeason`.
+   * On 2026-08-22 six places decided "is this customer out" by reading this flag alone —
+   * and `portalRsvp` writes `rsvpStatus: 'backnextyear'` WITHOUT it, so everybody who
+   * answered Back Next Year through the RSVP link stayed routed, scheduled and built for.
+   * On 2026-08-26 the route sweep re-grew the same bug in two feeders and put a house on a
+   * day and took it straight back off every fifteen minutes. Both were somebody reading
+   * this flag for themselves.
+   * ⛔ SO THE `only` RULE HERE IS A READER CENSUS. Every place that reads the flag is
+   * either declared below or allowed with its reason; a NEW place that reads it goes red,
+   * and the fix is almost always to ask `isOutForSeason` (routes, schedule, build queue)
+   * or `houseIsOnTheBill` (money) instead. Those are two questions on purpose — CLAUDE.md:
+   * "Do not 'tidy' the two into one." */
+  {
+    field: 'maybeNextYear',
+    areas: ['Customers', 'Schedule', 'Invoices'], record: 'cust',
+    title: 'Sitting the season out',
+    plain: 'Back Next Year — set by the office, or by the customer through their RSVP link.',
+    guard: 'season-state.test.js (where each RSVP answer ends up)',
+    states: [
+      ['Back Next Year, set by the office', 'The flag AND the status — off routes, the build queue and the schedule'],
+      ['Back Next Year, answered by link', 'The STATUS — portalRsvp also sets the flag now, and every reader checks both'],
+      ['Said yes again', 'Cleared, through seasonYesUpdates — never by hand'],
+      ['Already hung, then said Back Next Year', 'Still billed: work done is owed for (houseIsOnTheBill)']
+    ],
+    sets: [
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office badges them',
+        rules: ['The one place the office flips a customer between Confirmed and Back Next Year.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved' },
+      { file: 'admin', el: 'rsvpResetBtn', where: 'Customers › Danger Zone', when: 'everyone is moved to Unanswered before the RSVP',
+        rules: ['Clears the answer only — a recycle already done is warehouse work, not a reply.'] },
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'somebody says yes again',
+        rules: ['A newer answer from the customer supersedes one taken on their behalf (2026-08-22).'] },
+      { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'a customer answers yes, or approves a re-quote' },
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers' },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'they sit the season out' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote answered "maybe next year" becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
+        rules: ['THE answer for routes, the schedule and the build queue. Reads the flag AND the status.'] },
+      { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Invoice List', when: 'a bill is summed',
+        rules: ['A different question from isOutForSeason on purpose: hung is hung, whatever they said after.'] },
+      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the 7pm run sums a bill',
+        rules: ['Swept against the office copy by money-parity.test.js.'] },
+      { file: 'admin', fn: 'seasonBadgeKey', where: 'Customers › All Customers', when: 'the season badge is drawn' },
+      { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a customer’s answer is read' },
+      { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9am RSVP batch decides who is still owed one' },
+      { file: 'admin', fn: 'stopProblem', where: 'Routes › Install', when: 'a stop is checked',
+        rules: ['Names the reason, then asks isOutForSeason — the two cannot disagree.'] },
+      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office asks why a house is not on the build list' },
+      { file: 'admin', fn: 'saidNoOrBackNextYear', where: 'Routes › Install', when: 'a fix or removal route is generated on the Routes tab',
+        rules: ['The main app\u2019s copy of takedownSaidNo ([[RS-81]]); twin-parity.test.js holds the two together.'] },
+      { file: 'admin', fn: 'takedownSaidNo', where: 'Schedule › Scheduling', when: 'takedown days are laid out',
+        rules: ['A house that was hung still comes down, whatever they said after.'] }
+    ],
+    only: [
+      {
+        rule: 'Nobody decides who is in the season for themselves — ask isOutForSeason, or houseIsOnTheBill for money.',
+        where: 'Schedule › Scheduling',
+        pattern: '\\bmaybeNextYear\\b',
+        allowDeclared: true,
+        why: 'reads or writes the Back Next Year flag outside every declared place — a second opinion about who is in the season, which is how the RSVP-link and route-sweep bugs both happened',
+        allow: [
+          { file: 'admin', fn: 'seasonHold', why: 'Why a house is held off — names the reason; the hold itself is decided elsewhere.' },
+          { file: 'admin', fn: 'backInYearOf', why: 'Which year they said they are back — a different question.' },
+          { file: 'admin', fn: 'townFillCandidates', why: 'Skips houses sitting out when filling a blank town. Harmless either way.' },
+          { file: 'admin', near: '{tab: "Yes", label: "confirmed",', why: 'The Yes tab of the master sheet.' },
+          { file: 'admin', near: '{tab: "Contact 2027", label: "maybe next year",', why: 'The Contact 2027 tab — reads the flag AND the status.' },
+          { file: 'admin', near: 'testRsvpResetBtn.disabled = true;', why: 'The test-customer RSVP reset. Test records only.' }
+          /* The three Routes-tab generators that read the flag alone (Q-036) ask
+             takedownSaidNo now ([[RS-81]]), so they are no longer readers here. */
+        ]
+      }
+    ]
+  },
+
+  /* ⭐ THE 48-HOUR LOCK. One field is both the free colour-change window and the route
+   * lock (2026-08-21). Two events open it: BECOMING a customer, and a CHARGED colour
+   * change. ⛔ AND ONLY ADD CUSTOMER OPENS ONE ON JOINING — importing the ~960 existing
+   * customers is not 960 people joining, and locking them takes the whole season out of
+   * the scheduler for two days while looking like the scheduler being broken. run-all
+   * Suite 117 counts these writes; the `only` rule puts the same fact on the page. */
+  {
+    field: 'lightsLockedUntil',
+    areas: ['Customers', 'Schedule'], record: 'cust',
+    title: 'Light-change lock (48 hours)',
+    plain: 'Free to change their colours until this time — and not put on a crew’s day before it.',
+    guard: 'money-parity.test.js (applyLightChange / applyLightChangeServer), run-all Suite 117',
+    states: [
+      ['Just became a customer', 'Locked for 48 hours: free changes, not scheduled'],
+      ['Charged colour change', 'Locked for another 48 hours'],
+      ['Change inside the window', 'Free, and the window does NOT extend'],
+      ['Imported', 'Never locked']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in',
+        rules: ['The only door that opens a window for joining.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'the office changes their colours and charges' },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the house-details panel changes their colours' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Build', when: 'a warehouse request changes their colours' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their own colours' },
+      { file: 'server', fn: 'applyLightChangeServer', where: 'Member Portal › My Lights', when: 'the fee rule decides' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'lightsLockMillis', where: 'Schedule › Scheduling', when: 'anything asks whether a house is held',
+        rules: ['The one reader — the schedule hold and the route lock both go through it.'] },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a change is priced' },
+      { file: 'server', near: "  'lightsLockedUntil',", where: 'Member Portal › My Lights', when: 'the portal warns before a save',
+        rules: ['Sent to the portal so the $30 warning is right BEFORE they save.'] }
+    ],
+    only: [
+      {
+        rule: 'Only joining through Add Customer, or a charged colour change, opens the 48-hour lock.',
+        where: 'Customers › Add a Customer',
+        pattern: '\\blightsLockedUntil\\s*(?::|=(?!=))',
+        why: 'a new place writes the 48-hour lock — an importer doing this takes the whole book off the schedule for two days',
+        allow: [
+          { file: 'admin', el: 'routeAddressForm', why: 'Add Customer.' },
+          { file: 'admin', el: 'editCustSaveBtn', why: 'Office colour change.' },
+          { file: 'admin', fn: 'attachAddressRowHandlers', why: 'House-details colour change.' },
+          { file: 'admin', fn: 'whAddRequestToCustomer', why: 'Warehouse request colour change.' },
+          { file: 'server', fn: 'portalSave', why: 'Portal colour change.' },
+          { file: 'server', fn: 'applyLightChangeServer', why: 'The fee rule itself.' }
+        ]
+      }
+    ]
+  },
+
+  /* ⭐ THE GATE CODE. This season the crew works off PAPER (Addie, 2026-08-21), so the
+   * printed sheet is the only place a crew learns how to get in. No `only` rule: many
+   * places legitimately write it, and the rule that matters — a blank never wipes one —
+   * is a value question for a test, not a dashboard. */
+  {
+    field: 'gateCode',
+    areas: ['Customers', 'Schedule'], record: 'cust',
+    title: 'Gate code',
+    plain: 'How a crew gets in.',
+    /* Route builders copy it onto a stop (the `stops` spine's business), the sheet parser
+       returns a result object, and quoteSaveDetails writes the QUOTE. */
+    ignore: ['^(nearestNeighborOrder|pickClustered|pickClusteredSimple|findNearbyMissedHouses|renderOverviewMap|renderRouteMap|renderRouteOrderedList|renderDashRsvpPanel)$',
+             '^(rbMiscParse|quoteSaveDetails|requoteFormSummary|applyRequoteFormAnswers|fillAddCustFromQuote)$'],
+    states: [
+      ['On file', 'Printed on the crew sheet'],
+      ['Blank', 'The RSVP yes asks for one; the email list can find who is missing one']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody',
+        rules: ['Read out of Misc or Notes ("#0754" counts); only ever written when one was found.'] },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'server', fn: 'portalSetGateCode', where: 'Member Portal › RSVP', when: 'a customer types it in after saying yes' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'printGateCode', where: 'Schedule › Printing', when: 'the crew sheet prints',
+        rules: ['The crew works off paper this season — this is how they get in.'] },
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' },
+      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'the office finds who has no gate code' },
+      { file: 'admin', fn: 'resolveLinkTokens', where: 'Automation Emails › Recipients', when: 'an email is filled in' },
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a yes decides whether to ask for one' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their gate code' },
+    ]
+  },
+  /* ⭐ BATCH 3 (2026-10-13): light colours, the timer, the difficulty grade. */
+
+  /* ⭐ LIGHT COLOURS LIVE IN TWO FIELDS, AND EVERY READER MUST READ BOTH.
+   * `rbDetectColorsAndPattern` only fills `lightsDescription` when a colour REPEATS (an
+   * alternating pattern, where the order matters); an ordinary house keeps its colours in
+   * `lightColors` with the description EMPTY. Four warehouse readers once tested the
+   * description alone, so every ordinary house was called blocked and had NO BULBS
+   * ordered; the $30 fee did the same and let the whole book change colours for free
+   * ([[WH-28]]). `houseLightsText` / `houseLightsTextServer` are the one answer.
+   * ⛔ SO THE `only` RULE IS A CENSUS OF ONE-FIELD READERS: reading the description is red
+   * unless the same function also reads `lightColors` or asks `houseLightsText`. Writing it
+   * found FOUR more — the re-quote card's "on file" line, the buffer-stock picker, the
+   * Routes tab's stop list and the portal's houses-on-this-bill list — all fixed in the
+   * same change by asking the one answer. */
+  {
+    field: 'lightsDescription',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
+    quiet: [
+      { file: 'admin', near: 'const TEST_QUOTE_BASE = {', where: 'Quote Requests', why: 'The base every Build Test Customer quote is made from — test records only.' }
+    ],
+    ignore: ['^(buildTestPerson|houseBillingRow|memberPrefill)$'],
+    title: 'Light colours',
+    plain: 'What colours a house gets — in lightsDescription when the order matters, lightColors when it does not.',
+    guard: 'warehouse-colours.test.js, money-parity.test.js (the $30 change fee)',
+    states: [
+      ['A pattern (a colour repeats)', 'The description, in order'],
+      ['Ordinary colours', 'The list, with the description EMPTY'],
+      ['Nothing on file', 'Built under Check lights (WH-41)'],
+      ['Changed by a member', 'Re-queued for the warehouse, and the $30 rule decides']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
+        rules: ['Never wipes colours the form could not show (2026-08-26).'] },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the house-details panel is saved' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Build', when: 'a warehouse request changes them' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their own colours' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'houseLightsText', where: 'Warehouse › Build', when: 'anything asks what colours a house has',
+        rules: ['THE answer — the build queue, the bulb order, the pending count and the sheets all ask it.'] },
+      { file: 'server', fn: 'houseLightsTextServer', where: 'Member Portal › My Lights', when: 'the $30 change fee is decided',
+        rules: ['The same rule on the server; a first-time fill is not a change and is not charged.'] },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the Lights filter runs',
+        rules: ['Reads the RAW record so the soft-light switching list survives (2026-08-24).'] },
+      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the sheet' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'applyRequoteFormAnswers', where: 'Quote Requests', when: 'a re-quote form’s answers are applied' },
+      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed' },
+      { file: 'admin', fn: 'fillAddCustFromQuote', where: 'Customers › Add a Customer', when: 'a quote fills in the Add Customer form' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'admin', fn: 'requoteFormSummary', where: 'Quote Requests', when: 'a re-quote card summarises what changed' },
+      { file: 'admin', fn: 'requoteLightsToCarry', where: 'Quote Requests', when: 'a re-quote carries its colours onto a customer with none' },
+      { file: 'admin', fn: 'showConvertQuoteChoice', where: 'Quote Requests', when: 'Convert to Customer is pressed' },
+      { file: 'server', fn: 'portalChangeLabels', where: 'Member Portal › My Lights', when: 'a change from the portal is named in the office note' },
+    ],
+    only: [
+      {
+        rule: 'Every reader of the colours reads BOTH fields, or asks houseLightsText (WH-28).',
+        where: 'Warehouse › Build',
+        pattern: '\\.lightsDescription\\b(?!\\s*=[^=])',
+        unlessInFn: '\\blightColors\\b|\\bhouseLightsText(?:Server)?\\b',
+        why: 'reads lightsDescription alone — an ordinary house keeps its colours in lightColors with the description EMPTY, so this sees no colours for most of the book',
+        allow: [
+          { file: 'admin', fn: 'hcRunChecks', why: 'Health Check’s "colours written as words" row inspects the free text itself, which only the description holds.' },
+          { file: 'admin', fn: 'buildAddressRowHtml', why: 'Only decides whether to draw a house-details expander; the expander itself reads both.' }
+        ]
+      }
+    ]
+  },
+
+  /* ⭐ THE TIMER. A timer ALONE is not a light build ([[WH-27]]) and a timer coming out is
+   * its own job ([[WH-34]]) — the second has to be a stored flag written at BOTH doors
+   * (`whTimerCameOff` in the office, `whTimerCameOffServer` in the portal), because
+   * "used to want one" is readable off nothing once the save lands. */
+  {
+    field: 'outletTimer',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
+    title: 'Timer',
+    plain: 'Whether a house wants a timer in its bin.',
+    guard: 'run-all Suites 108 and 133 (WH-27, WH-34)',
+    ignore: ['^(rbCollectMissingCustomers|quoteSaveDetails|memberPrefill)$'],
+    states: [
+      ['Yes', 'A timer goes in the bin — on the Timers list'],
+      ['Yes, and no colours', 'Timer-only: its own queue, never parked as a light build (WH-27)'],
+      ['Yes → No', 'On the Remove Timer list (WH-34), from either door'],
+      ['Changed on a house with colours', 'A rebuild, like any warehouse field']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', fn: 'whAddRequestToCustomer', where: 'Warehouse › Build', when: 'a timer is added from the warehouse' },
+      { file: 'server', fn: 'quoteLeadCustomerFields', where: 'Quote Requests', when: 'a quote becomes a customer' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'whTimerOnlyQueue', where: 'Warehouse › Build', when: 'a save decides timer-only vs a light build',
+        rules: ['A timer alone on a house with no colours is not a light build (WH-27).'] },
+      { file: 'admin', fn: 'whTimerCameOff', where: 'Customers › All Customers', when: 'the office switches a timer off',
+        rules: ['Must be written at the moment of the save — nothing can work it out later (WH-34).'] },
+      { file: 'server', fn: 'whTimerCameOffServer', where: 'Member Portal › My Lights', when: 'a customer switches their own timer off' },
+      { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the Timers list is drawn' },
+      { file: 'admin', fn: 'whSheetRowsForBuild', where: 'Schedule › Printing', when: 'the build sheet prints',
+        rules: ['Both timer jobs reach paper — a removal reads TAKE OUT, never YES.'] },
+      { file: 'admin', fn: 'printCrewRow', where: 'Schedule › Printing', when: 'the crew sheet prints' },
+      /* ⭐ DECLARED 2026-10-15 (batch 8): every named reader of the timer. The two left inside `norm` belong to warehouseRebuildFields and are named by it. */
+      { file: 'admin', fn: 'applyRequoteFormAnswers', where: 'Quote Requests', when: 'a re-quote form’s timer answer is applied' },
+      { file: 'admin', fn: 'fillAddCustFromQuote', where: 'Customers › Add a Customer', when: 'a quote fills in the Add Customer form' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'the timer box is filled when a customer is opened' },
+      { file: 'admin', fn: 'printNeedsBuildList', where: 'Schedule › Printing', when: 'the build sheet prints its Timer column' },
+      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the master sheet' },
+      { file: 'admin', fn: 'renderQuoteRows', where: 'Quote Requests', when: 'a quote card shows the timer answer' },
+      { file: 'admin', fn: 'renderRouteOrderedList', where: 'Routes › Install', when: 'a route stop shows whether to fit a timer' },
+      { file: 'admin', fn: 'renderWarehouseQueue', where: 'Warehouse › Build', when: 'the Timers and Remove Timer lists are drawn' },
+      { file: 'admin', fn: 'requoteFormSummary', where: 'Quote Requests', when: 'a re-quote card summarises what changed' },
+      { file: 'admin', fn: 'warehouseRebuildFields', where: 'Customers › All Customers', when: 'a timer change decides whether the warehouse rebuilds' },
+      { file: 'admin', el: 'whAddExtraBtn', where: 'Warehouse › Tools', when: 'buffer stock is added' },
+      { file: 'admin', fn: 'whBuildTodo', where: 'Warehouse › Build', when: 'a build row says what to make' },
+      { file: 'admin', fn: 'whExtraSync', where: 'Warehouse › Tools', when: 'buffer stock is kept in step' },
+      { file: 'admin', fn: 'whHouseFactsHtml', where: 'Warehouse › Build', when: 'a house’s chips show the timer' },
+      { file: 'server', fn: 'portalChangeLabels', where: 'Member Portal › My Lights', when: 'a portal change is named in the office note' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their timer answer' },
+      { file: 'server', fn: 'warehouseRebuildFields', where: 'Member Portal › My Lights', when: 'a portal timer change decides whether the warehouse rebuilds' },
+    ]
+  },
+
+  /* ⭐ THE DIFFICULTY GRADE, ON THE CUSTOMER. The measure tool's grade lives on the QUOTE
+   * (`measurement.difficulty`, saved by rmSaveGrade / rmCommitPayload) and is excluded
+   * here — two records, and the quote's half is about pricing, not the crew. */
+  {
+    field: 'difficulty',
+    areas: ['Customers'], record: 'cust',
+    title: 'Difficulty grade',
+    plain: 'Easy, medium or hard — how much work a house is for a crew.',
+    ignore: ['^(rm[A-Z].*|wireRoofMeasure|quoteDifficultyGrade)$',
+             '^(nearestNeighborOrder|pickClustered|pickClusteredSimple|findNearbyMissedHouses|renderOverviewMap|renderRouteMap|renderRouteOrderedList|renderRouteAddressList)$'],
+    states: [
+      ['Graded', 'Shown on the customer and copied onto their route stop'],
+      ['Unrated', 'What an import writes when the sheet has no grade']
+    ],
+    sets: [
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the grade is picked on a row' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds somebody' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the list is drawn or filtered' },
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a row is drawn' },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', el: 'allCustExportBtn', where: 'Customers › All Customers', when: 'All Customers is exported' },
+    ]
+  },
+  /* ⭐ BATCH 4 (2026-10-13): the house photos — the last field on the original
+   * NOT_WATCHED list. On a new hang the crew sheet prints the house's photo so the crew
+   * can find the right house; this season they work off paper alone.
+   * ⛔ THE `only` RULE: THE LIST AND ITS MIRROR ARE WRITTEN TOGETHER. `housePhotos` is the
+   * list and photo #1 is mirrored onto `housePhotoUrl` / `housePhotoOriginal` /
+   * `housePhotoMarkup`, which the portal's house map, the invoice map and older saved
+   * routes still read. `customerPhotoUpdates` (and its server twin
+   * `quotePhotosAsCustomerServer`, on a convert) builds all four from one list, so they
+   * cannot disagree. A new place writing any of the four by hand goes red.
+   * ⚠ ADD CUSTOMER IS ALLOWED, AND IT IS THE ONE PLACE THE TWO CAN DIFFER: it takes the
+   * list from customerPhotoUpdates but writes the mirror from its own main-photo box. If
+   * the main photo is removed while extra photos stay, the list holds the extras and the
+   * mirror is blank. That is left as it is on purpose — the outlined sections were drawn on
+   * the MAIN photo, and promoting an extra into the mirror would draw them on the wrong
+   * picture. Recorded here rather than "fixed". */
+  {
+    field: 'housePhotos',
+    areas: ['Customers'], record: 'cust',
+    title: 'House photos',
+    plain: 'The pictures of the house — the first one is what the crew sheet prints for a new hang.',
+    states: [
+      ['Photos on file', 'Photo #1 is mirrored onto the single-photo fields older screens read'],
+      ['A new hang with a photo', 'Printed on the crew sheet so the crew finds the house'],
+      ['No photo', 'Nothing printed — never an empty frame']
+    ],
+    sets: [
+      { file: 'admin', fn: 'customerPhotoUpdates', where: 'Customers › All Customers', when: 'a photo is added, removed or reordered',
+        rules: ['Builds the list AND the mirror from one list, so they cannot disagree.'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      { file: 'server', fn: 'quotePhotosAsCustomerServer', where: 'Quote Requests', when: 'a quote becomes a customer',
+        rules: ['The quote’s photos travel to the customer — same shape as customerPhotoUpdates.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'customerPhotoList', where: 'Schedule › Printing', when: 'the crew sheet, the record and the route card show photos',
+        rules: ['THE reader: the list when there is one, else the old single photo. The new-hang crew sheet reads through it.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 9): the last named readers on this field. */
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'a photo is opened from a customer row' },
+    ],
+    only: [
+      {
+        rule: 'The photo list and its photo-#1 mirror are only ever written together.',
+        where: 'Customers › All Customers',
+        /* An object key after { or , — or an ASSIGNMENT after a dot. `d.housePhotoMarkup :`
+           is the far side of a ternary (customerPhotoList), so a dot only counts with `=`;
+           and neither a local `const housePhotos =` nor `? housePhotos :` can match. */
+        pattern: '[{,]\\s*(?:housePhotos|housePhotoUrl|housePhotoOriginal|housePhotoMarkup)\\s*:|\\.(?:housePhotos|housePhotoUrl|housePhotoOriginal|housePhotoMarkup)\\s*=(?!=)',
+        why: 'writes a house photo field by hand — the list and the photo-#1 mirror can drift apart, and the portal map, the invoice map and old routes read the mirror',
+        allow: [
+          { file: 'admin', fn: 'customerPhotoUpdates', why: 'Builds all four together.' },
+          { file: 'server', fn: 'quotePhotosAsCustomerServer', why: 'The server twin, on a convert.' },
+          { file: 'admin', el: 'routeAddressForm', why: 'Add Customer — see the note above this spine.' }
+        ]
+      }
     ]
   },
 ];
 
 
 module.exports.NOT_WATCHED = NOT_WATCHED;
+/* Tables that spell field names as keys and write nothing — see tableRanges in engine.js.
+   Add one only after reading it: a table that IS copied onto a record does not belong here. */
+module.exports.TABLES = ['RB_LEDGER_FIELD_RANK', 'PORTAL_CHANGE_LABELS', 'FC_SCENARIOS'];

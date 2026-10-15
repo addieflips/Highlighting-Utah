@@ -1249,7 +1249,7 @@ function seasonResetWrite() {
     /onCancel: function\(\)\{[\s\S]{0,400}resetPaypalButtons\(\);/.test(site),
     'otherwise the next press is still priced from the abandoned attempt');
   check('an error and a completed payment both clear it too',
-    /onError: function\(\)\{\s*paypalFlowOpen = false;/.test(site) &&
+    /onError: function\(err\)\{\s*paypalFlowOpen = false;/.test(site) &&
     /onApprove: function\(data\)\{\s*paypalFlowOpen = false;/.test(site),
     'a flag that only ever goes true would warn on every switch for the rest of the visit');
   /* ⚠ READ BEFORE THE TEARDOWN, which is what clears the flag. Written the other way

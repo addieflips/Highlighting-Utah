@@ -1427,7 +1427,9 @@ function houseBillingRow(id, d) {
     name: d.name || '',
     address: d.address || '',
     propertyLabel: d.propertyLabel || '',
-    lightsDescription: d.lightsDescription || '',
+    /* Both colour fields (2026-10-13): an ordinary house has an EMPTY description and its
+       colours in lightColors, so the houses-on-this-bill list showed no lights for it. */
+    lightsDescription: houseLightsTextServer(d),
     housePrice: Number(d.housePrice) || 0,
     scheduledDate: d.scheduledDate || null,
     completed: !!d.completed,
@@ -5787,6 +5789,186 @@ const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
    date, and for why July splits the seasons, is in js/money.js; it is not
    repeated here, because two copies of the reasoning drift exactly the way two
    copies of the rule would. */
+/* invoice-email-block:start
+   ⭐ THE INVOICE ITSELF, INSIDE THE INVOICE EMAIL (2026-10-12, [[EM-27]]). Addie, reading
+   a test copy that held two sentences and two buttons: "On invoice it didn't send the
+   real invoice", then "attached invoice isnt showing when it sends." Nothing had ever
+   been attached — the email was the template's wording and nothing else, and the boxed
+   invoice on the Invoices tab was a preview that went nowhere. Asked how it should
+   travel, she chose: inside the email, under her wording.
+   ⛔ THIS BLOCK IS WRITTEN TWICE, WORD FOR WORD — here and in the other file (admin.html
+   draws the test copy, functions/index.js the 7 PM run) — and invoice-email.test.js
+   compares the two and RUNS both over the same bills. Change one, change the other.
+   ⚠ SELF-CONTAINED ON PURPOSE: its own escaping and its own money formatting, because
+   esc/escServer and fmtMoney/toFixed do not agree with each other across the two files.
+   ⚠ NO NEWLINES IN WHAT IT RETURNS — both senders turn every newline into a <br> after
+   this has been placed, which would tear a table apart.
+   ⚠ TABLES AND HEX COLOURS ONLY. Outlook ignores flex and CSS variables. */
+function invoiceEmailRowsServer(v){
+  v = v || {};
+  var rate = Number(v.rate) || 0;
+  var houses = Array.isArray(v.houses) ? v.houses : [];
+  var multi = houses.length > 1;
+  var rows = [];
+  houses.forEach(function(h){
+    var feet = Number(h.feet) || 0;
+    var what = (feet && rate)
+      ? ('Installation service — ' + feet + ' ft @ $' + rate.toFixed(2) + '/ft')
+      : 'Installation service';
+    if(multi) rows.push({ label: h.address || 'Property', sub: what, amount: Number(h.price) || 0 });
+    else rows.push({ label: what, amount: Number(h.price) || 0 });
+  });
+  if((Number(v.removal) || 0) > 0) rows.push({ label: 'Removal service', amount: Number(v.removal) });
+  if((Number(v.newMemberFee) || 0) > 0) rows.push({ label: 'Installation fee', amount: Number(v.newMemberFee) });
+  (Array.isArray(v.feeNotes) ? v.feeNotes : []).forEach(function(f){
+    rows.push({ label: (f && f.reason) || 'Light change fee', amount: Number(f && f.amount) || 0 });
+  });
+  (Array.isArray(v.creditNotes) ? v.creditNotes : []).forEach(function(c){
+    rows.push({ label: (c && c.reason) || 'Credit', amount: Number(c && c.amount) || 0, credit: true });
+  });
+  return rows;
+}
+/* The invoice number, worked out the way the printed invoice works it out
+   (`invoiceNumberFor` in admin.html) — written here so the 7 PM run can print the SAME
+   number the office sees. invoice-email.test.js runs the two side by side. */
+function invoiceEmailNumberServer(key, year){
+  var k = String(key || '');
+  var tail = k.replace(/\D/g, '').slice(-4);
+  if(tail.length < 4){
+    var h = 0;
+    for(var i = 0; i < k.length; i++){ h = ((h << 5) - h + k.charCodeAt(i)) | 0; }
+    tail = Math.abs(h).toString(36).toUpperCase().slice(0, 4);
+    while(tail.length < 4) tail = '0' + tail;
+  }
+  return 'HU-' + year + '-' + tail;
+}
+/* ⛔ THIS IS THE INVOICE DOCUMENT, NOT A SUMMARY OF IT (2026-10-12, the same day). The
+   first version drew a small box of line items; Addie put it beside the invoice on the
+   Invoices tab: "This is not the invoice we agreed on. Its supposed to be the right one
+   that sends." So it is laid out as that document is — the business header, the invoice
+   number and dates, Bill to, Description / Amount, the totals, Payment status, How to
+   pay — section for section. If `buildInvoiceDocHtml` gains or loses a section, this
+   does too. */
+function invoiceEmailBlockServer(v){
+  v = v || {};
+  function e(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function m(n){ return '$' + (Number(n) || 0).toFixed(2); }
+  var rows = Array.isArray(v.rows) ? v.rows : [];
+  /* Nothing to itemise is nothing to draw: an empty invoice reads as a bill for nothing. */
+  if(!rows.length) return '';
+  var biz = v.biz || {};
+  var who = v.billTo || {};
+  var paid = Number(v.paid) || 0;
+  var isPaid = v.status === 'Paid in Full';
+  var houses = Number(v.properties) || 0;
+  var font = 'font-family:Arial,Helvetica,sans-serif;';
+  var ink = '#1E3B2C', slate = '#6E6858', line = '#E3E8DA';
+  var small = 'font-size:12.5px; color:' + slate + '; ' + font;
+  var cap = 'font-size:11.5px; font-weight:bold; letter-spacing:0.5px; text-transform:uppercase; color:' + slate + '; ' + font;
+  var cell = 'padding:12px 0; border-bottom:1px solid ' + line + '; font-size:14px; color:' + ink + '; ' + font;
+  var tot = 'padding:6px 0; font-size:14px; color:' + slate + '; ' + font;
+  var big = 'padding:10px 0 0; border-top:1px solid ' + line + '; font-size:18px; font-weight:bold; color:' + ink + '; ' + font;
+  var open = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"';
+  function p(style, text){ return text ? '<div style="' + style + '">' + text + '</div>' : ''; }
+  var html = open + ' style="margin:14px 0 18px; border:1px solid ' + line + '; border-radius:14px; background:#FFFBF3;"><tr><td style="padding:26px 24px;">';
+  /* The business, and which invoice this is. */
+  html += open + '><tr>' +
+    '<td valign="top">' +
+      p('font-family:Georgia,serif; font-size:22px; font-weight:bold; color:' + ink + ';', 'Highlighting Utah') +
+      p('font-size:13px; color:' + slate + '; padding:2px 0 6px; ' + font, 'Christmas Lights Installation') +
+      p(small, e(biz.phone)) + p(small, e(biz.email)) + p(small, e(biz.site)) +
+    '</td>' +
+    '<td valign="top" align="right">' +
+      p('font-size:13px; color:' + slate + '; ' + font, v.season ? ('Invoice for ' + e(v.season) + ' season') : 'Invoice') +
+      p('font-size:13px; font-weight:bold; color:' + ink + '; padding:3px 0; ' + font, e(v.invoiceNo)) +
+      p('font-size:13px; color:' + slate + '; ' + font, v.issued ? ('Issued ' + e(v.issued)) : '') +
+      (isPaid
+        ? p('font-size:13px; font-weight:bold; color:#3E7A5B; padding-top:2px; ' + font, 'Paid' + (v.paidOn ? (' ' + e(v.paidOn)) : ''))
+        : p('font-size:13px; font-weight:bold; color:' + ink + '; padding-top:2px; ' + font, v.due ? ('Due ' + e(v.due)) : '')) +
+      p(small + ' padding-top:4px;', houses > 1 ? ('Covers ' + houses + ' properties') : '') +
+    '</td></tr></table>';
+  html += '<div style="border-top:1px solid ' + line + '; margin:20px 0; font-size:0; line-height:0;">&nbsp;</div>';
+  /* Bill to. */
+  html += p(cap + ' padding-bottom:8px;', 'Bill to') +
+    p('font-size:15px; font-weight:bold; color:' + ink + '; padding-bottom:4px; ' + font, e(who.name || '')) +
+    p('font-size:13px; color:' + slate + '; ' + font, e(who.address)) +
+    p('font-size:13px; color:' + slate + '; padding-top:4px; ' + font, e(who.phone));
+  /* What it is for. */
+  html += open + ' style="margin-top:22px;"><tr>' +
+    '<td style="padding:8px 0; border-bottom:1px solid ' + line + '; ' + cap + '">Description</td>' +
+    '<td align="right" style="padding:8px 0; border-bottom:1px solid ' + line + '; ' + cap + '">Amount</td></tr>';
+  rows.forEach(function(r){
+    var colour = r.credit ? ' color:#3E7A5B;' : '';
+    html += '<tr><td style="' + cell + colour + '">' +
+      (r.sub ? '<div style="font-weight:bold;">' + e(r.label) + '</div><div style="font-size:12.5px; color:' + slate + ';">' + e(r.sub) + '</div>' : e(r.label)) + '</td>' +
+      '<td align="right" valign="top" style="' + cell + colour + ' white-space:nowrap;">' + (r.credit ? '−' : '') + m(r.amount) + '</td></tr>';
+  });
+  html += '</table>';
+  /* The totals, on the right as the printed invoice has them. */
+  html += open + ' style="margin-top:14px;"><tr><td width="45%">&nbsp;</td><td>' + open + '>' +
+    '<tr><td style="' + tot + '">Total</td><td align="right" style="' + tot + '">' + m(v.total) + '</td></tr>' +
+    (paid > 0 ? '<tr><td style="' + tot + '">Payment received' + (v.paidOn ? (' — ' + e(v.paidOn)) : '') + '</td><td align="right" style="' + tot + ' white-space:nowrap;">−' + m(paid) + '</td></tr>' : '') +
+    '<tr><td style="' + big + '">' + (isPaid ? 'Amount paid' : 'Amount due') + '</td>' +
+    '<td align="right" style="' + big + '">' + m(isPaid ? paid : v.amountDue) + '</td></tr>' +
+    '</table></td></tr></table>';
+  /* Payment status. */
+  if(v.status){
+    html += open + ' style="margin-top:20px;"><tr><td style="background:' + (isPaid ? '#E6F2EA' : '#F1F5EB') + '; border-radius:10px; padding:14px 16px;">' +
+      p(cap + ' padding-bottom:6px;', 'Payment status') +
+      p('font-size:14px; font-weight:bold; color:' + (isPaid ? '#2E6B3E' : (v.status === 'Partial Payment' ? '#D89F3D' : '#E0574B')) + '; ' + font,
+        e(v.status) + (isPaid && v.paidOn ? (' — ' + e(v.paidOn)) : '')) +
+      '</td></tr></table>';
+  }
+  /* How to pay — nothing here once the balance is settled. */
+  if(!isPaid){
+    var how = 'font-size:13px; color:' + ink + '; padding-bottom:4px; ' + font;
+    html += '<div style="border-top:1px solid ' + line + '; margin:20px 0 16px; font-size:0; line-height:0;">&nbsp;</div>' +
+      p(cap + ' padding-bottom:8px;', 'How to pay') +
+      p(how, biz.site ? ('Online — ' + e(biz.site) + ', sign in to your member portal') : '') +
+      /* ⛔ NO CHEQUE LINE (EM-30, 2026-10-12). Addie: "Should not show this on invoice.
+         Cheque — payable to Highlighting Utah". Online and Venmo are the two ways. */
+      p(how, v.venmo ? ('Venmo — @' + e(v.venmo)) : '');
+  }
+  html += '</td></tr></table>';
+  return html;
+}
+/* WHERE IT GOES, AND THAT IT ALWAYS GOES (EM-31, 2026-10-12).
+   ⛔ EVERY INVOICE EMAIL CARRIES THE INVOICE — paid receipts included. The first rule
+   here left a template alone when it already listed its own lines ({{feet_line}}), and
+   the standard Paid Receipt is such a template; Addie, reading one: "Invoice isn't
+   showing I know its paid but invoice needs to be sent to everyone."
+   Where: in place of {{feet_line}} when the wording has one (that is where the template
+   itself put the breakdown); otherwise above the first pay button, so the bill is read
+   before it is paid; otherwise at the end.
+   ⛔ AND THE TEMPLATE'S OWN LINE CODES ARE THEN LEFT OUT. The invoice lists the houses,
+   the fee, the light-change fees and the credits, and the same lines twice on one bill
+   reads as being charged twice. {{amount_due}} / {{amount_paid}} / {{due_date}} stay —
+   those are sentences, not line items.
+   ⚠ SO IT MUST RUN BEFORE ANY CODE IS FILLED IN — it reads the codes to decide.
+   ⚠ The blank lines the removed codes leave behind are closed up, in both spellings a
+   template can use (a real newline, or <br>). */
+function invoiceEmailPlaceServer(body, block){
+  body = String(body == null ? '' : body);
+  if(!block) return body;
+  var out;
+  var feet = body.indexOf('{{feet_line}}');
+  if(feet !== -1){
+    out = body.slice(0, feet) + block + body.slice(feet + '{{feet_line}}'.length);
+  } else {
+    var at = -1;
+    ['{{pay_button}}', '{{venmo_button}}', '{{view_portal_button}}'].forEach(function(code){
+      var i = body.indexOf(code);
+      if(i !== -1 && (at === -1 || i < at)) at = i;
+    });
+    out = at === -1 ? (body + block) : (body.slice(0, at) + block + body.slice(at));
+  }
+  ['{{feet_line}}', '{{new_member_fee_line}}', '{{setup_fee_line}}', '{{fee_lines}}', '{{credit_lines}}'].forEach(function(code){
+    out = out.split(code).join('');
+  });
+  out = out.replace(/(?:[ \t]*\r?\n){3,}/g, '\n\n').replace(/(?:\s*<br\s*\/?>\s*){3,}/gi, '<br><br>');
+  return out;
+}
+/* invoice-email-block:end */
 function invoiceSeasonYearServer(issued) {
   if (!issued) return null;
   const y = issued.getFullYear();
@@ -5857,6 +6039,8 @@ function applyLightChangeServer(o) {
 async function runInvoiceBatch(triggeredBy) {
   const todayStr = todayStrInDenver();
   let sentCount = 0, skippedNeedsFix = 0, skippedNotDone = 0, errorCount = 0;
+  let sentByHandCount = 0;
+  const sentByHandNames = [];
   // Payers with an installed house and no email address anywhere in their
   // group. They cannot be invoiced at all, so they are named in the run log
   // rather than silently passed over.
@@ -5900,6 +6084,16 @@ async function runInvoiceBatch(triggeredBy) {
       const ntSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
       nightlyTplSettings = ntSnap.exists ? (ntSnap.data() || {}) : {};
     } catch (e) { console.error('Nightly invoice: could not read the picked templates, using the standard ones', e); }
+    /* The business details printed at the top of the invoice inside the email (EM-27) —
+       the same siteContent the office's printed invoice reads, with the same defaults.
+       Read once per run; a failed read leaves the defaults and never stops a bill. */
+    const invoiceBiz = { phone: '(801) 901-0011', email: 'service@highlightingutah.com', site: 'highlightingutah.com' };
+    try {
+      const scSnap = await db.collection('siteContent').doc('main').get();
+      const sc = scSnap.exists ? (scSnap.data() || {}) : {};
+      if (sc.phoneDisplay) invoiceBiz.phone = sc.phoneDisplay;
+      if (sc.email) invoiceBiz.email = sc.email;
+    } catch (e) { console.error('Nightly invoice: could not read the business contact details, using the defaults', e); }
 
     // Bills any house marked Done that hasn't been invoiced yet — no matter
     // which calendar day it was actually completed on. This avoids ever missing
@@ -5960,6 +6154,12 @@ async function runInvoiceBatch(triggeredBy) {
       // install was marked complete. Charging nobody by mistake is a bad day;
       // charging 945 people by mistake is a much worse one, so an unset box
       // now means no fee and the office ticks it for anyone who owes it.
+      /* ⛔ AND NEVER SOMEBODY WHO JOINED THROUGH A REFERRAL ([[REF-46]], 2026-10-14). Addie: "No one
+         that was refered should have a 30 dollar set up fee. Get rid of those." A credited referral
+         stamps `referredByCustomerId` on the friend; one converted while the quote card's box was
+         ticked (customer #1044, 25 September) still carried the fee box, and this run would have
+         added the $30 the night their lights were marked done. The office's box cannot overrule her. */
+      if (cust.referredByCustomerId) return false;
       return cust.chargeNewMemberFee === true;
     }
 
@@ -6243,6 +6443,36 @@ async function runInvoiceBatch(triggeredBy) {
            season. A phone-only signup is the ordinary case for a phone enquiry,
            so this is not rare. Counted and named now, and Health Check has a
            matching "Customer with no email address" row. */
+        /* ⭐ THE OFFICE ALREADY GAVE THEM THIS INVOICE BY HAND (EM-28, 2026-10-12).
+           Addie: "can we make a place in invoice were we can check mark if someone got
+           there invoice manually as well in case we did that seperate from the report".
+           The tick on the Invoices list (and a by-hand send from the Invoices tab) writes
+           invoiceSentByHand on every house on the bill, and this is the one place the run
+           reads it: NO EMAIL GOES OUT, and the bill is marked as having gone, so it is
+           not counted or chased again.
+           ⛔ IT SITS HERE, BELOW EVERY BILLING WRITE, AND MUST STAY THERE. The tick means
+           "do not email them", never "do not bill them": the invoice, the join fee, a
+           carried charge and a carryover credit have all landed above. Skipping out
+           earlier would waive real money because of a checkbox about paper.
+           ⚠ ABOVE the no-email branch on purpose — a phone-only customer handed their
+           invoice is exactly who this is for, and they must stop being named nightly.
+           ⚠ invoiceEmailSentAt IS NOT STAMPED: nothing was emailed by this run, and the
+           history line built from that date says "Invoice emailed to them". */
+        if (active.some(function (h) { return h.data.invoiceSentByHand === true; })) {
+          for (const h of active) {
+            await h.ref.update({ invoiceEmailSent: true });
+          }
+          if (payer.data.cannotBillNoEmail) {
+            await tryFirestore('by-hand clears the no-email flag', () =>
+              db.collection('jobAddresses').doc(payer.id).update({
+                cannotBillNoEmail: false, cannotBillNoEmailAt: null
+              }));
+          }
+          sentByHandCount++;
+          sentByHandNames.push(payer.data.name || payer.data.address || payer.id);
+          continue;
+        }
+
         if (!email) {
           skippedNoEmail++;
           noEmailNames.push(payer.data.name || payer.data.address || payer.id);
@@ -6375,18 +6605,47 @@ async function runInvoiceBatch(triggeredBy) {
         const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&amount=' + amountDue.toFixed(2) + '&note=' + encodeURIComponent('Christmas Lights');
         const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
 
-        body = body.split('{{name}}').join(payer.data.name || 'there');
-        body = body.split('{{feet_line}}').join(feetLine);
-        body = body.split('{{new_member_fee_line}}').join(newMemberLine);
-        body = body.split('{{credit_lines}}').join(creditLines);
-        body = body.split('{{fee_lines}}').join(feeLines);
         // The same calendar the printed invoice and the Overdue flag read, worked
         // out from the invoice's own timestamp so all three always agree. This is
         // the date the CUSTOMER is told, so it is the one that matters most.
         const issuedOn = (inv.invoicedAt && inv.invoicedAt.toDate) ? inv.invoicedAt.toDate()
                        : ((inv.updatedAt && inv.updatedAt.toDate) ? inv.updatedAt.toDate() : new Date());
         const dueOn = invoiceDueDateServer(issuedOn);
-        body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        /* ⛔ IN UTAH TIME (2026-10-14). The server runs in UTC, and the 7 PM run is after 6 PM
+           Mountain, so a date formatted without a zone was TOMORROW's: SuAnne's invoice, emailed
+           Oct 12 at 7:36 PM, read "Issued Oct 13". Every date this file prints says the zone. */
+        const niceDay = function (dt) { return dt.toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }); };
+        /* The invoice itself, under the wording (EM-27) — the block admin.html's test
+           copy draws, from the figures this run just billed. ⚠ BEFORE any code is
+           filled in: the placing rule reads the codes. `active` is the list the total
+           was summed from, so the rows and the amount cannot drift. */
+        body = invoiceEmailPlaceServer(body, invoiceEmailBlockServer({
+          rows: invoiceEmailRowsServer({
+            rate: perFootRate,
+            houses: active.map(function (h) {
+              return { address: h.data.address || h.data.street || '', feet: h.data.measuredFeet, price: h.data.housePrice };
+            }),
+            removal: inv.removal,
+            newMemberFee: isNewMember ? NEW_MEMBER_FEE : 0,
+            feeNotes: inv.changeFeeNotes,
+            creditNotes: inv.creditNotes
+          }),
+          total: Math.max(0, total - credits), paid: paid, amountDue: amountDue, status: status,
+          issued: niceDay(issuedOn), due: niceDay(dueOn),
+          season: issuedOn.getFullYear(),
+          invoiceNo: invoiceEmailNumberServer(invoiceKey, issuedOn.getFullYear()),
+          properties: active.length,
+          billTo: { name: payer.data.name, address: payer.data.address, phone: payer.data.phone },
+          biz: invoiceBiz, venmo: 'HighLightingUtah',
+          paidOn: (inv.lastPaymentAt && inv.lastPaymentAt.toDate) ? niceDay(inv.lastPaymentAt.toDate()) : ''
+        }));
+
+        body = body.split('{{name}}').join(payer.data.name || 'there');
+        body = body.split('{{feet_line}}').join(feetLine);
+        body = body.split('{{new_member_fee_line}}').join(newMemberLine);
+        body = body.split('{{credit_lines}}').join(creditLines);
+        body = body.split('{{fee_lines}}').join(feeLines);
+        body = body.split('{{due_date}}').join(dueOn.toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }));
         body = body.split('{{amount_due}}').join('$' + amountDue.toFixed(2));
         body = body.split('{{amount_paid}}').join('$' + paid.toFixed(2));
         body = body.split('{{portal_link}}').join(portalUrl);
@@ -6484,6 +6743,7 @@ async function runInvoiceBatch(triggeredBy) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
+      sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
       errorCount, errors: errors.slice(0, 10), triggeredBy
     };
     await logNightlyInvoiceRun(result);
@@ -6492,6 +6752,7 @@ async function runInvoiceBatch(triggeredBy) {
     const result = {
       dateStr: todayStr, sentCount, skippedNeedsFix, skippedNotDone,
       skippedNoEmail, noEmailNames: noEmailNames.slice(0, 20), heldNames: heldNames,
+      sentByHandCount, sentByHandNames: sentByHandNames.slice(0, 20),
       errorCount: errorCount + 1, errors: errors.concat([String((err && err.message) || err)]).slice(0, 10),
       triggeredBy
     };
@@ -6583,11 +6844,87 @@ function quoteLadderRungDue(q, nowMs, waitDays) {
      that had been emailed would match the text rung again on the next run, because the text
      stamp is what gates it and nothing above ever clears. */
   if (q.quoteNudgeEmailedAt) return due(q.quoteNudgeEmailedAt) ? 'archive' : null;
-  if (q.quoteNudgeTextAskedAt) return due(q.quoteNudgeTextAskedAt) ? 'email' : null;
-  /* ⚠ FROM THE LAST TIME WE CONTACTED THEM. quoteSentAt is when the quote went out, and a
-     quote that was never sent is not waiting on a reply — the caller has already refused
-     those, and a missing stamp answers false here rather than firing on the epoch. */
-  return due(q.quoteSentAt) ? 'text' : null;
+  /* ⭐ THE EMAIL GOES TEN DAYS AFTER THE TEXT ([[QT-54]]). Addie: "It will send nudge email
+     10 days after text." When the office has marked it texted on the Quotes tab, that is
+     the clock; otherwise the day the run asked them to text, as before. */
+  const textMark = q.quoteNudgeTextedAt || q.quoteNudgeTextAskedAt;
+  if (textMark) return due(textMark) ? 'email' : null;
+  /* ⭐ TEN DAYS FROM WHEN THE QUOTE EMAIL WAS SENT ([[QT-53]], 2026-10-13). Addie, asked
+     when the first nudge comes: "10 days from when quote email is sent". This read
+     quoteSentAt, which the office's own Nudge button and every re-send overwrite, so a
+     re-send quietly pushed the first nudge back another ten days. It reads the FIRST send
+     now — the same stamp the 30-day archive counts from ([[QT-52]]), through the same
+     helper, so the two clocks cannot disagree about when a quote went out.
+     A quote never sent answers 0 here and is not due, never "due since the epoch". */
+  const first = quoteFirstSentMs(q);
+  return (first && (nowMs - first) >= gap) ? 'text' : null;
+}
+/* When a quote FIRST went out. `quoteFirstSentAt` is stamped once by every door that sends
+   ([[QT-52]]); a quote sent before that stamp existed falls back to the EARLIER of its two
+   send dates — both can be rewritten by a later send, so the fallback can only be late. */
+function quoteFirstSentMs(q) {
+  const stamped = toMillis(q && q.quoteFirstSentAt);
+  if (stamped) return stamped;
+  const stamps = [toMillis(q && q.quoteSentAt), toMillis(q && q.quoteManuallySentAt)].filter(Boolean);
+  return stamps.length ? Math.min.apply(null, stamps) : 0;
+}
+
+/* ⭐ THIRTY DAYS FROM THE FIRST EMAIL, THEN THE ARCHIVE ([[QT-52]], 2026-10-13). Addie:
+   "Awaiting responses in quotes should go in archive after 30 days of sending first email."
+   ⚠ IT SITS BESIDE THE LADDER ([[QT-49]]), NOT INSTEAD OF IT. The ladder still asks the
+   office to text at ten days and emails at twenty; its own archive rung only ever fired
+   for a quote that reached rung two, so a quote whose automatic email FAILED (the EmailJS
+   non-browser block, 9 Sep to 12 Oct 2026), or that went to somebody who asked for a phone
+   call, or that has no email address, was never stamped and never archived — it sat in
+   Awaiting Response for ever. This is a clock, not a rung: thirty days from the first send,
+   whatever the chase did or did not manage.
+   ⚠ AWAITING MEANS NOBODY HAS ANSWERED. An APPROVED quote waiting on its detail form also
+   sits in Awaiting Response, but that customer said yes — archiving it would drop a sale.
+   Approved, declined and maybe-next-year are all left alone, as is anything unpriced or
+   never sent.
+   ⚠ THE FIRST SEND IS `quoteFirstSentAt`. Quotes sent before that stamp existed fall back to
+   the EARLIER of quoteSentAt and quoteManuallySentAt — both can be rewritten by a later
+   send or nudge, so the fallback can only ever be LATE, never early: an old quote is
+   archived a little after thirty days rather than before.
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT — every claim here is date arithmetic. */
+const QUOTE_ARCHIVE_DAYS = 30;
+function quoteArchiveDueServer(q, nowMs) {
+  if (!q || q.quoteArchived) return false;
+  if ((q.status || 'new') === 'closed') return false;
+  if ((q.approvalStatus || 'pending') !== 'pending') return false;
+  if (typeof q.quotedPrice !== 'number') return false;
+  const first = quoteFirstSentMs(q);
+  if (!first) return false;
+  return (nowMs - first) >= QUOTE_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
+}
+/* The archive pass on its own, run FIRST in the nudge batch and ahead of its gates: the
+   November stop and the on/off switch are about CHASING people, and archiving chases
+   nobody — her rule has no season and no switch in it. */
+async function archiveStaleQuotes(nowMs) {
+  const snap = await db.collection('quotes').get();
+  let archived = 0;
+  const errors = [];
+  for (const docSnap of snap.docs) {
+    if (!quoteArchiveDueServer(docSnap.data(), nowMs)) continue;
+    try {
+      await docSnap.ref.update({
+        quoteArchived: true,
+        quoteArchivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        quoteArchivedReason: 'No reply ' + QUOTE_ARCHIVE_DAYS + ' days after the quote was first sent'
+      });
+      archived++;
+    } catch (err) {
+      errors.push(docSnap.id + ': ' + String((err && err.message) || err));
+    }
+  }
+  try {
+    await db.collection('settings').doc('quoteNudgeAutomation').set({
+      lastArchiveRunAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastArchiveRunArchived: archived,
+      lastArchiveRunErrors: errors.slice(0, 10)
+    }, { merge: true });
+  } catch (err) { console.error('[HU] could not record the quote archive run', err); }
+  return { archived: archived, errors: errors };
 }
 
 function prefersNotEmail(contactMethod) {
@@ -6716,6 +7053,8 @@ function quotePhotoEmailHtmlServer(photos) {
 
 async function runQuoteNudgeBatch(source) {
   const now = new Date();
+  /* ⭐ QT-52 first, ahead of every gate below — see archiveStaleQuotes. */
+  const archivePass = await archiveStaleQuotes(now.getTime());
   const denverMonth = Number(now.toLocaleString('en-US', { timeZone: 'America/Denver', month: 'numeric' }));
   /* November onward the season is underway - stop chasing. */
   if (denverMonth >= 11 || denverMonth <= 1) {
@@ -6925,7 +7264,8 @@ async function runQuoteNudgeBatch(source) {
   }, { merge: true });
 
   return { sent: sent, skipped: skipped, needsHuman: needsHuman,
-           askedToText: askedToText, archived: archived, errors: errors };
+           askedToText: askedToText, archived: archived, errors: errors,
+           archivedAfter30Days: archivePass.archived };
 }
 
 function properNameServer(raw) {
@@ -7013,11 +7353,17 @@ async function runArrearsRsvpBatch(source) {
        carrying a balance. That is the harassment this block's own header warns about,
        arriving from the one direction it was not guarding. `rsvpWholePlan` in
        admin.html has always read both stamps for exactly this reason. */
+    /* ⛔ THE ONE RULE FOR "DO THEY STILL NEED ASKING" ([[RS-77]]'s one answer, applied 2026-10-13). This loop
+       decided it for itself — `if (rsvpStatus) skip` — and so differed from the daily
+       drip in three ways, all silent: everybody on Unanswered (the state the whole book is
+       put in before the RSVP goes out) was SKIPPED, because the word is truthy; somebody the
+       office had badged Maybe Next Year with no status of their own was WRITTEN TO; and the
+       "no automation emails" opt-out was never read at all, so a customer who asked not to be
+       emailed got a chase about their balance. rsvpStillOwedServer is the drip's rule and
+       covers the test record, an answer, the opt-out, no email and either send stamp. */
     if (d.arrearsRsvpEmailAt || d.rsvpEmailedAt) { out.skipped++; continue; }
-    const answered = String(d.rsvpStatus || '').trim();
-    if (answered) { out.skipped++; continue; }
+    if (rsvpStillOwedServer(d)) { out.skipped++; continue; }
     const email = String(d.email || '').trim();
-    if (!email) { out.skipped++; continue; }
 
     const owed = await arrearsForCustomer(d);
     if (!(owed.outstanding > 0)) { out.skipped++; continue; }
@@ -7072,6 +7418,20 @@ async function runArrearsRsvpBatch(source) {
  * fills tokens; it does not know whether it is building the ordinary RSVP or the
  * Not Paid one, which is exactly why it can be shared.
  * ------------------------------------------------------------------------- */
+/* ⭐ A CODE TYPED WITHOUT ITS UNDERSCORES IS STILL THE CODE (2026-10-14) — the server copy of canonicalEmailCodes in admin.html,
+   same text; run-all compares the two. The live RSVP template carried {{rsvpyesbutton}} and friends, and every renderer matches
+   the exact spelling, so the codes went out as text. RSVP and referral codes only; anything else is left exactly as typed. */
+const EMAIL_CANONICAL_CODES_SERVER = ['rsvp_yes_button', 'rsvp_no_button', 'rsvp_back_button', 'rsvp_yes_link', 'rsvp_no_link',
+  'rsvp_back_link', 'rsvp_link', 'rsvp_button', 'referral_button', 'referral_link'];
+function canonicalEmailCodesServer(text){
+  const squash = function(s){ return String(s).toLowerCase().replace(/[\s_\-]+/g, ''); };
+  const byKey = {};
+  EMAIL_CANONICAL_CODES_SERVER.forEach(function(c){ byKey[squash(c)] = c; });
+  return String(text == null ? '' : text).replace(/\{\{\s*([A-Za-z][A-Za-z _\-]*?)\s*\}\}/g, function(m, inner){
+    const hit = byKey[squash(inner)];
+    return hit ? '{{' + hit + '}}' : m;
+  });
+}
 async function rsvpEmailBodyServer(custId, d, templateBody) {
   const token = await ensureToken(custId, d);
   const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
@@ -7082,7 +7442,7 @@ async function rsvpEmailBodyServer(custId, d, templateBody) {
      same order. A chase that looked different from the RSVP email it follows
      would read as a different question. */
   const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-  let body = templateBody;
+  let body = canonicalEmailCodesServer(templateBody);
   body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
   body = body.split('{{rsvp_yes_link}}').join(yesUrl);
   body = body.split('{{rsvp_no_link}}').join(noUrl);
@@ -7495,12 +7855,48 @@ async function runRsvpDailyBatch(source) {
  * roll into the following February (see js/money.js) has its own later April,
  * and a calendar check would charge it eleven months early.
  * ------------------------------------------------------------------------- */
+/* ⛔ NO LATE FEE ON A BILL NOBODY SENT THEM ([[EM-33]], 2026-10-13). Addie: "if invoice was
+ * never sent than they should not get a fee however we need something to tell us whos
+ * invoice did not get sent."
+ * ⚠ `invoicedAt` CANNOT ANSWER IT. The 7 PM run stamps it when the bill is WORKED OUT, above
+ * the send — so a bill whose email failed (the EmailJS block, 9 Sep to 12 Oct 2026), or that
+ * went to somebody with no email address, carries an invoicedAt and was never sent. What
+ * records a real send is on the HOUSES: `invoiceEmailSent`, set by the run after a send that
+ * worked and on a by-hand bill, and `invoiceSentByHand`, the office's own tick ([[EM-28]]).
+ * Start New Season clears both, in step with the invoice it resets.
+ * ⚠ ANY HOUSE ON THE BILL — the same question the run itself asks, because one email goes to
+ * the payer for the whole bill. The houses are the bill's own `billedHouseIds` where it has
+ * them, else every house filed under the invoice's key (bill-to first, then their own).
+ * ⚠ ITS OWN FUNCTION, AND THE OFFICE'S `invoiceWasSent` IS ITS TWIN, so the list of who was
+ * not sent and the houses the April run refuses to fine are the same people. */
+function invoiceWasSentServer(houses) {
+  return (Array.isArray(houses) ? houses : []).some(function (h) {
+    return !!h && (h.invoiceEmailSent === true || h.invoiceSentByHand === true);
+  });
+}
+function invoiceHousesServer(inv, key, book) {
+  const ids = (inv && Array.isArray(inv.billedHouseIds)) ? inv.billedHouseIds : [];
+  if (ids.length) return ids.map(function (id) { return book.byId[id]; }).filter(Boolean);
+  return (book.byKey[key] || []).slice();
+}
+function invoiceBookServer(docs) {
+  const book = { byId: {}, byKey: {} };
+  (docs || []).forEach(function (d) {
+    const data = d.data() || {};
+    book.byId[d.id] = data;
+    const key = digitsOnly(data.billToPhone) || invoiceKeyFor(data);
+    if (!key) return;
+    (book.byKey[key] = book.byKey[key] || []).push(data);
+  });
+  return book;
+}
+
 async function runLateFeeBatch(source, opts) {
   const o = opts || {};
   const dryRun = o.dryRun === true;
   const nowMs = Number(o.nowMs) || Date.now();
   const out = { charged: 0, wouldCharge: 0, skipped: 0, amount: 0, errors: [],
-                names: [], source: source, dryRun: dryRun, stopped: '' };
+                names: [], notSent: [], source: source, dryRun: dryRun, stopped: '' };
 
   const cfgSnap = await db.collection('settings').doc('emailjs').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -7525,6 +7921,8 @@ async function runLateFeeBatch(source, opts) {
   const subject = templateSubjectOr(tplData, 'Your Highlighting Utah invoice is past due');
 
   const snap = await db.collection('invoices').get();
+  /* The whole book once, so "was this bill ever sent?" is one lookup per invoice. */
+  const book = invoiceBookServer((await db.collection('jobAddresses').get()).docs);
   for (const docSnap of snap.docs) {
     const inv = docSnap.data() || {};
 
@@ -7564,6 +7962,15 @@ async function runLateFeeBatch(source, opts) {
     if (inv.isTestRecord === true) { out.skipped++; continue; }
     if (digitsOnly(inv.phone) === '3853912235' && String(inv.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
 
+    /* ⛔ NEVER SENT, NEVER FINED ([[EM-33]]). Last of the refusals, so a bill that owes
+       nothing or is already charged is not reported here as one that was missed — this list
+       is only the people who WOULD have been fined, which is who the office must chase. */
+    if (!invoiceWasSentServer(invoiceHousesServer(inv, docSnap.id, book))) {
+      out.skipped++;
+      if (out.notSent.length < 60) out.notSent.push(inv.name || docSnap.id);
+      continue;
+    }
+
     const fee = lateFeeAmountServer(inv);
     const newDue = owedNow + fee;
 
@@ -7584,7 +7991,7 @@ async function runLateFeeBatch(source, opts) {
         amount: fee,
         kind: LATE_FEE_KIND,
         reason: 'Late fee — invoice unpaid after ' +
-          invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+          invoiceDueDateServer(issued).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'long', day: 'numeric', year: 'numeric' }),
         date: new Date().toISOString()
       });
       await docSnap.ref.update({
@@ -7623,7 +8030,7 @@ async function runLateFeeBatch(source, opts) {
       body = body.split('{{amount_due}}').join('$' + newDue.toFixed(2));
       body = body.split('{{amount_paid}}').join('$' + (Number(inv.deposit) || 0).toFixed(2));
       body = body.split('{{due_date}}').join(
-        invoiceDueDateServer(issued).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        invoiceDueDateServer(issued).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' }));
       body = body.split('{{portal_link}}').join(portalUrl);
       body = body.split('{{portal_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Log Into Your Portal</a>');
       body = body.split('{{pay_button}}').join('<a href="' + portalUrl + '" style="' + btnStyleGold + '">Pay Your Invoice</a>');

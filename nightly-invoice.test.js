@@ -73,7 +73,7 @@ function lift(name) {
    records having been caught by ten times — so the count is asserted below and a
    deliberate change to it is a deliberate edit here. */
 const LIFTED = ['runInvoiceBatch', 'houseIsOnTheBillServer', 'computeInvoiceStatusServer',
-  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer',
+  'invoiceKeyFor', 'digitsOnly', 'todayStrInDenver', 'tryFirestore', 'invoiceDueDateServer', 'invoiceEmailRowsServer', 'invoiceEmailBlockServer', 'invoiceEmailPlaceServer', 'invoiceEmailNumberServer',
   'invoiceSeasonYearServer', 'endOfFebruaryServer', 'centsOf', 'properNameServer',
   'payerHouseOfServer', 'heldBillReason', 'heldBillWorkDoneAt', 'reportHeldBill',
   'clearHeldBill', 'toMillis', 'logNightlyInvoiceRun',
@@ -788,6 +788,111 @@ const notesRaised = db => db.writes.filter(w => w.col === 'messages').map(w => w
         /contact/.test(raw),
         'the editor offers the PLURAL and this send only ever resolved the singular — a ' +
         'one-character trap that prints a code on a bill');
+    }
+    /* ---- 6b. THE INVOICE ITSELF IS IN THE EMAIL (EM-27, 2026-10-12) ----
+       Addie: "On invoice it didn't send the real invoice." Her own template is two
+       sentences and two buttons, so the bill reached customers with no line items at
+       all. RUN here, because invoice-email.test.js proves the block and can only read
+       the call site as text — a block that is perfect and reaches no email is the
+       mechanism-without-wiring trap. */
+    {
+      const tpl = 'Hi {{name}},\n\nYour invoice for {{amount_due}} is ready, due by {{due_date}}.\n\n'
+                + '{{pay_button}}{{venmo_button}}\n\nThanks';
+      const { res, sent } = await runBatch(groupBook, { template: tpl });
+      const raw = String(sent[0] && sent[0].body || '');
+      const box = raw.indexOf('>Bill to</div>');
+      check('a short template still carries the itemised invoice',
+        res.sentCount === 1 && box !== -1
+          && ['10 Main St', '22 Second St', '99 Hill Dr'].every(x => raw.includes(x)),
+        'raw=' + JSON.stringify(raw));
+      check('and it sits ABOVE the pay button, so the bill is read before it is paid',
+        box !== -1 && box < raw.indexOf('Pay Your Invoice'));
+      check('and it is the invoice DOCUMENT, not a summary: number, Bill to, status, how to pay',
+        /HU-\d{4}-0444/.test(raw) && raw.includes('Dana Payer') && raw.includes('Covers 3 properties')
+          && raw.includes('Payment status') && raw.includes('How to pay'),
+        'Addie, shown a small box of line items: "This is not the invoice we agreed on."');
+      check('and its Amount due is the bill',
+        /Amount due<\/td><td[^>]*>\$1000\.00/.test(raw), 'raw=' + JSON.stringify(raw));
+      check('and the table was not torn apart by the newline-to-<br> pass',
+        !/<tr><br>|<br><\/tr>|<br><td/.test(raw));
+    }
+    {
+      const { sent } = await runBatch(groupBook,
+        { template: 'Hi {{name}},<br>{{feet_line}}<br>Due: {{amount_due}}<br>{{pay_button}}' });
+      const raw = String(sent[0] && sent[0].body || '');
+      /* EM-31: it used to be left alone, which is how a Paid Receipt went out with no
+         invoice. Now the invoice takes the place of the template's own lines — once. */
+      check('a template that lists its own lines gets the invoice in their place, and each house ONCE',
+        raw.indexOf('>Bill to</div>') !== -1 && raw.split('10 Main St').length === 3
+          && raw.split('22 Second St').length === 2 && !/\{\{/.test(raw),
+        '10 Main St appears twice (Bill to, and its own row) and no more; the same lines twice on one bill reads as being charged twice. raw=' + JSON.stringify(raw).slice(0, 600));
+    }
+    {
+      /* The receipt is the email that prompted it: paid in full, and still an invoice. */
+      const { res, sent } = await runBatch({ p1: priced({
+        name: 'Paid Up', phone: '8015550666', email: 'paid@x.com', address: '6 Elm St', customerNumber: '300' }) },
+        { invoices: { '8015550666': { install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 400 } } });
+      const raw = String(sent[0] && sent[0].body || '');
+      check('a PAID customer still gets the invoice in their receipt',
+        res.sentCount === 1 && raw.indexOf('>Bill to</div>') !== -1 && raw.includes('Paid in Full')
+          && raw.includes('Amount paid') && !raw.includes('How to pay'),
+        'Addie: "I know its paid but invoice needs to be sent to everyone." raw=' + JSON.stringify(raw).slice(0, 500));
+    }
+    /* ---- 6c. ALREADY GIVEN BY HAND (EM-28, 2026-10-12) -------------------
+       Addie: "can we make a place in invoice were we can check mark if someone got
+       there invoice manually as well in case we did that seperate from the report".
+       The tick writes invoiceSentByHand on the houses; this is what the run does with it.
+       ⛔ THE CHECK THAT EARNS THE BLOCK IS THE FEE. The tick means "do not email them",
+       never "do not bill them" — a branch placed above the billing writes passes every
+       other check here and quietly waives the join fee for anybody handed paper. */
+    {
+      const { res, sent, db } = await runBatch({ h1: priced({
+        name: 'Hand Delivered', phone: '8015550777', email: 'hand@x.com', address: '7 Oak St',
+        customerNumber: '301', chargeNewMemberFee: true, invoiceSentByHand: true }) });
+      const inv = db.store.invoices['8015550777'];
+      const cust = db.store.jobAddresses && db.store.jobAddresses.h1;
+      check('a bill marked as given by hand is NOT emailed',
+        sent.length === 0 && res.sentCount === 0 && res.errorCount === 0,
+        'sent=' + sent.length + ' errors=' + JSON.stringify(res.errors));
+      check('but it IS billed: the invoice exists with the join fee on it',
+        !!inv && Number(inv.install) === 400 + NEW_MEMBER_FEE && inv.newMemberFeeApplied === true,
+        'install=' + (inv && inv.install) + '. The tick is about paper, not money.');
+      check('and the bill is marked as gone, so tomorrow night does not pick it up again',
+        !!cust && cust.invoiceEmailSent === true, JSON.stringify(cust));
+      check('and nothing claims it was EMAILED',
+        !!cust && !cust.invoiceEmailSentAt,
+        'the customer history prints that date as "Invoice emailed to them"');
+      check('and the run counts and names it',
+        res.sentByHandCount === 1 && Array.isArray(res.sentByHandNames) && res.sentByHandNames[0] === 'Hand Delivered',
+        JSON.stringify([res.sentByHandCount, res.sentByHandNames]));
+    }
+    {
+      /* Any house on the bill carrying the mark covers the bill — the office ticks the
+         bill, and a later-added sibling must not trigger the email. */
+      const book = JSON.parse(JSON.stringify(groupBook));
+      book.cabin.invoiceSentByHand = true;
+      ['payer', 'kid', 'cabin'].forEach(function (k) { book[k].completedAt = groupBook[k].completedAt; });
+      const { res, sent, db } = await runBatch(book);
+      const all = db.store.jobAddresses || {};
+      check('one marked house on a shared bill holds the email for the whole bill',
+        sent.length === 0 && res.sentByHandCount === 1
+          && ['payer', 'kid', 'cabin'].every(function (k) { return all[k] && all[k].invoiceEmailSent === true; }),
+        'sent=' + sent.length + ' byHand=' + res.sentByHandCount);
+    }
+    {
+      /* The customer this is most for: no email anywhere, handed a printed invoice. */
+      const { res, sent } = await runBatch({ h1: priced({
+        name: 'Phone Only', phone: '8015550888', email: '', address: '8 Pine St',
+        customerNumber: '302', invoiceSentByHand: true, cannotBillNoEmail: true }) });
+      check('a phone-only customer handed their invoice stops being reported as unbillable',
+        sent.length === 0 && (res.skippedNoEmail || 0) === 0 && res.sentByHandCount === 1,
+        'skippedNoEmail=' + res.skippedNoEmail + ' byHand=' + res.sentByHandCount);
+    }
+    {
+      const { res, sent } = await runBatch({ h1: priced({
+        name: 'Ordinary', phone: '8015550999', email: 'o@x.com', address: '9 Fir St', customerNumber: '303' }) });
+      check('an unmarked bill is emailed exactly as before',
+        sent.length === 1 && res.sentCount === 1 && (res.sentByHandCount || 0) === 0);
     }
     {
       /* ⚠ STRIPPED **AND COUNTED**. rsvp-text-wording's own lesson from the literal

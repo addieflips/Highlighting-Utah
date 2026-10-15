@@ -108,6 +108,198 @@ check('every declared connection is still made by the code',
   '\n        a bug that is not there.');
 
 /* ---------------------------------------------------------------------------
+ * 1b. `only` rules can still go red (added 2026-10-13, with the hang day).
+ *
+ * ⭐ SCH-102 — the Schedule is the ONLY thing that puts a house on a day — is held by
+ * the `only` rules on the `scheduledDate` spine. With the real files clean they report
+ * nothing, so gutting the mechanism or deleting the rules would change nothing and the
+ * build would stay green: the silent-failures gate's own trap. So this plants a second
+ * planner in a COPY of the real files and requires the page to name it.
+ * ⚠ IT RUNS THE REAL ENGINE ON THE REAL SOURCE plus one line, never a fixture of its own
+ * — a fixture carrying its own copy of the rule proves the copy works.
+ * ------------------------------------------------------------------------- */
+{
+  const os = require('os');
+  const { check: runCheck } = require('./connections/engine');
+  const manifestAll = require('./connections/manifest');
+  const hang = manifestAll.find(s => s.field === 'scheduledDate');
+  check('the hang day is watched, with its only-the-Schedule rules (SCH-102)',
+    !!hang && Array.isArray(hang.only) && hang.only.length >= 3,
+    'the scheduledDate spine or its `only` rules are gone — nothing now stops a second ' +
+    'planner booking hang days, and nothing would go red if one appeared');
+  if (hang) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hu-conn-'));
+    const realAdmin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+    const realServer = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+    const anchor = 'function validateSeasonPlan(';
+    const plant = (extra, aSrc, sSrc) => {
+      fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+      fs.writeFileSync(path.join(dir, 's.js'), sSrc);
+      const r = runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [hang])[0];
+      return r.rows.filter(x => !x.found && x.wrongValue);
+    };
+    try {
+      check('the planted-breach harness found its anchor', realAdmin.split(anchor).length === 2,
+        'validateSeasonPlan is no longer declared exactly once in admin.html — repoint the anchor');
+      const second = plant('', realAdmin.replace(anchor,
+        'function hu2ndPlanner(d){ return {scheduled: true, scheduledDate: d}; }\n' + anchor), realServer);
+      check('a second writer of a hang day goes red', second.length >= 2,
+        'planted {scheduled: true, scheduledDate: d} outside the Schedule mirror and got ' +
+        second.length + ' red(s) — the only-the-Schedule rule has stopped biting');
+      const door = plant('', realAdmin.replace('const RECONCILE_SWEEP_ENABLED = false;',
+        'const RECONCILE_SWEEP_ENABLED = true;'), realServer);
+      check('re-opening the crew-routes sweep goes red', door.length >= 1,
+        'turned RECONCILE_SWEEP_ENABLED on and nothing went red — the closed-door check is not running');
+      const clear = plant('', realAdmin.replace(anchor,
+        'function huClears(){ return {scheduled: false, scheduledDate: null, assignedCrew: null}; }\n' + anchor), realServer);
+      check('and a writer that only CLEARS a day stays green', clear.length === 0,
+        'clearing a booking was reported as a breach: ' + clear.map(x => x.why).join('; '));
+      /* ⭐ BATCH 2 (2026-10-13): the same proof for the two other `only` rules, run
+         through the SAME harness so the reader-census path (`allowDeclared`) is held
+         as well as the writer path. */
+      const plant2 = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        if (!sp) return null;
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0]
+          .rows.filter(x => !x.found && x.wrongValue);
+      };
+      const season = plant2('maybeNextYear', realAdmin.replace(anchor,
+        'function huOwnSeasonTest(d){ return !d.maybeNextYear; }\n' + anchor));
+      check('a new place deciding who is in the season for itself goes red',
+        !!season && season.length >= 1,
+        season ? 'planted a hand-rolled Back Next Year test and nothing went red — the reader census is not running'
+               : 'the maybeNextYear spine is gone');
+      const lock = plant2('lightsLockedUntil', realAdmin.replace(anchor,
+        'function huImporterLock(d){ d.lightsLockedUntil = new Date(); }\n' + anchor));
+      check('a new writer of the 48-hour lock goes red',
+        !!lock && lock.length >= 1,
+        lock ? 'planted a new lightsLockedUntil writer and nothing went red — an importer could lock the whole book'
+             : 'the lightsLockedUntil spine is gone');
+      /* ⭐ BATCH 3 (2026-10-13): the colour census, which excuses a reader by what the
+         FUNCTION around it does (`unlessInFn`) — so both halves are planted: a one-field
+         reader must go red, and a reader that also reads the list must not. */
+      const oneField = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huOneField(d){ return d.lightsDescription || ""; }\n' + anchor));
+      check('a new reader of the colours that reads only one field goes red',
+        !!oneField && oneField.length >= 1,
+        oneField ? 'planted a lightsDescription-only reader and nothing went red — the colour census is not running'
+                 : 'the lightsDescription spine is gone');
+      const bothFields = plant2('lightsDescription', realAdmin.replace(anchor,
+        'function huBoth(d){ return d.lightsDescription || (d.lightColors || []).join(", "); }\n' + anchor));
+      check('and one that reads both fields stays green',
+        !!bothFields && bothFields.length === 0,
+        'a reader of both colour fields was reported: ' + (bothFields || []).map(x => x.why).join('; '));
+      /* ⭐ BATCH 4 (2026-10-13): the photo list and its photo-#1 mirror. */
+      const mirror = plant2('housePhotos', realAdmin.replace(anchor,
+        'function huMirrorByHand(u){ return {housePhotoUrl: u}; }\n' + anchor));
+      check('a new hand-written house photo field goes red',
+        !!mirror && mirror.length >= 1,
+        mirror ? 'planted a hand-written housePhotoUrl and nothing went red — the list and its mirror can drift'
+               : 'the housePhotos spine is gone');
+      /* ⭐ BATCH 5 (2026-10-13): the amber itself. Every writer of the warehouse and season
+         fields is now declared, so amber on them reads zero — and a census at zero cannot
+         tell "clean" from "stopped looking". So a new writer is planted and must SHOW; and the
+         three ways amber was narrowed (named tables, quiet anchors, the ternary) are each
+         planted from the other side so none of them can widen into a blanket excuse. */
+      const amberOf = (field, aSrc) => {
+        const sp = manifestAll.find(s => s.field === field);
+        fs.writeFileSync(path.join(dir, 'a.html'), aSrc);
+        fs.writeFileSync(path.join(dir, 's.js'), realServer);
+        return runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') }, [sp])[0];
+      };
+      const newWriter = amberOf('needsLightBuild', realAdmin.replace(anchor,
+        'function huNewBuildDoor(u){ u.needsLightBuild = true; }\n' + anchor));
+      check('a new, undeclared writer of Needs Building shows as amber',
+        newWriter.undeclared.some(u => /^admin · huNewBuildDoor · set/.test(u)),
+        'planted u.needsLightBuild = true in a new function and amber did not name it');
+      const realBuild = amberOf('needsLightBuild', realAdmin);
+      check('and with the real files, every writer of Needs Building is declared',
+        !realBuild.undeclared.some(u => / · set/.test(u)),
+        'undeclared writers: ' + realBuild.undeclared.filter(u => / · set/.test(u)).join('; '));
+      const otherTable = amberOf('housePrice', realAdmin.replace(anchor,
+        'const HU_UNNAMED_TABLE = {housePrice: 400};\n' + anchor));
+      check('a table of field names is only excused when it is NAMED in TABLES',
+        otherTable.undeclared.some(u => /^admin · \(a handler\) · set/.test(u)),
+        'an unnamed object carrying housePrice as a key was excused — the table exemption has become a blanket one');
+      const tern = amberOf('housePhotos', realAdmin.replace(anchor,
+        'function huTern(n, housePhotos){ return n ? housePhotos : []; }\n' + anchor));
+      check('a name between the halves of a ternary is not counted as a writer',
+        !tern.undeclared.some(u => /^admin · huTern · set/.test(u)),
+        'n ? housePhotos : [] was read as an object key and counted as a write');
+      const hp = manifestAll.find(s => s.field === 'rsvpStatus');
+      fs.writeFileSync(path.join(dir, 'a.html'), realAdmin);
+      const lost = runCheck({ admin: path.join(dir, 'a.html'), server: path.join(dir, 's.js') },
+        [Object.assign({}, hp, { quiet: [{ file: 'admin', near: 'HU_NOTHING_MATCHES_THIS', where: 'Customers › All Customers', why: 'planted' }] })])[0];
+      check('a quiet anchor that has drifted off its code goes red, never silent',
+        lost.rows.some(x => !x.found && /quiet anchor matches nothing/.test(x.why)),
+        'a quiet entry pointing at nothing was dropped quietly — it would excuse whatever moved in next');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1c. RULES WRITTEN TWICE (2026-10-13). connections/twins.js names every rule the office
+ * page and the server each carry a copy of, and which test compares them. Two copies drift
+ * silently, so the list is a CENSUS: any pair in the code that is on neither list fails.
+ * ------------------------------------------------------------------------- */
+{
+  const { TWINS, NOT_TWINS } = require('./connections/twins');
+  /* The scanner's own view of each file — comments and strings blanked, HTML outside the
+     scripts blanked — so a name mentioned in a comment is never read as a function. */
+  const { index: scanIndex } = require('./connections/scan');
+  const office = scanIndex(path.join(ROOT, 'admin.html')).blanked + '\n' +
+                 scanIndex(path.join(ROOT, 'js', 'money.js')).blanked;
+  const server = scanIndex(path.join(ROOT, 'functions', 'index.js')).blanked;
+  const names = (src, topOnly) => new Set([...src.matchAll(topOnly
+    ? /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_]\w*)\s*\(/gm
+    : /function\s+([A-Za-z_]\w*)\s*\(/g)].map(m => m[1]));
+  const oAll = names(office, false), sAll = names(server, false);
+  const oTop = names(office, true), sTop = names(server, true);
+  const found = [];
+  sAll.forEach(n => { if (/Server$/.test(n) && oAll.has(n.replace(/Server$/, ''))) found.push([n.replace(/Server$/, ''), n]); });
+  sTop.forEach(n => { if (oTop.has(n)) found.push([n, n]); });
+  const listed = (o, sv) => TWINS.some(t => t.office === o && t.server === sv) || !!NOT_TWINS[o];
+  const unlisted = found.filter(([o, sv]) => !listed(o, sv));
+  check('every rule written twice is on the twins list — or said not to be one', unlisted.length === 0,
+    unlisted.map(p => p[0] + ' / ' + p[1]).join(', ') +
+    '\n        A rule the office and the server each carry a copy of. Add it to TWINS in ' +
+    'connections/twins.js with the test that compares the two — or null, which the page shows ' +
+    'as nothing comparing them — or to NOT_TWINS with the reason it is not one rule.');
+  check('the census found the pairs it exists for', found.length >= 30,
+    'found ' + found.length + ' — a matcher that has stopped matching demands nothing at all');
+
+  const gone = TWINS.filter(t => !oAll.has(t.office) || !sAll.has(t.server));
+  check('every pair on the twins list still exists on both sides', gone.length === 0,
+    gone.map(t => t.office + ' / ' + t.server).join(', ') + ' — renamed or removed; repoint or take it off');
+  const staleNot = Object.keys(NOT_TWINS).filter(n => !oAll.has(n) || !(sAll.has(n) || sAll.has(n + 'Server')));
+  check('nothing is excused as not-a-twin that is no longer on both sides', staleNot.length === 0, staleNot.join(', '));
+
+  let chain = '';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    chain = String(pkg.scripts.test || '').split('&&').map(x => x.trim().replace(/^npm run /, ''))
+      .map(k => pkg.scripts[k] || k).join(' ');
+  } catch (e) { chain = ''; /* reported by the check below */ }
+  const badTest = [];
+  TWINS.filter(t => t.test).forEach(t => {
+    const p = path.join(ROOT, t.test);
+    if (!fs.existsSync(p)) return badTest.push(t.office + ' → ' + t.test + ' does not exist');
+    if (chain.indexOf(t.test) === -1) return badTest.push(t.office + ' → ' + t.test + ' is not in npm test');
+    const txt = fs.readFileSync(p, 'utf8');
+    const has = n => new RegExp('\\b' + n + '\\b').test(txt);
+    if (!has(t.office) || (!t.byBlock && !has(t.server))) badTest.push(t.office + ' → ' + t.test + ' does not name both copies');
+  });
+  check('every test said to compare a pair exists, runs, and names both copies', chain.length > 200 && badTest.length === 0,
+    badTest.join('; ') || 'could not read the npm test chain');
+  note('rules written twice: ' + TWINS.length + ', of which ' + TWINS.filter(t => !t.test).length +
+    ' have nothing comparing the two copies — shown on the page as such.');
+}
+
+/* ---------------------------------------------------------------------------
  * 2. Every anchor still resolves.
  *
  * Separate from the check above on purpose. "The function was renamed" and "the function
@@ -661,6 +853,7 @@ if (amberTotal) {
       areas > 0, 'no area cards at all, so nothing below proves anything');
 
     let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
+    const held = { test: 0, code: 0, words: 0, none: 0 };
     for (let i = 0; i < areas; i++) {
       subtab('rules').click();
       const back = v.querySelector('.back'); if (back) back.click();
@@ -679,8 +872,25 @@ if (amberTotal) {
         const last = now[now.length - 1];
         const body = last && last.querySelector('.body .rl li');
         if (!body) emptyBody++;
+        const prov = last && last.querySelector('.prov');
+        const pt = prov ? prov.textContent : '';
+        if (/by a test that runs on every build — .*(Suite \d+|\.(test|spec)\.js)/.test(pt)) held.test++;
+        else if (/no test holds it/.test(pt)) held.code++;
+        else if (/not checkable/.test(pt)) held.words++;
+        else held.none++;
       }
     }
+
+    /* ⭐ EACH RULING SAYS HOW IT IS HELD (2026-10-13, [[PROC-39]]). Run against the real
+       map through the real renderer: a block that names a test must SHOW the test, and
+       one with code but no test must say nothing would go red. Counted, because the
+       claim is about every block, and a renderer that dropped one level would still draw
+       the other two. */
+    check('every opened ruling says how it is held — by a test, by code only, or not at all',
+      held.none === 0 && held.test > 100 && held.code > 50,
+      'test ' + held.test + ', code only ' + held.code + ', not checkable ' + held.words +
+      ', said nothing ' + held.none + ' — a ruling the page claims nothing about is the ' +
+      'same as one it claims everything about');
 
     check('every rule block opens when it is clicked',
       tried > 0 && opened === tried,
@@ -1049,8 +1259,11 @@ if (amberTotal) {
     'the frame asks window.parent for these by name; without them every decision falls ' +
     'into the "opened in its own tab" branch and nothing is ever saved');
   check('and reads the saved decisions eagerly, beside the health-check ones',
-    /loadRuleDecisions\(\);/.test(admin.slice(admin.indexOf('loadHcDecisions();'),
-      admin.indexOf('loadHcDecisions();') + 600)),
+    /loadRuleDecisions\(\);/.test((function(){
+      /* scoped to initData: the live-settings list ([[PROC-38]]) names both loaders earlier in the file */
+      const body = admin.slice(admin.indexOf('function initData('));
+      return body.slice(body.indexOf('loadHcDecisions();'), body.indexOf('loadHcDecisions();') + 600);
+    })()),
     'the frame asks for these while it loads and can be opened before any panel group ' +
     'has run — loaded later, every rule she confirmed reads as never-read');
   check('and the write is awaited before the record is handed back',
@@ -1190,9 +1403,18 @@ if (unguarded.length) {
       !!quoteSpine && !(quoteSpine.undeclared || []).some(u => /renderExpensesList|ccRenderCardList|approveTimeOffRequest/.test(u)),
       ': an expense, a credit-card transaction and a time-off request are still being ' +
       'counted as touches on a QUOTE\'s status — the filter exists but nothing is using it');
+    /* ⚠ MEASURED WITHOUT THE HAND-WRITTEN `ignore` LIST AND WITH NOTHING DECLARED (2026-10-15).
+       This used to read the live amber count, which is the right shape for a guard on the
+       automatic filter only while the list is long. Batch 7 worked the quote-status list
+       down to anonymous handlers, so the live count fell to 7 for good reasons and the check
+       fired on correct data — the slow fuse §7 names. What it guards is unchanged: the
+       automatic other-record filter, on its own, must still leave plenty of touches visible. */
+    const bareStatus = Object.assign({}, quoteSpine ? quoteSpine.spine : {}, { ignore: [], sets: [], reads: [] });
+    const bareRun = eng.check({ admin: path.join(ROOT, 'admin.html'), server: path.join(ROOT, 'functions', 'index.js') },
+      Object.assign([bareStatus], { TABLES: require('./connections/manifest').TABLES }))[0];
     check('and it has not swallowed the whole list',
-      !!quoteSpine && quoteSpine.undeclaredTotal > 20,
-      ': got ' + ((quoteSpine || {}).undeclaredTotal) + ' — a filter that drops nearly ' +
+      !!bareRun && bareRun.undeclaredTotal > 20,
+      ': got ' + ((bareRun || {}).undeclaredTotal) + ' with nothing declared and no ignore list — a filter that drops nearly ' +
       'everything is hiding real connections, which is worse than the noise it removes');
   }
 

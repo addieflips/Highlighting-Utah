@@ -358,7 +358,7 @@ const STEPS = [
        rather than listed like the change fee, so this stamp is the only record of WHEN a
        customer was charged their $30 — and that is the question asked when they query the
        bill. Start New Season clears the flag, so it answers "this season" each year. */
-    records: ['invoicedAt', 'invoiceEmailSentAt', 'newMemberFeeAppliedAt'],
+    records: ['invoicedAt', 'invoiceEmailSentAt', 'invoiceSentByHandAt', 'newMemberFeeAppliedAt'],
     next: [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },

@@ -325,12 +325,42 @@ check('a report with no date survives',
     'admin error|' + String(first.match).toLowerCase(), null).data) === null,
   'serverTimestamp reads back null on the writing tab\'s own first snapshot');
 
-/* ⛔ THE INSTRUMENTED-NOT-FIXED CASE, NAMED. */
-check('"Missing or insufficient permissions" is NOT treated as fixed',
+/* ⛔ THE INSTRUMENTED-NOT-FIXED CASE, NAMED — AND REVERSED 2026-10-12 ([[MSG-32]]).
+   This asserted the permissions rows were never cleared. Addie, shown that none had arrived
+   in the eighteen days since savePrefs was guarded: "yes clear the permissions rows". The
+   cause was never proven, so the half that matters now is the SECOND check: a row after
+   the floor must survive, or a wrong guess deletes its own evidence. */
+check('the old "Missing or insufficient permissions" rows are cleared',
   api.errorFixedBy(row('p', ADMIN_TOPIC,
-    'admin error|unhandled promise: missing or insufficient permissions',
+    'admin error|unhandled promise: missing or insufficient permissions.',
+    daysBefore('2026-09-18', 4)).data) !== null,
+  'the five rows from 9/8 to 9/18 are still in the badge');
+
+check('but one written after the floor survives',
+  api.errorFixedBy(row('p', ADMIN_TOPIC,
+    'admin error|unhandled promise: missing or insufficient permissions.',
+    daysAfter('2026-09-24', 1)).data) === null,
+  'the cause was never proven — a new row is the only thing that would say the guess was wrong');
+
+/* The photo-destroy call that Google refused while billing was off (8–12 October 2026).
+   The fixture is the row as it was stored. */
+check('the fix-photo destroy row from the billing outage is cleared',
+  api.errorFixedBy(row('f', ADMIN_TOPIC,
+    'admin error|[hu] fix photo destroy call failed internal',
+    daysBefore('2026-10-12', 3)).data) !== null,
+  'the 9 October row is still in the badge after billing came back');
+
+check('but a destroy failure after billing came back survives',
+  api.errorFixedBy(row('f', ADMIN_TOPIC,
+    'admin error|[hu] fix photo destroy call failed internal',
+    daysAfter('2026-10-12', 1)).data) === null,
+  'with billing on, that is a different cause and nobody has looked at it');
+
+check('and a member-side row of the same wording is left alone',
+  api.errorFixedBy(row('p', MEMBER_TOPIC,
+    'admin error|unhandled promise: missing or insufficient permissions.',
     daysBefore('2026-09-18', 4)).data) === null,
-  'that was instrumented on 2026-09-18, not fixed — clearing it destroys the reports the fix is waiting for');
+  'the entry is scoped to the office reporter');
 
 /* ⚠ REPOINTED, NOT WEAKENED (2026-09-19). This check used Edit Customer's own crash as its
    example office error — and that fault now has an entry of its own, so the row it built is
@@ -455,9 +485,10 @@ const sweepChecks = (async function () {
  * DELETE. The key each row carries is what `errorKeyFor` builds — topic, pipe,
  * lowercased, digits collapsed — so these go in as that function leaves them.
  *
- * ⛔ AND THE CHECK THAT EARNS THE BLOCK IS THE LAST ONE. "Unhandled promise:
- * Missing or insufficient permissions." is the one fault here that is NOT fixed
- * — it was only instrumented — and two of these four entries are about reads
+ * ⛔ AND THE CHECK THAT EARNS THE BLOCK IS THE LAST PAIR. "Unhandled promise:
+ * Missing or insufficient permissions." was the one fault here NOT fixed — only
+ * instrumented — until it got an entry of its own on 2026-10-12 ([[MSG-32]]),
+ * and two of these four entries are about reads
  * that were refused for exactly that reason. A needle that reached it would
  * delete the only evidence anybody has of the open bug, silently, and the
  * folder would look reassuringly empty. It is asserted per entry, not once.
@@ -491,13 +522,71 @@ const sweepChecks = (async function () {
       'an admin-scoped entry reached a member report');
   }
 
-  /* ⛔ THE OPEN BUG. Nothing in the list may touch it, whatever the date. */
-  const STILL_OPEN = 'Unhandled promise: Missing or insufficient permissions.';
-  check('and nothing clears the permissions fault that is still open',
+  /* ⛔ THE PERMISSIONS FAULT. Until 2026-10-12 nothing in the list could touch it; it has
+     ONE entry of its own now ([[MSG-32]]). The claim that survives is the one that
+     mattered: none of the OTHER entries reaches it at any date, and no entry at all
+     clears a row written after its floor. */
+  const PERMS = 'Unhandled promise: Missing or insufficient permissions.';
+  const reaching = api.FIXED_ERRORS.filter(e =>
+    api.errorFixedBy(row('x', ADMIN_TOPIC, key(PERMS), daysBefore('2026-09-01', 1)).data, [e]) !== null);
+  check('exactly one entry clears the old permissions rows, and it is the one that names them',
+    reaching.length === 1 && /unhandled promise/i.test(String(reaching[0].match)),
+    'another needle is broad enough to reach them, or the entry itself has gone');
+  check('and nothing clears a permissions row written after the floor',
     api.FIXED_ERRORS.every(e =>
-      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysAfter('2026-09-30', 1)).data, [e]) === null &&
-      api.errorFixedBy(row('x', ADMIN_TOPIC, key(STILL_OPEN), daysBefore('2026-09-01', 1)).data, [e]) === null),
-    'one of the entries reaches the unhandled-promise rows, which are the evidence for a bug nobody has diagnosed');
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(PERMS), daysAfter('2026-09-30', 1)).data, [e]) === null),
+    'a new row is the evidence that the 9/24 guard was not the cause');
+}
+
+/* ---------------------------------------------------------------------------
+ * The 14 October read of the folder (2026-10-14). Five more faults fixed — two the
+ * day before and never written down, three in this change — typed exactly as the
+ * Admin Errors rows read, because an invented wording can pass while missing the
+ * one that happened.
+ *
+ * ⛔ AND TWO THINGS IN THAT SAME FOLDER MUST NOT BE CLEARED BY ANY OF THEM. The RSVP
+ * "internal" rows from 8–12 October are the billing outage: Google refused the call
+ * before our code ran, so those Yes answers were NOT saved, and the rows are the
+ * only list of who to check. And the 1 AM "maximum bandwidth for writes" refusal has
+ * no proven cause — it is only instrumented (planSaveRunaway), and §9.9 item 7 says
+ * an instrumented fault gets no entry.
+ * ------------------------------------------------------------------------- */
+{
+  const key = t => 'admin error|' + String(t).toLowerCase().replace(/[0-9]+/g, '#').replace(/\s+/g, ' ').trim();
+  const OCT = [
+    { what: 'the plan save refused over an undefined fix description', on: '2026-10-13',
+      real: '[HU] the schedule could not be saved — other computers are NOT seeing these changes: days[37].houses[0].issue is undefined Function setDoc() called with invalid data.' },
+    { what: 'the same refusal on the fix list', on: '2026-10-13',
+      real: '[HU] the schedule could not be saved — other computers are NOT seeing these changes: fixList[0].issue is undefined Function setDoc() called with invalid data.' },
+    { what: 'the map key Google refused', on: '2026-10-13',
+      real: 'Google Maps JavaScript API error: RefererNotAllowedMapError https://developers.google.com/maps/documentation/javascript/error-messages#referer-not-allowed-map-error' },
+    { what: 'a line put on a map from the refused library', on: '2026-10-14',
+      real: 'InvalidValueError: setMap: not an instance of Map' },
+    { what: 'a marker put on a map from the refused library', on: '2026-10-14',
+      real: 'InvalidValueError: setMap: not an instance of Map; and not an instance of StreetViewPanorama' },
+    { what: 'Recalculate reading the date of a day not dated yet', on: '2026-10-14',
+      real: "[HU] recalculate failed Cannot read properties of undefined (reading 'getFullYear')" },
+    { what: 'one year of past weather not downloading', on: '2026-10-14',
+      real: '[HU] no normals for 2016 Load failed' }
+  ];
+  for (const f of OCT) {
+    check('cleared: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysBefore(f.on, 1)).data) !== null,
+      'the real report is still in the badge after the fix shipped');
+    check('but a fresh one survives: ' + f.what,
+      api.errorFixedBy(row('x', ADMIN_TOPIC, key(f.real), daysAfter(f.on, 1)).data) === null,
+      'a fix that did not take must be able to re-report itself');
+    check('and the member side is left alone: ' + f.what,
+      api.errorFixedBy(row('x', MEMBER_TOPIC, key(f.real), daysBefore(f.on, 1)).data) === null,
+      'an admin-scoped entry reached a member report');
+  }
+  const memberKey = (doing, reason) => 'member error|' + doing.toLowerCase() + '|' + reason.toLowerCase();
+  check('an RSVP answer lost to the billing outage is NOT cleared',
+    api.errorFixedBy(row('x', MEMBER_TOPIC, memberKey('Answering Yes to the RSVP email', 'internal'), daysBefore('2026-10-12', 2)).data) === null,
+    'those rows are the only list of customers whose Yes may not have saved');
+  check('the write-bandwidth refusal is NOT cleared — it is only instrumented',
+    api.errorFixedBy(row('x', ADMIN_TOPIC, key('@firebase/firestore: Firestore (10.12.2): FirebaseError: [code=resource-exhausted]: This database has exceeded their maximum bandwidth for writes'), daysBefore('2026-10-14', 1)).data) === null,
+    'an entry reached a fault nobody has proved fixed');
 }
 
 /* ---------------------------------------------------------------------------

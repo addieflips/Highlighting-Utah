@@ -67,7 +67,11 @@ const READS = [
   /* The fifth read, added 2026-10-08 for the failed payment receipts. It is a
      deliberate line in this list exactly as the note above demands — that is what
      stops a WRITE ever arriving as "one more use of db". */
-  ["the invoices",       /\bdb\s*\.collection\(\s*'invoices'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/]
+  ["the invoices",       /\bdb\s*\.collection\(\s*'invoices'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/],
+  /* Reads six and seven, added 2026-10-13 for "are the nudges working?" ([[QT-52]]):
+     the nudge automation's own last-run record, and the quotes it chases. */
+  ["the nudge switch",   /\bdb\s*\.collection\(\s*'settings'\s*\)\s*\.doc\(\s*'quoteNudgeAutomation'\s*\)\s*\.get\(\s*\)/],
+  ["the quotes",         /\bdb\s*\.collection\(\s*'quotes'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/]
 ];
 for (const [what, re] of READS) {
   check('reads ' + what + ', as a .get() and nothing else', re.test(live),
@@ -117,6 +121,12 @@ for (const field of ['heldNames', 'noEmailNames']) {
 for (const field of ['inv.name', 'invoice.name', 'd.name']) {
   check('the receipt section never reads "' + field + '" off an invoice', live.indexOf(field) === -1,
     'group by the reason and count the people — PROC-36');
+}
+/* ⛔ THE NUDGE SECTION (2026-10-13) READS A RECORD THAT LISTS PEOPLE. textNudgeList and
+   needsHumanList are the office's to-do lists of real customers; a quote carries a name. */
+for (const field of ['textNudgeList', 'needsHumanList', 'q.name', 'q.email', 'q.phone']) {
+  check('the nudge section never reads "' + field + '"', live.indexOf(field) === -1,
+    'count the quotes, never name them — PROC-36');
 }
 check('an invoice email address is only ever TESTED, never printed',
   !/say\([^\n]*inv\.email/.test(live),

@@ -2053,6 +2053,10 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
   eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
   eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
+  /* QT-51: the possible-existing-customer banner, lifted, never stubbed. */
+  global.quoteContactMatchCache = null; global.quoteContactMatchCacheFor = null;
+  ['quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteContactMatchHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -5581,7 +5585,10 @@ suite('8. Quote decline / maybe next year');
      for real). The install generator moved to the helper on 2026-08-15 when
      the RSVP gate came off, and this check exists to protect the GUARANTEE,
      not one way of writing it. */
-  const honoursMaybe = l => l.includes('!a.data.maybeNextYear') || l.includes('!isOutForSeason(a.data)');
+  /* ⭐ AND saidNoOrBackNextYear (2026-10-13, RS-81): the fix and removal generators ask it
+     because it reads the RSVP-link status as well as the flag — the same guarantee, stronger. */
+  const honoursMaybe = l => l.includes('!a.data.maybeNextYear') || l.includes('!isOutForSeason(a.data)') ||
+    l.includes('!saidNoOrBackNextYear(a.data)');
   check('quoteresp', 'every route list excludes Maybe Next Year',
     routeLists.length >= 4 && routeLists.every(honoursMaybe),
     'found ' + routeLists.length + ' route lists, ' +
@@ -6366,8 +6373,11 @@ suite('10f. Portal sign-in reads, and multi-property customers');
          with itself. Its browser twin is proved identical by money-parity. */
       const onBillSrc = extractFn(fns, 'houseIsOnTheBillServer');
       check('multi-house', 'the who-is-on-the-bill rule was found to lift', !!onBillSrc);
+      /* houseLightsTextServer, LIFTED (2026-10-13): houseBillingRow names each house's
+         lights through it, so an ordinary house (colours in the list) is not blank. */
+      const lightsTextSrc = extractFn(fns, 'houseLightsTextServer');
       new Function('db',
-        (onBillSrc || '') + '\n' + rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
+        (onBillSrc || '') + '\n' + (lightsTextSrc || '') + '\n' + rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
         'this.byIds = billedHousesByIds; this.byKey = billedHousesByKey;'
       ).call(bh, fakeDb);
 
@@ -12170,7 +12180,10 @@ suite('22. Building the crew-days the season needs');
     const messy = placed(8, 'Murray').concat(
       placed(4, 'Midvale'), placed(8, 'Holladay'), placed(4, 'Cottonwood Hts'),
       placed(3, 'Payson'), placed(2, 'Santaquin'));
-    const built = api.plan(messy, {}, { floorDate: '2026-10-01', dist: milesMap });
+    /* minCrew:false since [[SCH-128]] (2026-10-12): these checks are about the town rules the builder and the tail
+       sweep keep. The ten-a-crew pass runs after both and joins a short run to the nearest one by DISTANCE, so it can
+       put a third town on a run on purpose — that pass is proved on the real press in schedule-v2.test.js suite 28. */
+    const built = api.plan(messy, {}, { floorDate: '2026-10-01', dist: milesMap, minCrew: false });
 
     check('build', 'no date is built with more than four towns',
       worstDay(built).towns.length <= 4,
@@ -12248,8 +12261,18 @@ suite('22. Building the crew-days the season needs');
       sizesOf(api.plan(who(28, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,8',
       'the eight is not a bug — it is the end of the town, and it grows on its own ' +
       'from whatever the crews do not finish');
-    check('build', 'and a town of 48 is 20, 20 and 8',
-      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,20,8');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — this asserted '20,20,8'. Addie: "there should be at least 10 houses
+       for each day for each crew." The eight is a crew sent out for fewer than ten, with nowhere to dissolve to (the
+       first date is full at forty), so it takes back exactly the two it needs and no more. The line below still holds
+       for every day already at ten: nothing ELSE is trimmed. */
+    /* ⚠ 24,24 AND NOT 20,18,10: in this fixture two crews are never sent to one town on one date, so 48 is three DATES
+       (20, 20, 8) and the eight rides the two days already going there, four each — "a few over" twenty, which she
+       allowed, and no date over forty. */
+    check('build', 'and a town of 48 is 24 and 24 — the leftover eight rides the two days already going there',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '24,24',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01' })));
+    check('build', 'with the minimum switched off it is still 20, 20 and 8',
+      sizesOf(api.plan(who(48, 'Lehi'), {}, { floorDate: '2026-10-01', minCrew: false })) === '20,20,8');
     check('build', 'nothing is trimmed to make the leftover look better',
       sizesOf(api.plan(who(32, 'Lehi'), {}, { floorDate: '2026-10-01' })) === '20,12',
       'seventeen and fifteen was tried and overruled');
@@ -13536,7 +13559,10 @@ suite('Suite 27. Short crew-days reach into nearby towns');
                          stop: { lat: at[city][0], lng: at[city][1] } });
         }
       });
-      const days = api.plan(waiting, {}, Object.assign({ floorDate: '2026-10-01', maxDays: 40 }, opts || {}));
+      /* minCrew:false since [[SCH-128]]: this suite is the tail sweep's own invariants (twenty a crew, one other town).
+         The ten-a-crew pass that runs after it may take a crew to twenty-four on purpose; suite 28 of
+         schedule-v2.test.js holds that pass to its own limits. */
+      const days = api.plan(waiting, {}, Object.assign({ floorDate: '2026-10-01', maxDays: 40, minCrew: false }, opts || {}));
       const byDate = {};
       days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
       return { days, byDate, dates: Object.keys(byDate).sort(),
@@ -13840,10 +13866,13 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
         return !!first && first.houses.some(h => h.city === 'Lehi' && !h.done);
       })(),
       'eighteen left in Lehi has to outrank five in Orem');
-    check('S28', 'a new day is added when the leftovers will not fit anywhere',
-      pd.filter(d => d.houses.some(h => !h.done)).length >= 2 &&
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted West Jordan's three got a day of their own. Addie: "there
+       should be at least 10 houses for each day for each crew." Three houses are not a day any more: they ride one that
+       is going out, and what is checked is that they are still scheduled and no day is left under ten. */
+    check('S28', 'the leftovers join a day that is going out — none is left under ten, and nobody is dropped',
+      pd.filter(d => d.houses.some(h => !h.done)).every(d => d.houses.filter(h => !h.done).length >= 10) &&
       all.filter(h => h.city === 'West Jordan').length === 3,
-      'West Jordan is near nothing else here, so it has to get a day of its own');
+      'days still to do: ' + pd.filter(d => d.houses.some(h => !h.done)).map(d => d.houses.filter(h => !h.done).length).join(','));
     check('S28', 'and nothing is lost doing it', all.length === worked.length + rest.length);
 
     const oneTown = { houses: Array.from({ length: 12 }, () => ({ city: 'Alpine' })) };
@@ -13881,7 +13910,8 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
     /sameCity\(t,pinned\)/.test(admin),
     'unconditional is what let a day claim Lehi and Highland over Eagle Mountain and West Jordan houses');
   check('S28', 'a worked day is judged by date OR by anything ticked off on it',
-    /const worked=\(dt&&dt<today\)\|\|houses\.some/.test(admin),
+    /* [[SCH-129]] the date half is isGone, which is still dt < today, plus today once the crews are in */
+    /const worked=isGone\(dt\)\|\|houses\.some/.test(admin) && /const isGone=function\(dt\)\{ return !!\(dt&&\(dt<today\|\|/.test(admin),
     'a day the crew has been sent out on is the record of what they were sent out with');
 }
 
@@ -17570,12 +17600,15 @@ suite('Suite 48. Days within two working days are set');
      which no longer cares which), and only through takeOffPrintedDay. */
   check('S48', 'a set day is kept whole, houses and all',
     (/if\(setSoon\)\{ locked\.push\(d\); keep\.push\(d\); return; \}/.test(admin) ||
-     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin) ||
+     /* [[SCH-130]] (2026-10-13) the only other thing that leaves a set day is a house already DONE, and it goes to
+        the record at the front of the season — never to the pool. Everything still to hang stays and returns. */
+     /if\(setSoon\)\{[\s\S]{0,700}?unbuiltNewHangOnPrintedDay\(h\)\)\{\s*takeOffPrintedDay\(d, h\);[\s\S]{0,1200}?const doneHere=[\s\S]{0,120}?\(d\.houses\|\|\[\]\)\.filter\(function\(h\)\{ return h\.done && !h\.isFix && !h\.isTakedown; \}\)[^;]*;\s*if\(doneHere\.length\)\{\s*doneRecord\.push\([\s\S]{0,300}?locked\.push\(d\); keep\.push\(d\); return;\s*\}/.test(admin)),
     'the return is the important part: without it the houses fall through into the pool and get a second day');
 
   check('S48', 'the check runs BEFORE the worked/not-worked split',
     admin.indexOf('const setSoon = dt && dt >= today') <
-    admin.indexOf('const worked=(dt&&dt<today)'),
+    admin.indexOf('const worked=isGone(dt)'),
     'a day that is set but has nothing done yet must be caught first, or it is treated as fair game');
 
   /* ⚠ WORKING days, which since 2026-08-21 means Thanksgiving is not one of
@@ -18516,7 +18549,10 @@ suite('Suite 51. The dribble at the end of the season');
       /gatherStrayHouses\(packed\.days, \{/.test(admin) &&
       /: packed\.days;\r?\n/.test(admin) &&
       /evenCrewDates\(gathered, \{/.test(admin) &&
-      /: gathered;\r?\n  return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(admin));
+      /: gathered;\r?\n/.test(admin) &&
+      /* [[SCH-128]], 2026-10-12: the ten-a-crew pass runs last, on the evened plan, before the numbering. */
+      /enforceCrewMinimum\(evened, \{/.test(admin) &&
+      /: evened;\r?\n  return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(admin));
 
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
@@ -22558,7 +22594,9 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
        of those proves nothing about the other, and the whole reason the helper exists is
        that the portal's writer can only ever fill the snapshot with blanks. */
     const onFileFn = (function () {
-      const src = extractFn(admin, 'requoteOnFile');
+      /* houseLightsText is LIFTED, never stubbed (2026-10-13): requoteOnFile asks it now so
+         an ordinary house — colours in lightColors, description empty — shows its lights. */
+      const src = extractFn(admin, 'houseLightsText') + '\n' + extractFn(admin, 'requoteOnFile');
       return new Function('custById', src + '\nreturn requoteOnFile;');
     })();
 
@@ -22595,6 +22633,21 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
       check('S64', 'and it does not claim there is nothing on file when there is',
         !/Nothing on file for this house/.test(html),
         'the red line is for the genuinely unknown case only');
+    }
+
+    // (b2) an ORDINARY house: colours in lightColors, description EMPTY — how the
+    // master-sheet sync writes most of the book. Read through the description alone this
+    // card said nothing about their lights (found by the connections map, 2026-10-13).
+    {
+      const d = { existingCustomerId: 'c2', existingLightsDescription: '' };
+      const idxMap = new Map([['c2', {id: 'c2', data: {customerNumber: '412',
+        measuredFeet: 200, numberOfBins: 1, lightsDescription: '', lightColors: ['Red', 'Green']}}]]);
+      const onFile = onFileFn(idxMap)(d);
+      let html = '';
+      try { html = eval('(' + strip + ')'); } catch (e) { html = 'THREW: ' + e.message; }
+      check('S64', 'and an ordinary house shows the colours it keeps in the list',
+        /Red, Green/.test(html),
+        'the live read must ask houseLightsText, not lightsDescription alone. Got: ' + String(html).slice(0, 140));
     }
 
     // (c) genuinely nothing anywhere: say so rather than reading as an empty record.
@@ -25321,9 +25374,13 @@ suite('Suite 100. One crew days, and who works them');
        other, so a light day spread over THREE towns still needs two crews however few
        houses are on it. Merging it would hand one crew exactly the sheet the town rule
        exists to prevent, and would undo the fix that came before this. */
-    check('S100', 'a light day over three towns still needs two crews',
-      crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2,
-      'got one — one crew cannot legally drive three towns');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — this asserted TWO crews. Addie: "there should be at least 10 houses
+       for each day for each crew." Twelve houses cannot give two crews ten each, so it is one crew whatever the towns
+       are. The reasoning above is kept because it is still why the BUILDER must not make such a day. */
+    check('S100', 'a light day over three towns is one crew — two would each be under ten',
+      crews(day(12, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 1);
+    check('S100', 'and a day of twenty-four over three towns is still two crews',
+      crews(day(24, ['Lehi', 'Orem', 'Provo']), {0: ['Lehi', 'Orem'], 1: ['Provo']}) === 2);
     /* ⭐ AND THE TWO HAVE TO BE NEIGHBOURS, not merely two (fixed 2026-08-20). The
        owner caught this on the live book: 18 November came out badged ONE CREW holding
        Draper and Springville — forty miles apart, thirteen houses, one sheet. Two is
@@ -25334,10 +25391,10 @@ suite('Suite 100. One crew days, and who works them');
        office's list, exactly as it does live. */
     check('S100', 'a light day over two NEIGHBOURING towns is one crew',
       crews(day(12, ['Lehi', 'Orem']), {0: ['Lehi'], 1: ['Orem']}) === 1);
-    check('S100', 'but two towns that are not neighbours are two crews',
-      crews(day(12, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 2,
-      'thirteen houses would fit on one sheet, and that sheet would send a crew ' +
-      'forty miles down the freeway in the middle of its round');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] for a day under twenty (it asserted two crews for twelve houses). */
+    check('S100', 'two towns that are not neighbours are one crew under twenty houses, two from twenty on',
+      crews(day(12, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 1 &&
+      crews(day(24, ['Lehi', 'Provo']), {0: ['Lehi'], 1: ['Provo']}) === 2);
 
     check('S100', 'a fixer route is never asked to be two crews',
       crews(Object.assign(day(30), {isFixRoute: true}), solo) === 1,
@@ -25392,9 +25449,11 @@ suite('Suite 100. One crew days, and who works them');
        has to keep being able to see it; sweeping it onto the solo sheet would hide a
        stop nobody has agreed to drive to. */
     const stray = split({houses: light.houses.concat(mk(1, 'Levan'))}, towns);
-    check('S100', 'a house in neither town is not swept onto the one sheet',
-      stray[0].length === 12 && stray[1].length === 0,
-      'got ' + stray[0].length + ' — it must stay visible as unassigned');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] (and by [[SCH-67]] before it: nobody is left off a sheet). It asserted the
+       stray was left OFF. Under twenty houses there is one crew out that day and nobody else to carry it. */
+    check('S100', 'a house in neither town rides the one sheet — there is no other crew out that day',
+      stray[0].length === 13 && stray[1].length === 0,
+      'got ' + stray[0].length);
 
     /* A full day is untouched by any of this. */
     const full = split({houses: mk(20, 'Lehi').concat(mk(20, 'Orem'))}, towns);
@@ -26388,7 +26447,7 @@ suite('Suite 104. The Printing tab');
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
     extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-    extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+    extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
     chargeNewMemberFee: true,
@@ -26472,7 +26531,7 @@ suite('Suite 104. The Printing tab');
          whole claim. printCrewColumns comes with it because the column only exists
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
-      extractFn(admin, 'printFixPhotos') +
+      extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
       /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
          not only a flagged one, so this is lifted unconditionally rather than beside
          the fix-only helpers above. A stub would prove the column renders and nothing
@@ -26481,9 +26540,9 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
-      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
-      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
+      extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') + extractFn(admin, 'printTableHtml') +
       /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
       extractFn(admin, 'printCrewPhotoGaps') + extractFn(admin, 'printPhotoGapsHtml') +
       extractFn(admin, 'printCrewDayList') + extractFn(admin, 'printCrewSheetPage') +
@@ -26702,7 +26761,7 @@ suite('Suite 104. The Printing tab');
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
       extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-      extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') +
+      extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
     return (out[0] || {}).body || '';
@@ -26774,6 +26833,7 @@ suite('Suite 104. The Printing tab');
       '  focus: function(){}, print: function(){}}; }};' +
       admin.slice(admin.indexOf('const PRINT_PHOTO_CSS ='),
                   admin.indexOf('const PRINT_SHEET_CSS =')) +
+      extractFn(admin, 'printWhenImagesReady') + 'const PRINT_IMAGE_WAIT_MS = 8000;' +
       extractFn(admin, 'schedOpenPrint') +
       'schedOpenPrint(\"t\", \"\", \"<table></table>\", \"\");')();
     html = globalThis.__huSheet || '';
@@ -26811,12 +26871,56 @@ suite('Suite 104. The Printing tab');
      searching for the bare word passes even when the branch is gone. */
   check('S104', 'and every button has a branch that answers it',
     (function () {
-      const h = admin.slice(admin.indexOf('if(t.dataset.print){'),
-                            admin.indexOf('if(t.dataset.solocrew){'));
+      const from = admin.indexOf('if(printEl){');
+      const h = admin.slice(from, admin.indexOf("const dayEl=t.closest('.day')", from));
       return ['today', 'warehouse', 'crew0', 'crew1', 'build', 'recycle', 'colors']
         .every(k => h.indexOf("what === '" + k + "'") !== -1);
     })(),
     'a button that renders and does nothing is worse than no button');
+  /* ⭐ AND THE BRANCH HAS TO BE IN THE LISTENER A BUTTON FIRES (2026-10-14). For eight weeks it sat inside the CHANGE
+     listener, so the check above passed while every Print on the tab did nothing — a button never fires change. Dax:
+     "printing Oct 14 isnt working". The slice is between the two listeners' own openings, not a fixed window. */
+  {
+    const ch = admin.indexOf("RT.addEventListener('change',e=>{");
+    const ck = admin.indexOf("RT.addEventListener('click',e=>{");
+    const ckEnd = admin.indexOf('\n});', ck);
+    check('S104', 'the Printing buttons are answered by the CLICK listener',
+      ch !== -1 && ck > ch && admin.slice(ck, ckEnd).indexOf("closest('[data-print]')") !== -1,
+      'a button fires click, never change');
+    check('S104', 'and nothing in the change listener still waits for them',
+      ch !== -1 && !/dataset\.print(?![a-z])/.test(admin.slice(ch, ck)),
+      'a second copy of the branch in the change listener is dead code that reads as the working one');
+  }
+  /* ⭐ THE PRINT DIALOG WAITS FOR THE PHOTOS. Run against a fake print window: one picture still loading holds the
+     print, its load releases it, and a picture that never answers is cut off by the timeout. */
+  {
+    const src = extractFn(admin, 'printWhenImagesReady');
+    check('S104', 'printWhenImagesReady exists', !!src);
+    if (src) {
+      const timers = [];
+      const run = new Function('setTimeout', 'console', 'PRINT_IMAGE_WAIT_MS', src + '; return printWhenImagesReady;')(
+        (fn, ms) => timers.push({ fn, ms }), { error() {} }, 8000);
+      const mkImg = complete => { const l = {}; return { complete, addEventListener(e, f) { l[e] = f; }, fire(e) { l[e] && l[e](); } }; };
+      const mkWin = imgs => ({ printed: 0, document: { images: imgs }, focus() {}, print() { this.printed++; } });
+      const flush = max => { timers.sort((a, b) => a.ms - b.ms); timers.splice(0).filter(t => t.ms <= max).forEach(t => t.fn()); };
+      let im = mkImg(false), w = mkWin([im]);
+      run(w); flush(1000);
+      check('S104', 'a photo still loading holds the print', w.printed === 0);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('load'); flush(1000);
+      check('S104', 'and its arrival lets it print', w.printed === 1);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('error'); flush(1000);
+      check('S104', 'a photo that fails does not hold it either', w.printed === 1);
+      w = mkWin([mkImg(false)]); run(w); flush(8000);
+      check('S104', 'a photo that never answers is cut off by the timeout', w.printed === 1);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('load'); flush(8000);
+      check('S104', 'and it prints once, never twice', w.printed === 1);
+      w = mkWin([mkImg(true)]); run(w); flush(1000);
+      check('S104', 'a sheet with nothing loading prints straight away', w.printed === 1);
+    }
+    check('S104', 'both schedule printers wait for the photos',
+      admin.split('printWhenImagesReady(w);').length - 1 === 2 &&
+      admin.indexOf('setTimeout(()=>{w.focus();w.print();},300);') === -1);
+  }
 }
 /* ---------------------------------------------------------------------------
  * Suite 105. Taking a photo back off a customer
@@ -29197,6 +29301,12 @@ seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
     check('S116', 'one nobody queued is reported as not queued',
       ask({name: 'A'}).state === 'notqueued',
       'owner pressed a button and could not tell whether it had worked');
+    /* ⚠ A COLOUR CHANGE IS LEFT OFF THE BUILD LIST ON PURPOSE (2026-10-05) and was reported
+       as "That should not happen — tell somebody" (Robert Smith #780, 2026-10-09). */
+    check('S116', 'one on the Color Change list says so, rather than "tell somebody"',
+      ask({name: 'A', needsLightBuild: true, needsColorChange: true, lightsDescription: 'Red'}).state === 'colorchange');
+    check('S116', 'and that sentence names the Color Change tab',
+      /Color Change tab/.test(new Function('name', 'st', extractFn(admin, 'whBuildStatusText') + 'return whBuildStatusText(name, st);')('A', {state: 'colorchange'})));
     check('S116', 'and somebody sitting the season out says so',
       ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
     /* ⚠ INCLUDING THE ONE THE FLAG COULD NOT SEE. This screen exists to say WHY
@@ -34159,8 +34269,11 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
     /already answered is left out automatically/.test(adm),
     'a shorter list with no reason reads as a lost audience');
   check('S72', 'the server batch skips them for the same reason',
-    /const answered = String\(d\.rsvpStatus \|\| ''\)\.trim\(\);[\s\S]{0,120}if \(answered\)/
-      .test(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8')),
+    /* Repointed 2026-10-13 ([[RS-77]]): the batch asks rsvpStillOwedServer — the drip's own
+       rule, which reads an answer the way the screen does — rather than its own `if (rsvpStatus)`.
+       S288 RUNS that; this only holds the call in place. */
+    /if \(rsvpStillOwedServer\(d\)\) \{ out\.skipped\+\+; continue; \}/
+      .test(extractFn(fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8'), 'runArrearsRsvpBatch') || ''),
     'if the batch ever stops skipping, the screen and the schedule disagree about ' +
     'who is still being asked, and this pairing is the only thing that would say so');
 }
@@ -34530,8 +34643,16 @@ suite('77. Schedule route generator');
        is now done FIRST, on the way there, rather than last; (2) Lehi then holds five and
        Alpine three, and L1 sits 0.7 mi from A1 on this interleaved street, so it crosses
        to level the crews at four each. Still inside the Lehi crew's run, still one crew. */
+    /* ⚠ REPOINTED 2026-10-09 BY [[SCH-126]]: the crew split no longer depends on the order the day is in, and each crew's run is
+       the shortest drive — so the exact string moved. What this check is for is unchanged and asserted directly: Nowhere is
+       on a crew's sheet and inside that crew's run (not tacked on after both), nothing is dropped, and the crews are within
+       the three-house limit ([[SCH-97]]). Across 78 simulated two-crew days the crew sizes came out identical to before. */
+    const runs77 = [0, 1].map(i => (gen.houses(i, d2) || []).map(h => h.name));
+    const names77 = d2.houses.map(h => h.name);
+    const sizes77 = runs77.map(r => r.length);
     check('S77', "a house in neither crew's town is driven inside a crew's run",
-      d2.houses.map(h => h.name).join() === 'Nowhere,L2,L4,L3,A1,L1,A3,A2',
+      names77.length === 8 && runs77.some(r => r.indexOf('Nowhere') !== -1) &&
+      sizes77[0] + sizes77[1] === 8 && Math.abs(sizes77[0] - sizes77[1]) <= 3,
       'it still has to be driven to, and by somebody in particular — got [' +
       d2.houses.map(h => h.name).join() + ']');
 
@@ -40770,7 +40891,7 @@ suite('Suite 140. A finished fix takes its photo with it');
   /* ---- 4. where it is wired -------------------------------------------- */
   const doneSrc = stripComments(extractFn(admin, 'hlxMarkJobDone') || '');
   check('S140', 'the one done-function retires the photo',
-    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhoto\(url\)/.test(doneSrc),
+    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhotos\(urls\)/.test(doneSrc),
     'five doors call hlxMarkJobDone; wiring any one of them instead would leave ' +
     'the other four keeping photos for ever');
   /* ⚠ AFTER THE WRITE, NEVER BEFORE. Destroying first and then failing to save
@@ -49107,7 +49228,10 @@ if (!JSDOM) {
        through a change to who gets $25 — the one thing it exists to protect. */
     'referralEntrySeason', 'referralSeasonForBill', 'referralEntryCountsIn', 'referralSeasonOr',
     'referralLinkFromToken',
-    'referralShareLinkFromToken'];
+    'referralShareLinkFromToken',
+    /* ⚠ AND THE WHO-THEY-REFERRED TABLE ([[REF-45]]), drawn in the same Discounts box. Lifted,
+       never stubbed, for the reason every name above gives. */
+    'referralPeopleRows', 'referralPeopleHtml', 'toJsDate'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -51971,8 +52095,11 @@ suite('287. The routine route sweep does not bury the notice that matters');
      email full of unresolved tokens. Its own dependencies (ensureToken, properNameServer,
      ensureReferralToken, referralShareBoxHtmlServer) are already in the sandbox below. */
   const bodyBody = extractFn(fnsSrcChase, 'rsvpEmailBodyServer');
+  /* [2026-10-14] the body builder first puts misspelled codes right (canonicalEmailCodesServer) — lifted, never stubbed */
+  const canonSrc = fnsSrcChase.slice(fnsSrcChase.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['),
+    fnsSrcChase.indexOf('function canonicalEmailCodesServer(')) + (extractFn(fnsSrcChase, 'canonicalEmailCodesServer') || '');
   const batchSrc = (batchBody && bodyBody)
-    ? ('async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
+    ? (canonSrc + String.fromCharCode(10) + 'async ' + bodyBody + String.fromCharCode(10) + 'async ' + batchBody)
     : null;
 
   check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
@@ -51987,7 +52114,7 @@ suite('287. The routine route sweep does not bury the notice that matters');
     function makeBook() {
       return [
         { id: 'owes-silent',   name: 'Dana Petersen', email: 'dana@example.com',  phone: '8015550101', rsvpStatus: '',             owes: 315 },
-        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315 },
+        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315, rsvpRespondedAt: 'a-date' },
         { id: 'owes-no',       name: 'No Nolan',      email: 'no@example.com',    phone: '8015550103', rsvpStatus: 'no',           owes: 315 },
         { id: 'owes-back',     name: 'Back Barnes',   email: 'back@example.com',  phone: '8015550104', rsvpStatus: 'backnextyear', owes: 315 },
         { id: 'settled',       name: 'Paid Palmer',   email: 'paid@example.com',  phone: '8015550105', rsvpStatus: '',             owes: 0   },
@@ -52040,6 +52167,10 @@ suite('287. The routine route sweep does not bury the notice that matters');
         templateSubjectOr: (t, fallback) => (t && t.subject) || fallback,
         properNameServer: (n) => String(n || '').split(/\s+/)[0],
         digitsOnly: (v) => String(v || '').replace(/\D/g, ''),
+        /* ⚠ LIFTED, NOT STUBBED ([[RS-77]]): it decides who is still owed the question, which
+           is what every check below is about. It reads digitsOnly, so it is built with it. */
+        rsvpStillOwedServer: new Function('digitsOnly', extractFn(fnsSrcChase, 'rsvpStillOwedServer') +
+          '\nreturn rsvpStillOwedServer;')((v) => String(v || '').replace(/\D/g, '')),
         arrearsForCustomer: async (d) => ({ outstanding: d.owes || 0, season: '2025' }),
         ensureToken: async (id) => 'tok-' + id,
         /* ⚠ LIFTED, NOT STUBBED (§3). The referral link in this email is built from
@@ -52090,6 +52221,29 @@ suite('287. The routine route sweep does not bury the notice that matters');
       const fn = new Function(...names, batchSrc + '\nreturn runArrearsRsvpBatch;')(...names.map(k => sandbox[k]));
       return fn('test').then(out => ({ out, sent, stamped, book }));
     }
+
+    /* ⭐ [[RS-77]], applied 2026-10-13: the chase asks the one shared rule who still needs asking. Before, it
+       read `if (rsvpStatus) skip` and differed from the daily drip three ways. Each is a row. */
+    pendingAsync.push(runBatch({ book: [
+      { id: 'rs82-unanswered', name: 'Una Answered', email: 'una@example.com', phone: '8015550201', rsvpStatus: 'unanswered', owes: 315 },
+      { id: 'rs82-badged',     name: 'Bea Badged',   email: 'bea@example.com', phone: '8015550202', rsvpStatus: '', maybeNextYear: true, owes: 315 },
+      { id: 'rs82-optout',     name: 'Otto Out',     email: 'otto@example.com', phone: '8015550203', rsvpStatus: '', noAutomationEmails: true, owes: 315 },
+      { id: 'rs82-drip',       name: 'Drew Drip',    email: 'drew@example.com', phone: '8015550204', rsvpStatus: '', rsvpEmailedAt: 'a-date', owes: 315 }
+    ] }).then(function (r) {
+      const to = r.sent.map(m => m.to_email);
+      check('S288', 'RS-77: somebody on Unanswered who owes IS written to — asked is not answered',
+        to.indexOf('una@example.com') !== -1,
+        'the word "unanswered" is truthy, and the old test read any word as an answer');
+      check('S288', 'RS-77: somebody the office badged Maybe Next Year is left alone',
+        to.indexOf('bea@example.com') === -1, 'the badge is an answer the office recorded for them');
+      check('S288', 'RS-77: somebody who opted out of automatic emails is never chased',
+        to.indexOf('otto@example.com') === -1, 'they asked not to be emailed; this batch never read it');
+      check('S288', 'RS-77: somebody the daily drip already asked is not asked again',
+        to.indexOf('drew@example.com') === -1);
+      check('S288', 'RS-77: and the batch asks the shared rule rather than its own',
+        /rsvpStillOwedServer\(d\)/.test(stripComments(batchBody || '')),
+        'a second opinion about who has answered is how these three drifted');
+    }));
 
     pendingAsync.push(runBatch().then(function (r) {
       const to = r.sent.map(m => m.to_email);
@@ -53995,7 +54149,9 @@ suite('Suite 303. A flat no gets its own badge');
     'seasonBadgeKey can return a key the row has no branch for, and the row would ' +
     'fall through to Confirmed — the worst possible default for somebody who said no');
   check('S303', 'and the Season Badge filter can pick them out',
-    /id="allCustFilterSeason"[\s\S]{0,400}<option value="no">/.test(admin),
+    /* ⚠ REPOINTED 2026-10-09: a 400-character window fell short the day a Re-quote option was added before
+       it. Read the whole <select> instead — §7 bans fixed windows for exactly this. */
+    /<option value="no">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]),
     'the filter matches on r.badge, so a key with no option is unreachable from the screen');
 }
 
@@ -56689,11 +56845,11 @@ suite('304. As many crews as she has, named');
        what this fixture holds. With pins the crews are evened as far as the houses sit
        close enough — Suite 365. */
     const uneven = split({houses: many(30, 'Lehi').concat(many(4, 'Payson'), many(1, 'Logan'))}, t3);
-    check('S304', 'it stops at the cap rather than levelling the day out',
-      uneven.map((x) => x.length).join('/') === '20/9/6' ||
-      uneven[0].length === 20,
-      'got ' + uneven.map((x) => x.length).join('/') + ' — a leveller would drag ' +
-      'thirteen houses over a town line');
+    /* ⛔ NARROWED AGAIN 2026-10-12 BY [[SCH-128]]: it asserted 20/9/6. No crew goes out under ten, so the two short
+       crews are brought up to ten and the big one keeps the rest — still not levelled to twelve apiece. */
+    check('S304', 'the short crews are brought up to ten, and the day is not levelled past that',
+      uneven.map((x) => x.length).join('/') === '15/10/10',
+      'got ' + uneven.map((x) => x.length).join('/'));
 
     /* ---- how many crews a day wants, capped at how many exist ---- */
     const crews = (day, townsByCrew, perDay) => new Function('day', 'townsByCrew', 'CREWS_PER_DAY', 'MAX_STOPS_PER_ROUTE',
@@ -56718,8 +56874,9 @@ suite('304. As many crews as she has, named');
       crews({houses: many(20, 'Lehi').concat(many(20, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
     check('S304', 'a twelve-house day in one town is still one',
       crews({houses: many(12, 'Lehi')}, {0: ['Lehi'], 1: []}, 2) === 1);
-    check('S304', 'a light day over two towns that are not neighbours is still two',
-      crews({houses: many(6, 'Lehi').concat(many(6, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 2);
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted two crews of six. */
+    check('S304', 'a light day over two towns that are not neighbours is one crew — six each is under ten',
+      crews({houses: many(6, 'Lehi').concat(many(6, 'Payson'))}, {0: ['Lehi'], 1: ['Payson']}, 2) === 1);
     check('S304', 'an empty day is still one',
       crews({houses: []}, {0: ['Lehi'], 1: ['Payson']}, 2) === 1);
 
@@ -57119,10 +57276,9 @@ suite('305. The referral link, from the office side');
  *  - the COPY: referralShareLine (index.html), the message that goes out to
  *    the friend.
  *
- * ⚠ THE OFFICE'S EXPLICIT ANSWER STILL WINS, same as the re-quote rule right
- * above this one — `chargeSetupFee !== undefined` is checked FIRST and returns
- * before either the re-quote or the referral check runs. This suite proves the
- * referral check sits on the same footing as the re-quote check, not ahead of it.
+ * ⛔ SINCE 2026-10-14 ([[REF-46]]) A CURRENT REFERRAL LINK IS ASKED BEFORE THE OFFICE'S
+ * TICK — "No one that was refered should have a 30 dollar set up fee." It used to be the
+ * other way round (the office's answer first, the referral on the re-quote's footing).
  * ============================================================ */
 suite('Suite 312. A friend who comes in through a referral link pays no setup fee');
 {
@@ -57197,10 +57353,17 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
     const body = at > 0 && end > at ? admin.slice(at, end) : '';
     check('S312', 'quoteChargesSetupFee was found', !!body);
 
-    check('S312', 'the office\'s own explicit answer is checked first, and wins either way',
-      body.indexOf('chargeSetupFee !== undefined') <
-        body.indexOf("String(q.referredByToken || '').trim()"),
-      'a box the office deliberately ticked or unticked must never be silently overridden');
+    /* ⛔ REVERSED 2026-10-14 ([[REF-46]]) — this check used to assert the office's tick was asked
+       FIRST and won either way. Addie: "No one that was refered should have a 30 dollar set up fee.
+       Get rid of those." Seven referred quotes carried a tick and would have been charged. So a
+       CURRENT referral link is asked before the office's answer now; the rest of the office's
+       answer (any quote with no live referral link) still wins exactly as before. */
+    check('S312', 'a current referral link is asked before the office\'s own tick',
+      body.indexOf('h && h.current') !== -1 &&
+      body.indexOf('h && h.current') < body.indexOf('chargeSetupFee !== undefined'),
+      'a referred friend must never be charged the $30 because a box on the card was ticked');
+    check('S312', 'and the office\'s own answer still decides every other quote',
+      /if\(q\.chargeSetupFee !== undefined\) return !!q\.chargeSetupFee;/.test(body));
     /* ⚠ TIGHTENED 2026-09-07 (REF-25) AND THE CHECK MOVED WITH IT. It used to be enough
        that a token was PRESENT; Addie: "If referal link is from last year and they are
        using it than it should still charge 30 dollar fee." So the waiver now asks
@@ -57261,9 +57424,11 @@ suite('Suite 312. A friend who comes in through a referral link pays no setup fe
         sv.f({ referredByToken: 'undated1' }) === false,
         'every link minted before the stamp existed is unstamped; reading those as ' +
         'expired would charge the $30 to friends told in writing they would not pay it');
-      check('S312', 'the office can still tick the fee ON for a referred quote',
-        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === true,
-        'the office\'s own answer wins in BOTH directions, same as every other case here');
+      /* ⛔ REVERSED 2026-10-14 ([[REF-46]]): this asserted the office could tick the fee back ON for
+         a referred quote. Addie: "No one that was refered should have a 30 dollar set up fee." */
+      check('S312', 'a tick on the card does NOT charge a friend on a current referral link',
+        sv.f({ referredByToken: 'live1', chargeSetupFee: true }) === false,
+        'seven referred quotes carried a tick on 14 October and would have been charged');
       check('S312', 'and OFF for one the rule would have charged',
         sv.f({ referredByToken: 'stale1', chargeSetupFee: false }) === false);
       check('S312', 'the office can still tick the fee OFF for an ordinary quote',
@@ -57698,7 +57863,9 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
         '{key:"name",label:"name",read:function(d){return d.name;}},' +
         '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
         lifts.map(f => extractFn(admin, f)).join('\n')
-          .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+          .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+          /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+          .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
         '\nthis.run=function(book){jobAddresses=book;custById=new Map();' +
         'book.forEach(function(c){custById.set(c.id,c);});SEASON=[];' +
         'const r=rebuildSeasonDays();' +
@@ -59554,6 +59721,8 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
                    /* [[SCH-106]] both read a printed day's frozen split first — lifted, never stubbed;
                       these fixtures carry no freeze, so the split is worked out exactly as before. */
                    'frozenCrewSplit',
+                   /* [[SCH-129]] the map split dayCrewHouses asks first — lifted, never stubbed */
+                   'geoCrewSplit',
                    'dayAssignedHouses', 'crewTownsFor', 'crewIndexes', 'crewCap',
                    'dayTownList', 'oneCrewMaxHouses', 'daySoloCrew',
                    'oneManMaxHouses', 'planCities', 'extractCleanCity', 'isOneManDay',
@@ -59631,6 +59800,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
          leveller then prices by the nearest house alone — a narrower answer, never a
          different kind. Suite 365 runs the leveller WITH a yard. */
       'function routeHomePoint(){ return null; }' +
+      'const GEO_SPLIT_CACHE = new Map();' +
+      /* ⛔ A SECOND DELIBERATE STUB ([[SCH-129]]): no customer record behind any fixture house, so geoCrewSplit finds no
+         pin and hands the day to the TOWN split — which is what this suite exists to grade (the fallback for a day
+         holding a house with no pin). The map split itself is RUN by schedule-v2.test.js suite SCH-129. */
+      'function planCustomerFor(){ return null; }' +
       'const NEIGH = ' + JSON.stringify(NEIGH314) + ';' +
       'function townsAreNeighbours(a,b){ if(sameCity(a,b)) return true;' +
       ' return NEIGH.some(function(p){ return (sameCity(p[0],a)&&sameCity(p[1],b))||' +
@@ -59640,7 +59814,7 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
     assertSandbox('S314', 'dayCrewTowns', body314, admin,
       ['MAX_TOWNS_PER_CREW', 'MAX_STOPS_PER_ROUTE', 'ONE_MAN_MAX_HOUSES', 'CREWS',
        'crewCount', 'crewName', 'sameCity', 'cityOf', 'dayLimitFor', 'NEIGH',
-       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress', 'routeHomePoint'].concat(need314));
+       'townsAreNeighbours', 'allHouses', 'estimatedPinFromAddress', 'routeHomePoint', 'GEO_SPLIT_CACHE', 'planCustomerFor'].concat(need314));
 
     const sb314 = {};
     new Function(body314 +
@@ -59813,10 +59987,11 @@ suite('Suite 314. Nobody is scheduled for a day no crew is driving to');
        The two stranded towns are carried now. What this check exists for is the other
        half — that a crew-sized day is not collapsed onto one sheet by the one-man rule
        — and that is untouched. */
-    check('S314', 'but a crew-sized day is not absorbed onto one sheet',
-      sb314.count(oneCrew) === 2 && strandedCount(oneCrew) === 0,
-      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded — ' +
-      'twelve houses is a crew, and the town rule is exactly about them');
+    /* ⛔ SUPERSEDED 2026-10-12 BY [[SCH-128]] — it asserted TWO crews for these twelve houses. Two crews of twelve are
+       both under ten, so it is one crew; what still matters is that nobody is stranded. */
+    check('S314', 'a twelve-house day is one crew with nobody stranded',
+      sb314.count(oneCrew) === 1 && strandedCount(oneCrew) === 0,
+      'got ' + sb314.count(oneCrew) + ' crew(s), ' + strandedCount(oneCrew) + ' stranded');
 
     /* ---- the forecast beside the map -------------------------------------- */
     /* ⭐ Dax, 2026-09-09: "also everday it should show the forecasted temperature
@@ -60467,7 +60642,7 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
       admin.slice(geoStart, geoEnd) + LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
       '  home: routeHomePoint, point: houseStopPoint, aims: seasonAimPoints,' +
-      '  centre: stopsCentre})');
+      '  centre: stopsCentre, gas: gasShortestOrder})');
 
     check('S317', 'the yard resolves, so these checks are not all measuring null',
       !!api.home() && Math.abs(api.home().lat - YARD.lat) < 1e-9,
@@ -60487,6 +60662,7 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
     for (let i = 0; i < 12; i++) tomorrow.push(mk('n' + i, 40.60 + i * 0.003, -112.05));
     const nextCentre = api.centre(tomorrow.map(api.point));
     const dTo = (h, p) => api.hav(h._cust.lat, h._cust.lng, p.lat, p.lng);
+    const tourFor = order => { let prev = YARD, sum = 0; order.forEach(h => { sum += api.hav(prev.lat, prev.lng, h._cust.lat, h._cust.lng); prev = h._cust; }); return sum + api.hav(prev.lat, prev.lng, YARD.lat, YARD.lng); };
 
     const plain = api.order(today.slice());                       // no aim: as it was
     const aimed = api.order(today.slice(), { aim: nextCentre });
@@ -60501,16 +60677,20 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
        last stop and never did. What it promises — and what the leftover rule needs —
        is that the day ends nearer tomorrow than it would have. Measured across a
        simulated season that is 2.58 mi down to 1.29 mi. */
-    check('S317', 'the aimed day finishes closer to tomorrow than the unaimed one',
-      dTo(aimed[aimed.length - 1], nextCentre) < dTo(plain[plain.length - 1], nextCentre) - 0.25,
+    /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-126]] — Dax: "every route on the order its done should be decided based on gas".
+       These two checks held the aim at tomorrow; the order is now the shorter drive whatever the aim, so they assert THAT:
+       aimed or not, the day is the same number of miles, and neither is longer than the plain shortest order. The aim
+       still reaches the orderer (the wiring checks below), it simply never buys a finish with extra miles any more. */
+    check('S317', 'gas decides: aiming at tomorrow never makes the day a longer drive than not aiming',
+      Math.abs(tourFor(aimed) - tourFor(plain)) < 0.01,
       'aimed ends ' + dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi from tomorrow, plain ends ' + dTo(plain[plain.length - 1], nextCentre).toFixed(2) + ' mi — that gap is the leftover rule, and the whole point');
     check('S317', 'and it starts further from tomorrow than it ends: the day sweeps in',
       dTo(aimed[0], nextCentre) > dTo(aimed[aimed.length - 1], nextCentre) + 0.5,
       'start ' + dTo(aimed[0], nextCentre).toFixed(2) + ' mi, end ' +
       dTo(aimed[aimed.length - 1], nextCentre).toFixed(2) + ' mi — "they start in the back corner and they work there way in", as an outcome rather than an instruction');
-    check('S317', 'and it really is a different finish from the unaimed day',
-      aimed[aimed.length - 1] !== plain[plain.length - 1],
-      'if the two agreed, this fixture would prove nothing about aiming');
+    check('S317', 'and the day is no longer than the shortest order the route search finds',
+      tourFor(plain) <= tourFor(api.gas(today.map(api.point), api.home()).map(s => s.ref)) + 0.01,
+      'plain ' + tourFor(plain).toFixed(2) + ' mi');
     check('S317', 'every house is still on the day',
       aimed.length === today.length && new Set(aimed).size === today.length,
       'an ordering that drops a stop is a customer nobody visits');
@@ -60554,12 +60734,13 @@ suite('Suite 317. The day finishes pointing at where the crews go next');
         : Object.assign({}, h));
       const owed = withMissed[6];
       const out = api.order(withMissed.slice(), { aim: nextCentre });
-      check('S317', 'a house the crew never reached is the first stop of the day that picks it up',
-        out[0] === owed,
-        'got ' + out[0].name + ' — Dax: "it can just start on the house that didnt get done then it moves into its box"');
-      check('S317', 'and that is a different answer from where the sweep would have begun',
-        owed !== aimed[0],
-        'if the missed house were also the natural first stop, this check would prove nothing');
+      /* ⛔ SUPERSEDED 2026-10-09 BY [[SCH-126]]: a missed house is put on the day (SCH-124's morning Recalculate); where in
+         the day it is driven is gas, like every other stop. Asserted: it is on the day, and the day is no longer for it. */
+      check('S317', 'a house the crew never reached is on the day, and the day is still the shortest drive',
+        out.indexOf(owed) !== -1 && tourFor(out) <= tourFor(api.gas(withMissed.map(api.point), api.home()).map(s => s.ref)) + 0.01,
+        'got ' + tourFor(out).toFixed(2) + ' mi — the missed house goes where the drive is shortest (SCH-126)');
+      /* (the "different answer from where the sweep would have begun" check went with the missed-first rule: there is no
+         longer a separate first stop for it to be different from) */
     }
 
     /* ---- the wiring, asserted apart from the mechanism ----
@@ -61446,12 +61627,17 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
       far.out.every(p => nearer(p) < coreAvg),
       'that is the whole shape of the fault: far from the middle of the day, close to the road out');
     const driven = api.order(lopsided.slice());
-    check('S322', 'so the crew does them on the way out, not on the way back',
-      farNames.has(driven[0].name) && farNames.has(driven[1].name),
+    /* ⛔ NARROWED 2026-10-14 BY [[SCH-133]] — Dax: "almost every schedule has a hop thats like american fork to orem which is way
+       to big of a hop". The way-out shape of this day (31.56 mi) drives over five miles between two houses; the order now avoids
+       that and does the far pair at the OTHER end of the day (33.94 mi). Still never in the middle, which is what Dax ruled out
+       on 2026-09-26; "on the way there" is kept only where it costs no drive of over five miles between two houses. */
+    const longDrives = ord => { let n = 0; for (let k = 1; k < ord.length; k++) if (api.hav(ord[k-1]._cust.lat, ord[k-1]._cust.lng, ord[k]._cust.lat, ord[k]._cust.lng) > 5) n++; return n; };
+    check('S322', 'so the crew does them at one end of the day, never in the middle',
+      (farNames.has(driven[0].name) && farNames.has(driven[1].name)) || (farNames.has(driven[driven.length - 1].name) && farNames.has(driven[driven.length - 2].name)),
       'got ' + ids(driven) + ' — he watched a crew drive past a house in the morning and return for it in the afternoon');
-    check('S322', 'and the day is shorter for it',
-      api.miles(pts(driven), HOME, HOME) < 33,
-      'measured at 33.94 mi with the far group last and 31.56 with it first');
+    check('S322', 'and no drive between two of its houses is over five miles (SCH-133), for no more than the far-last miles',
+      longDrives(driven) === 0 && api.miles(pts(driven), HOME, HOME) < 35,
+      'measured 2026-10-14 at 34.54 mi with no drive over five miles; 31.56 with the far pair first, which carries one');
     check('S322', 'nothing is dropped by choosing the other shape',
       driven.length === lopsided.length &&
       new Set(driven.map(h => h.name)).size === lopsided.length);
@@ -63794,7 +63980,9 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
       '{key:"name",label:"name",read:function(d){return d.name;}},' +
       '{key:"pref",label:"timing",read:function(d){return d.installPreference;}}];' +
       lifts.map(f => extractFn(admin, f)).join('\n')
-        .replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+        .replace('const today=new Date();', 'const today=new Date(__TODAY);')
+        /* the hold is measured against the same pinned day, not the machine clock: the fixture hold runs to 9 Oct 2026 */
+        .replace('return ms > Date.now() ? ms : 0;', 'return ms > __TODAY.getTime() ? ms : 0;') +
       /* ⚠ THE SABOTAGE, AND IT IS THE POINT OF THE SUITE. A rule that keeps anybody carrying
          `__gate` off the plan — the same shape as the `needsLightBuild` gate SCH-48 removed.
          The real function is wrapped, never replaced, so everything else it does still runs. */
@@ -64318,8 +64506,10 @@ suite('350. The numbers on their own, and the people who have none');
   check('S350', 'it hands the numbers to the batch panel and copies nothing until Copy batch',
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
-    /* REPOINTED again 2026-09-24 (RS-78): the pending people are first narrowed to those not texted yet. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const pick = phoneNotTextedYet\(rsvpLinkSheetTargets\(\)\);\s*const r = rsvpPhoneListRows\(pick\.items\);\s*return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(copyFn) &&
+    /* REPOINTED again 2026-10-13 (RS-80, superseding RS-78 here): everybody pending, texted or not. */
+    /* And 2026-10-15 (RS-82): a saved list adds anybody pending and on no batch at the end — `addNewToEnd`. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(copyFn) &&
+    !/phoneNotTextedYet/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
   check('S350', 'it says how many were left out for STOP',
@@ -64598,7 +64788,8 @@ suite('352. Fixes and Takedowns have a name search too');
   check('S352', 'both new search boxes are drawn',
     admin.indexOf('id=\\"fixQ\\"') !== -1 && admin.indexOf('id=\\"takeQ\\"') !== -1);
   check('S352', 'each tab reads its own box and searches its own days',
-    /const fq=RT\.getElementById\('fixQ'\)[^;]*;if\(fq\)renderSearchIn\(fq,fr,'fixPanel'\)/.test(strippedA) &&
+    /* [[FIX-09]] the Fixes tab has no days any more — its box filters the live Fixes list. */
+    /function renderFixTray\(\)\{[\s\S]{0,400}RT\.getElementById\('fixQ'\)/.test(strippedA) &&
     /const tq=RT\.getElementById\('takeQ'\)[^;]*;if\(tq\)renderSearchIn\(tq,td,'takePanel'\)/.test(strippedA));
   check('S352', 'typing in either box redraws — a box with no listener looks identical to a working one',
     /\['q','fixQ','takeQ'\]\.forEach\(function\(id\)\{RT\.getElementById\(id\)\.addEventListener\('input'/.test(strippedA));
@@ -64920,7 +65111,7 @@ suite('356. Names next to the numbers, number first');
   const strippedA = stripComments(admin);
   check('S356', 'both copy buttons hand the names over',
     /* REPOINTED 2026-09-24 (RS-75): both now open the panel through phoneBatchOpen. */
-    /return \{numbers: r\.numbers, names: r\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
+    /return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};/.test(strippedA) &&
     /return \{numbers: s\.numbers, names: s\.names, textedOut: pick\.textedOut\};/.test(strippedA) &&
     /phoneBatchRender\(host, c\.numbers, 0, c\.names,/.test(strippedA) &&
     /names: res\.names, text: msg/.test(strippedA),
@@ -65326,8 +65517,15 @@ suite('364. Texted people stay off every new list');
   check('S364', 'ticking a batch Sent writes it on each customer too',
     /const r = await opts\.markTexted\(\(b && b\.numbers\) \|\| \[\], on\);/.test(panel),
     'a tick kept only on the list is lost the moment she presses Start a new list — which is what happened');
-  check('S364', 'both copy buttons build new lists from people not texted yet',
-    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 2);
+  /* NARROWED 2026-10-13 (RS-80): only the Automation Emails list leaves texted people out now;
+     Text the RSVP's new list is everybody still pending, texted or not. */
+  check('S364', 'the Automation Emails list builds new lists from people not texted yet',
+    (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 1 &&
+    /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\)/.test(stripped));
+  /* RS-82 (2026-10-15): the same call also asks for `addNewToEnd`; Suite 382 runs what that does. */
+  check('S364', 'Text the RSVP\'s new list keeps everybody pending, and hides the take-them-off box',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(stripped) &&
+    /typeof opts\.markTexted === 'function' && !opts\.keepTexted/.test(panel));
   check('S364', 'the paste box and the up-to-a-name box are both wired',
     /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
     /if\(!confirm\('Mark the first '/.test(panel));
@@ -65486,7 +65684,7 @@ suite('361. A stray house joins the day the crew is in its area');
       /* ⚠ REPOINTED 2026-09-26 ([[SCH-97]]): the gathered plan is evened before it is
          numbered, so what reaches renumberCrewsByDate is `evened`, built FROM it. */
       /evenCrewDates\(gathered, \{/.test(plan) &&
-      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
+      /enforceCrewMinimum\(evened, \{/.test(plan) && /return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(plan) &&
       plan.indexOf('gatherStrayHouses(packed.days,') > plan.indexOf('packTailCrewDays(out,'));
     check('S361', 'and hands it each house’s own dates and pin, not a copy',
       /house: function\(id\)\{ return wById\[id\] \|\| null; \}/.test(plan));
@@ -65627,7 +65825,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
     const plan = stripComments(extractFn(admin, 'planNewCrewDays') || '');
     check('S365', 'the builder evens the crews after gathering strays, before numbering',
       /evenCrewDates\(gathered, \{/.test(plan) &&
-      /return renumberCrewsByDate\(evened, taken \|\| \{\}\);/.test(plan) &&
+      /enforceCrewMinimum\(evened, \{/.test(plan) && /return renumberCrewsByDate\(minned, taken \|\| \{\}\);/.test(plan) &&
       plan.indexOf('evenCrewDates(gathered,') > plan.indexOf('gatherStrayHouses(packed.days,'));
     check('S365', 'and it can be switched off for a measurement',
       /o\.even !== false && typeof evenCrewDates === 'function'/.test(plan));
@@ -65813,7 +66011,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
   const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
-                  'printCrewPhotos', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
   const make = (opts) => new Function('o',
@@ -65925,7 +66123,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
  * --------------------------------------------------------------------------- */
 suite('368. A new hang\'s photos and its row carry the same letter and colour');
 {
-  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
   const src = names.map(n => extractFn(admin, n));
   const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
   check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
@@ -66109,4 +66307,603 @@ suite('372. The nightly invoice sends the picked template');
   check('S372', 'they save to the fields the run reads', /'paidTemplateName' : 'unpaidTemplateName'/.test(ui));
   check('S372', 'they refill when the template list changes', /renderNightlyTemplatePickers\(\)/.test(stripComments(extractFn(admin, 'loadEmailTemplates') || '')));
   check('S372', 'and the test send uses the same pick', /let tplName = nightlyInvoiceTemplateName\(status === 'Paid in Full'\)/.test(ui));
+}
+
+/* ---------------------------------------------------------------------------
+ * 373. Every Street View photo of the house, by season and year ([[MR-41]], 2026-10-07)
+ * Dax: "I want a button to change the season of the google map picture because sometimes
+ * leaves are in the way", then "it should show all the options of seasons/years that house
+ * was on google maps". The list is RUN against a photo list shaped the way the Maps library
+ * really hands it back — the date under a minified key — because the whole risk is that the
+ * key changes name between library versions.
+ * --------------------------------------------------------------------------- */
+suite('373. Every Street View photo of the house, by season and year');
+{
+  const a = admin.indexOf('const RM_SEASON_OF_MONTH'), b = admin.indexOf('let rmPhotoList');
+  check('S373', 'the photo-date rules are findable', a !== -1 && b > a);
+  const lib = new Function(admin.slice(a, b) + 'return {from: rmPhotoDatesFrom, label: rmPhotoDateLabel, barest: rmFewestLeavesPano};')();
+  const D = (y, m) => new Date(y, m - 1, 15);
+  /* exactly the Lehi street measured the day it was built, with the date under a minified key */
+  const time = [[2007, 8], [2012, 9], [2015, 7], [2016, 4], [2019, 5], [2021, 7], [2022, 9], [2026, 7]]
+    .map((x, i) => ({pano: 'p' + i, Xq: D(x[0], x[1])}));
+  const list = lib.from({time: time});
+  check('S373', 'every photo Google has is listed — eight of eight', list.length === 8, list.length);
+  check('S373', 'newest first', list[0].pano === 'p7' && list[7].pano === 'p0');
+  check('S373', 'the date is found whatever the library calls its key', lib.from({time: [{pano: 'z', abc: D(2020, 1)}]}).length === 1);
+  check('S373', 'a photo with no date or no id is left out rather than shown blank',
+    lib.from({time: [{pano: 'x'}, {Xq: D(2020, 1)}, {pano: 'y', Xq: 'Jan 2020'}]}).length === 0);
+  check('S373', 'and the same photo twice is listed once', lib.from({time: [{pano: 'q', d: D(2020, 1)}, {pano: 'q', d: D(2020, 1)}]}).length === 1);
+  check('S373', 'no list at all is an empty list, not a crash', lib.from(null).length === 0 && lib.from({}).length === 0);
+  check('S373', 'each photo says its season and year', lib.label(D(2016, 4)) === 'Spring · Apr 2016' && lib.label(D(2022, 9)) === 'Fall · Sep 2022'
+    && lib.label(D(2025, 12)) === 'Winter · Dec 2025' && lib.label(D(2026, 7)) === 'Summer · Jul 2026', lib.label(D(2016, 4)));
+  check('S373', 'Fewest leaves picks the barest month on offer (April 2016 on that street)', lib.barest(list) === 'p3', lib.barest(list));
+  const bare = lib.from({time: [{pano: 'old', d: D(2012, 1)}, {pano: 'new', d: D(2024, 2)}, {pano: 'sum', d: D(2025, 7)}]});
+  check('S373', 'between two equally bare photos it takes the newer one', lib.barest(bare) === 'new', lib.barest(bare));
+  check('S373', 'and with nothing to choose from it picks nothing', lib.barest([]) === '');
+  /* wiring: a list nobody can see is not a feature */
+  check('S373', 'the picker and the button are on the Street View pane', /id="rmPhotoDate"/.test(admin) && /id="rmFewestLeaves"/.test(admin));
+  check('S373', 'the list is refreshed whenever the panorama changes', /rmPano\.addListener\('pano_changed', rmRefreshPhotoDates\)/.test(admin));
+  check('S373', 'and picking a photo moves the panorama to it, the same way the arrow keys do', /rmPano\.setPano\(sel\.value\)/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 374. A FIX RAISED IN CUSTOMERS REACHES A FIXER ROUTE (2026-10-09). Every fix raised
+ * since 7deb303 failed with "Fix placement failed: Cannot read properties of undefined
+ * (reading 'getDay')": the new fixer-route day had no _date until computeDates ran, and
+ * that only ran at the end. RUN, not matched — the fault was an ordering one a regex
+ * over the source cannot see.
+ * --------------------------------------------------------------------------- */
+suite('374. A fix raised in Customers reaches a fixer route');
+/* ⛔ REPOINTED 2026-10-14 ([[FIX-09]]): fixes are not scheduled any more. The same function now
+   takes fixes OFF the plan — every fixer-route day and every fix riding on an install day — and
+   must never touch an install or a takedown. RUN against a seeded season. */
+{
+  const parts = [extractFn(admin, 'placeFixesFromCustomers')];
+  check('S374', 'the fix clean-up is findable', parts.every(Boolean));
+  if (parts.every(Boolean)) {
+    const pre = 'let SEASON = [], computeCalls = 0; function computeDates(){ computeCalls++; }';
+    const run = seed => new Function('seed', pre + parts.join('\n') +
+      'SEASON = seed; const removed = placeFixesFromCustomers(); return {removed, SEASON, computeCalls};')(seed);
+    const seed = () => [
+      {id: 'd1', houses: [{id: 'i1', name: 'Ivy'}, {id: 'f1', name: 'Fay', isFix: true}, {id: 't1', name: 'Ted', isTakedown: true}]},
+      {id: 'fr0', isFixRoute: true, houses: [{id: 'f2', name: 'Flo', isFix: true}, {id: 'f3', name: 'Fin', isFix: true}]},
+      {id: 'd2', houses: [{id: 'i2', name: 'Ian'}]}
+    ];
+    let r2, threw = '';
+    try { r2 = run(seed()); } catch (e) { threw = String(e && e.message || e); }
+    check('S374', 'it runs over a season with fixes on it', !threw && !!r2, threw);
+    if (r2) {
+      check('S374', 'every fixer-route day is gone', !r2.SEASON.some(d => d.isFixRoute));
+      check('S374', 'and a fix riding on an install day is taken off it', !r2.SEASON.some(d => d.houses.some(h => h.isFix)));
+      check('S374', 'installs and takedowns are never touched',
+        JSON.stringify(r2.SEASON.map(d => d.houses.map(h => h.id))) === JSON.stringify([['i1', 't1'], ['i2']]));
+      check('S374', 'and it names all three fixes it took off', r2.removed.map(x => x.name).sort().join(',') === 'Fay,Fin,Flo');
+      const again = run(r2.SEASON);
+      check('S374', 'run again it finds nothing — it settles', again.removed.length === 0 && again.computeCalls === 0);
+    }
+  }
+  /* The Fixes list itself, RUN: who is on it and in what order. */
+  const listSrc = ['openFixItems', 'saidNoOrBackNextYear', 'toJsDate'].map(n => extractFn(admin, n));
+  check('S374', 'the Fixes list rule is findable', listSrc.every(Boolean));
+  if (listSrc.every(Boolean)) {
+    const open = new Function('jobAddresses', listSrc.join('\n') + '\nreturn openFixItems();');
+    const at = d => new Date(2026, 9, d);
+    const got = open([
+      {id: 'new', data: {name: 'New', needsFix: true, fixRaisedAt: at(12)}},
+      {id: 'old', data: {name: 'Old', needsFix: true, fixRaisedAt: at(2)}},
+      {id: 'done', data: {name: 'Done', needsFix: false}},
+      {id: 'out', data: {name: 'Out', needsFix: true, rsvpStatus: 'backnextyear'}},
+      {id: 'undated', data: {name: 'Undated', needsFix: true}}
+    ]).map(x => x.id);
+    check('S374', 'every open fix is listed, oldest raised first, undated last', got.join(',') === 'old,new,undated', got.join(','));
+  }
+  check('S374', 'each row has its own Edit fix and Done', /data-editfixcust="/.test(admin) && /data-fixdonecust="/.test(admin) &&
+    /if\(t\.dataset\.fixdonecust\)\{markFixDoneFromList\(/.test(admin) && /if\(t\.dataset\.editfixcust\)\{showAddFixPopup\(/.test(admin));
+  check('S374', 'and the list prints, with what is wrong and the photos', /if\(t\.dataset\.fixprint\)\{printFixList\(/.test(admin) &&
+    /fixes:\s*\[[^\]]*k: 'fix'/.test(admin) && /function printFixList[\s\S]{0,1200}printPhotosHtml\(photos/.test(admin));
+  check('S374', 'the fix popup no longer asks for a day', admin.indexOf('class="addfix-date"') === -1);
+  check('S374', 'and saving a fix writes no day', !/fixNote: noteVal, fixScheduleDate/.test(admin));
+}
+
+suite('375. A setting changed on another computer reaches this one without a refresh');
+{
+  const names = ['liveSettingsSomebodyTyping', 'liveSettingsRun', 'followSettingsLive'];
+  const parts = names.map(n => extractFn(admin, n));
+  const listSrc = (admin.match(/const LIVE_SETTINGS = \[[\s\S]*?\r?\n\];/) || [])[0];
+  check('S375', 'the live-settings helpers and their list are findable', parts.every(Boolean) && !!listSrc, names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean) && listSrc) {
+    const loaderNames = (listSrc.match(/return (load\w+)\(\)/g) || []).map(s => s.replace(/^return |\(\)$/g, ''));
+    check('S375', 'every setting it follows is reloaded by a loader that really exists', loaderNames.length >= 13 &&
+      loaderNames.every(n => !!extractFn(admin, n)), loaderNames.filter(n => !extractFn(admin, n)).join(','));
+    check('S375', 'it starts with the rest of the data at sign-in', /loadNightlyInvoiceSettings\(\);\s*followSettingsLive\(\);/.test(admin));
+    const build = () => {
+      const pre = 'const calls = []; const listeners = {}; let focused = null; const focusHandlers = [];' +
+        'const db = {};' +
+        'function doc(d, a, b){ return {path: a + "/" + b}; }' +
+        'function collection(d, a){ return {path: a}; }' +
+        'function onSnapshot(ref, cb){ (listeners[ref.path] = listeners[ref.path] || []).push(cb); return function(){ listeners[ref.path] = listeners[ref.path].filter(x => x !== cb); }; }' +
+        'const document = { get activeElement(){ return focused; }, addEventListener: function(t, f){ if(t === "focusout") focusHandlers.push(f); } };' +
+        'function setTimeout(f){ f(); }' +
+        loaderNames.map(n => 'function ' + n + '(){ calls.push("' + n + '"); }').join('\n') + '\n' +
+        listSrc.replace(/^const /, 'var ') + '\n' +
+        'let liveSettingsStops = []; let liveSettingsWaiting = {}; let liveSettingsFocusBound = false;\n';
+      const ret = 'return {calls, listeners, focusHandlers, setFocus(f){ focused = f; }, follow: followSettingsLive,' +
+        'docSnap(path, data, pending){ (listeners[path] || []).forEach(cb => cb({exists(){ return data !== null; }, data(){ return data; }, metadata: {hasPendingWrites: !!pending}})); },' +
+        'collSnap(path, rows){ (listeners[path] || []).forEach(cb => cb({docs: rows.map(r => ({id: r[0], data(){ return r[1]; }})), metadata: {hasPendingWrites: false}})); } };';
+      return new Function(pre + parts.join('\n') + '\n' + ret)();
+    };
+    let t, threw = '';
+    try { t = build(); t.follow(); } catch (e) { threw = String(e && e.message || e); }
+    check('S375', 'it builds and follows without throwing', !threw, threw);
+    if (t) {
+      t.docSnap('settings/scheduling', {crewsPerDay: 2});
+      check('S375', 'the first snapshot (already read at login) reloads nothing', t.calls.length === 0, t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 1});
+      check('S375', 'a change saved on another computer reloads exactly that setting', t.calls.join(',') === 'loadSchedulingSettings', t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 1});
+      check('S375', 'the same data again reloads nothing', t.calls.length === 1, t.calls.join(','));
+      t.docSnap('settings/scheduling', {crewsPerDay: 3}, true);
+      check('S375', 'our own save echoing back reloads nothing (the screen already shows it)', t.calls.length === 1, t.calls.join(','));
+      t.collSnap('healthCheckDecisions', [['a', {v: 1}]]);
+      t.collSnap('healthCheckDecisions', [['a', {v: 1}], ['b', {v: 2}]]);
+      check('S375', 'a decision added to a collection on another computer reloads it too', t.calls[t.calls.length - 1] === 'loadHcDecisions', t.calls.join(','));
+      const before = t.calls.length;
+      t.setFocus({tagName: 'INPUT'});
+      t.docSnap('siteContent/main', {heroHeadline: 'x'});
+      t.docSnap('siteContent/main', {heroHeadline: 'y'});
+      check('S375', 'while somebody is typing in a box, the reload waits', t.calls.length === before, t.calls.slice(before).join(','));
+      t.setFocus(null);
+      t.focusHandlers.forEach(f => f());
+      check('S375', 'and it runs the moment they leave the box', t.calls[t.calls.length - 1] === 'loadSettings', t.calls.slice(before).join(','));
+      let threw2 = '';
+      try { t.follow(); } catch (e) { threw2 = String(e && e.message || e); }
+      check('S375', 'signing in again rebuilds the listeners rather than stacking a second set',
+        !threw2 && (t.listeners['settings/scheduling'] || []).length === 1, threw2 || String((t.listeners['settings/scheduling'] || []).length));
+      check('S375', 'and binds the focus handler only once', t.focusHandlers.length === 1, String(t.focusHandlers.length));
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 376. A SIDES RE-QUOTE HOLDS A CUSTOMER OFF THE SCHEDULE UNTIL IT IS ANSWERED
+ * ([[SCH-125]], 2026-10-09). Addie: "if I changes sides for someone like I add back on
+ * sides of house then that should send person to requote and unschedule that person".
+ * RUN against quotes shaped the way both doors write them.
+ * --------------------------------------------------------------------------- */
+suite('376. A sides re-quote holds a customer off the schedule');
+{
+  const names = ['isOutForSeason', 'isWaitingOnColorChange', 'isWaitingOnBuild', 'isWaitingOnTimer', 'isWaitingOnRecycle',
+    'isInWarehouse', 'sidesRequoteOpenIds', 'isWaitingOnSidesRequote', 'isOffTheSchedule', 'seasonBadgeKey', 'quoteWasSentOut', 'quoteStage'];
+  const parts = names.map(n => extractFn(admin, n));
+  check('S376', 'the hold and everything it asks are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('quotesCache', 'custById',
+      seasonRuleSrc() + 'let sidesRequoteMemo = null;' + parts.join('\n') +
+      'return {off: isOffTheSchedule, badge: seasonBadgeKey};');
+    const rec = (id, extra) => ({id, data: Object.assign({name: id, rsvpStatus: 'yes', rsvpRespondedAt: 1}, extra || {})});
+    const a = rec('a'), b = rec('b'), c = rec('c'), e = rec('e');
+    const idx = new Map([a, b, c, e].map(x => [x.id, x]));
+    const quotes = [
+      {id: 'q1', data: {existingCustomerId: 'a', changed: {what: 'sides', by: 'office'}, status: 'new'}},
+      {id: 'q2', data: {existingCustomerId: 'b', changed: {what: 'sides'}, status: 'closed'}},
+      {id: 'q3', data: {existingCustomerId: 'c', changed: {what: 'price'}, status: 'new'}},
+      {id: 'q4', data: {existingCustomerId: 'e', changed: {what: 'sides'}, approvalStatus: 'declined'}}
+    ];
+    const L = lib(quotes, idx);
+    check('S376', 'an open sides re-quote takes them off the schedule', L.off(a.data) === true);
+    check('S376', 'and their badge reads Re-quote, not Confirmed (the headline rule holds)', L.badge(a.data) === 'requote', L.badge(a.data));
+    check('S376', 'once the re-quote is answered (closed) they are scheduled again', L.off(b.data) === false && L.badge(b.data) === 'confirmed');
+    check('S376', 'a declined sides re-quote releases them too', L.off(e.data) === false);
+    check('S376', 'a price-only re-quote holds nobody — her words name sides', L.off(c.data) === false && L.badge(c.data) === 'confirmed');
+    check('S376', 'with no quotes loaded nobody is held (fails towards scheduling)', lib([], idx).off(a.data) === false);
+    check('S376', 'and a record it cannot match to its id is not held', L.off({name: 'a', rsvpStatus: 'yes', rsvpRespondedAt: 1}) === false);
+    check('S376', 'the All Customers row draws the Re-quote pill', /badgeKey === 'requote'[\s\S]{0,300}>Re-quote<\/span>/.test(admin));
+    check('S376', 'and the Season Badge filter can pick them out',
+      /<option value="requote">/.test((admin.match(/id="allCustFilterSeason"[\s\S]*?<\/select>/) || [''])[0]));
+    check('S376', 'the drop step and the placement step both ask isOffTheSchedule',
+      /isOffTheSchedule\(cd\)/.test(extractFn(admin, 'dropHousesWhoLeftSeason') || ''));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 377. A FIX TAKES SEVERAL PHOTOS, CAN BE EDITED AFTER IT IS SAVED, AND SHOWS ITS PHOTOS
+ * ON THE SCHEDULE ([[FIX-08]], 2026-10-09). Addie: "on fixes we need to have a way to add
+ * notes and photos after it was already saved", "can't see the picture on the website on
+ * fixes after saved", "need a way to add multiple pictures on fixes".
+ * --------------------------------------------------------------------------- */
+suite('377. A fix takes several photos and can be edited after it is saved');
+{
+  const names = ['fixPhotosOf', 'fixPhotoFields', 'hlxRetireFixPhotos'];
+  const parts = names.map(n => extractFn(admin, n));
+  const asyncSrc = (n) => { const i = admin.indexOf('async function ' + n + '('); return i === -1 ? null : 'async ' + extractFn(admin.slice(i + 6), n); };
+  parts[2] = asyncSrc('hlxRetireFixPhotos');
+  check('S377', 'the photo-list helpers are findable', parts.every(Boolean), names.filter((n, i) => !parts[i]).join(','));
+  if (parts.every(Boolean)) {
+    const lib = new Function('hlxRetireFixPhoto', parts.join('\n') + 'return {of: fixPhotosOf, fields: fixPhotoFields, retire: hlxRetireFixPhotos};');
+    const L = lib(async u => ({cleared: u !== 'stuck'}));
+    check('S377', 'a list of photos is read as a list', L.of({fixPhotoUrls: ['a', 'b', 'c']}).join() === 'a,b,c');
+    check('S377', 'a fix saved before today with one photo still has that photo', L.of({fixPhotoUrl: 'old'}).join() === 'old');
+    check('S377', 'blanks and repeats are dropped', L.of({fixPhotoUrls: ['a', '', 'a', ' b ']}).join() === 'a,b');
+    check('S377', 'nothing on file is an empty list, not a crash', L.of(null).length === 0 && L.of({}).length === 0);
+    const f = L.fields(['x', 'y']);
+    check('S377', 'saving writes the list AND the first photo in the old field, so every old reader still finds one',
+      f.fixPhotoUrls.join() === 'x,y' && f.fixPhotoUrl === 'x');
+    check('S377', 'saving no photos clears both', L.fields([]).fixPhotoUrl === '' && L.fields([]).fixPhotoUrls.length === 0);
+    pendingAsync.push((async () => {
+      const all = await L.retire(['a', 'b']);
+      check('S377', 'marking done destroys every photo, not only the first', all.cleared === true && all.keep.length === 0);
+      const some = await L.retire(['a', 'stuck', 'b']);
+      check('S377', 'a photo that could not be destroyed stays on the record (Job 4, per photo)',
+        some.cleared === false && some.keep.join() === 'stuck');
+    })());
+  }
+  const pop = stripComments(extractFn(admin, 'showAddFixPopup') || '');
+  check('S377', 'the fix popup takes several files at once', /accept="image\/\*" multiple class="addfix-photo-input"/.test(pop));
+  check('S377', 'and saves the whole list', /fixPhotoFields\(photos\)/.test(pop));
+  check('S377', 'a saved fix can be opened again from the Routes stop card', /data-editfix="'\+stop\.id\+'"/.test(admin) &&
+    /showAddFixPopup\(btn\.dataset\.editfix/.test(admin));
+  check('S377', 'and from the Schedule (fix list and the day view)', (admin.match(/data-editfix="'\+h\.id\+'"/g) || []).length === 2 &&
+    /if\(t\.dataset\.editfix\)\{editFixFromSchedule\(t\.dataset\.editfix\)/.test(admin));
+  check('S377', 'the Schedule fix list shows the photos and the note as it is now, not as it was placed',
+    /esc\(fixLiveNote\(h\)\)\+'<\/div>'\+fixLivePhotosHtml\(h\)/.test(admin));
+  check('S377', 'the Edit Note panel no longer writes a single fix photo over the list',
+    !/fixPhotoUrl: currentFixPhotoUrl/.test(admin) && /note-editfix/.test(admin));
+  const pr = extractFn(admin, 'printFixPhotos') || '';
+  check('S377', 'the crew sheet prints every fix photo, numbered', /fixPhotosOf\(d\)/.test(pr) && /' of ' \+ urls\.length/.test(pr));
+}
+/* =====================================================================
+ * Suite 378. Delete Customer could not reach the Excel Recycle sheet
+ * (2026-10-13). hlxNamesAlreadyOnTab read the saved file handle before
+ * anything asked for permission, so after a reload getFile() threw "The
+ * request is not allowed by the user agent". RUNS the reader against a
+ * handle that refuses getFile until permission is granted.
+ * ===================================================================== */
+suite('378. The Recycle sheet read asks for permission first');
+{
+  const src = extractFn(admin, 'hlxNamesAlreadyOnTab');
+  check('S378', 'the reader was found', !!src);
+  if (src) {
+    pendingAsync.push((async function () {
+      let granted = false, asked = 0;
+      const handle = {
+        queryPermission: async () => (granted ? 'granted' : 'prompt'),
+        requestPermission: async () => { asked++; granted = true; return 'granted'; },
+        getFile: async () => { if (!granted) throw new Error('The request is not allowed by the user agent'); return { arrayBuffer: async () => new ArrayBuffer(0) }; }
+      };
+      const F = new Function('hlxSheetHandleLoad', 'hlxUnzipAll', 'hlxSheetPartFor',
+        'return async ' + src + ';')(async () => handle, async () => ({}), () => null);
+      let err = null, out;
+      try { out = await F('Recycle'); } catch (e) { err = e; }
+      check('S378', 'a handle with no permission yet is asked, then read', !err && asked === 1 && out === null,
+        err ? err.message : 'asked ' + asked);
+    })());
+  }
+  check('S378', 'the delete prompt no longer claims nothing will say their lights need pulling apart',
+    !/Nothing will be left saying their lights need pulling apart/.test(admin) &&
+    /They still go to Archive and to the Recycle list on the Warehouse tab/.test(admin));
+}
+/* =====================================================================
+ * Suite 379. A new quote from a member who moved is flagged (2026-10-13,
+ * QT-51). Addie: "member made a new quote for themselves even though they
+ * already existed in the costumers ... Because there address changed".
+ * RUNS the matcher and the link payload against a small book.
+ * ===================================================================== */
+suite('379. A quote from a member who moved is flagged, never linked on its own');
+{
+  const names = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer', 'isRequote',
+    'quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteLinkToCustomerUpdates'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S379', 'the matcher was found', srcs.every(Boolean), names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean)) {
+    const book = [
+      { id: 'megan', data: { name: 'Megan Moore', customerNumber: '993', phone: '(949) 510-0692', email: 'megnmoore1@gmail.com',
+        address: '22 Old Rd, Lehi, UT', measuredFeet: 180, numberOfBins: 1, lightsDescription: 'Warm White', housePrice: 216 } },
+      { id: 'parent', data: { name: 'Pat Parent', phone: '8015550111', address: '1 Elm St, Orem, UT' } },
+      { id: 'child', data: { name: 'Kid Parent', phone: '801-555-0111', address: '2 Oak Ave, Orem, UT' } }
+    ];
+    const F = new Function('jobAddresses', 'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null; let quoteContactMatchCache = null, quoteContactMatchCacheFor = null;' +
+      srcs.join('\n') + ';return { quotePossibleExistingCustomers, quoteLinkToCustomerUpdates };')(book);
+    const moved = { name: 'Megan Moore', phone: '9495100692', email: 'megnmoore1@gmail.com', address: '1461 S 10 E, Salem 84653' };
+    const m = F.quotePossibleExistingCustomers(moved);
+    check('S379', 'a quote at a new address with a member\'s phone and email names that member once', m.length === 1 && m[0].id === 'megan');
+    check('S379', 'the email alone is enough to ask', F.quotePossibleExistingCustomers({ email: 'MegnMoore1@gmail.com ', address: 'x' }).length === 1);
+    check('S379', 'a shared phone lists BOTH households for a person to choose, never one picked silently',
+      F.quotePossibleExistingCustomers({ phone: '18015550111', address: '9 New St' }).map(c => c.id).sort().join() === 'child,parent');
+    check('S379', '"Not them" takes that customer off the question',
+      F.quotePossibleExistingCustomers(Object.assign({ notExistingCustomerIds: ['megan'] }, moved)).length === 0);
+    check('S379', 'a quote already linked, converted or archived asks nothing',
+      F.quotePossibleExistingCustomers(Object.assign({ existingCustomerId: 'megan' }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ convertedToCustomerAt: 1 }, moved)).length === 0 &&
+      F.quotePossibleExistingCustomers(Object.assign({ quoteArchived: true }, moved)).length === 0);
+    check('S379', 'a stranger with no matching contact asks nothing',
+      F.quotePossibleExistingCustomers({ phone: '3855550000', email: 'new@x.com', address: '5 A St' }).length === 0);
+    const up = F.quoteLinkToCustomerUpdates(book[0]);
+    check('S379', '"It\'s them" makes it an address-change re-quote on that record, carrying what the record knew',
+      up.existingCustomerId === 'megan' && up.existingCustomerNumber === '993' && up.requoteKind === 'address' &&
+      up.existingCustomerAddressChange === true && up.existingMeasuredFeet === 180 && up.changed.what === 'address' &&
+      up.changed.oldAddress === '22 Old Rd, Lehi, UT');
+    check('S379', 'and leaves the price and the answer alone', !('quotedPrice' in up) && !('approvalStatus' in up));
+  }
+  const stripped = stripComments(admin);
+  check('S379', 'the card draws the question and both answers are wired',
+    /quoteContactMatchHtml\(item\)\+/.test(stripped) &&
+    /querySelectorAll\('\[data-quotelinkcust\]'\)/.test(stripped) && /querySelectorAll\('\[data-quotenotcust\]'\)/.test(stripped) &&
+    /updateDoc\(doc\(db, 'quotes', qid\), quoteLinkToCustomerUpdates\(c\)\)/.test(stripped) &&
+    /notExistingCustomerIds: arrayUnion\(/.test(stripped));
+}
+
+/* =====================================================================
+   380. A code typed without its underscores still renders (2026-10-14)
+   Dax: "the rsvp is showing this: {{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}} instead of the actual buttons fix
+   that". The live RSVP template had the codes saved without underscores and every renderer matches the exact spelling.
+   canonicalEmailCodes (admin.html) and canonicalEmailCodesServer (functions/index.js) put the spelling back; this RUNS both,
+   requires the same answer from each, and asserts every place that must use it does.
+   ===================================================================== */
+suite('380. A code typed without its underscores still renders');
+{
+  const lift = function(src, fn, consts){ return new Function(extractFn(src, consts) + '\n' + extractFn(src, fn) + '\nreturn ' + fn + ';'); };
+  let A = null, S = null;
+  try {
+    const aConst = admin.slice(admin.indexOf('const EMAIL_CANONICAL_CODES = ['), admin.indexOf('function canonicalEmailCodes('));
+    A = new Function(aConst + '\n' + extractFn(admin, 'canonicalEmailCodes') + '\nreturn canonicalEmailCodes;')();
+    const sConst = fnsSrc.slice(fnsSrc.indexOf('const EMAIL_CANONICAL_CODES_SERVER = ['), fnsSrc.indexOf('function canonicalEmailCodesServer('));
+    S = new Function(sConst + '\n' + extractFn(fnsSrc, 'canonicalEmailCodesServer') + '\nreturn canonicalEmailCodesServer;')();
+  } catch (e) { A = A || null; S = S || null; }
+  check('S380', 'both copies were found and lifted', typeof A === 'function' && typeof S === 'function',
+    'renamed or removed — update this suite rather than deleting it');
+  if (typeof A === 'function' && typeof S === 'function') {
+    const real = 'Hi {{name}}\n\n{{rsvpyesbutton}} {{rsvpbackbutton}} {{rsvpnobutton}}\n\n{{referral_button}}';
+    check('S380', 'the three codes off the live RSVP template come back spelled properly',
+      A(real) === 'Hi {{name}}\n\n{{rsvp_yes_button}} {{rsvp_back_button}} {{rsvp_no_button}}\n\n{{referral_button}}', A(real));
+    const odd = '{{ RSVP Yes Button }} {{Rsvp-No-Link}} {{rsvp__back__link}} {{REFERRALLINK}} {{rsvplink}} {{RSVP button}}';
+    check('S380', 'case, spaces, hyphens and doubled underscores do not matter',
+      A(odd) === '{{rsvp_yes_button}} {{rsvp_no_link}} {{rsvp_back_link}} {{referral_link}} {{rsvp_link}} {{rsvp_button}}', A(odd));
+    const keep = '{{name}} {{price}} {{link:see your quote}} {{houses_block}} {{photo}} {{rsvp_maybe}} {{unknowncode}}';
+    check('S380', 'nothing it does not know is touched — {{link:her words}} and unknown codes stay exactly as typed', A(keep) === keep, A(keep));
+    const samples = [real, odd, keep, '', 'no codes at all', '{{rsvp_yes_button}}{{rsvpyesbutton}}', '{{ rsvp yes button}}'];
+    check('S380', 'the office copy and the 9 AM batch copy give the same answer', samples.every(function(t){ return A(t) === S(t); }));
+  }
+  const strippedA = stripComments(admin), strippedF = stripComments(fnsSrc);
+  check('S380', 'the office email builder uses it first',
+    /async function resolveLinkTokens\([^)]*\)\{\s*opts = opts \|\| \{\};\s*let out = \(typeof canonicalEmailCodes === 'function'\) \? canonicalEmailCodes\(text\) : text;/.test(strippedA));
+  check('S380', 'the 9 AM batch builder uses it first',
+    /async function rsvpEmailBodyServer\([^)]*\) \{[\s\S]{0,900}?let body = canonicalEmailCodesServer\(templateBody\);/.test(strippedF));
+  check('S380', 'a template is saved with the codes spelled properly',
+    /const body = canonicalEmailCodes\(document\.getElementById\('etTemplateBody'\)\.value\);/.test(strippedA) &&
+    /const subject = canonicalEmailCodes\(document\.getElementById\('etTemplateSubject'\)\.value\.trim\(\)\);/.test(strippedA));
+  check('S380', 'and a template is recognised as an RSVP one however its codes are spelled',
+    /function etTemplateIsRsvp\(t\)\{[\s\S]*?canonicalEmailCodes\(String\(d\.body/.test(strippedA));
+}
+
+/* =====================================================================
+   381. A new hang's photo comes off the live record, and prints on the back of the sheet (2026-10-14)
+   Dax: "when we get a new hang it should pull the picture from their live customer file so when i printed rachel oslund it
+   said she didnt have a picture even though I added her today", and "the picture attempts to appear on the wrong page
+   number when it should just appear on the back side of the new hang paper". Rachel's picture was in the record's LAYOUT MAP
+   slot and the sheet read the house-photo slots alone. RUN, not matched: the photo rule against records shaped like hers,
+   and the print document against fake pages.
+   ===================================================================== */
+suite('381. A new hang\'s photo comes off the live record, and prints on the back of the sheet');
+{
+  let P = null;
+  try {
+    /* closedQuoteFor is the fixture dial here (it walks the whole quote book); the photo rule itself is lifted */
+    P = new Function('quotes',
+      extractFn(admin, 'customerPhotoList') + '\n' + extractFn(admin, 'quotePhotoList') + '\n' +
+      extractFn(admin, 'printNewHangPhotoList') + '\n' +
+      'function closedQuoteFor(h){ return quotes[h.id] || null; }\nreturn printNewHangPhotoList;');
+  } catch (e) { P = null; }
+  check('S381', 'the photo rule was found and lifted', typeof P === 'function', 'renamed or removed — update this suite rather than deleting it');
+  if (typeof P === 'function') {
+    const quotes = { 'cust-r': { data: { frontPhotoUrl: 'https://x/quote-front.jpg' } }, 'cust-n': { data: { frontPhotoUrl: 'https://x/q2.jpg' } } };
+    const rule = P(quotes);
+    const rachel = { name: 'Rachel Oslund', housePhotos: [], housePhotoUrl: '', layoutMapUrl: 'https://x/layout.jpg' };
+    const got = rule(rachel, { id: 'cust-r' });
+    check('S381', 'a picture in the layout map slot is printed — Rachel Oslund\'s case', got.length === 1 && got[0].url === 'https://x/layout.jpg' && got[0].label === 'layout map', JSON.stringify(got));
+    const both = rule({ housePhotos: [{ url: 'https://x/h1.jpg' }, { url: 'https://x/h2.jpg' }], layoutMapUrl: 'https://x/layout.jpg' }, { id: 'cust-r' });
+    check('S381', 'house photos first, then the layout map, and the quote\'s picture is not added on top',
+      both.map(function(p){ return p.url; }).join(',') === 'https://x/h1.jpg,https://x/h2.jpg,https://x/layout.jpg', JSON.stringify(both));
+    const same = rule({ housePhotoUrl: 'https://x/same.jpg', layoutMapUrl: 'https://x/same.jpg' }, { id: 'cust-r' });
+    check('S381', 'one picture saved in both slots prints once', same.length === 1, JSON.stringify(same));
+    const bare = rule({ housePhotos: [] }, { id: 'cust-n' });
+    check('S381', 'a record with no picture at all falls back to the quote they were converted from', bare.length === 1 && bare[0].url === 'https://x/q2.jpg', JSON.stringify(bare));
+    check('S381', 'and with no quote photo either, there is nothing — the "no photo on file" line says so', rule({}, { id: 'nobody' }).length === 0);
+  }
+  /* the print document: a sheet with photos has them on a page of their own; every other sheet in that print gets a blank back */
+  let html = '';
+  let Doc = null;
+  try {
+    Doc = new Function('captured',
+      'var window = {open: function(){ return {document: {write: function(h){ captured.html = h; }, close: function(){}}, focus: function(){}, print: function(){}}; }};' +
+      'function setTimeout(){}\nfunction toast(){}\nvar PRINT_SHEET_CSS = "";\n' +
+      admin.slice(admin.indexOf('function esc(s){return'), admin.indexOf('\n', admin.indexOf('function esc(s){return'))) + '\n' +
+      extractFn(admin, 'printBackSideHtml') + '\n' + extractFn(admin, 'printWhenImagesReady') + '\nvar PRINT_IMAGE_WAIT_MS = 8000;\n' + extractFn(admin, 'schedOpenPrintPages') + '\n' +
+      'return {open: schedOpenPrintPages, back: printBackSideHtml};');
+  } catch (e) { Doc = null; }
+  check('S381', 'the print document builder was found and lifted', typeof Doc === 'function');
+  if (typeof Doc === 'function') {
+    const cap = {}, D = Doc(cap);
+    check('S381', 'nothing in, no back page out', D.back('') === '');
+    D.open('t', [{ title: 'Warehouse', body: '<table id="w"></table>' },
+                 { title: 'Crew 1', body: '<table id="c1"></table>' + D.back('<div class="photos">p</div>') }]);
+    html = cap.html || '';
+    const sheets = html.split('<div class="sheet">').slice(1);
+    check('S381', 'the photos come after the table, inside a block that starts a new page',
+      sheets[1] && sheets[1].indexOf('id="c1"') < sheets[1].indexOf('class="backside"') && sheets[1].indexOf('class="photos"') > sheets[1].indexOf('class="backside"'));
+    check('S381', 'the sheet with no photos gets a blank back, so the crew sheet starts on its own paper',
+      sheets[0] && sheets[0].indexOf('class="blankback"') !== -1 && sheets[1].indexOf('class="blankback"') === -1);
+    D.open('t', [{ title: 'Warehouse', body: '<table></table>' }, { title: 'Crew 1', body: '<table></table>' }]);
+    check('S381', 'and a print with no photos at all adds no blank pages', (cap.html || '').indexOf('blankback') === -1);
+  }
+  const stripped = stripComments(admin);
+  check('S381', 'the back page starts a new page in the print stylesheet',
+    /'\.backside\{page-break-before:always;break-before:page;\}'/.test(admin) && /PRINT_PHOTO_CSS \+/.test(admin));
+  check('S381', 'a crew\'s own sheet puts its photos on the back',
+    /printTableHtml\(rows, printCrewColumns\(rows\)\) \+\s*printBackSideHtml\(printPhotosHtml\(printCrewPhotos\(day, i\)\)/.test(stripped));
+  check('S381', 'the whole-day sheet puts both crews\' photos on the back, after every table',
+    /blocks\.push\(printBackSideHtml\(backs\.join\(''\)\)\);/.test(stripped) &&
+    stripped.indexOf("blocks.push(printBackSideHtml(backs.join('')));") > stripped.indexOf("In neither crew’s city"));
+  /* "certain picture file types dont print corretly too if thats the case have it auto fix that" */
+  let Src = null;
+  try { Src = new Function(extractFn(admin, 'printPhotoSrc') + '\nreturn printPhotoSrc;')(); } catch (e) { Src = null; }
+  check('S381', 'every printed photo is asked for as a JPG', typeof Src === 'function' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/v1791985042/abc.heic') ===
+      'https://res.cloudinary.com/highlighting-utah/image/upload/f_jpg,q_auto,w_1200,c_limit/v1791985042/abc.heic' &&
+    Src('https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg') === 'https://res.cloudinary.com/highlighting-utah/image/upload/w_300/v1/abc.jpg' &&
+    Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
+  check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
+  check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
+    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
+}
+
+/* =====================================================================
+ * Suite 382. Everyone on hold is on the Text the RSVP batches without
+ * pressing anything (2026-10-15, RS-82). Addie: "on RSVP sending text on
+ * the batches it only shows 257 but there are over 400 on hold. We need
+ * everyone on hold wether they already got a text or not."
+ *
+ * Her saved list was cut under RS-78 (texted people left out). RS-80 then
+ * put them back on a NEW list — but a saved list reopens on every press, so
+ * the ~200 she had texted sat pending and on no batch, offered behind an
+ * "Add them" button (RS-75). This RUNS phoneBatchOpen against a saved list:
+ * on Text the RSVP they are appended as new batches at the end and written
+ * down at once; every batch already made and every Sent tick is exactly as
+ * it was; the Automation Emails list still only offers. phoneRunLoad,
+ * phoneRunStore and phoneMarkTexted are stubbed BY NAME because they reach
+ * Firestore — everything else is the real lifted code.
+ * ===================================================================== */
+suite('382. Everyone on hold is on the Text the RSVP batches without pressing anything');
+{
+  const lift = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize',
+    'phoneRunSetSent', 'phoneRunFirstOpen', 'phoneRunNewPeople', 'phoneRunAddNew', 'phoneRunFromDoc', 'phoneRunWhen',
+    'phoneRunPersist', 'phoneBatchOpen'];
+  const srcs = names.map(lift);
+  check('S382', 'every piece of the panel was found, phoneBatchOpen included', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  const stripped = stripComments(admin);
+  check('S382', 'Text the RSVP asks for the add, and the Automation Emails list does not',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true, addNewToEnd: true\}\);/.test(stripped) &&
+    (stripped.match(/addNewToEnd: true/g) || []).length === 1,
+    'she named Text the RSVP; the other list was not asked about');
+  check('S382', 'the add is an APPEND through phoneRunAddNew, written through the list\'s own save',
+    /if\(opts\.addNewToEnd && extra\.numbers\.length\)\{\s*phoneRunAddNew\(saved, extra\);[\s\S]*?await opts\.save\(saved\);/
+      .test(stripComments(lift('phoneBatchOpen') || '')),
+    'a re-cut would move people across batch lines and a tick would vouch for somebody never texted');
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
+  if (!JSDOM) note('S382: jsdom missing — run npm install; the panel was not driven');
+  if (srcs.every(Boolean) && JSDOM) {
+    pendingAsync.push((async function () {
+      const w = new JSDOM('<div id="h"></div>').window;
+      const stores = [];
+      let failStore = false;
+      let savedDoc = null;
+      let api = null;
+      api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm',
+        'phoneRunLoad', 'phoneRunStore', 'phoneMarkTexted', 'auth',
+        'const PHONE_BATCH_DEFAULT = 50;' + srcs.join('\n') + ';return { phoneBatchOpen, phoneRunFromDoc };')(
+        w.document, { clipboard: { writeText: async function () {} } },
+        { getItem: k => (k === 'hu.phoneBatchSize' ? '2' : null), setItem: function () {} },
+        { error: function () {} }, function () { return true; },
+        async function () { return savedDoc ? api.phoneRunFromDoc(JSON.parse(JSON.stringify(savedDoc))) : null; },
+        function (key, run) {
+          if (failStore) return Promise.reject(new Error('offline'));
+          stores.push({ key: key, run: JSON.parse(JSON.stringify(run)) });
+          return Promise.resolve();
+        },
+        async function () { return { marked: 0, failed: 0, skipped: 0, matched: new Set() }; },
+        null);
+      const host = w.document.getElementById('h');
+      const q = k => host.querySelector('[data-pb="' + k + '"]');
+      const tick = async function () { await new Promise(r => setTimeout(r, 0)); };
+      const rsvpOpts = { keepTexted: true, addNewToEnd: true };
+      /* Read through these rather than indexing: a sabotage that leaves a batch missing must FAIL a
+         check, never throw out of the async body and get blamed on whichever suite is printing. */
+      const bat = (r, i) => ((r && r.run && r.run.batches) || [])[i] || {};
+      const nums = (r, i) => (bat(r, i).numbers || []).join();
+      const nb = r => ((r && r.run && r.run.batches) || []).length;
+
+      /* Her saved list: two batches of two, batch 1 ticked Sent — cut when texted people were
+         left out, so three people she had texted are pending today and on no batch. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'office@x.com' },
+        { numbers: ['8015550003', '8015550004'], names: ['Cara', 'Dan'], sentAt: 0, sentBy: '' }] };
+      const today = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005', '8015550006', '8015550007'];
+      const todayNames = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve', 'Fay', 'Gus'];
+      const current = () => ({ numbers: today.slice(), names: todayNames.slice(), textedIn: 3 });
+
+      const r1 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'Text the RSVP: the three pending and on no batch are ADDED, as new batches at the end',
+        r1.saved && r1.added === 3 && r1.count === 7 && nb(r1) === 4 &&
+        nums(r1, 2) === '8015550005,8015550006' &&
+        nums(r1, 3) === '8015550007' && (bat(r1, 3).names || []).join() === 'Gus',
+        'offered behind a button is the 257 she kept seeing');
+      check('S382', 'every batch already made, and the Sent tick on it, is exactly as it was',
+        nums(r1, 0) === '8015550001,8015550002' && bat(r1, 0).sentAt === 5000 &&
+        bat(r1, 0).sentBy === 'office@x.com' && nums(r1, 1) === '8015550003,8015550004' &&
+        !bat(r1, 1).sentAt && !bat(r1, 2).sentAt && r1.run.size === 2,
+        'RS-75: a tick vouches for the people in that batch and must never move');
+      check('S382', 'and it is written down at once, to the Text the RSVP list',
+        stores.length === 1 && stores[0].key === 'rsvp' && nb(stores[0]) === 4 && bat(stores[0], 0).sentAt === 5000,
+        'a list grown only on screen is 257 again on the next press');
+      check('S382', 'the line under the batches says so, and nothing is left to offer',
+        /3 people pending now and on no batch were added as new batches at the end/.test(host.textContent) &&
+        !/pending now and on no batch\./.test(host.textContent) && q('addnew').style.display === 'none' &&
+        !/could not be saved/.test(host.textContent));
+      check('S382', 'it opens on the first batch not ticked', /Batch 2 of 4/.test(host.textContent));
+
+      /* Reopen: the stored list now holds everybody, so nothing is added and nothing is written. */
+      savedDoc = stores.length ? stores[0].run : savedDoc;
+      const r2 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'reopening with nobody new adds nobody and writes nothing',
+        r2.added === 0 && stores.length === 1 && nb(r2) === 4 &&
+        !/added as new batches/.test(host.textContent) && q('addnew').style.display === 'none');
+
+      /* Somebody newly pending tomorrow joins the end the same way, with nothing pressed. */
+      today.push('8015550008'); todayNames.push('Hal');
+      const r3 = await api.phoneBatchOpen(host, 'rsvp', current, rsvpOpts);
+      await tick();
+      check('S382', 'somebody newly pending tomorrow is added the same way',
+        r3.added === 1 && nb(r3) === 5 && nums(r3, 4) === '8015550008' &&
+        stores.length === 2 && /1 person pending now and on no batch was added/.test(host.textContent));
+
+      /* The Automation Emails list was not named by her and still only offers. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'x' }] };
+      const before = stores.length;
+      const r4 = await api.phoneBatchOpen(host, 'et',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedOut: 0 }), {});
+      await tick();
+      check('S382', 'the Automation Emails list still OFFERS new people rather than adding them',
+        !r4.added && nb(r4) === 1 && stores.length === before &&
+        /1 person is pending now and on no batch\./.test(host.textContent) && q('addnew').style.display !== 'none',
+        'the other list was not asked about and keeps RS-75 whole');
+
+      /* A save that fails is said on the line; the next open adds them again rather than losing them. */
+      savedDoc = { size: 2, createdAt: 1000, batches: [
+        { numbers: ['8015550001', '8015550002'], names: ['Ann', 'Bob'], sentAt: 5000, sentBy: 'x' }] };
+      failStore = true;
+      const r5 = await api.phoneBatchOpen(host, 'rsvp',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedIn: 0 }), rsvpOpts);
+      await tick();
+      check('S382', 'a save that fails is said on the line, never a quiet green',
+        r5.added === 1 && r5.addFailed === true && /could not be saved/.test(host.textContent) &&
+        /1 person pending now and on no batch was added/.test(host.textContent));
+      failStore = false;
+      const r6 = await api.phoneBatchOpen(host, 'rsvp',
+        () => ({ numbers: ['8015550001', '8015550002', '8015550009'], names: ['Ann', 'Bob', 'Ida'], textedIn: 0 }), rsvpOpts);
+      await tick();
+      check('S382', 'and once the save works they are added once, not twice',
+        r6.added === 1 && nb(r6) === 2 && nums(r6, 1) === '8015550009' &&
+        nb(stores[stores.length - 1]) === 2);
+    })());
+  }
 }
