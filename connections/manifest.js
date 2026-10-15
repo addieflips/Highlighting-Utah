@@ -513,7 +513,11 @@ module.exports = [
       { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card is charged',
         rules: ['The fee is part of what the card is charged, not an extra afterwards.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed',
-        rules: ['It is its own line, so the total adds up on the page.'] }
+        rules: ['It is its own line, so the total adds up on the page.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): the readers of the fee total that were missing. */
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices \u203a Invoice List', when: 'the invoice list draws each bill and its fee lines' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
     ]
   },
 
@@ -546,7 +550,18 @@ module.exports = [
       { file: 'server', fn: 'looksLikeNewMember', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
       { file: 'admin', fn: 'whBuildReasonKey', where: 'Warehouse › Build', when: 'the NEW badge is drawn' },
       { file: 'admin', fn: 'audienceNeverAsked', where: 'Automation Emails › Recipients', when: 'the RSVP audience is chosen',
-        rules: ['A first-year customer is never asked if they want lights AGAIN.'] }
+        rules: ['A first-year customer is never asked if they want lights AGAIN.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'audienceIsNew', where: 'Automation Emails › Recipients', when: 'the New vs returning filter decides who is new' },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice prints its set-up fee line' },
+      { file: 'admin', fn: 'houseInstallPriority', where: 'Schedule › Scheduling', when: 'a new member is put at the front of the season' },
+      { file: 'admin', fn: 'invTestSend', where: 'Invoices › Invoice List', when: 'the office sends themselves or the customer one invoice' },
+      { file: 'admin', fn: 'isNewHangHouse', where: 'Schedule › Scheduling', when: 'a house is badged a new hang' },
+      { file: 'admin', fn: 'isNewHangUrgent', where: 'Schedule › Scheduling', when: 'a new member is past their week' },
+      { file: 'admin', fn: 'isNewMemberHouse', where: 'Schedule › Scheduling', when: 'a house is asked whether it is a new member' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'the fee box is filled when a customer is opened' },
+      { file: 'admin', fn: 'printIsNewHang', where: 'Schedule › Printing', when: 'the crew sheet decides whether to print a house photo' },
+      { file: 'admin', fn: 'resolveLinkTokens', where: 'Automation Emails › Recipients', when: 'an email fills in its set-up fee wording' },
     ]
   },
 
@@ -678,7 +693,22 @@ module.exports = [
       { file: 'server', fn: 'sendPaymentReceipt', where: 'Member Portal › Pay', when: 'a receipt is sent' },
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'the balance is worked out' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
-      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): every remaining reader that asks what has been paid. Each one decides money or a message about money, so each is named. */
+      { file: 'admin', fn: 'addLightChangeFeeToInvoice', where: 'Customers \u203a All Customers', when: 'a $30 colour-change fee is added and the status is worked out again' },
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', el: 'arrearsRunBtn', where: 'Invoices › Invoice List', when: 'last season’s unpaid balances are carried forward' },
+      { file: 'admin', fn: 'houseCardIsRed', where: 'Customers \u203a All Customers', when: 'a card is coloured red for being seriously behind' },
+      { file: 'admin', fn: 'housePaidThisSeason', where: 'Customers \u203a All Customers', when: 'a house is asked whether it has paid this season' },
+      { file: 'admin', fn: 'ledgerWaiveUpdates', where: 'Customers \u203a All Customers', when: 'a fee or discount is crossed off and the status is worked out again' },
+      { file: 'admin', fn: 'paidThisSeason', where: 'Customers \u203a All Customers', when: 'a customer is asked whether they have paid this season' },
+      { file: 'admin', fn: 'receiptResendAmount', where: 'Invoices \u203a Invoice List', when: 'a receipt that never went out is sent again' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
+      { file: 'admin', fn: 'textChaseRecipients', where: 'Automation Emails › Recipients', when: 'who still owes is chosen for a chase text' },
+      { file: 'server', fn: 'arrearsOutstandingServer', where: 'Member Portal \u203a Pay', when: 'how much of last season is still owed is worked out' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Member Portal › Cancel', when: 'a referral credit is taken back off a bill' },
+      { file: 'server', fn: 'lateFeeAmountServer', where: 'Invoices \u203a Nightly Automation', when: 'the late fee is sized' },
+      { file: 'server', fn: 'runLateFeeBatch', where: 'Invoices \u203a Nightly Automation', when: 'the late-fee run decides who owes' },
     ]
   },
 
@@ -779,6 +809,15 @@ module.exports = [
          View fetch, the time-off calendar, the expenses chips, the finance scenarios and
          the Connections page reading its own summary file. None of them is a quote. */
       '^(paypalWebhook|getStreetViewFrontUrlAdmin|rmStaticFailMessage|renderAdminTimeOffCalendar|renderAtoUndated|whoIsOffOn|renderAddExpenseInvoiceChips|fcRunScenarios|loadConnectionsSummary|poolHtml)$',
+      /* ⭐ ADDED 2026-10-15 (batch 7): more things that are called status and are not a quote's.
+         Messages: the Inbox's own status (needs reply, waiting, resolved). */
+      '^(commChipsHtml|commFilterMatches|msgStatusOf|renderSystemMessagesTab)$',
+      /* A CSS class called status-pill, not a field. */
+      '^newHangChip$',
+      /* A web response or a send's outcome, not a record. */
+      '^(loadSeasonForecast|loadSeasonNormals|pingServer|serverPingOutcome|uploadOneToCloudinary|wirePickStreetView|reportEmailSendFailures|etSendTemplateRun|sendBulkUpdateEmailBtn handler|sendRsvpEmailBtn handler|pibSendPaidBtn handler|pibSendUnpaidBtn handler)$',
+      /* An INVOICE's status, printed inside the invoice email — the Money spines own it. */
+      '^(invoiceEmailBlock|invoiceEmailBlockServer)$',
       /* the original list */'^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
     states: [
       ['New', 'Waiting to be priced'],
@@ -820,7 +859,10 @@ module.exports = [
       { file: 'admin', fn: 'whBuildReasonChip', where: 'Warehouse › Build', when: 'the badge says why a bundle is being built',
         rules: ['A closed quote is what makes a house a NEW hang rather than a rebuild.'] },
       { file: 'server', fn: 'runQuoteNudgeBatch', where: 'Quote Requests', when: 'the 10am nudge chases unanswered quotes',
-        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] }
+        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 7): the two remaining readers of a quote’s status. */
+      { file: 'admin', fn: 'quoteForButtons', where: 'Quote Requests', when: 'the portal is told which quote is still open for a customer' },
+      { file: 'server', fn: 'quoteArchiveDueServer', where: 'Quote Requests', when: 'an unanswered quote is archived 30 days after its first email' },
     ]
   },
   /* ------------------------------------------------------------------------
@@ -915,7 +957,18 @@ module.exports = [
         rules: ['A stored yes with no reply date behind it is not an answer.'] },
       { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Nightly Automation', when: 'the bill is built',
         rules: ['A house that was hung is billed whatever they have said since.'] },
-      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'backInYearOf', where: 'Customers › All Customers', when: 'the year somebody sitting out comes back is worked out' },
+      { file: 'admin', fn: 'phoneMarkTexted', where: 'Automation Emails › Recipients', when: 'a texted RSVP is marked as sent' },
+      { file: 'admin', fn: 'rejoinNeedsBuild', where: 'Warehouse › Build', when: 'somebody coming back is asked whether their lights must be built again' },
+      { file: 'admin', fn: 'saidNoOrBackNextYear', where: 'Routes › Install', when: 'the Routes tab leaves out somebody who said no' },
+      { file: 'admin', fn: 'seasonBadgeKey', where: 'Customers › All Customers', when: 'the season badge is chosen' },
+      { file: 'admin', fn: 'seasonHold', where: 'Schedule › Scheduling', when: 'somebody is held off the schedule' },
+      { file: 'admin', fn: 'takedownSaidNo', where: 'Schedule › Scheduling', when: 'a takedown day skips somebody who said no' },
+      { file: 'server', fn: 'portalChangeAddress', where: 'Member Portal › My Lights', when: 'a customer asks to move address' },
+      { file: 'server', fn: 'rejoinNeedsBuildServer', where: 'Member Portal › RSVP', when: 'somebody coming back is asked whether their lights must be built again' },
+      { file: 'server', fn: 'rsvpStillOwedServer', where: 'Automation Emails › Recipients', when: 'the 9 AM RSVP run checks each person still needs asking' },
     ]
   },
   {
@@ -1314,7 +1367,16 @@ module.exports = [
       { file: 'admin', fn: 'payerHouseOf', where: 'Customers › Who Pays for Whom', when: 'a shared bill picks a name',
         rules: ['The lowest customer number pays — the longest-standing account.'] },
       { file: 'admin', fn: 'whWhoLabel', where: 'Warehouse › Build', when: 'a build row is named' },
-      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' }
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', el: 'editCustColorChangeBtn', where: 'Customers › All Customers', when: 'a colour change is sent to the warehouse from Edit Customer' },
+      { file: 'admin', fn: 'fixListPrintRow', where: 'Schedule › Printing', when: 'the daily fix list is printed' },
+      { file: 'admin', fn: 'msgErrorWhoLabel', where: 'Customer Messages › Inbox', when: 'an error row names the customer' },
+      { file: 'admin', fn: 'quoteContactMatchHtml', where: 'Quote Requests', when: 'a quote shows which customer it matches' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'admin', fn: 'rsvpTextRender', where: 'Automation Emails › Recipients', when: 'the text-message RSVP list is drawn' },
+      { file: 'admin', fn: 'systemNoticeWireRows', where: 'Customer Messages › Inbox', when: 'a wire-colour notice lists its houses' },
+      { file: 'admin', fn: 'wireSweepClassify', where: 'Warehouse › Tools', when: 'the wire sweep sorts houses' },
     ]
   },
 
@@ -1649,7 +1711,16 @@ module.exports = [
       { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
       { file: 'admin', fn: 'renderAllCustomersTable', where: 'Customers › All Customers', when: 'the Lights filter runs',
         rules: ['Reads the RAW record so the soft-light switching list survives (2026-08-24).'] },
-      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the sheet' }
+      { file: 'admin', fn: 'rbCustomerToSheetRow', where: 'Customers › Bulk Updates', when: 'a customer is written back to the sheet' },
+      /* ⭐ DECLARED 2026-10-15 (batch 6): the remaining named readers. */
+      { file: 'admin', fn: 'applyRequoteFormAnswers', where: 'Quote Requests', when: 'a re-quote form’s answers are applied' },
+      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed' },
+      { file: 'admin', fn: 'fillAddCustFromQuote', where: 'Customers › Add a Customer', when: 'a quote fills in the Add Customer form' },
+      { file: 'admin', fn: 'quoteLinkToCustomerUpdates', where: 'Quote Requests', when: 'a quote is linked to an existing customer' },
+      { file: 'admin', fn: 'requoteFormSummary', where: 'Quote Requests', when: 'a re-quote card summarises what changed' },
+      { file: 'admin', fn: 'requoteLightsToCarry', where: 'Quote Requests', when: 'a re-quote carries its colours onto a customer with none' },
+      { file: 'admin', fn: 'showConvertQuoteChoice', where: 'Quote Requests', when: 'Convert to Customer is pressed' },
+      { file: 'server', fn: 'portalChangeLabels', where: 'Member Portal › My Lights', when: 'a change from the portal is named in the office note' },
     ],
     only: [
       {

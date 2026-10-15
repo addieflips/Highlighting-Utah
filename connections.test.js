@@ -1403,9 +1403,18 @@ if (unguarded.length) {
       !!quoteSpine && !(quoteSpine.undeclared || []).some(u => /renderExpensesList|ccRenderCardList|approveTimeOffRequest/.test(u)),
       ': an expense, a credit-card transaction and a time-off request are still being ' +
       'counted as touches on a QUOTE\'s status — the filter exists but nothing is using it');
+    /* ⚠ MEASURED WITHOUT THE HAND-WRITTEN `ignore` LIST AND WITH NOTHING DECLARED (2026-10-15).
+       This used to read the live amber count, which is the right shape for a guard on the
+       automatic filter only while the list is long. Batch 7 worked the quote-status list
+       down to anonymous handlers, so the live count fell to 7 for good reasons and the check
+       fired on correct data — the slow fuse §7 names. What it guards is unchanged: the
+       automatic other-record filter, on its own, must still leave plenty of touches visible. */
+    const bareStatus = Object.assign({}, quoteSpine ? quoteSpine.spine : {}, { ignore: [], sets: [], reads: [] });
+    const bareRun = eng.check({ admin: path.join(ROOT, 'admin.html'), server: path.join(ROOT, 'functions', 'index.js') },
+      Object.assign([bareStatus], { TABLES: require('./connections/manifest').TABLES }))[0];
     check('and it has not swallowed the whole list',
-      !!quoteSpine && quoteSpine.undeclaredTotal > 20,
-      ': got ' + ((quoteSpine || {}).undeclaredTotal) + ' — a filter that drops nearly ' +
+      !!bareRun && bareRun.undeclaredTotal > 20,
+      ': got ' + ((bareRun || {}).undeclaredTotal) + ' with nothing declared and no ignore list — a filter that drops nearly ' +
       'everything is hiding real connections, which is worse than the noise it removes');
   }
 
