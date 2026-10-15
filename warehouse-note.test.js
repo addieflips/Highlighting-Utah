@@ -60,7 +60,9 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                 'whWireLabel',
                 /* Lifted for the same reason: Added ft / Total bundles on both sheets (2026-10-05). */
                 'whBuildSizeCells', 'whBuildTodo',
-                'whWhoLabel', 'isOutForSeason'];
+                'whWhoLabel', 'isOutForSeason',
+                /* [[WH-49]] the third sheet — the day's pull list — and the renderer that draws it. */
+                'printWarehouseDayList', 'printWarehousePage', 'printTableHtml'];
 const src = {};
 const missing = [];
 NEEDED.forEach(n => { src[n] = lift(n); if (!src[n]) missing.push(n); });
@@ -251,11 +253,88 @@ if (whRow && prRow) {
 }
 
 /* ---------------------------------------------------------------------------
+ * THE THIRD SHEET — THE DAY'S PULL LIST ([[WH-49]], 2026-10-15).
+ * Addie: "for warehouse notes I need the crews to see the notes before they load the
+ * bins. Can we put any warehouse notes on the warehouse list somehow?" The Printing
+ * tab's Warehouse sheet (page one of Print today) is the list somebody holds while
+ * loading the van, and it carried Cust # and Name alone — so a note that reached both
+ * BUILD sheets never reached the morning the bins went out.
+ * ⚠ RUN, NOT MATCHED. The claim is that a row carries her words through the SAME rule
+ * the other two sheets read; a stubbed whNoteText would decide the very thing under
+ * test, and a source match for the word "notes" is satisfied by the crew's box too.
+ * ------------------------------------------------------------------------- */
+head('The day\'s pull list carries the note too');
+
+const pullList = new Function('printCustData',
+  src.whNoteText + src.whNotesCell + src.printWarehouseDayList + 'return printWarehouseDayList;')(
+  (h) => h._cust || {});
+const pullFor = (cust) => pullList({houses: [{id: 'cust-a1', cu: 894, name: 'Ashley Wray', _cust: cust}]})[0];
+const pullRow = src.printWarehouseDayList ? pullFor(CUST) : null;
+check('the pull list builds a row for that house', !!pullRow && pullRow.name === 'Ashley Wray',
+  'nothing below is proved without one');
+if (pullRow) {
+  check('the pull list carries the warehouse note at all', !!pullRow.notes,
+    'this is the whole request: the sheet had no notes on it, so the crew loaded the ' +
+    'bins without ever seeing what was written for them');
+  check('and it is not vacuous — the row really carries her words',
+    String(pullRow.notes).indexOf('Use the short strands') !== -1, 'got ' + JSON.stringify(pullRow.notes));
+  check('the one-time note is on it too, labelled as such',
+    String(pullRow.notes).indexOf('THIS BUILD ONLY: They want the old bin back') !== -1,
+    'got ' + JSON.stringify(pullRow.notes));
+  /* ⚠ EQUAL, NOT "both mention it" — three sheets wording one house three ways is the
+     failure this file exists to stop. */
+  check('and it says exactly what the shared rule says', pullRow.notes === cell(CUST, false),
+    'pull: ' + JSON.stringify(pullRow.notes) + '\n          rule: ' + JSON.stringify(cell(CUST, false)));
+  if (whRow) check('which is exactly what the warehouse tab\'s build sheet says',
+    pullRow.notes === whRow.notes,
+    'pull: ' + JSON.stringify(pullRow.notes) + '\n          tab: ' + JSON.stringify(whRow.notes));
+}
+check('the crew\'s Permanent Notes do NOT reach the pull list ([[WH-48]])',
+  pullFor({name: 'Ashley Wray', notes: 'Dog in the yard'}).notes === '',
+  'got ' + JSON.stringify(pullFor({name: 'Ashley Wray', notes: 'Dog in the yard'}).notes));
+check('nothing on file is an empty cell, never the word undefined',
+  pullFor({name: 'Ashley Wray'}).notes === '', 'got ' + JSON.stringify(pullFor({name: 'Ashley Wray'}).notes));
+/* ⚠ whNotesCell leads an add-on with GOES INTO THE BIN THEY ALREADY HAVE. That is a
+   BUILDING instruction and nobody builds off the pull list; they load what is on the
+   shelf. The pull list reads whNoteText, and this check bites if it is ever "tidied"
+   onto whNotesCell. */
+check('an add-on carries no building instruction on the pull list',
+  String(pullFor(Object.assign({buildTopUpFromFeet: 100}, CUST)).notes).indexOf('GOES INTO THE BIN') === -1,
+  'got ' + JSON.stringify(pullFor(Object.assign({buildTopUpFromFeet: 100}, CUST)).notes));
+
+/* The column, and the page that draws it. A column check proves only the heading and a
+   row check proves only the data; rendering the two together is what proves the note
+   lands under the heading. */
+const whPullCols = (admin.match(/warehouse:\s*\[([\s\S]*?)\],/) || [])[1] || '';
+const whPullKeys = (whPullCols.match(/k:\s*'([a-zA-Z]+)'/g) || []).map(m => m.split("'")[1]);
+check('the pull list has a column list to read', whPullKeys.length > 0);
+check('it still leads with the customer number and the name', whPullKeys[0] === 'number' && whPullKeys[1] === 'name',
+  'the number is what the bin is found by — got: ' + whPullKeys.join(','));
+check('and ends with notes', whPullKeys[whPullKeys.length - 1] === 'notes', 'got: ' + whPullKeys.join(','));
+const pageSrc = scan.index(src.printWarehousePage || '', true).blanked;
+check('the warehouse page builds its rows from the pull list and draws them with that column list',
+  /printWarehouseDayList\(day\)/.test(pageSrc) && /printTableHtml\(rows,\s*PRINT_COLUMNS\.warehouse\)/.test(pageSrc),
+  'a column on a list the page never reads is a heading nobody sees');
+const columnsSrc = (admin.match(/const PRINT_COLUMNS = \{[\s\S]*?\r?\n\};/) || [''])[0];
+check('PRINT_COLUMNS was really found', !!columnsSrc);
+if (columnsSrc && pullRow && src.printTableHtml) {
+  const html = new Function('esc', 'printDensityClass',
+    columnsSrc + src.printTableHtml + 'return printTableHtml;')(
+    (s) => String(s == null ? '' : s), () => '')([pullRow],
+    new Function(columnsSrc + 'return PRINT_COLUMNS.warehouse;')());
+  check('rendered, the sheet is headed Warehouse notes', /<th>Warehouse notes<\/th>/.test(html),
+    'got ' + html.slice(0, 200));
+  check('and the note is in a cell under it', /<td>[^<]*Use the short strands[^<]*<\/td>/.test(html),
+    'a heading with nothing under it is the exact failure checklist row 199 names');
+}
+
+/* ---------------------------------------------------------------------------
  * THE COLUMN, AND WHERE IT SITS.
  * ------------------------------------------------------------------------- */
 head('The column is on the sheet, and last');
 
-const printCols = (admin.match(/build:\s*\[([\s\S]*?)\],\r?\n\s*warehouse:/) || [])[1] || '';
+/* [[WH-49]] a comment block now sits between the build list and the warehouse list. */
+const printCols = (admin.match(/build:\s*\[([\s\S]*?)\],\r?\n(?:\s*\/\*[\s\S]*?\*\/\r?\n)?\s*warehouse:/) || [])[1] || '';
 const printKeys = (printCols.match(/k:\s*'([a-zA-Z]+)'/g) || []).map(m => m.split("'")[1]);
 check('the printing tab has a build column list to read', printKeys.length > 0);
 check('it ends with notes', printKeys[printKeys.length - 1] === 'notes',
