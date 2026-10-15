@@ -3575,6 +3575,8 @@ Added 2026-10-13. Dax pasted the two route maps for a day, both reading *"Oops! 
 
 **It is the map key, not the route.** Measured on the live site: Google refuses the old script-tag key on both admin addresses (highlighting-utah.netlify.app and highlightingutah.com) with `RefererNotAllowedMapError` — the same words are filed under Admin Errors in the Inbox — and draws maps with the Firebase key on both. The page loads the Firebase key now; the old key is `MAPS_KEY_SPARE` in `rmMapsKeys`, tried once if Google ever refuses the first. ⚠ Before this, that swap only rebuilt the roof-measure maps, so every Schedule route map stayed on the Oops box until the page was reloaded; `window.scheduleMapsRebuild` redraws them too. If the box comes back: read Admin Errors for the Google error name first — it says which rule refused the key.
 
+⚠ **And every other map on the page has to be let go too (2026-10-14).** The swap loads Google's library a second time, and a map made by the first copy is not a `Map` to the second — so the Routes map, the customer overview map and the address previews, which the swap did not rebuild, threw `InvalidValueError: setMap: not an instance of Map` the next time a marker or line was put on them (twice in Admin Errors on 13 October). `rmTryOtherMapsKey` now sets every one of them back to null in the same onload, so each is built fresh on the new library when it is next drawn. *Proved in* `error-fixes.test.js` §3, which finds every `new google.maps.Map` in the file and fails if the swap forgets one.
+
 ### Why the forecast beside the map can be blank
 
 Added 2026-09-10. Dax, looking at a day's two route maps: *"the only issue is I cant see
@@ -4318,6 +4320,23 @@ were plausible; neither survived counting.
 
 *Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
 records get cleared, and the three kinds that must not be touched.
+
+### The 1 AM write refusal, and the plan that saves itself (2026-10-14)
+
+At 07:04 UTC on 14 October (1 AM in Utah) Firestore refused the project's writes: `[code=resource-exhausted]: This database has exceeded their maximum bandwidth for writes`, then `Using maximum backoff delay`. The Routes tab was open on a Windows computer and nobody was working, so something was writing by itself.
+
+**The cause is not proven.** The likeliest writer is the Schedule plan — one large document (`routeSchedule/plan`) that saves on most redraws — handed back and forth between two open computers, each taking the other's copy and saving its own; every plan save is also followed by the customer-date mirror (`syncInstallStampsFromSchedule`). One report cannot say which. So it is **instrumented, not fixed**: `planSaveRunaway` counts the plan's own successful saves and, past `PLAN_RUNAWAY_SAVES` (30) in a minute, files ONE Admin Error naming how many and how big. ⚠ It never holds a save back — two computers on two different schedules is worse than a burst of writes. ⚠ And the refusal has no `FIXED_ERRORS` entry, on purpose: §9.9 item 7 keeps instrumented faults out, and `fixed-errors.test.js` asserts nothing clears it.
+
+If it happens again: read the Admin Errors row from `planSaveRunaway` first. If there is none, the plan was not the writer and the next suspect is the customer-date mirror.
+
+### What else that read of the Errors folder fixed (2026-10-14)
+
+- **A day always has a date.** `dayDate` answered `undefined` for a day pushed into the season before `computeDates` had seen it — the shape of both *Fix placement failed … 'getDay'* (9 October) and *recalculate failed … 'getFullYear'* (13 October). It works the date out from the pin, else from the base and shift, without writing it back. The season simulator found ~470 such reads in its seasons, all guarded today.
+- **A reported Error says where it came from.** The admin page's `console.error` catcher now adds the first frame of ours (`rejectionWhere`, the same rule unhandled promises use), so the next crash names its function and line.
+- **One year of past weather failing is a warning.** `loadSeasonNormals` steps over a failed year by design; it no longer files *no normals for 2016* as an Admin Error. Every year failing still does.
+- **The RSVP rows from 8–12 October were left in the folder on purpose.** That was the billing outage: Google refused `portalRsvp` before it ran, so — unlike what those rows tell the office — those Yes answers were most likely **not** saved. The rows are the only list of who to check.
+
+*Proved in* `error-fixes.test.js` (its own file, `npm run test:errorfixes`) and the October block of `fixed-errors.test.js`.
 
 ### Confirming an answer that is already on file
 
