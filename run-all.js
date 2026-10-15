@@ -26833,6 +26833,7 @@ suite('Suite 104. The Printing tab');
       '  focus: function(){}, print: function(){}}; }};' +
       admin.slice(admin.indexOf('const PRINT_PHOTO_CSS ='),
                   admin.indexOf('const PRINT_SHEET_CSS =')) +
+      extractFn(admin, 'printWhenImagesReady') + 'const PRINT_IMAGE_WAIT_MS = 8000;' +
       extractFn(admin, 'schedOpenPrint') +
       'schedOpenPrint(\"t\", \"\", \"<table></table>\", \"\");')();
     html = globalThis.__huSheet || '';
@@ -26870,12 +26871,56 @@ suite('Suite 104. The Printing tab');
      searching for the bare word passes even when the branch is gone. */
   check('S104', 'and every button has a branch that answers it',
     (function () {
-      const h = admin.slice(admin.indexOf('if(t.dataset.print){'),
-                            admin.indexOf('if(t.dataset.solocrew){'));
+      const from = admin.indexOf('if(printEl){');
+      const h = admin.slice(from, admin.indexOf("const dayEl=t.closest('.day')", from));
       return ['today', 'warehouse', 'crew0', 'crew1', 'build', 'recycle', 'colors']
         .every(k => h.indexOf("what === '" + k + "'") !== -1);
     })(),
     'a button that renders and does nothing is worse than no button');
+  /* ⭐ AND THE BRANCH HAS TO BE IN THE LISTENER A BUTTON FIRES (2026-10-14). For eight weeks it sat inside the CHANGE
+     listener, so the check above passed while every Print on the tab did nothing — a button never fires change. Dax:
+     "printing Oct 14 isnt working". The slice is between the two listeners' own openings, not a fixed window. */
+  {
+    const ch = admin.indexOf("RT.addEventListener('change',e=>{");
+    const ck = admin.indexOf("RT.addEventListener('click',e=>{");
+    const ckEnd = admin.indexOf('\n});', ck);
+    check('S104', 'the Printing buttons are answered by the CLICK listener',
+      ch !== -1 && ck > ch && admin.slice(ck, ckEnd).indexOf("closest('[data-print]')") !== -1,
+      'a button fires click, never change');
+    check('S104', 'and nothing in the change listener still waits for them',
+      ch !== -1 && !/dataset\.print(?![a-z])/.test(admin.slice(ch, ck)),
+      'a second copy of the branch in the change listener is dead code that reads as the working one');
+  }
+  /* ⭐ THE PRINT DIALOG WAITS FOR THE PHOTOS. Run against a fake print window: one picture still loading holds the
+     print, its load releases it, and a picture that never answers is cut off by the timeout. */
+  {
+    const src = extractFn(admin, 'printWhenImagesReady');
+    check('S104', 'printWhenImagesReady exists', !!src);
+    if (src) {
+      const timers = [];
+      const run = new Function('setTimeout', 'console', 'PRINT_IMAGE_WAIT_MS', src + '; return printWhenImagesReady;')(
+        (fn, ms) => timers.push({ fn, ms }), { error() {} }, 8000);
+      const mkImg = complete => { const l = {}; return { complete, addEventListener(e, f) { l[e] = f; }, fire(e) { l[e] && l[e](); } }; };
+      const mkWin = imgs => ({ printed: 0, document: { images: imgs }, focus() {}, print() { this.printed++; } });
+      const flush = max => { timers.sort((a, b) => a.ms - b.ms); timers.splice(0).filter(t => t.ms <= max).forEach(t => t.fn()); };
+      let im = mkImg(false), w = mkWin([im]);
+      run(w); flush(1000);
+      check('S104', 'a photo still loading holds the print', w.printed === 0);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('load'); flush(1000);
+      check('S104', 'and its arrival lets it print', w.printed === 1);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('error'); flush(1000);
+      check('S104', 'a photo that fails does not hold it either', w.printed === 1);
+      w = mkWin([mkImg(false)]); run(w); flush(8000);
+      check('S104', 'a photo that never answers is cut off by the timeout', w.printed === 1);
+      im = mkImg(false); w = mkWin([im]); run(w); im.fire('load'); flush(8000);
+      check('S104', 'and it prints once, never twice', w.printed === 1);
+      w = mkWin([mkImg(true)]); run(w); flush(1000);
+      check('S104', 'a sheet with nothing loading prints straight away', w.printed === 1);
+    }
+    check('S104', 'both schedule printers wait for the photos',
+      admin.split('printWhenImagesReady(w);').length - 1 === 2 &&
+      admin.indexOf('setTimeout(()=>{w.focus();w.print();},300);') === -1);
+  }
 }
 /* ---------------------------------------------------------------------------
  * Suite 105. Taking a photo back off a customer
@@ -66670,7 +66715,7 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
       'var window = {open: function(){ return {document: {write: function(h){ captured.html = h; }, close: function(){}}, focus: function(){}, print: function(){}}; }};' +
       'function setTimeout(){}\nfunction toast(){}\nvar PRINT_SHEET_CSS = "";\n' +
       admin.slice(admin.indexOf('function esc(s){return'), admin.indexOf('\n', admin.indexOf('function esc(s){return'))) + '\n' +
-      extractFn(admin, 'printBackSideHtml') + '\n' + extractFn(admin, 'schedOpenPrintPages') + '\n' +
+      extractFn(admin, 'printBackSideHtml') + '\n' + extractFn(admin, 'printWhenImagesReady') + '\nvar PRINT_IMAGE_WAIT_MS = 8000;\n' + extractFn(admin, 'schedOpenPrintPages') + '\n' +
       'return {open: schedOpenPrintPages, back: printBackSideHtml};');
   } catch (e) { Doc = null; }
   check('S381', 'the print document builder was found and lifted', typeof Doc === 'function');
