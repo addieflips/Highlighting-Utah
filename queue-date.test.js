@@ -1071,6 +1071,10 @@ check('the $30 join fee records when it was charged',
 const PATH_STEPS = [
   ['a quote is raised',            'createdAt',                'admin.html'],
   ['a quote is sent',              'quoteSentAt',              'admin.html'],
+  /* ⭐ ADDED 2026-10-15 ([[QT-57]]). The office emails asking for pictures of the house and
+     presses Waiting for pictures on the card; this is the day it asked. Hand-set, because
+     nothing on the record can see that email go. */
+  ['we ask them for pictures',     'waitingForPhotosAt',       'admin.html'],
   ['the office marks it approved', 'approvedByOfficeAt',       'admin.html'],
   ['they become a customer',       'convertedToCustomerAt',    'admin.html'],
   ['sent to the warehouse',        'lightsQueuedAt',           'admin.html'],

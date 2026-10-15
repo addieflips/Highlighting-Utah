@@ -4367,6 +4367,7 @@
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
+        <button type="button" class="btn btn-sm" data-quotestage="pictures" style="font-weight:700;">Waiting for pictures<span id="quoteStageCountPictures" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Awaiting Response<span id="quoteStageCountSend" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Ready to Convert<span id="quoteStageCountForm" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="requote" style="font-weight:700;">Re-quotes<span id="quoteStageCountRequote" class="folder-count"></span></button>
@@ -8363,6 +8364,9 @@ const HISTORY_STEPS = [
      often weeks apart, and the gap between them is a real thing to look at. */
   { field: 'createdAt',                from: 'cust',  what: 'Added to the customer list' },
   { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
+  /* ⭐ [[QT-57]]: the office pressed Waiting for pictures after emailing for photos of the
+     house. On the QUOTE, like the send above — it is a stage of the quote, not of the customer. */
+  { field: 'waitingForPhotosAt',       from: 'quote', what: 'Asked them for pictures of the house' },
   { field: 'quoteLastNudgedAt',        from: 'quote', what: 'Nudged about it' },
   /* ⚠ TWO FIELDS, TWO ACTORS, TWO ROWS — NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
      stamps `approvalRespondedAt` when the CUSTOMER presses the button in their email;
@@ -14659,6 +14663,20 @@ function quoteFolder(d){
      — a re-quote still being written stays in Re-quotes, which is what that tab is for
      now: the ones with something left to do before they go out. */
   if(stage === 'send') return 'send';
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
+     section that says waiting for pictures with a place to push waiting for pictures or
+     something shorter than that for new quotes. This is when we email for pictures of
+     there house."
+     ⚠ A HAND-SET MARK, NEVER DERIVED. Nothing on a quote says an email asking for pictures
+     went out, so the office presses the button when it does (waitingForPhotosAt) and
+     presses Pictures arrived when they come back. Guessing it from "no photo on file"
+     would file every quote that arrives without one here, which is most of them.
+     ⚠ ONLY WHILE THE QUOTE IS STILL OURS TO PRICE AND SEND. Once it has been priced and
+     sent it is waiting on an ANSWER, not on pictures, and it joins Awaiting Response
+     with everybody else — the mark stays on the record and simply stops deciding
+     anything. Closed is still one folder. And a re-quote is a house we already have
+     pictures of, so it keeps its own tab: she asked for this "for new quotes". */
+  if(stage === 'new' && !isRequote(d) && d.waitingForPhotosAt) return 'pictures';
   return isRequote(d) ? 'requote' : stage;
 }
 /* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
@@ -16175,8 +16193,8 @@ async function wireSweepClear(found){
 document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
   const btn = this;
   const stage = quoteStageFilter;
-  const label = ({new: 'Quotes', send: 'Awaiting Response', form: 'Ready to Convert',
-                  requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
+  const label = ({new: 'Quotes', pictures: 'Waiting for pictures', send: 'Awaiting Response',
+                  form: 'Ready to Convert', requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
   if(!confirm('Build a test customer in ' + label + '?' + '\n\n' +
     'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
     '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
@@ -16303,9 +16321,10 @@ function renderQuotesList(){
   }
   const stageTabsEl = document.getElementById('quoteStageTabs');
   if(stageTabsEl){
-    const stageCounts = {new:0, send:0, form:0, requote:0, closed:0};
+    const stageCounts = {new:0, pictures:0, send:0, form:0, requote:0, closed:0};
     quotesCache.forEach(function(item){ stageCounts[quoteFolder(item.data)]++; });
     document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
+    document.getElementById('quoteStageCountPictures').textContent = ' (' + stageCounts.pictures + ')';
     document.getElementById('quoteStageCountSend').textContent = ' (' + stageCounts.send + ')';
     document.getElementById('quoteStageCountForm').textContent = ' (' + stageCounts.form + ')';
     document.getElementById('quoteStageCountRequote').textContent = ' (' + stageCounts.requote + ')';
@@ -16362,6 +16381,7 @@ function renderQuotesList(){
   if(!filtered.length){
     const emptyMsg = {
       new: 'Nothing here to price or send.',
+      pictures: 'Nobody is waiting on pictures. Press Waiting for pictures on a quote in Quotes after you email them asking for photos of the house, and it moves here.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
       requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
@@ -17891,6 +17911,11 @@ function testQuoteCreateFields(){
 function testQuoteStageUpdates(stage){
   const f = {};
   if(stage === 'new') return f;
+  /* Waiting for pictures: unpriced, like a new one, with the office's mark on it. */
+  if(stage === 'pictures'){
+    f.waitingForPhotosAt = new Date();
+    return f;
+  }
   f.quotedPrice = 250;
   /* Awaiting Response: priced and sent, still waiting on them. */
   if(stage === 'send'){
@@ -18359,6 +18384,16 @@ function renderQuoteRows(filtered){
               : '')+
             (photos.length > 1
               ? '<div class="rtext" style="color:var(--slate); margin-top:4px;">All '+photos.length+' go in the quote email, one under another. The first one is the main photo — that is the one the text message and the customer record use.</div>'
+              : '')+
+            /* ⭐ WAITING FOR PICTURES ([[QT-57]]). Only on a card that is still ours to price
+               and send, and never on a re-quote — the same two conditions quoteFolder reads,
+               so the button is never offered where pressing it would move nothing. */
+            ((quoteStage(d) === 'new' && !isRequote(d))
+              ? (d.waitingForPhotosAt
+                  ? '<div class="rtext" style="margin-top:8px; color:#8A6100; font-weight:600;">&#9993; Waiting for pictures'+(toJsDate(d.waitingForPhotosAt) ? ' &mdash; asked '+fmtDate(d.waitingForPhotosAt) : '')+'</div>'+
+                    '<button type="button" class="btn btn-outline btn-sm" data-gotphotos="'+item.id+'" style="margin-top:4px;">Pictures arrived &mdash; back to Quotes</button>'
+                  : '<button type="button" class="btn btn-outline btn-sm" data-waitphotos="'+item.id+'" style="margin-top:8px;">Waiting for pictures</button>'+
+                    '<div class="rtext" style="color:var(--slate); margin-top:4px;">Press this after you email them asking for pictures of the house. The card moves to Waiting for pictures until you say they arrived.</div>')
               : '')+
           '</div>';
         })()+
@@ -19600,6 +19635,36 @@ function renderQuoteRows(filtered){
   });
   list.querySelectorAll('[data-downloadquotephoto]').forEach(function(btn){
     btn.addEventListener('click', function(){ downloadQuotePhoto(btn.dataset.downloadquotephoto); });
+  });
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]]). The mark is the office's own word that the
+     email asking for pictures went out; nothing here sends one. Cleared by hand too,
+     because nothing on the record can tell an arrived picture from one the office
+     uploaded itself. */
+  list.querySelectorAll('[data-waitphotos]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.waitphotos;
+      try{
+        await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: serverTimestamp()});
+        followQuoteToItsStage(id, {waitingForPhotosAt: new Date()});
+        toast('Moved to Waiting for pictures.');
+      } catch(err){
+        console.error('Could not mark the quote as waiting for pictures:', err);
+        toast('Could not move it \u2014 ' + ((err && err.message) || err));
+      }
+    });
+  });
+  list.querySelectorAll('[data-gotphotos]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.gotphotos;
+      try{
+        await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: null});
+        followQuoteToItsStage(id, {waitingForPhotosAt: null});
+        toast('Back in Quotes.');
+      } catch(err){
+        console.error('Could not clear waiting for pictures:', err);
+        toast('Could not move it back \u2014 ' + ((err && err.message) || err));
+      }
+    });
   });
   list.querySelectorAll('[data-marksent]').forEach(function(btn){
     btn.addEventListener('click', async function(){
