@@ -809,6 +809,15 @@ module.exports = [
          View fetch, the time-off calendar, the expenses chips, the finance scenarios and
          the Connections page reading its own summary file. None of them is a quote. */
       '^(paypalWebhook|getStreetViewFrontUrlAdmin|rmStaticFailMessage|renderAdminTimeOffCalendar|renderAtoUndated|whoIsOffOn|renderAddExpenseInvoiceChips|fcRunScenarios|loadConnectionsSummary|poolHtml)$',
+      /* ⭐ ADDED 2026-10-15 (batch 7): more things that are called status and are not a quote's.
+         Messages: the Inbox's own status (needs reply, waiting, resolved). */
+      '^(commChipsHtml|commFilterMatches|msgStatusOf|renderSystemMessagesTab)$',
+      /* A CSS class called status-pill, not a field. */
+      '^newHangChip$',
+      /* A web response or a send's outcome, not a record. */
+      '^(loadSeasonForecast|loadSeasonNormals|pingServer|serverPingOutcome|uploadOneToCloudinary|wirePickStreetView|reportEmailSendFailures|etSendTemplateRun|sendBulkUpdateEmailBtn handler|sendRsvpEmailBtn handler|pibSendPaidBtn handler|pibSendUnpaidBtn handler)$',
+      /* An INVOICE's status, printed inside the invoice email — the Money spines own it. */
+      '^(invoiceEmailBlock|invoiceEmailBlockServer)$',
       /* the original list */'^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
     states: [
       ['New', 'Waiting to be priced'],
@@ -850,7 +859,10 @@ module.exports = [
       { file: 'admin', fn: 'whBuildReasonChip', where: 'Warehouse › Build', when: 'the badge says why a bundle is being built',
         rules: ['A closed quote is what makes a house a NEW hang rather than a rebuild.'] },
       { file: 'server', fn: 'runQuoteNudgeBatch', where: 'Quote Requests', when: 'the 10am nudge chases unanswered quotes',
-        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] }
+        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 7): the two remaining readers of a quote’s status. */
+      { file: 'admin', fn: 'quoteForButtons', where: 'Quote Requests', when: 'the portal is told which quote is still open for a customer' },
+      { file: 'server', fn: 'quoteArchiveDueServer', where: 'Quote Requests', when: 'an unanswered quote is archived 30 days after its first email' },
     ]
   },
   /* ------------------------------------------------------------------------
