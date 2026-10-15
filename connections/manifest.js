@@ -513,7 +513,11 @@ module.exports = [
       { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card is charged',
         rules: ['The fee is part of what the card is charged, not an extra afterwards.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed',
-        rules: ['It is its own line, so the total adds up on the page.'] }
+        rules: ['It is its own line, so the total adds up on the page.'] },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): the readers of the fee total that were missing. */
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices \u203a Invoice List', when: 'the invoice list draws each bill and its fee lines' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
     ]
   },
 
@@ -678,7 +682,22 @@ module.exports = [
       { file: 'server', fn: 'sendPaymentReceipt', where: 'Member Portal › Pay', when: 'a receipt is sent' },
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'the balance is worked out' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
-      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      /* ⭐ DECLARED 2026-10-15 (batch 5): every remaining reader that asks what has been paid. Each one decides money or a message about money, so each is named. */
+      { file: 'admin', fn: 'addLightChangeFeeToInvoice', where: 'Customers \u203a All Customers', when: 'a $30 colour-change fee is added and the status is worked out again' },
+      { file: 'admin', fn: 'applyReferralCreditLine', where: 'Customers \u203a All Customers', when: 'a $25 referral credit lands and the status is worked out again' },
+      { file: 'admin', el: 'arrearsRunBtn', where: 'Invoices \u203a Last season', when: 'last season\u2019s unpaid balances are carried forward' },
+      { file: 'admin', fn: 'houseCardIsRed', where: 'Customers \u203a All Customers', when: 'a card is coloured red for being seriously behind' },
+      { file: 'admin', fn: 'housePaidThisSeason', where: 'Customers \u203a All Customers', when: 'a house is asked whether it has paid this season' },
+      { file: 'admin', fn: 'ledgerWaiveUpdates', where: 'Customers \u203a All Customers', when: 'a fee or discount is crossed off and the status is worked out again' },
+      { file: 'admin', fn: 'paidThisSeason', where: 'Customers \u203a All Customers', when: 'a customer is asked whether they have paid this season' },
+      { file: 'admin', fn: 'receiptResendAmount', where: 'Invoices \u203a Invoice List', when: 'a receipt that never went out is sent again' },
+      { file: 'admin', fn: 'sendPaymentReceipt', where: 'Invoices \u203a Invoice List', when: 'the office sends a receipt' },
+      { file: 'admin', fn: 'textChaseRecipients', where: 'Automation Emails', when: 'who still owes is chosen for a chase text' },
+      { file: 'server', fn: 'arrearsOutstandingServer', where: 'Member Portal \u203a Pay', when: 'how much of last season is still owed is worked out' },
+      { file: 'server', fn: 'clawBackReferralServer', where: 'Member Portal', when: 'a referral credit is taken back off a bill' },
+      { file: 'server', fn: 'lateFeeAmountServer', where: 'Invoices \u203a Nightly Automation', when: 'the late fee is sized' },
+      { file: 'server', fn: 'runLateFeeBatch', where: 'Invoices \u203a Nightly Automation', when: 'the late-fee run decides who owes' },
     ]
   },
 
