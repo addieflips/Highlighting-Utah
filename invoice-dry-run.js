@@ -89,7 +89,16 @@ function liftClosure(seed) {
 }
 const LIFTED = liftClosure(['runInvoiceBatch']);
 const num = re => Number((fns.match(re) || [])[1]);
-const str = re => (fns.match(re) || [])[1];
+/* ⛔ A CONSTANT IS LIFTED AS ITS DECLARATION, NEVER AS ITS VALUE RE-DERIVED HERE —
+   the lift-closure lesson one level down, and it cost a wrong answer about live bills.
+   The template names are written `'Nightly Auto-Invoice — Unpaid'` in the source, so
+   capturing the text BETWEEN THE QUOTES hands back the six characters `—` rather than
+   an em dash; through JSON.stringify those arrived in the sandbox as themselves, the run
+   asked for a name no template could carry, and the report said NOT ON FILE about two
+   templates that were sitting right there. Pulling the whole `const X = …;` line in lets
+   the sandbox's own parser read the escape exactly as node reads it in production. */
+const CONSTS = ['NEW_MEMBER_FEE', 'BILL_HELD_DAYS', 'NIGHTLY_UNPAID_TEMPLATE', 'NIGHTLY_PAID_TEMPLATE'];
+const decl = name => (fns.match(new RegExp('^const ' + name + ' = [^\\n]*?;', 'm')) || [])[0];
 
 /* ---- a fake database. Every write the run makes lands here and is dropped. ---- */
 function makeFakeDb(seed) {
@@ -153,6 +162,14 @@ function reviveDates(obj) {
     say('⛔ could not lift: ' + missing.join(', '));
     process.exit(1);
   }
+  /* ⚠ AND THE CONSTANTS ARE COUNTED THE SAME WAY. A declaration that stops matching comes
+     through as `undefined` in the sandbox, which for a template NAME is a lookup for
+     nothing and reads on the report as the office having renamed something. */
+  const missingConsts = CONSTS.filter(n => !decl(n));
+  if (missingConsts.length) {
+    say('⛔ could not lift the constant(s): ' + missingConsts.join(', '));
+    process.exit(1);
+  }
 
   /* ---- READ ONLY. Four reads, and the real handle is never used again. ---- */
   const jobAddresses = {}, invoices = {}, templates = [];
@@ -203,10 +220,7 @@ const __realFind = findTemplateSnapByName;
 findTemplateSnapByName = async function(n){ const r = await __realFind(n); __asked.push({ name: n, found: !(r && r.empty) }); return r; };
 function templateSubjectOr(t, f){ return (t && t.subject) || f; }
 async function ensureToken(id, d){ return 'DRYRUN-TOKEN'; }
-const NEW_MEMBER_FEE = ${num(/const NEW_MEMBER_FEE = (\d+)/)};
-const BILL_HELD_DAYS = ${num(/const BILL_HELD_DAYS = (\d+)/)};
-const NIGHTLY_UNPAID_TEMPLATE = ${JSON.stringify(str(/const NIGHTLY_UNPAID_TEMPLATE = '([^']+)'/))};
-const NIGHTLY_PAID_TEMPLATE = ${JSON.stringify(str(/const NIGHTLY_PAID_TEMPLATE = '([^']+)'/))};
+${CONSTS.map(decl).join('\n')}
 return runInvoiceBatch('dry-run');
 `;
   const quiet = { log: () => {}, error: () => {}, warn: () => {} };
@@ -251,6 +265,23 @@ return runInvoiceBatch('dry-run');
   if (!wanted.length) say('   template asked for: (none)');
   wanted.forEach(w => say('   template asked for: ' + w.name +
     (w.found ? '   ✓ on file' : '   ⛔ NOT ON FILE — the built-in wording went out instead')));
+  /* ⚠ TWO TEMPLATES UNDER ONE NAME, AND THE LOOKUP TAKES WHICHEVER COMES BACK FIRST.
+     Every sender in this app finds a template BY NAME, so a duplicate means the wording
+     a customer gets is decided by Firestore's document order — and editing "the" template
+     can leave the other copy, with the old wording, as the one that sends. Counted on the
+     exact stored name, which needs no flattener and so is no second opinion about matching. */
+  const byName = {};
+  templates.forEach(t => {
+    const n = String(t && t.name || '(unnamed)').trim();
+    byName[n] = (byName[n] || 0) + 1;
+  });
+  const twice = Object.keys(byName).filter(n => byName[n] > 1);
+  if (twice.length) {
+    say('');
+    say('   ⚠ TWO TEMPLATES SHARE ONE NAME, so which wording sends is whichever comes');
+    say('     back first — and editing one leaves the other able to send the old words:');
+    twice.sort().forEach(n => say('        · ' + n + '  ×' + byName[n]));
+  }
   if (wanted.some(w => !w.found)) {
     say('');
     say('   ⛔ THE WORDING YOU EDITED IS NOT THE WORDING THIS RUN SENDS.');

@@ -119,9 +119,33 @@ check('the lift census is asserted before anything runs, and really stops the ru
   /if\s*\(\s*missing\.length\s*\)\s*\{[\s\S]{0,200}?process\.exit\(1\)/.test(live),
   'a missing lift arrives as a bare ReferenceError from the middle of a run, which this ' +
   'repo records being caught by twelve times');
-check('the constants are read out of the source, never typed here',
-  /NEW_MEMBER_FEE = \$\{num\(/.test(live) && /BILL_HELD_DAYS = \$\{num\(/.test(live),
-  'a typed copy goes on passing against a number the app has moved off');
+/* ⛔ REPOINTED 2026-10-15 — AND THE OLD VERSION OF THIS CHECK IS WHY THE REPORT LIED ABOUT
+   LIVE BILLS. It asserted the constants came in through `num(…)` / `str(…)`, which reads
+   the value out of the source and re-types it into the sandbox. For a number that is
+   harmless; for `'Nightly Auto-Invoice — Unpaid'` the captured text is the SIX
+   CHARACTERS of the escape, so the run asked for a name no template can carry and the
+   report said NOT ON FILE about two templates that were on file. The claim worth holding
+   is not "is the value read from source" but "does the sandbox parse the declaration the
+   way node parses it" — so the whole `const X = …;` line is lifted, exactly as the
+   functions are. */
+check('every constant is lifted as its DECLARATION, so the sandbox parses it as node does',
+  /const decl = name =>/.test(live) && /\$\{CONSTS\.map\(decl\)\.join/.test(live) &&
+  !/\$\{JSON\.stringify\(str\(/.test(live),
+  'capturing the text between the quotes hands back `\\u2014` as six characters; the ' +
+  'em dash only exists once something parses the escape');
+check('and the template names are in that list, not re-derived beside it',
+  /CONSTS = \[[^\]]*'NIGHTLY_UNPAID_TEMPLATE'[^\]]*'NIGHTLY_PAID_TEMPLATE'/.test(live),
+  'these two are the ones the escape bug bit; a number would have survived it');
+check('a constant that stops matching stops the run, like a missing lift',
+  /const missingConsts = CONSTS\.filter/.test(live) &&
+  /if\s*\(\s*missingConsts\.length\s*\)\s*\{[\s\S]{0,200}?process\.exit\(1\)/.test(live),
+  'undefined in the sandbox is a lookup for nothing, which reads on the report as the ' +
+  'office having renamed a template');
+check('two templates under one name are reported',
+  /twice = Object\.keys\(byName\)\.filter\(n => byName\[n\] > 1\)/.test(live) &&
+  /SHARE ONE NAME/.test(live),
+  'every sender finds a template by name, so a duplicate lets the old wording send and ' +
+  'survive being edited');
 /* ⛔ REPOINTED 2026-10-15, NOT WEAKENED — and the first real run is why. These two
    used to assert that the script had its OWN template matcher and its own dash-flattener.
    It did, it disagreed with the server's `tplNameKey`, and every bill fell back to the
