@@ -58823,6 +58823,31 @@ document.getElementById('billingGroupExportBtn')?.addEventListener('click', func
   XLSX.utils.book_append_sheet(wb, ws, 'Who Pays for Whom');
   XLSX.writeFile(wb, 'who-pays-for-whom-'+toDateStr(new Date())+'.xlsx');
 });
+/* ⭐ [[FIX-11]] THE FIX ON AN ALL CUSTOMERS ROW (2026-10-07, built 2026-10-16). Addie: "We also need to be able to add
+   fix to the costumers list with notes and picture there as well." A house with a fix open says so in words, with the note
+   the crew will read and its photos, so the office sees what is outstanding without opening anything; the button reads
+   Edit fix then. ⚠ READS THE FLAG ONLY — raising and editing happen in showAddFixPopup, the door every other fix goes
+   through (hlxMarkJobDone: the dated write and the Inbox notice). ⚠ NO DAY: fixes are on the Fixes list, never a day ([[FIX-09]]). */
+function allCustFixCell(id, d){
+  d = d || {};
+  const open = !!d.needsFix;
+  let html = '<br><button type="button" class="btn btn-outline btn-sm" data-addfix="'+esc(id)+'" style="margin-top:4px;" title="'+
+    (open ? 'Change the note or photos for this fix' : 'Raise a fix with a note and photos')+'">&#128295; '+
+    (open ? 'Edit fix' : 'Add fix')+'</button>';
+  if(open){
+    const note = String(d.fixNote || '').trim();
+    const photos = (typeof fixPhotosOf === 'function') ? fixPhotosOf(d) : [];
+    html += '<div class="allcust-fix" style="margin-top:4px; max-width:200px; white-space:normal; font-size:11.5px; color:#9A2A1F;">'+
+      '<strong>Needs fix</strong>'+
+      (note ? '<br><span style="color:var(--ink,#333);">'+esc(note.length > 120 ? note.slice(0,117)+'…' : note)+'</span>' : '<br><span style="color:var(--slate);">no note yet</span>')+
+      (photos.length ? '<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:3px;">'+photos.map(function(u){
+        const src = (typeof cloudThumb === 'function') ? cloudThumb(u, 160) : u;
+        return '<a href="'+esc(u)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" alt="Fix photo" loading="lazy" style="max-width:80px; max-height:60px; border-radius:6px; border:1px solid var(--line);"></a>';
+      }).join('')+'</div>' : '')+
+    '</div>';
+  }
+  return html;
+}
 function renderAllCustomersTable(){
   const body = document.getElementById('allCustTableBody');
   if(!body) return;
@@ -59131,12 +59156,18 @@ function renderAllCustomersTable(){
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
       '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
       '<td style="padding:8px 10px;">'+mapCell+'</td>'+
-      '<td style="padding:8px 10px;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button></td>'+
+      '<td style="padding:8px 10px; white-space:nowrap;"><button type="button" class="icon-btn" data-editcust="'+r.item.id+'" title="Edit Personal Info">'+editIcon()+'</button>'+allCustFixCell(r.item.id, r.d)+'</td>'+
     '</tr>';
   }).join('');
   body.querySelectorAll('[data-editcust]').forEach(function(btn){
     btn.addEventListener('click', function(){
       openEditCustomerModal(btn.dataset.editcust);
+    });
+  });
+  /* [[FIX-11]] the SAME popup every other door opens, so nothing about what raising a fix writes is decided twice. */
+  body.querySelectorAll('[data-addfix]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      showAddFixPopup(btn.dataset.addfix, {onSaved: function(){ renderAllCustomersTable(); }});
     });
   });
   /* ⚠ AND THE RULE THAT COMMENT CARRIED STILL STANDS, which is why it is kept rather
