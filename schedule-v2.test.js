@@ -228,7 +228,7 @@ suite('1.1 The Schedule is the only install-date authority');
      return without saving, so an idle computer differed for ever and refused every plan the other one sent. */
   check('another computer\'s plan is only held off by a save that is really queued',
     /if\(\(mine!==planSyncedKey && savePending\) \|\| recalcRunning\)/.test(noComments) &&
-    /function scheduleSave\(\)\{clearTimeout\(saveTimer\);savePending=true;/.test(noComments) &&
+    /function scheduleSave\(\)\{(?:if\(PLAN_PAGE_OUTDATED\)return;)?clearTimeout\(saveTimer\);savePending=true;/.test(noComments) &&
     /async function saveNow\(\)\{\s*savePending=false;/.test(noComments));
   check('a sync tick that only froze the printed days still saves them', (function(){
     const i = noComments.indexOf('window.scheduleSyncFromCustomers=function');
@@ -1458,6 +1458,33 @@ suite('SCH-136 Customers marked for tomorrow: Recalculate puts every one of them
   check('36.6 the marks end at 5 PM on the day', picks.every(function(h){ return !H.api.tomorrowMarkActive(h); }));
 }
 
+suite('SCH-136b Customers marked for tomorrow from TODAY’s list — the crew did not get to them');
+{
+  /* The live case, 2026-10-16: three customers on the list being hung TODAY were marked for tomorrow during the day (the
+     crew would not reach them), Recalculate was pressed, and Monday did not change. RUN through the real press, at 1 PM. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(new Date(2026, 9, 1, 13, 0));
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const todayDay = H.api.installDays().filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === '2026-10-01'; })[0];
+  const tom = H.api.tomorrowsInstallDay();
+  const tds = tom ? H.api.isoOf(H.api.dayDate(tom)) : '';
+  check('36b.0 the scenario: today is Oct 1 with houses not done, tomorrow is Oct 2', !!todayDay && todayDay.houses.length > 5 && tds === '2026-10-02',
+    (todayDay ? todayDay.houses.length : 0) + ' ' + tds);
+  const picks = todayDay.houses.filter(function(h){ return !h.done; }).slice(0, 3);
+  const want = picks.map(function(h){ return String(h.id); }).sort().join(',');
+  check('36b.1 each of today’s customers can be marked for tomorrow', picks.length === 3 && picks.every(function(h){ return H.api.toggleTomorrowMark(h.id) === true; }));
+  const r = H.press();
+  const onTom = function(){ const d = H.season().filter(function(x){ return x.id === tom.id; })[0];
+    return d.houses.filter(function(h){ return !h.done; }).map(function(h){ return String(h.id); }).sort().join(','); };
+  check('36b.2 after Recalculate tomorrow holds exactly the three marked from today', onTom() === want, want + '  vs  ' + onTom() + '  ' + JSON.stringify(r && r.tomorrow || ''));
+  const td2 = H.season().filter(function(x){ return x.id === todayDay.id; })[0];
+  check('36b.3 and they are no longer on today’s list', picks.every(function(h){ return td2.houses.indexOf(h) === -1; }));
+  check('36b.4 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+}
+
 suite('SCH-137 On a Warehouse list means on no day — every door');
 {
   /* Dax, 2026-10-16, on Lori Pugh scheduled while on the build list: "make it so that never happens again, yes build list
@@ -1523,6 +1550,49 @@ suite('SCH-137 On a Warehouse list means on no day — every door');
   const missed = gone.length ? custOf(gone[0]) : null;
   if(missed){ missed.data.needsLightBuild = true; H.tick(); }
   check('37.8 a missed house from a day already gone is not carried forward onto a new day while on the build list', !!missed && !dayOfCust(missed.id), missed ? dayOfCust(missed.id) : 'no missed house in the scenario');
+}
+
+suite('SCH-138 A page older than the plan never saves it — so a new field can never be wiped');
+{
+  /* Dax, 2026-10-16: "the hang tomorrow button broke so im assuming a lot of stuff broke so figure out what happened make sure
+     its built in to be impossible to break". The check saved, then an admin page opened before the update — which did not know
+     `crewHeld` — saved the whole plan back without it. The plan now carries PLAN_SCHEMA and an older page stops saving. */
+  const book = makeBook(80, 5150);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const out = H.api.serialize();
+  check('38.0 every saved plan says which version of the page wrote it', out.schema === H.api.PLAN_SCHEMA && H.api.PLAN_SCHEMA >= 2, String(out.schema));
+  check('38.1 a plan from a NEWER page is spotted', H.api.planIsNewerThanPage({schema: H.api.PLAN_SCHEMA + 1}) === true);
+  check('38.2 the same version, and every plan saved before versions existed, are not', !H.api.planIsNewerThanPage({schema: H.api.PLAN_SCHEMA}) &&
+    !H.api.planIsNewerThanPage({}) && !H.api.planIsNewerThanPage({schema: 'x'}) && H.api.planSchemaOf({}) === 1);
+  const a = JSON.parse(JSON.stringify(out)), b = JSON.parse(JSON.stringify(out));
+  delete b.schema;
+  check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
+  /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
+     older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
+  const RECORDED = {schema: 2,
+    top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalcOn,schema,takeDelta,v',
+    day: 'base,cascade,crewHeld,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
+  const top = Object.keys(out).sort().join(',');
+  const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });
+  const day = Array.from(dayKeys).sort().join(',');
+  check('38.4 the fields a plan is saved with are the ones recorded for this version (changed them? raise PLAN_SCHEMA in admin.html, then update RECORDED here)',
+    top === RECORDED.top && day === RECORDED.day, 'top: ' + top + '  |  day: ' + day);
+  check('38.5 and PLAN_SCHEMA is the version they were recorded at', H.api.PLAN_SCHEMA === RECORDED.schema, H.api.PLAN_SCHEMA + ' vs ' + RECORDED.schema);
+  /* The four doors to Firestore, read as written: each one asks before it touches the plan. Comments are stripped first. */
+  const code = function(n){ return (extractFn(admin, n) || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, ''); };
+  const save = code('saveNow');
+  check('38.6 saveNow returns before writing anything when the page is out of date', /if\(PLAN_PAGE_OUTDATED\)\s*return;/.test(save) &&
+    save.indexOf('PLAN_PAGE_OUTDATED') < save.indexOf('setDoc('));
+  check('38.7 scheduleSave queues nothing when the page is out of date', /^function scheduleSave\(\)\{if\(PLAN_PAGE_OUTDATED\)return;/.test(code('scheduleSave')));
+  const live = code('followPlanLive'), load = code('loadPlan');
+  check('38.8 a plan arriving from another computer is version-checked before it is taken', live.indexOf('planIsNewerThanPage(data)') !== -1 &&
+    live.indexOf('planIsNewerThanPage(data)') < live.indexOf('hydrate(data)'));
+  check('38.9 and so is the plan loaded when the page opens', load.indexOf('planIsNewerThanPage(') !== -1 && load.indexOf('planIsNewerThanPage(') < load.indexOf('hydrate('));
+  const rl = code('planReloadWhenIdle');
+  check('38.11 it reloads at most once per ten minutes, so a rolled-back site can never reload in a loop', /Date\.now\(\) - last < PLAN_RELOAD_GAP_MS/.test(rl) &&
+    rl.indexOf('PLAN_RELOAD_GAP_MS') < rl.indexOf('location.reload()') && rl.indexOf('sessionStorage.setItem(PLAN_RELOAD_KEY') < rl.indexOf('location.reload()'));
+  check('38.10 setDoc on the plan happens in exactly one place (saveNow), so there is no unguarded door', (admin.match(/setDoc\(PLAN_REF\(\)/g) || []).length === 1 &&
+    save.indexOf('setDoc(PLAN_REF()') !== -1 && !/updateDoc\(PLAN_REF\(\)/.test(admin));
 }
 
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');

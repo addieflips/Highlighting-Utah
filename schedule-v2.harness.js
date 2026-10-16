@@ -39,7 +39,9 @@ module.exports = function makeHarness(liftDeep){
     'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined', 'houseDeadline', 'isWorkingDay', 'dayHoldsWithHouse', 'fillOctoberWithAnyTime',
     /* [[SCH-135]] a crew's list checked for tomorrow, and the hand moves it refuses */
     'setCrewHeld', 'crewIsHeld', 'dayHasHeldCrew', 'tomorrowsInstallDay', 'houseOnHeldCrew', 'expireCrewHolds', 'heldFromSaved',
-    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive'],
+    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive',
+    /* [[SCH-138]] a page older than the plan never saves it */
+    'PLAN_SCHEMA', 'planSchemaOf', 'planIsNewerThanPage', 'planKey'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -131,7 +133,8 @@ module.exports = function makeHarness(liftDeep){
     '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses, houseDeadline: houseDeadline, isWorkingDay: isWorkingDay, dayHoldsWithHouse: dayHoldsWithHouse, fillOctoberWithAnyTime: fillOctoberWithAnyTime,',
     '        setCrewHeld: setCrewHeld, crewIsHeld: crewIsHeld, dayHasHeldCrew: dayHasHeldCrew, tomorrowsInstallDay: tomorrowsInstallDay,',
     '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
-    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive}',
+    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive,',
+    '        PLAN_SCHEMA: PLAN_SCHEMA, planSchemaOf: planSchemaOf, planIsNewerThanPage: planIsNewerThanPage, planKey: planKey}',
     '};'
   ].join('\n');
 
