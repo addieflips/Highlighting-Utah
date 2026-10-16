@@ -85,7 +85,13 @@ const DEFAULT_BODY_SRC = (admin.match(/const RSVP_TEXT_DEFAULT_BODY =[\s\S]*?;\r
 check('the built-in wording is findable', !!DEFAULT_BODY_SRC,
   'without it every case below renders an empty body and passes on nothing');
 
-const NAMES = ['htmlEmailToPlainText', 'properName', 'firstName', 'getEmailTemplateByName',
+/* ⚠ `pickNewestTemplate` / `tplEditedMillis` ARE LIFTED, NEVER STUBBED ([[EM-35]], and
+   the extraction trap for the fourteenth time — this file died on a bare
+   `pickNewestTemplate is not defined` the moment getEmailTemplateByName started asking
+   which of two same-named templates to use). A stub would decide the very thing that
+   rule exists to decide, and this chain is about WHICH wording a text goes out in. */
+const NAMES = ['htmlEmailToPlainText', 'properName', 'firstName', 'tplEditedMillis',
+               'pickNewestTemplate', 'getEmailTemplateByName',
                'rsvpTextRenderBody', 'rsvpTextMessageParts', 'rsvpTextMessageFor', 'smsSegments'];
 const SRCS = NAMES.map(n => lift(admin, n));
 check('every rule in the chain is findable', SRCS.every(Boolean),

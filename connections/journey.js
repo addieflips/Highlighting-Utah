@@ -38,7 +38,21 @@ const STEPS = [
   { id: 'quote', title: 'A quote comes in', start: true,
     plain: 'Somebody asks for a price, through the website form or typed in by the office.',
     records: ['createdAt'],
-    next: [{ to: 'emailed', label: 'we price it and send it' }] },
+    next: [
+      { to: 'emailed',  label: 'we price it and send it' },
+      { to: 'pictures', label: 'we need pictures of the house first' }
+    ] },
+
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "This is when we email for
+     pictures of there house." A quote cannot be priced off nothing to look at, so the office
+     emails for photos and presses the button; the card sits in its own tab until they say the
+     pictures arrived. The date is the office's own mark — nothing on the record sees the
+     email go. */
+  { id: 'pictures', title: 'We ask them for pictures',
+    plain: 'The office emails asking for photos of the house and marks the quote Waiting for pictures. ' +
+      'When they come back the quote goes back to Quotes to be priced.',
+    records: ['waitingForPhotosAt'],
+    next: [{ to: 'emailed', label: 'the pictures arrive, we price it and send it' }] },
 
   /* ⚠ A QUOTE IS NOT THE ONLY DOOR, and drawing it as the only one was the first thing
      Addie asked about ("you are currently adding all routes... Right?"). Somebody typed

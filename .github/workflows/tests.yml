@@ -222,6 +222,15 @@ jobs:
 
       - name: A receipt that never went out can be sent again
         run: npm run test:receiptresend
+
+      - name: The invoice dry run cannot send or write
+        run: npm run test:dryrun
+
+      # ⛔ WHICH OF TWO SAME-NAMED TEMPLATES SENDS. One rule, two copies (admin.html
+      # and functions/index.js), run side by side: if they disagree the office previews
+      # one wording and the customer receives another, and nothing else would notice.
+      - name: The template she edited last is the one that sends
+        run: npm run test:templatepick
       # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
       # runInvoiceBatch at all, and a one-word crash in it billed no new member at all
       # from 2026-09-18 to 2026-10-02: `nowMs` is not declared in that function,
