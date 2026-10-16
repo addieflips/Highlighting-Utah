@@ -20195,8 +20195,37 @@ function loadEmailTemplates(){
     if(typeof renderRsvpTextPreview === 'function') renderRsvpTextPreview();
   });
 }
+/* ⭐ THE ONE SHE EDITED LAST IS THE ONE THAT SENDS ([[EM-35]], 2026-10-15). The server's
+   copy is `pickNewestTemplateServer` in functions/index.js and `template-pick.test.js`
+   runs both over the same templates — two senders disagreeing about which of two
+   same-named templates to use is the office previewing one wording and the customer
+   receiving another. Change one, change the other, in the same push.
+   ⚠ A BLANK COPY IS RANKED LAST whatever its date: the shipped-template filler patches an
+   empty shell by itself, so a shell can be the most recently touched copy, and a template
+   with no body sends an empty email.
+   ⚠ AND THE LAST TIEBREAK IS THE DOCUMENT ID rather than snapshot order, which is not
+   stable across reloads — the same two copies must pick the same winner every time. */
+function tplEditedMillis(t){
+  const d = (t && t.data) || {};
+  const stamp = d.updatedAt || d.createdAt;
+  if(!stamp) return 0;
+  if(typeof stamp.toMillis === 'function') return Number(stamp.toMillis()) || 0;
+  if(typeof stamp.seconds === 'number') return stamp.seconds * 1000;
+  if(typeof stamp._seconds === 'number') return stamp._seconds * 1000;
+  const ms = Date.parse(stamp);
+  return isNaN(ms) ? 0 : ms;
+}
+function pickNewestTemplate(list){
+  const rank = t => (String(((t && t.data) || {}).body || '').trim() ? 1 : 0);
+  return (list || []).slice().sort((a,b) =>
+    (rank(b) - rank(a)) ||
+    (tplEditedMillis(b) - tplEditedMillis(a)) ||
+    String(a.id).localeCompare(String(b.id))
+  )[0];
+}
 function getEmailTemplateByName(name){
-  return emailTemplates.find(t => t.data.name === name);
+  const hits = emailTemplates.filter(t => t.data.name === name);
+  return hits.length ? pickNewestTemplate(hits) : undefined;
 }
 let etSelectedFolder = 'all';
 let etTemplateSearch = '';
@@ -20488,9 +20517,14 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
   const editingId = document.getElementById('etEditingId').value;
   try{
     if(editingId){
-      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens});
+      /* ⚠ `updatedAt` IS WHAT MAKES AN EDIT REGISTER ([[EM-35]]). Two templates can share
+         a name and the senders pick the most recently edited one, so a save that did not
+         stamp the date would leave the other copy winning for ever — which is exactly how
+         an edit comes to look as though it did not save. Stamped on a NEW one too: a
+         template just created must beat an older undated copy of the same name. */
+      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens, updatedAt: serverTimestamp()});
     } else {
-      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens, createdAt: serverTimestamp()});
+      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens, createdAt: serverTimestamp(), updatedAt: serverTimestamp()});
     }
     statusEl.textContent = 'Saved!';
     etEditorDirty = false;

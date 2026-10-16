@@ -265,11 +265,15 @@ return runInvoiceBatch('dry-run');
   if (!wanted.length) say('   template asked for: (none)');
   wanted.forEach(w => say('   template asked for: ' + w.name +
     (w.found ? '   ✓ on file' : '   ⛔ NOT ON FILE — the built-in wording went out instead')));
-  /* ⚠ TWO TEMPLATES UNDER ONE NAME, AND THE LOOKUP TAKES WHICHEVER COMES BACK FIRST.
-     Every sender in this app finds a template BY NAME, so a duplicate means the wording
-     a customer gets is decided by Firestore's document order — and editing "the" template
-     can leave the other copy, with the old wording, as the one that sends. Counted on the
-     exact stored name, which needs no flattener and so is no second opinion about matching. */
+  /* ⚠ TWO TEMPLATES UNDER ONE NAME. Every sender in this app finds a template BY NAME, so
+     this is worth saying out loud — but since [[EM-35]] it is no longer a trap: the most
+     recently EDITED copy is the one that sends, so an edit always registers and the spare
+     is housekeeping rather than a hazard. ⚠ SAY WHICH IT IS: this line used to tell her
+     the winner was whichever came back first and that editing one could leave the other
+     sending, which was true when it was written and is not now — a report describing
+     behaviour the app has moved off sends somebody to delete things for no reason.
+     Counted on the exact stored name, which needs no flattener and so is no second
+     opinion about matching. */
   const byName = {};
   templates.forEach(t => {
     const n = String(t && t.name || '(unnamed)').trim();
@@ -278,8 +282,8 @@ return runInvoiceBatch('dry-run');
   const twice = Object.keys(byName).filter(n => byName[n] > 1);
   if (twice.length) {
     say('');
-    say('   ⚠ TWO TEMPLATES SHARE ONE NAME, so which wording sends is whichever comes');
-    say('     back first — and editing one leaves the other able to send the old words:');
+    say('   ⚠ TWO TEMPLATES SHARE ONE NAME. The one you edited LAST is the one that');
+    say('     sends, so an edit always registers — the spare is just worth tidying up:');
     twice.sort().forEach(n => say('        · ' + n + '  ×' + byName[n]));
   }
   if (wanted.some(w => !w.found)) {
