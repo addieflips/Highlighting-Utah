@@ -22759,6 +22759,38 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
     admin.indexOf("getElementById('quoteStageCountRequote').textContent") > 0,
     'a folder with no number beside it is a folder nobody opens');
 
+  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
+     section that says waiting for pictures with a place to push waiting for pictures or
+     something shorter than that for new quotes. This is when we email for pictures of
+     there house." A hand-set mark on the quote (waitingForPhotosAt), a tab of its own,
+     and a way back. The folder rule is RUN below; these hold the tab and the two writers. */
+  check('S65', 'there is a Waiting for pictures tab',
+    /data-quotestage="pictures"/.test(admin) && /id="quoteStageCountPictures"/.test(admin),
+    'she asked for a section; a folder rule with no tab is a card that vanishes');
+  check('S65', 'and its count is filled in with the others',
+    admin.indexOf("getElementById('quoteStageCountPictures').textContent") > 0 &&
+    /const stageCounts = \{new:0, pictures:0,/.test(admin),
+    'a tab whose count is never written reads as empty whatever is in it');
+  check('S65', 'the card offers Waiting for pictures, and a way back',
+    /data-waitphotos="'\+item\.id\+'"/.test(admin) && /data-gotphotos="'\+item\.id\+'"/.test(admin),
+    'a folder nothing can file into is an empty tab');
+  check('S65', 'and only where pressing it would move the card',
+    /\(\(quoteStage\(d\) === 'new' && !isRequote\(d\)\)\s*\r?\n\s*\? \(d\.waitingForPhotosAt/.test(admin),
+    'the button and the folder rule must read the same two conditions, or a press moves nothing');
+  check('S65', 'pressing it stamps the mark and follows the card to its tab',
+    /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: serverTimestamp\(\)\}\)/.test(admin) &&
+    /followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
+    'a write with no local mirror leaves the office on a tab the card has left');
+  check('S65', 'and Pictures arrived clears it the same way',
+    /* ⚠ THE WRITE ITSELF, NOT THE NAME. A red-check that emptied the updateDoc passed the
+       first draft, because the local mirror on the next line spells the same object. */
+    /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: null\}\)/.test(admin) &&
+    /followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
+    'a mark with no way off leaves a quote waiting for pictures for ever');
+  check('S65', 'the empty tab says how a card gets there',
+    /pictures: 'Nobody is waiting on pictures\./.test(admin),
+    'an empty tab with no instruction reads as broken');
+
   {
     const at = admin.indexOf('function quoteFolder(');
     let src = '';
@@ -22788,6 +22820,22 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         f({}) === 'new' && f({quotedPrice: 400}) === 'send' &&
         f({quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'diverting re-quotes must not move anybody else');
+
+      /* ⭐ WAITING FOR PICTURES ([[QT-57]]) — the folder rule, run. */
+      check('S65', 'a new quote marked waiting for pictures is filed there',
+        f({waitingForPhotosAt: 1}) === 'pictures' && f({}) === 'new',
+        'the mark is the only thing that files a card there, and nothing else must');
+      check('S65', 'and once priced and sent it waits with everybody else',
+        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' &&
+        f({waitingForPhotosAt: 1, quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
+        'a sent quote is waiting on an answer, not on pictures');
+      check('S65', 'a re-quote keeps its own tab whatever the mark says',
+        f({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === 'requote',
+        'she asked for this for new quotes; a re-quoted house is one we already have pictures of');
+      check('S65', 'and a closed one is still history',
+        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' &&
+        f({waitingForPhotosAt: 1, approvalStatus: 'declined'}) === 'closed',
+        'Closed is one folder');
 
       /* ⚠ A RE-QUOTE IS IN EXACTLY ONE FOLDER. Subtracted from the ordinary tabs
          rather than shown in both: a card in two places is a job two people do, or
@@ -26007,8 +26055,14 @@ suite('Suite 104. The Printing tab');
     check('S104', 'and says whose bin a top-up bundle goes into, with notes last',
       /put it in their bin/.test(extractFn(admin, 'whBuildTodo')) && /,notes$/.test(keys('build')),
       'the EXTENSION sentence names the bin; got ' + keys('build'));
-    check('S104', 'the daily warehouse list is only number and name',
-      keys('warehouse') === 'number,name',
+    /* ⭐ AND THE PULL LIST CARRIES THE WAREHOUSE NOTES, LAST ([[WH-49]], 2026-10-15). Addie:
+       "I need the crews to see the notes before they load the bins. Can we put any warehouse
+       notes on the warehouse list somehow?" This check used to pin the list to number and
+       name ("a pull list, not a spec sheet") — still true of everything else: no colours,
+       no feet, no bins arithmetic. Asserted as the WHOLE list in order, like the build sheet
+       above, because the position is the half that matters. warehouse-note.test.js RUNS it. */
+    check('S104', 'the daily warehouse list is number, name and the warehouse notes — nothing else',
+      keys('warehouse') === 'number,name,notes',
       'got ' + keys('warehouse') + ' — it is a pull list, not a spec sheet');
     /* ⭐ TIMER SITS BEFORE NOTES. Owner: "i forgot to include on everything crew
        related printing it need to include timer(yes/no), that should come before
@@ -29535,7 +29589,7 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'Quotes needs no second write, because that is where a new one lands',
       Object.keys(staged('new')).length === 0);
     check('S113', 'and every other section does move the card',
-      ['send', 'form', 'requote', 'closed'].every(function(st){
+      ['pictures', 'send', 'form', 'requote', 'closed'].every(function(st){
         return Object.keys(staged(st)).length > 0;
       }),
       'a stage with no updates leaves the card sitting in Quotes');
@@ -29554,7 +29608,7 @@ suite('Suite 113. Build Test Customer');
       'an empty update is a write for nothing');
   }
   /* ⚠ AND THE ROUND TRIP. */
-  const stages = ['new', 'send', 'form', 'requote', 'closed'];
+  const stages = ['new', 'pictures', 'send', 'form', 'requote', 'closed'];
   stages.forEach(function(st){
     const f = fields(st, base);
     /* Re-quotes is the one that needs a customer behind it, which the button builds
@@ -52498,6 +52552,10 @@ suite('291. An RSVP link to text, for everyone with no email');
       'let rsvpTextTemplateName = "";' + NL287 +
       'let etTemplatesLoaded = true;' + NL287 +
       'let emailTemplates = [];' + NL287 +
+      /* ⚠ LIFTED, NEVER STUBBED ([[EM-35]]): getEmailTemplateByName now asks which of two
+         same-named templates is the newest, and a stub here would answer that for it. */
+      extractFn(admin, 'tplEditedMillis') + NL287 +
+      extractFn(admin, 'pickNewestTemplate') + NL287 +
       extractFn(admin, 'getEmailTemplateByName') + NL287 +
       extractFn(admin, 'htmlEmailToPlainText') + NL287 +
       extractFn(admin, 'properName') + NL287 +
@@ -64507,7 +64565,8 @@ suite('350. The numbers on their own, and the people who have none');
     /* REPOINTED 2026-09-24 (RS-75): the list goes through phoneBatchOpen, which reopens the
        saved batches or makes new ones from exactly this list. */
     /* REPOINTED again 2026-10-13 (RS-80, superseding RS-78 here): everybody pending, texted or not. */
-    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{keepTexted: true\}\);/.test(copyFn) &&
+    /* And 2026-10-15 (RS-84): no batches on this list at all — `allAtOnce`, one list, see Suite 384. */
+    /phoneBatchOpen\(host, 'rsvp', function\(\)\{\s*const all = rsvpLinkSheetTargets\(\);\s*const r = rsvpPhoneListRows\(all\);[\s\S]*?return \{numbers: r\.numbers, names: r\.names, textedIn: textedIn\};\s*\}, \{allAtOnce: true\}\);/.test(copyFn) &&
     !/phoneNotTextedYet/.test(copyFn) &&
     !/phoneBatchCopyCurrent|clipboard/.test(copyFn),
     'the whole list in one paste is what did not paste');
@@ -64944,7 +65003,7 @@ suite('354. Copy their phone numbers — the filtered audience, for texting');
 suite('355. Phone numbers a batch at a time, commas by default');
 {
   const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
-    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneRunDoneSet', 'phoneBatchLeft', 'phoneBatchCopyCurrent',
     /* RS-75: the panel keeps its batches as a saved list; lifted, never stubbed. */
     'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize', 'phoneRunSetSent', 'phoneRunAddNew', 'phoneRunWhen', 'phoneRunPersist'];
   const liftAsync = function (n) {
@@ -65055,7 +65114,7 @@ suite('356. Names next to the numbers, number first');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
   const srcs = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs',
-    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneBatchSavePrefs', 'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneRunDoneSet', 'phoneBatchLeft', 'phoneBatchCopyCurrent',
     'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize', 'phoneRunSetSent', 'phoneRunAddNew', 'phoneRunWhen', 'phoneRunPersist'].map(lift);
   const rowsSrc = ['rsvpSheetCell', 'rsvpPhoneDigits', 'rsvpPhoneListRows'].map(n => extractFn(admin, n));
   check('S356', 'the panel and the row builder were found', srcs.every(Boolean) && rowsSrc.every(Boolean));
@@ -65189,7 +65248,7 @@ suite('360. Phone batches are kept, and each one can be ticked as sent');
     return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
   };
   const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
-    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneRunDoneSet', 'phoneBatchLeft', 'phoneBatchCopyCurrent',
     'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize',
     'phoneRunSetSent', 'phoneRunFirstOpen', 'phoneRunNewPeople', 'phoneRunAddNew', 'phoneRunFromDoc', 'phoneRunWhen',
     'phoneRunPersist'];
@@ -65521,9 +65580,12 @@ suite('364. Texted people stay off every new list');
   check('S364', 'the Automation Emails list builds new lists from people not texted yet',
     (stripped.match(/const pick = phoneNotTextedYet\(/g) || []).length === 1 &&
     /phoneBatchOpen\(host, 'et', function\(\)\{\s*const pick = phoneNotTextedYet\(etTextAudience\)/.test(stripped));
-  check('S364', 'Text the RSVP\'s new list keeps everybody pending, and hides the take-them-off box',
-    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{keepTexted: true\}\);/.test(stripped) &&
-    /typeof opts\.markTexted === 'function' && !opts\.keepTexted/.test(panel));
+  /* REPOINTED 2026-10-15 (RS-84): Text the RSVP has no batches at all now — one list through
+     phoneAllRender, which carries no take-them-off box; the box stays on the batch panel. */
+  check('S364', 'Text the RSVP\'s list is everybody pending, all at once, and has no take-them-off box',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{allAtOnce: true\}\);/.test(stripped) &&
+    !/data-pb="paste"/.test(stripComments(extractFn(admin, 'phoneAllRender') || '')) &&
+    /typeof opts\.markTexted === 'function'\s*\?\s*'<details/.test(panel));
   check('S364', 'the paste box and the up-to-a-name box are both wired',
     /q\('markpaste'\)\.addEventListener\('click'/.test(panel) && /q\('markupto'\)\.addEventListener\('click'/.test(panel) &&
     /if\(!confirm\('Mark the first '/.test(panel));
@@ -66752,4 +66814,218 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
   check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
   check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
     (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
+}
+
+/* =====================================================================
+ * Suite 382 — RETIRED 2026-10-15. It was "Everyone on hold is on the Text the
+ * RSVP batches without pressing anything" (RS-82): a saved list added anybody
+ * pending and on no batch as new batches at the END. Hours later Addie
+ * retired the batches themselves for that list ("We no longer need batches we
+ * can do it all at once now", RS-84), so there is no end to add to. Suite 384
+ * holds what survives: the list is everybody still to text, on every open.
+ * The number is spent; do not reuse it.
+ *
+ * Suite 383 — RETIRED 2026-10-15, the same day it was added. It drove the
+ * tick-where-you-stopped list INSIDE the batch panel (RS-83). The list itself
+ * lives on in phoneAllRender and Suite 384 drives it there; the batch panel
+ * no longer carries it. The number is spent; do not reuse it.
+ * ===================================================================== */
+
+/* =====================================================================
+ * Suite 384. No batches on Text the RSVP: one list of everybody still to
+ * text, tick where you stopped, Submit saves, only the rest show
+ * (2026-10-15, RS-84 carrying RS-83). Addie: "It looks like we still have
+ * batches. We no longer need batches we can do it all at once now."
+ *
+ * RUNS phoneBatchOpen's all-at-once branch and DRIVES phoneAllRender against
+ * jsdom. phoneRunLoad, phoneRunStore and phoneMarkTexted are stubbed BY NAME
+ * because they reach Firestore; everything else is the real lifted code.
+ * The claims that earn the file: a tick writes nothing and Submit does; a
+ * submitted person is hidden, and stays hidden on the next open from the
+ * saved marks alone while the list itself is whoever is pending NOW; and
+ * the Automation Emails list still gets the batch panel.
+ * ===================================================================== */
+suite('384. No batches on Text the RSVP: one list, tick where you stopped, Submit saves, only the rest show');
+{
+  const lift = function (n) {
+    const i = admin.indexOf('async function ' + n + '(');
+    return i === -1 ? extractFn(admin, n) : 'async ' + extractFn(admin, n);
+  };
+  const names = ['phoneBatchSlice', 'phoneBatchName', 'phoneBatchJoin', 'phoneBatchPrefs', 'phoneBatchSavePrefs',
+    'phoneBatchCopyText', 'phoneBatchRender', 'phoneBatchShow', 'phoneBatchCopyCurrent',
+    'phoneRunBuild', 'phoneRunAnySent', 'phoneRunSentCount', 'phoneRunNumbers', 'phoneRunNames', 'phoneRunResize',
+    'phoneRunSetSent', 'phoneRunFirstOpen', 'phoneRunNewPeople', 'phoneRunAddNew', 'phoneRunFromDoc', 'phoneRunWhen',
+    'phoneRunPersist', 'phoneRunDoneSet', 'phoneBatchLeft', 'phoneRunMarkDone', 'phoneAllRender', 'phoneAllShow',
+    'phoneBatchOpen'];
+  const srcs = names.map(lift);
+  check('S384', 'every piece was found, phoneAllRender and phoneBatchOpen included', srcs.every(Boolean),
+    'a gate that cannot find its target must FAIL, never skip');
+  const stripped = stripComments(admin);
+  check('S384', 'Text the RSVP asks for one list and nothing else; the Automation Emails list does not',
+    /phoneBatchOpen\(host, 'rsvp',[\s\S]*?\}, \{allAtOnce: true\}\);/.test(stripped) &&
+    (stripped.match(/allAtOnce: true/g) || []).length === 1 &&
+    !/phoneBatchOpen\(host, 'et',[\s\S]{0,800}?allAtOnce/.test(stripped),
+    'she named Text the RSVP; the other list was not asked about');
+  const allSrc = stripComments(lift('phoneAllRender') || '');
+  check('S384', 'the all-at-once panel has no batch controls at all',
+    allSrc.length > 500 && !/data-pb="size"|data-pb="chips"|data-pb="prev"|data-pb="next"|data-pb="sent"|data-pb="all"|data-pb="addnew"/.test(allSrc) &&
+    /data-pb="copy"/.test(allSrc) && /data-pb="stoplist"/.test(allSrc) && /data-pb="stopsubmit"/.test(allSrc) && /data-pb="fresh"/.test(allSrc),
+    '"we no longer need batches"');
+  const storeSrc = stripComments(extractFn(admin, 'phoneRunStore') || '');
+  const fromSrc = stripComments(extractFn(admin, 'phoneRunFromDoc') || '');
+  check('S384', 'the marks are saved with the list and read back from it',
+    /done: \(run\.done \|\| \[\]\)\.map\(String\)/.test(storeSrc) &&
+    /done: Array\.isArray\(data\.done\) \? data\.done\.map\(String\) : \[\]/.test(fromSrc),
+    'kept only on screen, the marks are gone on the next press and on the other computer');
+  check('S384', 'Submit and Put back write it on each customer too, both ways (RS-78)',
+    /phoneRunMarkDone\(host\._phoneRun, ticked, true\);[\s\S]*?await opts\.markTexted\(ticked, true\)/.test(allSrc) &&
+    /phoneRunMarkDone\(host\._phoneRun, back, false\);[\s\S]*?await opts\.markTexted\(back, false\)/.test(allSrc));
+  const openSrc = stripComments(lift('phoneBatchOpen') || '');
+  check('S384', 'opening the list is read-only: the all-at-once branch never saves',
+    /if\(opts\.allAtOnce\)\{[\s\S]*?phoneAllRender\(host, now\.numbers, now\.names, Object\.assign\(\{\}, opts, \{run: run, textedIn: now\.textedIn \|\| 0\}\)\);/.test(openSrc) &&
+    !/opts\.save\(run\)/.test(openSrc),
+    'a list that edits the book by being looked at');
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom: noted below. */ }
+  if (!JSDOM) note('S384: jsdom missing — run npm install; the panel was not driven');
+  if (srcs.every(Boolean) && JSDOM) {
+    pendingAsync.push((async function () {
+      const w = new JSDOM('<div id="h"></div>').window;
+      const stores = [];
+      const marks = [];
+      const copied = [];
+      let failStore = false;
+      let savedDoc = null;
+      let api = null;
+      api = new Function('document', 'navigator', 'localStorage', 'console', 'confirm', 'esc', 'Event',
+        'phoneRunLoad', 'phoneRunStore', 'phoneMarkTexted', 'auth',
+        'const PHONE_BATCH_DEFAULT = 50;' + srcs.join('\n') + ';return { phoneBatchOpen, phoneRunFromDoc };')(
+        w.document, { clipboard: { writeText: async function (t) { copied.push(t); } } },
+        { getItem: k => (k === 'hu.phoneBatchSize' ? '2' : null), setItem: function () {} },
+        { error: function () {} }, function () { return true; },
+        function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); },
+        w.Event,
+        async function () { return savedDoc ? api.phoneRunFromDoc(JSON.parse(JSON.stringify(savedDoc))) : null; },
+        function (key, run) {
+          if (failStore) return Promise.reject(new Error('offline'));
+          stores.push({ key: key, run: JSON.parse(JSON.stringify(run)) });
+          return Promise.resolve();
+        },
+        async function (nums, on) { marks.push({ nums: nums.slice(), on: on }); return { marked: nums.length, failed: 0, skipped: 0, matched: new Set(nums) }; },
+        null);
+      const host = w.document.getElementById('h');
+      const q = k => host.querySelector('[data-pb="' + k + '"]');
+      const rows = () => Array.from(host.querySelectorAll('input[data-pbstop]'));
+      const tick = async function () { await new Promise(r => setTimeout(r, 0)); };
+      const nums = ['8015550001', '8015550002', '8015550003', '8015550004', '8015550005'];
+      const who = ['Ann', 'Bob', 'Cara', 'Dan', 'Eve'];
+      let today = nums.slice(), todayNames = who.slice();
+      const current = () => ({ numbers: today.slice(), names: todayNames.slice(), textedIn: 2 });
+      const opts = { allAtOnce: true };
+
+      const r1 = await api.phoneBatchOpen(host, 'rsvp', current, opts);
+      await tick();
+      check('S384', 'one list of all five, no batch controls, a tick row per person in the box\'s order',
+        r1.count === 5 && r1.left === 5 && !q('size') && !q('chips') && !q('prev') && !q('sent') &&
+        /5 still to text/.test(q('where').textContent) && q('copy').textContent === 'Copy all 5' &&
+        rows().map(r => r.getAttribute('data-pbstop')).join() === nums.join() &&
+        /texted before or not; 2 of them were already texted/.test(q('runnote').textContent),
+        '"we can do it all at once now"');
+      check('S384', 'and opening it wrote nothing', stores.length === 0 && marks.length === 0);
+      q('copy').click();
+      await tick();
+      check('S384', 'Copy copies everybody shown, one per line with names',
+        copied.length === 1 && copied[0] === '8015550001 Ann\n8015550002 Bob\n8015550003 Cara\n8015550004 Dan\n8015550005 Eve' &&
+        /Copied 5 numbers/.test(q('msg').textContent));
+      rows()[2].checked = true; rows()[2].dispatchEvent(new w.Event('change', { bubbles: true }));
+      await tick();
+      check('S384', 'ticking Cara ticks Ann and Bob above her, nobody below, and saves NOTHING',
+        rows().map(r => r.checked ? 1 : 0).join('') === '11100' && /3 ticked/.test(q('stopmsg').textContent) &&
+        stores.length === 0 && marks.length === 0 && q('box').value.split('\n').length === 5,
+        '"We would need to push submit before it saves"');
+      rows()[1].checked = false; rows()[1].dispatchEvent(new w.Event('change', { bubbles: true }));
+      await tick();
+      check('S384', 'unticking Bob unticks him and everyone below, Ann stays ticked',
+        rows().map(r => r.checked ? 1 : 0).join('') === '10000');
+      rows()[2].checked = true; rows()[2].dispatchEvent(new w.Event('change', { bubbles: true }));
+      q('stopsubmit').click();
+      await tick(); await tick();
+      const last = () => stores[stores.length - 1];
+      check('S384', 'Submit saves the three as sent, on the list and on each customer',
+        stores.length === 1 && last().key === 'rsvp' && (last().run.done || []).join() === '8015550001,8015550002,8015550003' &&
+        marks.length === 1 && marks[0].on === true && marks[0].nums.join() === '8015550001,8015550002,8015550003');
+      check('S384', 'and then only Dan and Eve are shown, copied and listed',
+        q('box').value === '8015550004 Dan\n8015550005 Eve' && rows().length === 2 && q('copy').textContent === 'Copy all 2' &&
+        /2 still to text · 3 marked sent and not shown/.test(q('where').textContent) &&
+        /3 marked as sent and taken off the list — 2 still to text/.test(q('stopmsg').textContent));
+      q('copy').click();
+      await tick();
+      check('S384', 'Copy after a Submit copies only the rest', copied[copied.length - 1] === '8015550004 Dan\n8015550005 Eve');
+
+      /* The next open: Bob has since answered and Hal is newly pending. The list is who is pending
+         NOW; the marks come off the saved document; nothing is written by looking. */
+      savedDoc = last().run;
+      today = ['8015550001', '8015550003', '8015550004', '8015550005', '8015550006'];
+      todayNames = ['Ann', 'Cara', 'Dan', 'Eve', 'Hal'];
+      const r2 = await api.phoneBatchOpen(host, 'rsvp', current, opts);
+      await tick();
+      check('S384', 'a mark for somebody who has since answered is dropped on the way in',
+        (host._phoneRun.done || []).join() === '8015550001,8015550003');
+      check('S384', 'the next open is whoever is pending now, minus the marked: Dan, Eve and Hal',
+        r2.count === 5 && r2.left === 3 && q('box').value === '8015550004 Dan\n8015550005 Eve\n8015550006 Hal' &&
+        rows().length === 3 && /2 marked sent and not shown/.test(q('where').textContent),
+        'no batch lines to keep as they were: someone who answers drops off, someone new joins');
+      check('S384', 'and that open wrote nothing', stores.length === 1 && q('stopback').style.display === 'none');
+
+      /* Put back: the last Submit, undone — and a fresh draw forgets it. */
+      rows()[0].checked = true; rows()[0].dispatchEvent(new w.Event('change', { bubbles: true }));
+      q('stopsubmit').click();
+      await tick(); await tick();
+      check('S384', 'Put back is offered after a Submit, naming how many',
+        /Put the last 1 back/.test(q('stopback').textContent) && q('stopback').style.display !== 'none' && rows().length === 2);
+      const m0 = marks.length;
+      q('stopback').click();
+      await tick(); await tick();
+      check('S384', 'Put back shows them again and unmarks them on the customer',
+        rows().length === 3 && marks.length === m0 + 1 && marks[m0].on === false && marks[m0].nums.join() === '8015550004' &&
+        (last().run.done || []).join() === '8015550001,8015550003' && q('stopback').style.display === 'none');
+      savedDoc = last().run;
+      await api.phoneBatchOpen(host, 'rsvp', current, opts);
+      await tick();
+      check('S384', 'a fresh open has nothing to put back', q('stopback').style.display === 'none' && !host._phoneLastStop);
+
+      /* Nobody ticked is said; a save that fails is said. */
+      const m1 = marks.length, s1 = stores.length;
+      q('stopsubmit').click();
+      await tick();
+      check('S384', 'Submit with nobody ticked says so and writes nothing',
+        /Nobody is ticked/.test(q('stopmsg').textContent) && marks.length === m1 && stores.length === s1);
+      rows()[0].checked = true; rows()[0].dispatchEvent(new w.Event('change', { bubbles: true }));
+      failStore = true;
+      q('stopsubmit').click();
+      await tick(); await tick();
+      check('S384', 'a Submit that could not be saved says so, never a quiet green', /Not saved/.test(q('stopmsg').textContent));
+      failStore = false;
+
+      /* Start over: the marks go, the stamps stay, and it asks first. */
+      savedDoc = { size: 5, createdAt: 1, batches: [{ numbers: today.slice(), names: todayNames.slice(), sentAt: 0, sentBy: '' }], done: ['8015550001', '8015550003'] };
+      await api.phoneBatchOpen(host, 'rsvp', current, opts);
+      await tick();
+      const m2 = marks.length, s2 = stores.length;
+      q('fresh').click();
+      await tick(); await tick();
+      check('S384', 'Start over shows everyone again, saves that, and unstamps nobody',
+        rows().length === 5 && stores.length === s2 + 1 && !(last().run.done || []).length && marks.length === m2 &&
+        /shown again/.test(q('msg').textContent),
+        'rsvpTextedAt is this season\'s record; a new round does not erase it');
+
+      /* The Automation Emails list was not asked about and still gets the batch panel. */
+      savedDoc = null;
+      await api.phoneBatchOpen(host, 'et', () => ({ numbers: nums.slice(), names: who.slice(), textedOut: 0 }), {});
+      await tick();
+      check('S384', 'the Automation Emails list still opens the batch panel, batches and all',
+        /Batch 1 of 3/.test(host.textContent) && !!q('size') && !!q('chips') && !!q('sent') && !q('stoplist'),
+        'RS-69 stands there');
+    })());
+  }
 }

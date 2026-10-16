@@ -435,6 +435,7 @@ check('every step of the path reaches the history',
                                               quote's for "quote raised" and the customer's
                                               for "added to the customer list" */
     quoteSentAt: 'quote', quoteLastNudgedAt: 'quote',
+    waitingForPhotosAt: 'quote',           /* the Waiting for pictures button, on the quote */
     approvalRespondedAt: 'quote',          /* quoteRespond, on the quote */
     quoteRespondedAt: 'quote',             /* admin's own dropdown, on the quote */
     approvedByOfficeAt: 'quote', convertedToCustomerAt: 'quote',

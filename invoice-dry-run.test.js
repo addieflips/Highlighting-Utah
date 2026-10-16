@@ -1,0 +1,221 @@
+/* THE DRY RUN CANNOT SEND, CANNOT WRITE, AND NAMES NOBODY
+ * =======================================================
+ * `npm run test:dryrun`. Its own file per R-018.
+ *
+ * `invoice-dry-run.js` runs the REAL runInvoiceBatch over the REAL book, as the service
+ * account that deploys the functions. That account can bill people. A tool you run to
+ * find out whether the invoices are right must not be able to send them, and the only
+ * thing standing between it and that is this gate.
+ *
+ * ⛔ THE GUARANTEE IS THE HANDLE, NOT A PROMISE. The run writes — that is what it is for
+ * — so the question is never "does it write", it is "what does it write TO". The real
+ * Firestore handle is used for four `.get()` reads and is never passed to the batch; the
+ * batch is handed a fake built in memory. One line, and these checks hold it.
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const ROOT = __dirname;
+const SCRIPT = path.join(ROOT, 'invoice-dry-run.js');
+const WORKFLOW = path.join(ROOT, '.github/workflows/invoice-dry-run.yml');
+
+let pass = 0, fail = 0;
+const failures = [];
+function check(label, ok, detail) {
+  if (ok) { pass++; console.log('  PASS  ' + label); }
+  else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); console.log('  FAIL  ' + label); }
+}
+
+if (!fs.existsSync(SCRIPT)) {
+  console.log('  NOTE  invoice-dry-run.js is not in this checkout — nothing to gate, exit 0.');
+  process.exit(0);
+}
+const code = fs.readFileSync(SCRIPT, 'utf8');
+/* Comments stripped before anything is judged — this file's own prose and the script's
+   header quote the very names being forbidden. Suite 58's trap, learned six times here. */
+const live = code.replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map(l => l.replace(/^\s*\/\/.*$/, '')).join('\n');
+
+console.log('');
+console.log('--- it reads the real book, and only reads ---');
+console.log('');
+
+const READS = [
+  ['the customers', /\bdb\s*\.collection\(\s*'jobAddresses'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/],
+  ['the invoices',  /\bdb\s*\.collection\(\s*'invoices'\s*\)\s*\.limit\([^)]*\)\s*\.get\(\s*\)/],
+  ['the templates', /\bdb\s*\.collection\(\s*'emailTemplates'\s*\)\s*\.get\(\s*\)/],
+  ['the settings',  /\bdb\s*\.collection\(\s*'settings'\s*\)\s*\.get\(\s*\)/]
+];
+for (const [what, re] of READS) {
+  check('reads ' + what + ' as a .get() and nothing else', re.test(live));
+}
+const dbUses = live.match(/\bdb\s*\./g) || [];
+check('and uses the real database handle exactly ' + READS.length + ' times, no more',
+  dbUses.length === READS.length,
+  'found ' + dbUses.length + '. A fifth use is a deliberate edit to this list, which is ' +
+  'what stops a write arriving as "one more read".');
+check('the real database is opened once', (live.match(/admin\s*\.\s*firestore\s*\(/g) || []).length === 1);
+
+console.log('');
+console.log('--- the batch never gets the real handle ---');
+console.log('');
+
+/* ⛔ THE CHECK THAT EARNS THE FILE. runInvoiceBatch writes invoices and stamps customers;
+   handed the real db it would bill the whole book from a tool whose name says dry run. */
+check('the run is invoked with the FAKE database, not the real one',
+  /fn\(\s*fake\s*,/.test(live) && !/fn\(\s*db\s*,/.test(live),
+  'the first argument to the sandbox is the db the run writes to');
+check('a fake database is built in memory for it',
+  /function makeFakeDb\(/.test(live) && /const fake = makeFakeDb\(/.test(live));
+check('and the real handle is never handed to anything that writes',
+  !/new Function\([^)]*\)\s*\(\s*db\b/.test(live) && !/runInvoiceBatch\(\s*db/.test(live));
+
+console.log('');
+console.log('--- it cannot send email ---');
+console.log('');
+
+check('fetch is faked and records instead of sending',
+  /const fakeFetch = async/.test(live) && /fn\([^)]*fakeFetch/.test(live),
+  'the real fetch would reach EmailJS and mail several hundred customers');
+check('and the script never calls the real email service itself',
+  live.indexOf('api.emailjs.com') === -1,
+  'the only EmailJS address in play belongs to the lifted server code, behind the fake fetch');
+/* ⛔ MINTING A TOKEN IS A WRITE. A dry run that edits the book by being looked at is not
+   a dry run — RS-65's rule, where drawing a list had to mint nothing. */
+check('ensureToken is stubbed, because minting a portal token is a write',
+  /async function ensureToken\([^)]*\)\s*\{\s*return 'DRYRUN-TOKEN'/.test(live));
+
+console.log('');
+console.log('--- it names nobody ---');
+console.log('');
+
+check('the sample email is scrubbed of the customer name before printing',
+  /to_name/.test(live) && /\(customer name\)/.test(live),
+  'PROC-36: the output is an Actions log anybody with repo access can read');
+check('and of anything email-shaped',
+  /@\[A-Za-z0-9\.-\]\+/.test(live) && /email removed/.test(live));
+check('and of the portal token it stood in for',
+  /their token/.test(live),
+  'a token is a credential; it is never written down in full');
+check('held and no-email customers are counted, never listed',
+  /heldNames \|\| \[\]\)\.length/.test(live) && !/heldNames[^\n]*\.join/.test(live),
+  'the run hands back real names so the OFFICE can chase them; this log may only count them');
+
+console.log('');
+console.log('--- it runs the real rule, not a description of one ---');
+console.log('');
+
+check('runInvoiceBatch is lifted from the shipped server file',
+  /const fns = fs\.readFileSync\(path\.join\(__dirname, 'functions\/index\.js'\)/.test(live) &&
+  /'runInvoiceBatch'/.test(live),
+  'a second copy of the billing rule would answer about itself');
+/* ⚠ THE CONDITION, NOT THE TEXT. A red-check wrapped this guard in `if (false)` and the
+   first draft stayed green — it found `const missing = …` and `process.exit(1)` sitting
+   there separately, both perfectly present and neither reachable. A text check cannot
+   tell a live guard from a dead one; read the branch it actually turns on. */
+check('the lift census is asserted before anything runs, and really stops the run',
+  /const missing = LIFTED\.filter/.test(live) &&
+  /if\s*\(\s*missing\.length\s*\)\s*\{[\s\S]{0,200}?process\.exit\(1\)/.test(live),
+  'a missing lift arrives as a bare ReferenceError from the middle of a run, which this ' +
+  'repo records being caught by twelve times');
+/* ⛔ REPOINTED 2026-10-15 — AND THE OLD VERSION OF THIS CHECK IS WHY THE REPORT LIED ABOUT
+   LIVE BILLS. It asserted the constants came in through `num(…)` / `str(…)`, which reads
+   the value out of the source and re-types it into the sandbox. For a number that is
+   harmless; for `'Nightly Auto-Invoice — Unpaid'` the captured text is the SIX
+   CHARACTERS of the escape, so the run asked for a name no template can carry and the
+   report said NOT ON FILE about two templates that were on file. The claim worth holding
+   is not "is the value read from source" but "does the sandbox parse the declaration the
+   way node parses it" — so the whole `const X = …;` line is lifted, exactly as the
+   functions are. */
+check('every constant is lifted as its DECLARATION, so the sandbox parses it as node does',
+  /const decl = name =>/.test(live) && /\$\{CONSTS\.map\(decl\)\.join/.test(live) &&
+  !/\$\{JSON\.stringify\(str\(/.test(live),
+  'capturing the text between the quotes hands back `\\u2014` as six characters; the ' +
+  'em dash only exists once something parses the escape');
+check('and the template names are in that list, not re-derived beside it',
+  /CONSTS = \[[^\]]*'NIGHTLY_UNPAID_TEMPLATE'[^\]]*'NIGHTLY_PAID_TEMPLATE'/.test(live),
+  'these two are the ones the escape bug bit; a number would have survived it');
+check('a constant that stops matching stops the run, like a missing lift',
+  /const missingConsts = CONSTS\.filter/.test(live) &&
+  /if\s*\(\s*missingConsts\.length\s*\)\s*\{[\s\S]{0,200}?process\.exit\(1\)/.test(live),
+  'undefined in the sandbox is a lookup for nothing, which reads on the report as the ' +
+  'office having renamed a template');
+check('two templates under one name are reported',
+  /twice = Object\.keys\(byName\)\.filter\(n => byName\[n\] > 1\)/.test(live) &&
+  /SHARE ONE NAME/.test(live),
+  'every sender finds a template by name, so a duplicate lets the old wording send and ' +
+  'survive being edited');
+/* ⛔ REPOINTED 2026-10-15, NOT WEAKENED — and the first real run is why. These two
+   used to assert that the script had its OWN template matcher and its own dash-flattener.
+   It did, it disagreed with the server's `tplNameKey`, and every bill fell back to the
+   built-in wording while her templates sat on file. The claim worth holding was never
+   "does it flatten dashes" but "is the matching under test the matching that ships". */
+check('the template lookup is the SERVER\'s own, never a stub written here',
+  !/async function findTemplateSnapByName\s*\(/.test(live) && /__realFind/.test(live),
+  'a matcher of my own is a second opinion that answers about itself');
+check('and the real templates are seeded into the fake database for it to read',
+  /emailTemplates: templates\.reduce/.test(live),
+  'the lookup reads emailTemplates off the db handle it is given, so they must be there');
+check('the lift list is COMPUTED from the source, never typed',
+  /function liftClosure\(/.test(live) && /liftClosure\(\['runInvoiceBatch'\]\)/.test(live),
+  'a hand-kept list must be edited whenever somebody else refactors, and this repo has ' +
+  'been caught by exactly that thirteen times — the first run of this script included');
+/* ⛔ ADDED 2026-10-15, AFTER THE FIRST REAL READ. The run asked for two templates, neither
+   was on file, and all 24 bills went out in the built-in wording — which the report could
+   only say as "template asked for", leaving it to be read as "template used". Asked for and
+   FOUND are two facts and the gap between them is the finding. */
+check('the report says whether each template was actually FOUND, not only asked for',
+  /found: !\(r && r\.empty\)/.test(live) && /NOT ON FILE/.test(live),
+  'the run falls back to built-in wording rather than stopping a bill, so a renamed ' +
+  'template is silent unless the report names the gap');
+check('and a missing one lists the template names on file, so there is something to act on',
+  /templates\.map\(t => String\(t && t\.name/.test(live) && /wanted\.some\(w => !w\.found\)/.test(live),
+  'a template name is our own setting, not a person — "missing" with no list is a report ' +
+  'nobody can act on');
+check('ensureToken is held back from the closure on purpose',
+  /NEVER_LIFT = new Set\(\['ensureToken'\]\)/.test(live),
+  'the real one WRITES a portal token; lifting it would make the dry run edit the book');
+
+/* ⛔ THE REASON THE WHOLE THING EXISTS. 41 customers saw {{credit_lines}} because nothing
+   looked at the rendered bytes for leftover codes. */
+check('every rendered body is swept for unfilled {{codes}}',
+  /\{\\\{\[a-zA-Z_\]\+\\\}\\\}/.test(live) && /RAW TEXT/.test(live),
+  'this is the check that would have caught {{credit_lines}} before anybody received it');
+check('and the sweep counts them across ALL bills, not just the first',
+  /sent\.forEach\(/.test(live),
+  'one sample read as the whole group is the mistake error-digest already made once');
+
+console.log('');
+console.log('--- it only runs when somebody asks ---');
+console.log('');
+
+if (!fs.existsSync(WORKFLOW)) {
+  check('the workflow exists', false, 'invoice-dry-run.yml is missing');
+} else {
+  /* ⚠ COMMENTS STRIPPED FIRST, and a red-check of my own caught why: the header says
+     "no push trigger and no schedule:" — which matched the very pattern forbidding
+     the literal "schedule:" it forbids, so the gate failed a workflow that was correct.
+     Suite 58's trap, in a gate written by somebody who had just written that trap up
+     twice — and the fix is the one every other reader here already made: judge the
+     code, never the prose explaining it. */
+  const yml = fs.readFileSync(WORKFLOW, 'utf8')
+    .split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
+  check('dispatch-only — no schedule, no push trigger',
+    /workflow_dispatch/.test(yml) && !/\bschedule:/.test(yml) && !/^\s*push:/m.test(yml),
+    'it reads the whole customer book, so it runs when asked and never on its own');
+  check('firebase-admin pinned below 14',
+    /firebase-admin@\^13\./.test(yml),
+    '14 removes the namespaced admin.firestore() this depends on');
+  check('and it installs where the script lives',
+    !/working-directory:\s*functions/.test(yml),
+    'Node resolves require() from the script directory — error-digest.yml lost a run to this');
+}
+
+console.log('');
+console.log(pass + ' passed, ' + fail + ' failed');
+if (fail) {
+  console.log('');
+  failures.forEach(f => console.log('  - ' + f));
+  process.exit(1);
+}

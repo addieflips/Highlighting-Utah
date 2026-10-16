@@ -29,6 +29,8 @@ const TWINS = [
   T('centsOf', 'centsOf', 'money-parity.test.js', 'turning a dollar amount into whole cents before any money is compared', { byBlock: true }),
   T('houseIsOnTheBill', 'houseIsOnTheBillServer', 'money-parity.test.js', 'which houses are on a bill at all'),
   T('applyLightChange', 'applyLightChangeServer', 'money-parity.test.js', 'the $30 colour-change fee, the 48-hour window and where the $30 lands'),
+  T('pickNewestTemplate', 'pickNewestTemplateServer', 'template-pick.test.js', 'which of two templates stored under one name is the one that sends'),
+  T('tplEditedMillis', 'tplEditedMillisServer', 'template-pick.test.js', 'when a template was last edited, whatever shape the date arrived in'),
   T('arrearsOnInvoice', 'arrearsOnInvoiceServer', 'money-parity.test.js', 'last season’s unpaid balance carried onto this bill'),
   T('arrearsOutstanding', 'arrearsOutstandingServer', 'arrears-hold.test.js', 'whether somebody still owes for last season'),
   T('invoiceSeasonYear', 'invoiceSeasonYearServer', 'money-parity.test.js', 'which season a bill belongs to'),
