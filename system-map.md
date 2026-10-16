@@ -7264,6 +7264,8 @@ earliest send already on the record. Quotes nudged before this have lost that da
 them by hand from the quote card.
 
 ⭐ **FIXES ARE A LIST, NOT A DAY ([[FIX-09]], 2026-10-14).** Schedule › Fixes is every open fix,
+
+⭐ **AND THE LIST IS A ROUTE ([[FIX-10]], 2026-10-15).** Dax: *"when you add someone to the fix it list it automatically updates the route and puts them in wherever they fit best"*. `renderFixTray` draws `fixRouteItems()`: the open fixes in driving order from the yard (`routeHomePoint`) and back, numbered, with the total miles (`fixRouteMiles`). The order is `FIX_ORDER` (customer ids), saved with the plan as `fixOrder`; each draw drops fixes that are done and slots each new one into the gap that adds the fewest miles, so the stops already there keep their order. No map pin → on the end. **🔀 Re-plan the whole route** re-orders it from scratch with `reorderFlatStops`. Print follows the route order. `fix-route.test.js` runs it.
 oldest first, live from the customers, with Edit fix, ✓ Done and Print. The fix popup no longer asks
 for a day; `placeFixesFromCustomers` now takes any fixer-route day and any fix riding on an install
 day off the plan. Routes › Generate Fix Route still builds a driving order if wanted.
