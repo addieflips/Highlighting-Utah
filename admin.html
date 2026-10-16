@@ -4367,10 +4367,8 @@
       <div class="panel-head"><div><h2>Quote Requests</h2><p>Submitted from the homepage address checker and quote form. Click an address to preview it on the map.</p></div></div>
       <div id="quoteStageTabs" style="margin-bottom:16px; display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px;">
         <button type="button" class="btn btn-sm" data-quotestage="new" style="font-weight:700;">Quotes<span id="quoteStageCountNew" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="pictures" style="font-weight:700;">Waiting for pictures<span id="quoteStageCountPictures" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="send" style="font-weight:700;">Awaiting Response<span id="quoteStageCountSend" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="form" style="font-weight:700;">Ready to Convert<span id="quoteStageCountForm" class="folder-count"></span></button>
-        <button type="button" class="btn btn-sm" data-quotestage="requote" style="font-weight:700;">Re-quotes<span id="quoteStageCountRequote" class="folder-count"></span></button>
         <button type="button" class="btn btn-sm" data-quotestage="closed" style="font-weight:700;">Closed<span id="quoteStageCountClosed" class="folder-count"></span></button>
       </div>
       <div style="margin-bottom:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -14216,6 +14214,9 @@ let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this 
    10 days after text." 'all' is Awaiting Response as it always was, minus anyone owed a text;
    'text' is just the people owed one. */
 let quoteSendSub = 'all';
+/* Which half of the Quotes tab is showing: 'all' (everything still to price and send) or
+   'pictures' (the ones the office has emailed asking for photos). [[QT-58]]. */
+let quoteNewSub = 'all';
 let quoteTextWaitDays = 10;   // follows settings/quoteNudgeAutomation.waitDays once loaded
 /* Days since a quote FIRST went out — the same clock the server's ladder and 30-day archive
    read ([[QT-52]], [[QT-53]]): quoteFirstSentAt, else the earlier of the two send dates. */
@@ -14586,7 +14587,7 @@ function quoteSetupFeeReasonHtml(d){
    ⚠ AND UNAPPROVED RE-QUOTES ARE NOT IN THIS FOLDER AT ALL, which is the other half of
    what she asked for. The only two writes of status:'closed' are converting a quote and
    applying a re-quote, and both require an approval first — quoteStage cannot reach the
-   convert stage without approvalStatus 'approved'. An open re-quote sits in Re-quotes.
+   convert stage without approvalStatus 'approved'. An open re-quote files by its stage like any other ([[QT-59]]).
    Asserted rather than assumed, because "it should not come up until they approve it"
    is a rule whether or not it is currently being broken. */
 function quoteHouseKey(d){
@@ -14663,21 +14664,40 @@ function quoteFolder(d){
      — a re-quote still being written stays in Re-quotes, which is what that tab is for
      now: the ones with something left to do before they go out. */
   if(stage === 'send') return 'send';
-  /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
-     section that says waiting for pictures with a place to push waiting for pictures or
-     something shorter than that for new quotes. This is when we email for pictures of
-     there house."
-     ⚠ A HAND-SET MARK, NEVER DERIVED. Nothing on a quote says an email asking for pictures
-     went out, so the office presses the button when it does (waitingForPhotosAt) and
-     presses Pictures arrived when they come back. Guessing it from "no photo on file"
-     would file every quote that arrives without one here, which is most of them.
-     ⚠ ONLY WHILE THE QUOTE IS STILL OURS TO PRICE AND SEND. Once it has been priced and
-     sent it is waiting on an ANSWER, not on pictures, and it joins Awaiting Response
-     with everybody else — the mark stays on the record and simply stops deciding
-     anything. Closed is still one folder. And a re-quote is a house we already have
-     pictures of, so it keeps its own tab: she asked for this "for new quotes". */
-  if(stage === 'new' && !isRequote(d) && d.waitingForPhotosAt) return 'pictures';
-  return isRequote(d) ? 'requote' : stage;
+  /* ⛔ THERE IS NO RE-QUOTES TAB ([[QT-59]], 2026-10-16). Addie: "can we put requtes with
+     regualr quotes and get rid of the requote tab?" A re-quote files wherever its STAGE says,
+     exactly like a first quote: unpriced or unsent under Quotes, sent under Awaiting Response,
+     approved under Ready to Convert, finished under Closed. The card still says which it is
+     — the "do not build this house again" box, the On file strip and the Apply re-quote
+     button are all decided from the record, not from the tab.
+     ⚠ THIS SUPERSEDES [[QT-01]]'s folder (R-024), and the old reasoning is kept in the
+     comment above because the half that mattered still stands: converting a re-quote UPDATES
+     the customer, and that never depended on which tab the card was in. [[QT-43]] stands
+     too — a sent re-quote is still under Awaiting Response; the only thing that changed is
+     where the UNSENT ones go.
+     ⚠ WAITING FOR PICTURES IS NOT A FOLDER EITHER ([[QT-58]]). It is a sub-section of
+     Quotes, decided by quoteWaitingForPictures on the strip under the stats, so a marked
+     card is still in the Quotes count and leaves the sub-section on its own the moment the
+     quote is sent. */
+  return stage;
+}
+/* ⭐ WAITING FOR PICTURES ([[QT-57]] → [[QT-58]], 2026-10-15/16). Addie: "in quotes can we
+   make a section that says waiting for pictures with a place to push waiting for pictures
+   ... for new quotes. This is when we email for pictures of there house", then "can we make
+   that a sub section somewere right here" — under the stats row, where Awaiting Response
+   keeps its Send text sub-tab.
+   ⚠ A HAND-SET MARK, NEVER DERIVED. Nothing on a quote says an email asking for pictures
+   went out, so the office presses the button when it does (waitingForPhotosAt) and presses
+   Pictures arrived when they come back. Guessing it from "no photo on file" would file every
+   quote that arrives without one here, which is most of them.
+   ⚠ ONLY WHILE THE QUOTE IS STILL OURS TO PRICE AND SEND. Once it has been priced and sent
+   it is waiting on an ANSWER, not on pictures, and it is under Awaiting Response with
+   everybody else — the mark stays on the record and simply stops deciding anything. And a
+   re-quote is a house we already have pictures of: she asked for this "for new quotes".
+   ⚠ PURE, AND ITS OWN FUNCTION, so the strip, the list filter, the card's button and the
+   gate all ask one rule. */
+function quoteWaitingForPictures(d){
+  return !!(d && quoteStage(d) === 'new' && !isRequote(d) && d.waitingForPhotosAt);
 }
 /* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
    Addie, 2026-08-18: "we should be able to find what their old # was no matter what",
@@ -14964,6 +14984,25 @@ function repaintQuoteSendResults(){
 function renderQuoteStageControls(){
   const el = document.getElementById('quoteStageControls');
   if(!el) return;
+  if(quoteStageFilter === 'new'){
+    /* ⭐ QUOTES › WAITING FOR PICTURES ([[QT-58]]). The same shape as Awaiting Response's
+       Send text strip: two sub-tabs, one rule (quoteWaitingForPictures) deciding both the
+       list and the counts, so the number beside the sub-tab and the cards under it agree. */
+    const inNew = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'new'; });
+    const waiting = inNew.filter(function(q){ return quoteWaitingForPictures(q.data); }).length;
+    el.innerHTML =
+      '<div style="display:flex; gap:8px; margin-bottom:10px;">'+
+        '<button type="button" class="btn btn-sm '+(quoteNewSub === 'all' ? 'btn-gold' : 'btn-outline')+'" data-quotenewsub="all">Quotes ('+(inNew.length - waiting)+')</button>'+
+        '<button type="button" class="btn btn-sm '+(quoteNewSub === 'pictures' ? 'btn-gold' : 'btn-outline')+'" data-quotenewsub="pictures">Waiting for pictures ('+waiting+')</button>'+
+      '</div>'+
+      (quoteNewSub === 'pictures'
+        ? '<div class="rtext" style="color:var(--slate); margin-top:-4px; margin-bottom:6px;">The ones you have emailed asking for photos of the house. Press <b>Pictures arrived</b> on a card to bring it back under Quotes.</div>'
+        : '');
+    el.querySelectorAll('[data-quotenewsub]').forEach(function(b){
+      b.addEventListener('click', function(){ quoteNewSub = b.dataset.quotenewsub; renderQuotesList(); });
+    });
+    return;
+  }
   if(quoteStageFilter === 'send'){
     const owed = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send' && quoteNeedsText(q.data); });
     const sendAll = quotesCache.filter(function(q){ return quoteFolder(q.data) === 'send'; }).length - owed.length;
@@ -16188,28 +16227,23 @@ async function wireSweepClear(found){
     goBtn.disabled = false;
   });
 })();
-/* ⚠ THE RE-QUOTES TAB NEEDS A CUSTOMER BEHIND THE CARD, so that one builds a test
-   customer as well and links the two. Everywhere else a bare quote is the real thing. */
+/* ⚠ IT USED TO BUILD A TEST CUSTOMER TOO, for the Re-quotes tab, so the card had a record
+   to point at. That tab is gone ([[QT-59]]) and so is that branch — a bare quote is the real
+   thing in every section left. */
 document.getElementById('qBuildTestBtn').addEventListener('click', async function(){
   const btn = this;
-  const stage = quoteStageFilter;
-  const label = ({new: 'Quotes', pictures: 'Waiting for pictures', send: 'Awaiting Response',
-                  form: 'Ready to Convert', requote: 'Re-quotes', closed: 'Closed'})[stage] || stage;
+  /* The sub-section counts as the section: on Quotes › Waiting for pictures the card arrives
+     already marked. [[QT-58]]. ⚠ There is no way to build a test RE-QUOTE any more — the tab
+     that chose it went with [[QT-59]]; a real one is raised off a customer. */
+  const stage = (quoteStageFilter === 'new' && quoteNewSub === 'pictures') ? 'pictures' : quoteStageFilter;
+  const label = ({new: 'Quotes', pictures: 'Quotes › Waiting for pictures', send: 'Awaiting Response',
+                  form: 'Ready to Convert', closed: 'Closed'})[stage] || stage;
   if(!confirm('Build a test customer in ' + label + '?' + '\n\n' +
     'Test \u00b7 3853912235 \u00b7 highlightingutah@gmail.com \u00b7 $250 \u00b7 125 ft \u00b7 Warm White' +
     '\n\nIt is a real record so it behaves like the real thing. Delete it when you are done.')) return;
   btn.disabled = true;
   try{
     const fields = testQuoteCreateFields();
-    if(stage === 'requote'){
-      /* Built first, because the quote has to point at it. */
-      const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
-        TEST_QUOTE_BASE, {housePrice: 250, measuredFeet: 125, rsvpStatus: 'yes',
-          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
-          scheduled: false, createdAt: serverTimestamp()}));
-      fields.existingCustomerId = cust.id;
-      fields.existingCustomerNumber = '';
-    }
     fields.createdAt = serverTimestamp();
     /* Created plain, because that is all the rules allow — see testQuoteCreateFields. */
     const made = await addDoc(collection(db,'quotes'), fields);
@@ -16321,13 +16355,11 @@ function renderQuotesList(){
   }
   const stageTabsEl = document.getElementById('quoteStageTabs');
   if(stageTabsEl){
-    const stageCounts = {new:0, pictures:0, send:0, form:0, requote:0, closed:0};
+    const stageCounts = {new:0, send:0, form:0, closed:0};
     quotesCache.forEach(function(item){ stageCounts[quoteFolder(item.data)]++; });
     document.getElementById('quoteStageCountNew').textContent = ' (' + stageCounts.new + ')';
-    document.getElementById('quoteStageCountPictures').textContent = ' (' + stageCounts.pictures + ')';
     document.getElementById('quoteStageCountSend').textContent = ' (' + stageCounts.send + ')';
     document.getElementById('quoteStageCountForm').textContent = ' (' + stageCounts.form + ')';
-    document.getElementById('quoteStageCountRequote').textContent = ' (' + stageCounts.requote + ')';
     document.getElementById('quoteStageCountClosed').textContent = ' (' + stageCounts.closed + ')';
     stageTabsEl.querySelectorAll('[data-quotestage]').forEach(function(btn){
       const active = btn.dataset.quotestage === quoteStageFilter;
@@ -16344,6 +16376,11 @@ function renderQuotesList(){
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteFolder(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
+  /* ⭐ [[QT-58]]: a quote marked waiting for pictures sits under Quotes › Waiting for pictures,
+     not under Quotes, until the office says they arrived. One rule decides both halves. */
+  if(quoteStageFilter === 'new'){
+    filtered = filtered.filter(item => (quoteNewSub === 'pictures') === quoteWaitingForPictures(item.data));
+  }
   if(quoteStageFilter === 'send'){
     /* ⭐ NOTHING IS FOLDED AWAY HERE ANY MORE (2026-08-25). This tab used to be a
        to-do list of quotes to send, so the ones already sent were hidden behind a
@@ -16380,11 +16417,11 @@ function renderQuotesList(){
   }
   if(!filtered.length){
     const emptyMsg = {
-      new: 'Nothing here to price or send.',
-      pictures: 'Nobody is waiting on pictures. Press Waiting for pictures on a quote in Quotes after you email them asking for photos of the house, and it moves here.',
+      new: quoteNewSub === 'pictures'
+        ? 'Nobody is waiting on pictures. Press Waiting for pictures on a quote after you email them asking for photos of the house, and it moves here.'
+        : 'Nothing here to price or send.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
-      requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
       closed: showArchivedQuotes ? 'Nothing archived.' : 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
@@ -17930,15 +17967,6 @@ function testQuoteStageUpdates(stage){
     f.approvedByOffice = true;
     return f;
   }
-  /* Re-quotes: needs a customer to point at, which the caller fills in — a re-quote
-     with no live customer behind it is an ordinary quote and lands in the wrong tab. */
-  if(stage === 'requote'){
-    f.approvalStatus = 'pending';
-    f.requoteCount = 1;
-    f.requoteFrom = {price: 250, status: 'approved'};
-    f.requoteReason = 'Test re-quote';
-    return f;
-  }
   /* Closed: finished, however it finished. */
   f.approvalStatus = 'approved';
   f.status = 'closed';
@@ -19278,9 +19306,10 @@ function renderQuoteRows(filtered){
     const item = quotesCache.find(q => q.id === id);
     if(!item) return;
     Object.assign(item.data, patch);
-    /* quoteFolder, not quoteStage: pricing a re-quote keeps it in Re-quotes,
-       and sending the card to a tab it is not in is the disappearing-card bug
-       this whole function exists to prevent. */
+    /* quoteFolder, not quoteStage, so the card is sent to the tab the LIST will file it
+       in — sending it to a tab it is not in is the disappearing-card bug this whole
+       function exists to prevent. (Since [[QT-59]] the two agree, and this is what keeps
+       them agreeing if they ever differ again.) */
     quoteStageFilter = quoteFolder(item.data);
     renderQuotesList();
   }
@@ -19645,8 +19674,9 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.waitphotos;
       try{
         await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: serverTimestamp()});
+        quoteNewSub = 'pictures';
         followQuoteToItsStage(id, {waitingForPhotosAt: new Date()});
-        toast('Moved to Waiting for pictures.');
+        toast('Moved to Quotes \u203a Waiting for pictures.');
       } catch(err){
         console.error('Could not mark the quote as waiting for pictures:', err);
         toast('Could not move it \u2014 ' + ((err && err.message) || err));
@@ -19658,6 +19688,7 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.gotphotos;
       try{
         await updateDoc(doc(db,'quotes', id), {waitingForPhotosAt: null});
+        quoteNewSub = 'all';
         followQuoteToItsStage(id, {waitingForPhotosAt: null});
         toast('Back in Quotes.');
       } catch(err){
@@ -19762,12 +19793,12 @@ function renderQuoteRows(filtered){
       if(!c) return toast('That customer is no longer on file.');
       const cd = c.data || {};
       if(!confirm('Treat this quote as ' + (cd.name || 'this customer') + (cd.customerNumber ? ' #' + cd.customerNumber : '') +
-        ' moving to the new address?\n\nIt moves to Re-quotes as an address change. Converting it then updates their existing record ' +
+        ' moving to the new address?\n\nIt becomes an address-change re-quote, still under Quotes. Converting it then updates their existing record ' +
         '\u2014 it does not make a second customer.')) return;
       btn.disabled = true;
       try{
         await updateDoc(doc(db, 'quotes', qid), quoteLinkToCustomerUpdates(c));
-        toast('Linked to ' + (cd.name || 'their record') + ' \u2014 it is in Re-quotes now.');
+        toast('Linked to ' + (cd.name || 'their record') + ' \u2014 it is an address-change re-quote now.');
       }catch(err){
         btn.disabled = false;
         console.error('Could not link the quote to the customer:', err);

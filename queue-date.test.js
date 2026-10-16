@@ -79,7 +79,9 @@ const QUEUE_SITES = [
      nothing was made for them and a crew would arrive at a house with no lights for it.
      Fixed and declared in the same change; it is a real queueing place, not an exception. */
   { file: 'employee.html', fn: 'ecSaveBtn handler' },
-  { file: 'admin.html', fn: 'qBuildTestBtn handler' },
+  /* ⛔ 'qBuildTestBtn handler' LEFT THIS LIST 2026-10-16 ([[QT-59]]): its Re-quotes branch
+     built a test customer and queued it; the Re-quotes tab is gone and so is the branch.
+     Written down rather than silently dropped, per the NAMED-NOT-COUNTED rule above. */
   { file: 'admin.html', fn: 'buildTestPerson' },
   { file: 'admin.html', fn: 'routeAddressForm handler' },
   { file: 'admin.html', fn: 'rbApplyTickedAdds' },
