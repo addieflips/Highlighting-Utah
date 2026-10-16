@@ -79222,8 +79222,43 @@ function renderImportedAt(){
 function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','waiting','owes','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
 function switchTab(name){activeTab=name;syncTabs();renderActive();}
 /* ---------- persistence (Firestore) ---------- */
+/* ⛔⛔ [[SCH-138]] A PAGE OLDER THAN THE PLAN NEVER SAVES IT (2026-10-16). Dax: "the hang tomorrow button broke so im assuming a
+   lot of stuff broke so figure out what happened make sure its built in to be impossible to break". What happened: the check
+   ([[SCH-135]]) worked and saved — but an admin page opened BEFORE that update was still running on another screen, and the
+   plan is saved whole. That old page did not know `crewHeld` existed, so its next save (a tick, a redraw, the five-minute
+   sync) wrote the plan back without it, and the check was gone with nothing said. Any new field on the plan had the same hole.
+   So the plan carries PLAN_SCHEMA, and a page that sees a plan from a NEWER schema than its own stops saving on the spot and
+   reloads itself into the new code. ⚠ BUMP PLAN_SCHEMA WHENEVER serialize() GAINS OR LOSES A FIELD on the plan or a day —
+   schedule-v2.test.js (38.x) fingerprints serialize() and fails the build until you do. Houses are saved whole, so a new
+   house field needs no bump. ⚠ A page from before this guard existed cannot be stopped from here: it must be reloaded once. */
+const PLAN_SCHEMA = 2;
+let PLAN_PAGE_OUTDATED = false;
+function planSchemaOf(o){ const n = Math.floor(Number(o && o.schema)); return n > 0 ? n : 1; }
+function planIsNewerThanPage(o){ return planSchemaOf(o) > PLAN_SCHEMA; }
+function planPageOutdated(o){
+  if(PLAN_PAGE_OUTDATED) return true;
+  PLAN_PAGE_OUTDATED = true;
+  clearTimeout(saveTimer); savePending = false;
+  console.error('[HU] this admin page is older than the schedule (plan schema ' + planSchemaOf(o) + ', page ' + PLAN_SCHEMA +
+    ') — it will not save the schedule, and reloads to the new version');
+  try{ const n = RT.getElementById('saveNote'); if(n) n.textContent = '⚠ This page is out of date — reloading, so it cannot overwrite the schedule'; }catch(e){ /* the note is decoration; the flag is the guard */ }
+  try{ toast('This page is out of date — it is reloading to the new version so it cannot undo anybody’s changes'); }catch(e){ /* same */ }
+  planReloadWhenIdle();
+  return true;
+}
+/* Reloads at once unless somebody is typing — then it waits, and asks again every ten seconds. Saves are already stopped. */
+function planReloadWhenIdle(){
+  if(typeof location === 'undefined' || !location || typeof location.reload !== 'function' || typeof document === 'undefined') return;
+  setTimeout(function again(){
+    let a = document.activeElement;
+    while(a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    const typing = a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName || '') || a.isContentEditable);
+    if(typing){ setTimeout(again, 10000); return; }
+    location.reload();
+  }, 2500);
+}
 function serialize(){
-  return {v:1,baseStart:isoOf(BASE_START),globalDelta,takeDelta,fixRouteSeq,
+  return {v:1,schema:PLAN_SCHEMA,baseStart:isoOf(BASE_START),globalDelta,takeDelta,fixRouteSeq,
     /* When the CSV this plan came from was imported. Nothing on this tab said
        the data was a SNAPSHOT of a file rather than live customer records, so
        a plan built from a months-old export looked exactly like today's. */
@@ -83619,7 +83654,7 @@ function hydrate(o){
   try{ refreshLockedDates(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
   selSchedule=installDays()[0]?installDays()[0].id:null;selFix=fixerRoutes()[0]?fixerRoutes()[0].id:null;selTake=takedownDays()[0]?takedownDays()[0].id:null;
 }
-function scheduleSave(){clearTimeout(saveTimer);savePending=true;RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
+function scheduleSave(){if(PLAN_PAGE_OUTDATED)return;clearTimeout(saveTimer);savePending=true;RT.getElementById('saveNote').textContent='saving…';saveTimer=setTimeout(saveNow,1500);}
 /* ⭐ SCHEDULE V2 ([[SCH-102]]): EVERY SAVED PLAN IS MIRRORED ONTO THE CUSTOMER RECORDS, so a
    day moved by the five-minute sync, a pin, a new customer placed, or a house moved by hand
    reaches the customer's own record (and their portal) without anybody pressing anything.
@@ -83647,7 +83682,7 @@ let planSyncedKey=null, planLiveStop=null;
 let savePending=false;
 function planKey(o){
   return JSON.stringify(o, function(k,v){
-    if(v && typeof v==='object' && !Array.isArray(v)){ const out={}; Object.keys(v).sort().forEach(function(x){ out[x]=v[x]; }); return out; }
+    if(v && typeof v==='object' && !Array.isArray(v)){ const out={}; Object.keys(v).sort().forEach(function(x){ if(v===o && x==='schema') return; out[x]=v[x]; }); return out; }   /* [[SCH-138]] the page's version is not a change to the schedule */
     return v;
   });
 }
@@ -83658,6 +83693,7 @@ function followPlanLive(){
       /* Our own write echoing back, or nothing there at all: nothing to take. */
       if(!s.exists() || (s.metadata && s.metadata.hasPendingWrites)) return;
       const data=s.data(), k=planKey(data);
+      if(planIsNewerThanPage(data)){ planPageOutdated(data); return; }   // [[SCH-138]]
       if(k===planSyncedKey) return;
       const mine=planKey(serialize());
       if(k===mine){ planSyncedKey=k; return; }
@@ -83685,6 +83721,7 @@ function followPlanLive(){
 }
 async function saveNow(){
   savePending=false;
+  if(PLAN_PAGE_OUTDATED) return;   // [[SCH-138]] an out-of-date page never writes the plan
   const data=planDropUndefined(serialize()), k=planKey(data);
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
@@ -83771,6 +83808,7 @@ function cancelReplace(){
 }
 async function loadPlan(){
   try{const s=await getDoc(PLAN_REF());
+    if(s.exists()&&planIsNewerThanPage(s.data())){planPageOutdated(s.data());return;}   // [[SCH-138]]
     if(s.exists()){hydrate(s.data());planSyncedKey=planKey(s.data());loaded=true;showDashboard();syncTabs();renderAll();followPlanLive();
       /* [[SCH-124]] first open of the morning — once the customers are in (it waits for them itself) */
       setTimeout(function(){ try{ maybeMorningRecalc(); }catch(err){ console.error('[HU] morning recalculate failed',err); } },15000);
