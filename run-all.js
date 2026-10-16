@@ -22752,44 +22752,59 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
   const admin = read("admin.html");
 
   /* ---- the folder ---- */
-  check('S65', 'there is a Re-quotes tab',
-    /data-quotestage="requote"/.test(admin) && /id="quoteStageCountRequote"/.test(admin),
-    'the owner asked for a place separate from quotes; a filter nobody can see is not one');
-  check('S65', 'and its count is filled in like the others',
-    admin.indexOf("getElementById('quoteStageCountRequote').textContent") > 0,
-    'a folder with no number beside it is a folder nobody opens');
+  /* ⛔ THERE IS NO RE-QUOTES TAB ([[QT-59]], 2026-10-16). Addie: "can we put requtes with
+     regualr quotes and get rid of the requote tab?" These two checks used to hold the tab
+     in place ("the owner asked for a place separate from quotes") — the same owner asked
+     for it to go, so R-024 applies and they assert the reverse. The UPDATES half of this
+     suite, below, is untouched: converting a re-quote never depended on the tab. */
+  check('S65', 'there is no Re-quotes tab any more',
+    !/data-quotestage="requote"/.test(admin) && !/quoteStageCountRequote/.test(admin),
+    'she asked for re-quotes to sit with regular quotes and the tab to go');
+  check('S65', 'and the stage counts no longer carry it',
+    /const stageCounts = \{new:0, send:0, form:0, closed:0\};/.test(admin),
+    'a count for a tab that is not drawn is a key nothing reads');
 
   /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
      section that says waiting for pictures with a place to push waiting for pictures or
      something shorter than that for new quotes. This is when we email for pictures of
      there house." A hand-set mark on the quote (waitingForPhotosAt), a tab of its own,
      and a way back. The folder rule is RUN below; these hold the tab and the two writers. */
-  check('S65', 'there is a Waiting for pictures tab',
-    /data-quotestage="pictures"/.test(admin) && /id="quoteStageCountPictures"/.test(admin),
-    'she asked for a section; a folder rule with no tab is a card that vanishes');
-  check('S65', 'and its count is filled in with the others',
-    admin.indexOf("getElementById('quoteStageCountPictures').textContent") > 0 &&
-    /const stageCounts = \{new:0, pictures:0,/.test(admin),
-    'a tab whose count is never written reads as empty whatever is in it');
+  /* ⭐ A SUB-SECTION OF QUOTES, NOT A TAB ([[QT-58]], 2026-10-16). Addie, the day after:
+     "can we make that a sub section somewere right here" — the strip under the stats,
+     where Awaiting Response keeps Send text. So the tab is gone and the rule moved into
+     quoteWaitingForPictures, which the strip, the list and the card all ask. */
+  check('S65', 'Waiting for pictures is a sub-tab under Quotes, not a tab of its own',
+    !/data-quotestage="pictures"/.test(admin) && !/quoteStageCountPictures/.test(admin) &&
+    /data-quotenewsub="all"/.test(admin) && /data-quotenewsub="pictures"/.test(admin),
+    'she asked for a sub-section where the Send text one sits');
+  check('S65', 'and the list is split by the one rule',
+    /if\(quoteStageFilter === 'new'\)\{\s*\r?\n\s*filtered = filtered\.filter\(item => \(quoteNewSub === 'pictures'\) === quoteWaitingForPictures\(item\.data\)\);/.test(admin),
+    'the strip and the list must ask the same function, or the count and the cards disagree');
+  check('S65', 'the strip counts with the same rule',
+    /quoteWaitingForPictures\(q\.data\); \}\)\.length;/.test(admin),
+    'a second way of counting is how a sub-tab says 3 and shows 2');
+  check('S65', 'Build Test Customer builds into the sub-section that is open',
+    /const stage = \(quoteStageFilter === 'new' && quoteNewSub === 'pictures'\) \? 'pictures' : quoteStageFilter;/.test(admin),
+    'on Quotes › Waiting for pictures the test card has to arrive marked, or the button lands it on the other half');
   check('S65', 'the card offers Waiting for pictures, and a way back',
     /data-waitphotos="'\+item\.id\+'"/.test(admin) && /data-gotphotos="'\+item\.id\+'"/.test(admin),
     'a folder nothing can file into is an empty tab');
   check('S65', 'and only where pressing it would move the card',
     /\(\(quoteStage\(d\) === 'new' && !isRequote\(d\)\)\s*\r?\n\s*\? \(d\.waitingForPhotosAt/.test(admin),
     'the button and the folder rule must read the same two conditions, or a press moves nothing');
-  check('S65', 'pressing it stamps the mark and follows the card to its tab',
+  check('S65', 'pressing it stamps the mark and follows the card to its sub-section',
     /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: serverTimestamp\(\)\}\)/.test(admin) &&
-    /followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
-    'a write with no local mirror leaves the office on a tab the card has left');
+    /quoteNewSub = 'pictures';\s*\r?\n\s*followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
+    'a write with no local mirror leaves the office on a half of the tab the card has left');
   check('S65', 'and Pictures arrived clears it the same way',
     /* ⚠ THE WRITE ITSELF, NOT THE NAME. A red-check that emptied the updateDoc passed the
        first draft, because the local mirror on the next line spells the same object. */
     /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: null\}\)/.test(admin) &&
-    /followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
+    /quoteNewSub = 'all';\s*\r?\n\s*followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
     'a mark with no way off leaves a quote waiting for pictures for ever');
-  check('S65', 'the empty tab says how a card gets there',
-    /pictures: 'Nobody is waiting on pictures\./.test(admin),
-    'an empty tab with no instruction reads as broken');
+  check('S65', 'the empty sub-section says how a card gets there',
+    /\? 'Nobody is waiting on pictures\. Press Waiting for pictures/.test(admin),
+    'an empty list with no instruction reads as broken');
 
   {
     const at = admin.indexOf('function quoteFolder(');
@@ -22801,8 +22816,21 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         else if (admin[i] === '}') { d--; if (!d) { src = admin.slice(at, i + 1); break; } }
       }
     }
+    /* The pictures rule is its own function now ([[QT-58]]); lifted the same way. */
+    let picSrc = '';
+    {
+      const at2 = admin.indexOf('function quoteWaitingForPictures(');
+      if (at2 >= 0) {
+        let d = 0;
+        for (let i = admin.indexOf('{', at2); i < admin.length; i++) {
+          if (admin[i] === '{') d++;
+          else if (admin[i] === '}') { d--; if (!d) { picSrc = admin.slice(at2, i + 1); break; } }
+        }
+      }
+    }
     check('S65', 'quoteFolder exists', !!src);
-    if (src) {
+    check('S65', 'quoteWaitingForPictures exists', !!picSrc);
+    if (src && picSrc) {
       const sb = {};
       new Function(
         'function quoteStage(d){' +
@@ -22812,28 +22840,29 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         '  return "send";' +
         '}' +
         'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }' +
-        src + 'this.f = quoteFolder;'
+        src + picSrc + 'this.f = quoteFolder; this.w = quoteWaitingForPictures;'
       ).call(sb);
-      const f = sb.f;
+      const f = sb.f, w = sb.w;
 
       check('S65', 'an ordinary quote keeps the folder its stage says',
         f({}) === 'new' && f({quotedPrice: 400}) === 'send' &&
         f({quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'diverting re-quotes must not move anybody else');
 
-      /* ⭐ WAITING FOR PICTURES ([[QT-57]]) — the folder rule, run. */
-      check('S65', 'a new quote marked waiting for pictures is filed there',
-        f({waitingForPhotosAt: 1}) === 'pictures' && f({}) === 'new',
-        'the mark is the only thing that files a card there, and nothing else must');
+      /* ⭐ WAITING FOR PICTURES ([[QT-57]] → [[QT-58]]) — the rule, run. The mark never
+         changes the FOLDER now; it decides which half of Quotes the card is under. */
+      check('S65', 'a new quote marked waiting for pictures stays in the Quotes folder and is flagged',
+        f({waitingForPhotosAt: 1}) === 'new' && w({waitingForPhotosAt: 1}) === true && w({}) === false,
+        'the mark is the only thing that puts a card under the sub-section, and nothing else must');
       check('S65', 'and once priced and sent it waits with everybody else',
-        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' &&
+        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' && w({waitingForPhotosAt: 1, quotedPrice: 400}) === false &&
         f({waitingForPhotosAt: 1, quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'a sent quote is waiting on an answer, not on pictures');
-      check('S65', 'a re-quote keeps its own tab whatever the mark says',
-        f({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === 'requote',
+      check('S65', 'a re-quote is never under Waiting for pictures whatever the mark says',
+        w({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === false,
         'she asked for this for new quotes; a re-quoted house is one we already have pictures of');
       check('S65', 'and a closed one is still history',
-        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' &&
+        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' && w({waitingForPhotosAt: 1, status: 'closed'}) === false &&
         f({waitingForPhotosAt: 1, approvalStatus: 'declined'}) === 'closed',
         'Closed is one folder');
 
@@ -22849,16 +22878,23 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
          Its reasoning was that a priced re-quote must not "fall back into the ordinary
          pipeline half way through", which is right about CONVERTING — that is why the
          'form' stage below still stays in Re-quotes — and was wrong about chasing. */
-      check('S65', 'an open re-quote stays in Re-quotes until it has gone out',
-        f({existingCustomerId: 'c1'}) === 'requote' &&
-        f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
-        'unsent, and ready-to-convert, are both jobs for us rather than waits on the customer');
+      /* ⛔ REPOINTED AGAIN 2026-10-16 ([[QT-59]]): there is no Re-quotes folder. The
+         sentence that mattered — exactly one folder, never two — still holds; a re-quote
+         now files by its stage like a first quote, and the card says which it is. */
+      /* ⚠ The unpriced case only: this sandbox's quoteStage MIRROR files any priced card as
+         sent, so priced-but-unsent is proved against the REAL function in S337 instead. */
+      check('S65', 'an open re-quote files under Quotes with every other unsent quote',
+        f({existingCustomerId: 'c1'}) === 'new',
+        'she asked for re-quotes to sit with regular quotes');
+      check('S65', 'an approved one reaches Ready to Convert like a first quote',
+        f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
+        'the Apply step is on the card, not on the tab, so nothing is lost by filing it here');
       check('S65', 'and a sent one joins Awaiting Response',
-        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'send',
-        'a re-quote waiting on a reply is chased from the same list as everybody else');
+        f({existingCustomerId: 'c1', quotedPrice: 400, quoteManuallySent: true}) === 'send',
+        'a re-quote waiting on a reply is chased from the same list as everybody else ([[QT-43]] stands)');
       check('S65', 'including one raised by hand off an existing quote',
-        f({requoteCount: 1, quotedPrice: 400}) === 'send' &&
-        f({requoteCount: 1}) === 'requote',
+        f({requoteCount: 1, quotedPrice: 400, quoteManuallySent: true}) === 'send' &&
+        f({requoteCount: 1}) === 'new',
         'both kinds of re-quote are the same job and must move together');
 
       /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
@@ -29544,7 +29580,7 @@ suite('Suite 113. Build Test Customer');
     'without a description it would be saved with needsLightBuild false and never ' +
     'reach the build queue, which is half of what she is testing');
   check('S113', 'and every priced stage carries the $250',
-    ['send', 'form', 'requote', 'closed'].every(function(st){
+    ['send', 'form', 'closed'].every(function(st){
       return fields(st, base).quotedPrice === 250;
     }));
 
@@ -29589,7 +29625,7 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'Quotes needs no second write, because that is where a new one lands',
       Object.keys(staged('new')).length === 0);
     check('S113', 'and every other section does move the card',
-      ['pictures', 'send', 'form', 'requote', 'closed'].every(function(st){
+      ['pictures', 'send', 'form', 'closed'].every(function(st){
         return Object.keys(staged(st)).length > 0;
       }),
       'a stage with no updates leaves the card sitting in Quotes');
@@ -29607,30 +29643,29 @@ suite('Suite 113. Build Test Customer');
       /if\(Object\.keys\(staged\)\.length\)/.test(blk),
       'an empty update is a write for nothing');
   }
-  /* ⚠ AND THE ROUND TRIP. */
-  const stages = ['new', 'pictures', 'send', 'form', 'requote', 'closed'];
+  /* ⚠ AND THE ROUND TRIP. ⛔ 'requote' LEFT THIS LIST 2026-10-16 ([[QT-59]]) with the tab
+     that chose it; 'pictures' is a sub-section of Quotes ([[QT-58]]), so its card files in
+     the Quotes FOLDER and is flagged by quoteWaitingForPictures. */
+  const waiting = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteWaitingForPictures') + 'return quoteWaitingForPictures(d);');
+  const stages = ['new', 'pictures', 'send', 'form', 'closed'];
   stages.forEach(function(st){
     const f = fields(st, base);
-    /* Re-quotes is the one that needs a customer behind it, which the button builds
-       first and links — a re-quote with nothing behind it is an ordinary quote. */
-    if(st === 'requote') f.existingCustomerId = 'c1';
+    const want = st === 'pictures' ? 'new' : st;
+    const got = folder(f, function(){ return false; }, function(){ return true; });
     check('S113', 'a test card built in ' + st + ' is filed in ' + st,
-      folder(f, function(){ return false; }, function(){ return true; }) === st,
-      'got ' + folder(f, function(){ return false; }, function(){ return true; }) +
-      ' \u2014 the point of the button is a card that arrives in the tab you are on');
+      got === want && (st === 'pictures') === waiting(f, function(){ return false; }, function(){ return true; }),
+      'got ' + got + (st === 'pictures' ? ' (waiting: ' + waiting(f, function(){ return false; }, function(){ return true; }) + ')' : '') +
+      ' \u2014 the point of the button is a card that arrives in the section you are on');
   });
 
-  /* ⚠ THE FOLDER IS NOT WHY THE CUSTOMER MATTERS. requoteCount alone files the card
-     under Re-quotes — isRequote takes either signal — so my first check here asserted
-     something untrue and went red, which is the check doing its job. What actually needs
-     the customer is CONVERTING: showConvertQuoteChoice only diverts to the update popup
-     when the quote still points at a live record, and without one the test card would
-     build a second customer instead of updating the first. That is the half of the
-     re-quote flow she would be testing. */
-  check('S113', 'the card is filed on the re-quote count alone',
-    folder(fields('requote', base), function(){ return false; }, function(){ return true; }) === 'requote',
-    'isRequote takes either the count or the customer link');
-  check('S113', 'but converting only updates when a live customer is behind it',
+  /* ⚠ CONVERTING is what needs a live customer behind a re-quote: showConvertQuoteChoice
+     only diverts to the update popup when the quote still points at a live record, and
+     without one a card would build a second customer instead of updating the first. The
+     test button no longer builds a re-quote ([[QT-59]]), but the rule it leaned on is
+     still the one that matters. */
+  check('S113', 'converting only updates when a live customer is behind it',
     /const stillACustomer = d\.existingCustomerId/.test(extractFn(admin, 'showConvertQuoteChoice')) &&
     /if\(stillACustomer\)\{ showApplyRequoteChoice/.test(admin),
     'without the link the test card builds a SECOND customer, which is the mistake ' +
@@ -29669,15 +29704,16 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'and something is listening to it', !!blk && /addEventListener\('click'/.test(blk),
       'a button that does nothing looks exactly like one that works');
     check('S113', 'it builds for the section that is open',
-      /const stage = quoteStageFilter;/.test(blk),
-      'one button on five tabs is only useful if it knows which one it is on');
+      /const stage = \(quoteStageFilter === 'new' && quoteNewSub === 'pictures'\) \? 'pictures' : quoteStageFilter;/.test(blk),
+      'one button on four tabs and a sub-section is only useful if it knows which one it is on');
     check('S113', 'it asks first, naming the section',
       /confirm\(/.test(blk) && /Build a test customer in/.test(blk),
       'it writes a real record, so it says so before it does');
-    check('S113', 'and the Re-quotes one builds the customer it points at',
-      /if\(stage === 'requote'\)/.test(blk) && /jobAddresses/.test(blk) &&
-      /fields\.existingCustomerId = cust\.id;/.test(blk),
-      'a re-quote card with no customer behind it lands in the wrong tab');
+    /* ⛔ The Re-quotes branch (a test customer built first and linked) went with the tab
+       ([[QT-59]]); asserted gone so it does not come back as dead code. */
+    check('S113', 'and it no longer builds a test customer for a Re-quotes tab that is gone',
+      !/if\(stage === 'requote'\)/.test(blk) && !/fields\.existingCustomerId = cust\.id;/.test(blk),
+      'a branch nothing can reach is the copy that quietly falls behind');
     check('S113', 'and a failure says what failed',
       /console\.error\('Could not build the test customer:'/.test(blk),
       'the same silence that hid the Edit Customer save for two days');
@@ -47097,9 +47133,11 @@ suite('263. Priced is not sent - the card stays in Quotes');
      that is exactly what Addie changed: "Everything on requotes that is awaiting response
      should go under awaiting response." Sent is now the whole of what decides it, so the
      two halves are asserted apart rather than the check being dropped. */
-  check('S263', 'an unsent re-quote is still filed under Re-quotes',
-    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote',
-    'nothing has gone out, so nobody is being waited on — that is a job for us');
+  /* ⛔ REPOINTED AGAIN 2026-10-16 ([[QT-59]]): "put requtes with regualr quotes and get rid
+     of the requote tab". Unsent still means a job for us — it is simply under Quotes now. */
+  check('S263', 'an unsent re-quote is filed under Quotes with every other unsent quote',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'new',
+    'nothing has gone out, so nobody is being waited on — that is a job for us, on the Quotes tab');
   check('S263', 'and a sent one is filed under Awaiting Response',
     folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'send',
     'one list of everyone the office is chasing, which is the whole of the ruling');
@@ -63212,13 +63250,15 @@ suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
     F(sentFirst) === 'send',
     'if this changed, the tab it is being moved INTO is what broke');
 
-  /* ⚠ RE-QUOTES WITH SOMETHING LEFT TO DO STAY WHERE THEY ARE — that is what the tab is
-     for now, and moving them would empty it. */
-  check('S337', 'a re-quote that has not gone out yet stays in Re-quotes',
-    F(unsentRequote) === 'requote',
+  /* ⛔ RE-QUOTES WITH SOMETHING LEFT TO DO ARE UNDER QUOTES ([[QT-59]], 2026-10-16). This
+     read "stay in Re-quotes — that is what the tab is for now"; the tab is gone. What is
+     kept is the distinction the two checks drew: unsent is OUR job, so it is never under
+     Awaiting Response. */
+  check('S337', 'a re-quote that has not gone out yet is under Quotes, not Awaiting Response',
+    F(unsentRequote) === 'new',
     'priced but unsent is not waiting on the customer, it is waiting on us');
-  check('S337', 'and so does one nobody has priced',
-    F(newRequote) === 'requote',
+  check('S337', 'and so is one nobody has priced',
+    F(newRequote) === 'new',
     'quoteStage calls that "new" — there is nothing for the customer to answer');
 
   /* ⚠ CLOSED IS STILL ONE FOLDER. History is looked up in one place; splitting it means
