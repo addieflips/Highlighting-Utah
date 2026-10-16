@@ -1588,6 +1588,9 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.8 a plan arriving from another computer is version-checked before it is taken', live.indexOf('planIsNewerThanPage(data)') !== -1 &&
     live.indexOf('planIsNewerThanPage(data)') < live.indexOf('hydrate(data)'));
   check('38.9 and so is the plan loaded when the page opens', load.indexOf('planIsNewerThanPage(') !== -1 && load.indexOf('planIsNewerThanPage(') < load.indexOf('hydrate('));
+  const rl = code('planReloadWhenIdle');
+  check('38.11 it reloads at most once per ten minutes, so a rolled-back site can never reload in a loop', /Date\.now\(\) - last < PLAN_RELOAD_GAP_MS/.test(rl) &&
+    rl.indexOf('PLAN_RELOAD_GAP_MS') < rl.indexOf('location.reload()') && rl.indexOf('sessionStorage.setItem(PLAN_RELOAD_KEY') < rl.indexOf('location.reload()'));
   check('38.10 setDoc on the plan happens in exactly one place (saveNow), so there is no unguarded door', (admin.match(/setDoc\(PLAN_REF\(\)/g) || []).length === 1 &&
     save.indexOf('setDoc(PLAN_REF()') !== -1 && !/updateDoc\(PLAN_REF\(\)/.test(admin));
 }

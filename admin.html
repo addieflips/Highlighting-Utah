@@ -79246,14 +79246,24 @@ function planPageOutdated(o){
   planReloadWhenIdle();
   return true;
 }
-/* Reloads at once unless somebody is typing — then it waits, and asks again every ten seconds. Saves are already stopped. */
+/* Reloads at once unless somebody is typing — then it waits, and asks again every ten seconds. Saves are already stopped.
+   ⚠ ONCE PER TEN MINUTES, NEVER IN A LOOP. A reload that brings back the SAME page (a rolled-back deploy, a browser that will not
+   let go of its copy) would see the newer plan again and reload for ever. The second time it stays put, read-only, and says why. */
+const PLAN_RELOAD_KEY = 'huPlanOutdatedReloadAt', PLAN_RELOAD_GAP_MS = 10 * 60 * 1000;
 function planReloadWhenIdle(){
   if(typeof location === 'undefined' || !location || typeof location.reload !== 'function' || typeof document === 'undefined') return;
+  let last = 0;
+  try{ last = Number(sessionStorage.getItem(PLAN_RELOAD_KEY)) || 0; }catch(e){ /* no storage (private mode): reload anyway, once per page */ }
+  if(Date.now() - last < PLAN_RELOAD_GAP_MS){
+    try{ const n = RT.getElementById('saveNote'); if(n) n.textContent = '⚠ This page is older than the schedule and cannot save it — close every admin tab and open it again'; }catch(e){ /* the note is decoration; saves are already stopped */ }
+    return;
+  }
   setTimeout(function again(){
     let a = document.activeElement;
     while(a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
     const typing = a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName || '') || a.isContentEditable);
     if(typing){ setTimeout(again, 10000); return; }
+    try{ sessionStorage.setItem(PLAN_RELOAD_KEY, String(Date.now())); }catch(e){ /* see above — one reload is still right */ }
     location.reload();
   }, 2500);
 }
