@@ -80190,6 +80190,20 @@ function rebuildSeasonDays(){
      is offered that earlier day now rather than on the next press, so one press settles */
   try{ if(typeof advancePriorityHouses === 'function'){ const p2 = advancePriorityHouses(); if(p2 && p2.moved) prio.moved = prio.moved.concat(p2.moved); } }
   catch(err){ console.error('Could not place the priority customers after the five-mile pass:', err); }
+  /* [[SCH-134]] last of the movers: open October room goes to the Normal Schedule houses waiting in November */
+  let octFill = {moved: []};
+  try{ if(typeof fillOctoberWithAnyTime === 'function') octFill = fillOctoberWithAnyTime(); }
+  catch(err){ console.error('Could not bring the any-time houses forward into October:', err); }
+  /* the November days they left can be short now — fold those (never an October day) and keep the crews within five miles */
+  if(octFill.moved.length){
+    try{ if(typeof mergeShortOpenDays === 'function'){ const m3 = mergeShortOpenDays({sourcesAfter: isoOf(seasonStartDate()).slice(0, 4) + '-10-31'}); if(m3 && m3.merged && m3.merged.length){ shortMerged.merged = shortMerged.merged.concat(m3.merged); const f3 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f3.moved); fiveMile.tail = fiveMile.tail.concat(f3.tail); fiveMile.keptOutlier = f3.keptOutlier; const o2 = fillOctoberWithAnyTime(); octFill.moved = octFill.moved.concat(o2.moved); } } }
+    catch(err){ console.error('Could not fold the short November days after October was filled:', err); }
+  }
+  /* a house brought back from the end of November is not one sent there — the press only names the ones still waiting */
+  if(octFill.moved.length){
+    const back = new Set(octFill.moved.map(function(x){ return x.name; }));
+    fiveMile.tail = fiveMile.tail.filter(function(x){ return !back.has(x.name); });
+  }
   /* ⭐ THE PROMISE, MEASURED ON THE SEASON THIS PRESS JUST BUILT (added 2026-09-04).
      Addie: "if anyone has a confirmed tag they should be scheduled somehow no
      exceptions." Asked here rather than only on the button, because this is the moment
@@ -80241,6 +80255,7 @@ function rebuildSeasonDays(){
              they are the houses that were MOVED UP, not the whole season's history. */
           coldDays:coldDays,
           closedUp:closed.moved.length, closedUpDates:closed.filledDates.slice(0,5), tightened:tightened.swapped.length, shortMerged:shortMerged.merged.length, fiveMileMoved:fiveMile.moved.length, fiveMileTail:fiveMile.tail.length, fiveMileTailNames:fiveMile.tail.slice(0,5).map(function(x){return x.name;}), fiveMileKept:fiveMile.keptOutlier.length, fiveMileKeptNames:fiveMile.keptOutlier.slice(0,5).map(function(x){return x.name+" ("+x.day+")";}),
+          octFilled:octFill.moved.length, octFilledNames:octFill.moved.slice(0,5).map(function(x){return x.name+" ("+x.to+")";}),
           missed:placeable.filter(function(w){return w.missed;}).length,
           rushed:placeable.filter(function(w){return w.rush;}).length,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
@@ -81374,7 +81389,9 @@ function enforceFiveMileOnce(){
   computeDates();
   return res;
 }
-function mergeShortOpenDays(){
+function mergeShortOpenDays(opts){
+  /* opts.sourcesAfter: only fold short days dated after it ([[SCH-134]] — never fold an October day into November) */
+  const sourcesAfter = (opts && opts.sourcesAfter) || '';
   const res = {merged: []};
   if(typeof SEASON === 'undefined' || !Array.isArray(SEASON)) return res;
   const startStr = isoOf(seasonStartDate());
@@ -81393,7 +81410,7 @@ function mergeShortOpenDays(){
   for(let pass = 0; pass < 60; pass++){
     const open = SEASON.filter(function(d){ return d && !d.isFixRoute && !d.isTakedown && isOpen(dsOf(d)); })
       .map(function(d){ return {d: d, ds: dsOf(d), live: (d.houses || []).filter(live)}; });
-    const shorts = open.filter(function(x){ return x.live.length > 0 && x.live.length < minCrew && !x.live.some(function(h){ return String(h.stuck || '').trim(); }); })
+    const shorts = open.filter(function(x){ return (!sourcesAfter || x.ds > sourcesAfter) && x.live.length > 0 && x.live.length < minCrew && !x.live.some(function(h){ return String(h.stuck || '').trim(); }); })
       .sort(function(a, b){ return (a.live.length - b.live.length) || (a.ds < b.ds ? -1 : (a.ds > b.ds ? 1 : 0)); });
     let done = false;
     for(let i = 0; i < shorts.length && !done; i++){
@@ -81420,6 +81437,170 @@ function mergeShortOpenDays(){
     if(!done) break;
   }
   if(typeof computeDates === 'function') computeDates();
+  return res;
+}
+/* ⭐⭐ [[SCH-134]] OCTOBER IS FILLED WITH THE PEOPLE WHO DON'T CARE WHEN, BEFORE NOVEMBER IS (2026-10-15). Dax: "we currently
+   have people for normal schedule in november but we are like out of houses for October so we need to fill those up with
+   people who dont care when first". The live plan after a press: 28 Normal Schedule houses on 6-30 November while 16, 19,
+   20, 26 and 30 October were short and 21-29 October had no day at all. They got there because [[SCH-131]]'s stray step
+   sends a dateless house with no crew near it to the end of November — and it runs BEFORE [[SCH-133]] opens the late
+   October days, so nothing ever offered them those days.
+   So, last of the movers: every live dateless house on an open day after 31 October that may legally go in October (so
+   never a November, named-day, After Thanksgiving or office-dated house — houseMayGoOn decides) is brought forward, most
+   urgent first: (1) onto the earliest open October day where every crew still keeps its five miles with it on
+   (dayHoldsWithHouse), else (2) together with the others near it (five-mile hops, within five miles of the first, up to a
+   crew) onto the earliest open October day that holds with the whole group, else (3) onto an EMPTY October working date
+   opened for the group — outside the lock, and only if no other day moves for it, exactly as [[SCH-133]] opens one.
+   ⛔ The five-mile rule is never broken for this: a house that fits nowhere in October stays where it was.
+   ⛔ Locked, printed, pinned, done, fix and takedown houses never move, and nothing lands on a locked or printed day. */
+function fillOctoberWithAnyTime(){
+  const res = {moved: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const octEnd = seasonStartDate().getFullYear() + '-10-31';
+  if(today >= octEnd) return res;
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8; if(lim === 'crew') return cap; return cap * crewsN; };
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const isOpen = function(d){ const ds = dsOf(d); return ds && ds > today && !d.isFixRoute && !d.isTakedown && !d.printedAt && !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)); };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, custOf(h)) : null; ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); } return ptMemo.get(h); };
+  const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : Infinity; };
+  const octDays = function(){ return SEASON.filter(function(d){ const ds = dsOf(d); return isOpen(d) && ds <= octEnd; }).sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; }); };
+  /* who: a live, unpinned, located house with no last day, on an open day after October, allowed on some October date */
+  const octDates = [];
+  for(let dt = new Date(today.slice(0, 4) * 1, today.slice(5, 7) * 1 - 1, today.slice(8, 10) * 1 + 1); isoOf(dt) <= octEnd; dt = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + 1)){
+    if(typeof isWorkingDay !== 'function' || isWorkingDay(dt)) octDates.push(isoOf(dt));
+  }
+  if(!octDates.length) return res;
+  const cands = [];
+  SEASON.forEach(function(d){
+    if(!isOpen(d) || dsOf(d) <= octEnd) return;
+    (d.houses || []).forEach(function(h){
+      if(!live(h) || ('' + (h.stuck || '')).trim() || !ptOf(h)) return;
+      if((typeof houseDeadline === 'function') && houseDeadline(h)) return;
+      if(!octDates.some(function(ds){ return houseMayGoOn(h, custOf(h), ds, startStr).ok; })) return;
+      cands.push({h: h, from: d});
+    });
+  });
+  cands.sort(function(a, b){
+    const pa = houseInstallPriority(a.h, custOf(a.h), {today: today}), pb = houseInstallPriority(b.h, custOf(b.h), {today: today});
+    return ((typeof pa === 'number' ? pa : 99) - (typeof pb === 'number' ? pb : 99)) || (dsOf(a.from) < dsOf(b.from) ? -1 : (dsOf(a.from) > dsOf(b.from) ? 1 : 0));
+  });
+  const done = new Set();
+  /* ⛔ a house leaves a day only if the crews left behind still keep their five miles — taking one off re-splits the day,
+     and the re-split can strand somebody. A day that did not hold before (the overflow) is not made the excuse. */
+  const leaveOk = function(list){
+    const froms = []; list.forEach(function(c){ if(froms.indexOf(c.from) === -1) froms.push(c.from); });
+    return froms.every(function(d){
+      const mine = list.filter(function(c){ return c.from === d; }).map(function(c){ return c.h; });
+      if(mine.length >= d.houses.filter(live).length) return true;
+      const before = dayHoldsWithHouses(d, []);
+      if(!before) return true;
+      const keep = d.houses.slice();
+      d.houses = d.houses.filter(function(h){ return mine.indexOf(h) === -1; });
+      const after = dayHoldsWithHouses(d, []);
+      d.houses.length = 0; keep.forEach(function(h){ d.houses.push(h); });
+      return after;
+    });
+  };
+  const move = function(c, target){
+    const i = c.from.houses.indexOf(c.h); if(i !== -1) c.from.houses.splice(i, 1);
+    if(c.h.fiveMileTail) delete c.h.fiveMileTail;
+    target.houses.push(c.h); done.add(c.h);
+    res.moved.push({name: c.h.name || '(no name)', from: dsOf(c.from), to: dsOf(target)});
+  };
+  const roomFor = function(d, n){ return d.houses.filter(live).length + n <= capFor(dsOf(d)); };
+  const legalOn = function(list, ds){ return list.every(function(c){ return houseMayGoOn(c.h, custOf(c.h), ds, startStr).ok; }); };
+  /* (1) one at a time onto a day already going out in October */
+  cands.forEach(function(c){
+    const t = octDays().find(function(d){ return roomFor(d, 1) && legalOn([c], dsOf(d)) && dayHoldsWithHouse(d, c.h); });
+    if(t && leaveOk([c])) move(c, t);
+  });
+  /* (2) and (3) the rest, gathered with their neighbours */
+  const openDayOn = function(ds){
+    const taken = new Set(SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown; }).map(dsOf));
+    if(taken.has(ds)) return null;
+    const ids = new Set(SEASON.map(function(x){ return x.id; }));
+    let n = 0; while(ids.has('oa' + n)) n++;
+    const before = new Map(SEASON.map(function(d){ return [d, dsOf(d)]; }));
+    const nd = {id: 'oa' + n, base: daysBetween(new Date(ds.slice(0, 4) * 1, ds.slice(5, 7) * 1 - 1, ds.slice(8, 10) * 1), BASE_START), cascade: 0, pin: null, houses: []};
+    SEASON.push(nd); computeDates();
+    /* ⚠ only if no other day moves: the calendar packs days in order, and a new one can push the rest along */
+    const shifted = SEASON.some(function(d){ return d !== nd && before.has(d) && before.get(d) !== dsOf(d); });
+    if(dsOf(nd) !== ds || shifted){ SEASON.splice(SEASON.indexOf(nd), 1); computeDates(); return null; }
+    return nd;
+  };
+  cands.forEach(function(c){
+    if(done.has(c.h)) return;
+    const group = [c];
+    while(group.length < cap){
+      let best = null, bm = Infinity;
+      cands.forEach(function(x){
+        if(done.has(x.h) || group.indexOf(x) !== -1) return;
+        if(mi(c.h, x.h) > MAX_CREW_RADIUS_MILES) return;
+        let hop = Infinity; group.forEach(function(g){ const m = mi(g.h, x.h); if(m < hop) hop = m; });
+        if(hop > MAX_CREW_HOP_MILES) return;
+        if(mi(c.h, x.h) < bm){ bm = mi(c.h, x.h); best = x; }
+      });
+      if(!best) break;
+      group.push(best);
+    }
+    /* the group may be too big for one day that holds — shrink it from the far end until somewhere takes it */
+    for(let size = group.length; size >= 1; size--){
+      const g = group.slice(0, size);
+      if(!leaveOk(g)) continue;
+      const hs = g.map(function(x){ return x.h; });
+      g.forEach(function(x){ const i = x.from.houses.indexOf(x.h); if(i !== -1) x.from.houses.splice(i, 1); });
+      let target = octDays().find(function(d){ return roomFor(d, hs.length) && legalOn(g, dsOf(d)) && dayHoldsWithHouses(d, hs); }) || null;
+      if(!target){
+        for(let i = 0; i < octDates.length && !target; i++){
+          const ds = octDates[i];
+          if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
+          if(!legalOn(g, ds) || hs.length > capFor(ds)) continue;
+          const nd = openDayOn(ds);
+          if(!nd) continue;
+          if(dayHoldsWithHouses(nd, hs)) target = nd;
+          else { SEASON.splice(SEASON.indexOf(nd), 1); computeDates(); }
+        }
+      }
+      g.forEach(function(x){ x.from.houses.push(x.h); });
+      if(target){ g.forEach(function(x){ move(x, target); }); break; }
+    }
+  });
+  /* (4) a short October day is folded into another October day that holds with all of it — smallest first, so the
+     handful of little groups opened above become as few mornings as the five-mile rule allows ([[SCH-128]]). Every press,
+     not only one that moved somebody: a short October day left by an earlier press is folded in the same way. */
+  let foldedAny = false;
+  {
+    const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+    for(let pass = 0; pass < 40; pass++){
+      const days = octDays();
+      const shorts = days.filter(function(d){ const l = d.houses.filter(live); return l.length && l.length < minCrew && !l.some(function(h){ return ('' + (h.stuck || '')).trim(); }); })
+        .sort(function(a, b){ return a.houses.filter(live).length - b.houses.filter(live).length; });
+      let folded = false;
+      for(let i = 0; i < shorts.length && !folded; i++){
+        const S = shorts[i], hs = S.houses.filter(live);
+        const T = days.find(function(d){ return d !== S && roomFor(d, hs.length) &&
+          hs.every(function(h){ return houseMayGoOn(h, custOf(h), dsOf(d), startStr).ok; }) && dayHoldsWithHouses(d, hs); });
+        if(!T) continue;
+        S.houses = S.houses.filter(function(h){ return hs.indexOf(h) === -1; });
+        hs.forEach(function(h){ T.houses.push(h); res.moved.forEach(function(m){ if(m.name === (h.name || '(no name)') && m.to === dsOf(S)) m.to = dsOf(T); }); });
+        if(!S.houses.length){ SEASON.splice(SEASON.indexOf(S), 1); computeDates(); }
+        folded = true; foldedAny = true;
+      }
+      if(!folded) break;
+    }
+  }
+  if(res.moved.length || foldedAny){
+    SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || d.printedAt || (d.houses || []).length; });
+    if(typeof GEO_SPLIT_CACHE !== 'undefined' && GEO_SPLIT_CACHE.clear) GEO_SPLIT_CACHE.clear();
+    computeDates();
+  }
   return res;
 }
 /* [[SCH-130]] the nearest open day on or before `until` that may legally take `h` and has room — see pullBackPastDeadline. */
@@ -83668,6 +83849,8 @@ RT.addEventListener('click',e=>{const t=e.target;
     /* [[SCH-131]] */
     if(r.fiveMileMoved) parts.push(r.fiveMileMoved+' moved to a crew working within five miles of them');
     if(r.fiveMileTail) parts.push(r.fiveMileTail+' with no crew near them moved to the end of November ('+r.fiveMileTailNames.join(', ')+(r.fiveMileTail>5?'…':'')+')');
+    /* [[SCH-134]] */
+    if(r.octFilled) parts.push(r.octFilled+' Normal Schedule brought forward from November into October ('+r.octFilledNames.join(', ')+(r.octFilled>5?'…':'')+')');
     if(r.fiveMileKept) parts.push('⚠ '+r.fiveMileKept+' with a last day and no crew within five miles before it — left where they are ('+r.fiveMileKeptNames.join(', ')+(r.fiveMileKept>5?'…':'')+')');
     /* ⭐ [[SCH-88]]–[[SCH-91]] — what the takedown rebuild did, and who it left off by
        her ruling. A hung house with no takedown is lights left on a roof, so those

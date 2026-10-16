@@ -36,7 +36,7 @@ module.exports = function makeHarness(liftDeep){
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
     'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
     /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
-    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined'],
+    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined', 'houseDeadline', 'isWorkingDay', 'dayHoldsWithHouse', 'fillOctoberWithAnyTime'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -124,7 +124,7 @@ module.exports = function makeHarness(liftDeep){
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
     '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
-    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses}',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses, houseDeadline: houseDeadline, isWorkingDay: isWorkingDay, dayHoldsWithHouse: dayHoldsWithHouse, fillOctoberWithAnyTime: fillOctoberWithAnyTime}',
     '};'
   ].join('\n');
 
