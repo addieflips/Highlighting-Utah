@@ -1569,8 +1569,8 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
   /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
      older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
-  const RECORDED = {schema: 2,
-    top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalcOn,schema,takeDelta,v',
+  const RECORDED = {schema: 3,
+    top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
     day: 'base,cascade,crewHeld,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
   const top = Object.keys(out).sort().join(',');
   const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });
@@ -1593,6 +1593,32 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
     rl.indexOf('PLAN_RELOAD_GAP_MS') < rl.indexOf('location.reload()') && rl.indexOf('sessionStorage.setItem(PLAN_RELOAD_KEY') < rl.indexOf('location.reload()'));
   check('38.10 setDoc on the plan happens in exactly one place (saveNow), so there is no unguarded door', (admin.match(/setDoc\(PLAN_REF\(\)/g) || []).length === 1 &&
     save.indexOf('setDoc(PLAN_REF()') !== -1 && !/updateDoc\(PLAN_REF\(\)/.test(admin));
+}
+
+suite('SCH-139 The last Recalculate — who, when and what it said — is on every computer');
+{
+  /* Addie, 2026-10-07 (PR #544): make Recalculate "persist and show for every account and computer, not just the one that
+     ran it". The summary rides with the plan, so another computer loading or receiving the plan shows it. */
+  const book = makeBook(60, 6110);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const saved = JSON.parse(JSON.stringify(H.api.serialize()));
+  saved.lastRecalc = {at: '2026-10-16T21:30:00.000Z', by: 'addie@example.com', summary: 'Rebuilt 12 days, 240 houses'};
+  H.api.hydrate(saved);
+  const back = H.api.serialize().lastRecalc;
+  check('39.0 the last Recalculate survives a save and a load on another computer', !!back && back.by === 'addie@example.com' &&
+    back.summary === 'Rebuilt 12 days, 240 houses' && back.at === '2026-10-16T21:30:00.000Z', JSON.stringify(back));
+  const noneBack = (function(){ const s2 = JSON.parse(JSON.stringify(saved)); delete s2.lastRecalc; H.api.hydrate(s2); return H.api.serialize().lastRecalc; })();
+  check('39.1 a plan saved before this existed carries none, and says nothing', noneBack === null);
+  const txtSrc = extractFn(admin, 'lastRecalcText');
+  const txt = txtSrc ? new Function(txtSrc + 'return lastRecalcText;')() : function(){ return ''; };
+  const line = txt({at: '2026-10-16T21:30:00.000Z', by: 'addie@example.com', summary: 'Rebuilt 12 days'});
+  check('39.2 the line says when (Mountain time), who and what', /Last \u2699 Recalculate Oct 16, 3:30\sPM by addie@example\.com: Rebuilt 12 days/.test(line), line);
+  check('39.3 nothing recorded draws nothing', txt(null) === '' && txt({}) === '');
+  const code = function(n){ return (extractFn(admin, n) || '').replace(/\/\*[\s\S]*?\*\//g, ''); };
+  const pressAt = admin.indexOf('recordRecalc(parts);scheduleSave();'), toastAt = admin.indexOf("toast(parts.join(' \u00b7 '));", pressAt);
+  check('39.4 every Recalculate records its summary and saves it, before the toast', pressAt > 0 && toastAt > pressAt && (toastAt - pressAt) < 200);
+  check('39.5 every redraw paints the line', /paintLastRecalc\(\);if\(loaded\)scheduleSave\(\)/.test(code('renderAll')));
+  check('39.6 the line has somewhere to go on the season bar', admin.indexOf('id=\\"lastRecalcNote\\"') !== -1);
 }
 
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');
