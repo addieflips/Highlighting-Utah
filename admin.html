@@ -75034,12 +75034,181 @@ function dayIsPrintedAhead(day){
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
   return isoOf(dt) > today;
 }
+/* ⭐⭐ [[SCH-135]] A CREW'S LIST CHECKED FOR TOMORROW (2026-10-16). Dax: "we need a button where you can check a list and say
+   schedule this one for tomorrow and after you click it it changes to uncheck this crew for tomorrow and if theyre checked
+   they cant be rescheduled until 5 PM the next day where they auto get unchecked". Asked whether the press MOVES a list to
+   tomorrow or only LOCKS one already there: lock only.
+   `day.crewHeld` is {crewIndex: 'YYYY-MM-DD'} — the hang day the hold runs through — saved with the plan. While a hold is on:
+   the day is in LOCKED_DATES even under "Recalculate including the next two days" (the printed rule, [[SCH-120]]), so no
+   automatic mover touches it and its crew split stays frozen; and no hand move takes a house off the held crew's list, puts
+   one onto that day (a new house re-splits every crew on it), shifts the day's date or sends a missed house there.
+   ⚠ PER CREW, AS ASKED: a house on the OTHER crew's list may still be moved off by hand, and it comes off the frozen split
+   too (takeOffPrintedDay), so the held crew keeps exactly the list that was checked.
+   ⭐ IT ENDS BY ITSELF at 5 PM Mountain on the hang day — read from the clock every time it is asked, so an expired hold
+   holds nothing even before the sweep in refreshLockedDates deletes it. Uncheck is the way out before then. */
+const CREW_HOLD_UNTIL_HOUR = 17;
+function crewHoldActive(until, nowParts){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(until || ''))) return false;
+  const now = nowParts || ((typeof mtnNowParts === 'function') ? mtnNowParts() : {date: isoOf(new Date()), hour: new Date().getHours()});
+  if(String(now.date) < String(until)) return true;
+  return String(now.date) === String(until) && Number(now.hour) < CREW_HOLD_UNTIL_HOUR;
+}
+function crewIsHeld(day, i, nowParts){
+  const m = day && day.crewHeld;
+  return !!(m && crewHoldActive(m[i], nowParts));
+}
+function dayHasHeldCrew(day, nowParts){
+  const m = day && day.crewHeld;
+  return !!m && Object.keys(m).some(function(k){ return crewHoldActive(m[k], nowParts); });
+}
+/* The held crew's own list — the one house test every hand move asks. */
+function houseOnHeldCrew(day, h){
+  if(!dayHasHeldCrew(day)) return false;
+  return crewIndexes().some(function(i){ return crewIsHeld(day, i) && crewHousesFor(i, day).indexOf(h) !== -1; });
+}
+/* Read back from a saved plan: crew slots and dates only, anything else dropped. */
+function heldFromSaved(v){
+  if(!v || typeof v !== 'object') return undefined;
+  const out = {};
+  Object.keys(v).forEach(function(k){
+    const i = Math.floor(Number(k));
+    if(i >= 0 && i < MAX_CREWS && /^\d{4}-\d{2}-\d{2}$/.test(String(v[k] || ''))) out[i] = String(v[k]);
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+/* Deletes every hold that has run out. Returns how many went, so the caller knows whether to save. */
+function expireCrewHolds(nowParts){
+  let n = 0;
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    if(!d.crewHeld) return;
+    Object.keys(d.crewHeld).forEach(function(k){ if(!crewHoldActive(d.crewHeld[k], nowParts)){ delete d.crewHeld[k]; n++; } });
+    if(!Object.keys(d.crewHeld).length) delete d.crewHeld;
+  });
+  return n;
+}
+/* "Tomorrow" is the crew's NEXT day of work — after the hang day they are on ([[SCH-116]]), so a Friday press offers Monday. */
+function tomorrowsInstallDay(){
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  let best = null, bestDs = '';
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    if(d.isFixRoute || d.isTakedown || !(d.houses || []).length) return;
+    const dt = dayDate(d);
+    if(!dt) return;
+    const ds = isoOf(dt);
+    if(ds > today && (!best || ds < bestDs)){ best = d; bestDs = ds; }
+  });
+  return best;
+}
+function setCrewHeld(dayId, i, on){
+  const day = getDay(dayId);
+  if(!day) return false;
+  if(on){
+    if(day !== tomorrowsInstallDay() || !crewHousesFor(i, day).length) return false;
+    day.crewHeld = day.crewHeld || {};
+    day.crewHeld[i] = isoOf(dayDate(day));
+  } else if(day.crewHeld){
+    delete day.crewHeld[i];
+    if(!Object.keys(day.crewHeld).length) delete day.crewHeld;
+  }
+  try{ refreshLockedDates(); if(on && typeof freezePrintedDays === 'function') freezePrintedDays(); }
+  catch(err){ console.error('[HU] could not lock the held crew', err); }
+  if(typeof scheduleSave === 'function') scheduleSave();
+  return true;
+}
+/* Takes a house off a day holding a checked crew, but ONLY if the checked list comes out exactly as it was. Removing one
+   of the other crew's houses can tip the day under a full day, and then the size rule re-deals every sheet on it — so
+   the move is tried, the checked lists compared, and put back if they moved. Returns true when the house came off. */
+function takeOffHeldDay(day, h){
+  const key = function(){ return crewIndexes().filter(function(i){ return crewIsHeld(day, i); })
+    .map(function(i){ return crewHousesFor(i, day).map(function(x){ return String(x.id); }).join(','); }).join('|'); };
+  const before = key();
+  const keep = {houses: day.houses.slice(), ids: day.frozenIds ? day.frozenIds.slice() : day.frozenIds,
+    crews: day.frozenCrews ? day.frozenCrews.map(function(c){ return c.slice(); }) : day.frozenCrews};
+  takeOffPrintedDay(day, h);
+  if(key() === before) return true;
+  day.houses = keep.houses; day.frozenIds = keep.ids; day.frozenCrews = keep.crews;
+  return false;
+}
+/* ⭐⭐ [[SCH-136]] CUSTOMERS MARKED FOR TOMORROW (2026-10-16). Dax, the same day as the crew check: "also make it so i can mark
+   individual customers for it as well then it just puts everyone marked for tommorrow on the same day when i recalculate
+   and no one more". A house carries `tomorrowFor: 'YYYY-MM-DD'` (tomorrow's install day when it was marked; saved with the
+   plan, because houses are saved whole) and the mark ends at 5 PM that day, like the crew check.
+   On ⚙ Recalculate everything, applyTomorrowMarks makes that day hold EXACTLY the marked houses: every marked house moves
+   onto it, and everybody else on it who is not done goes to the first open day after it, where the rebuild re-places them.
+   ⚠ IT WILL NOT BREAK A PROMISE ALREADY MADE: a marked house on a printed day or a checked crew stays where it is, and a
+   tomorrow that is printed or has a checked crew is left alone — both are named in the press summary. Check the crews
+   AFTER the press to lock the new lists. */
+function tomorrowMarkActive(h, nowParts){ return !!h && crewHoldActive(h.tomorrowFor, nowParts); }
+function toggleTomorrowMark(id){
+  const f = findHouse(id);
+  if(!f || f.day.isFixRoute || f.day.isTakedown) return null;
+  if(tomorrowMarkActive(f.house)){ delete f.house.tomorrowFor; scheduleSave(); return false; }
+  const tom = tomorrowsInstallDay();
+  if(!tom) return null;
+  f.house.tomorrowFor = isoOf(dayDate(tom));
+  scheduleSave();
+  return true;
+}
+function applyTomorrowMarks(){
+  const out = {placed: [], blocked: [], bumped: [], stayed: [], dates: []};
+  const groups = {};
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    (d.houses || []).forEach(function(h){
+      if(h.tomorrowFor && !tomorrowMarkActive(h)) delete h.tomorrowFor;
+      if(d.isFixRoute || d.isTakedown || h.done || !tomorrowMarkActive(h)) return;
+      (groups[h.tomorrowFor] = groups[h.tomorrowFor] || []).push({h: h, d: d});
+    });
+  });
+  Object.keys(groups).sort().forEach(function(ds){
+    const marks = groups[ds];
+    const day = installDays().filter(function(d){ const dt = dayDate(d); return dt && isoOf(dt) === ds; })[0];
+    if(!day || day.printedAt || dayHasHeldCrew(day)){
+      marks.forEach(function(m){ out.blocked.push({name: m.h.name || '(no name)', why: !day ? 'there is no install day on ' + ds
+        : (day.printedAt ? ds + ' has been printed' : ds + ' has a crew checked for tomorrow')}); });
+      return;
+    }
+    out.dates.push(ds);
+    const markedSet = new Set(marks.map(function(m){ return m.h; }));
+    /* the marked houses come off wherever they are — never off a printed day or a checked crew's list */
+    const moving = [];
+    marks.forEach(function(m){
+      if(m.d === day){ moving.push(m.h); return; }
+      if((typeof dayIsPrintedAhead === 'function' && dayIsPrintedAhead(m.d)) || houseOnHeldCrew(m.d, m.h) ||
+         (dayHasHeldCrew(m.d) && !takeOffHeldDay(m.d, m.h))){
+        out.blocked.push({name: m.h.name || '(no name)', why: 'their day is printed or checked'}); return;
+      }
+      if(!dayHasHeldCrew(m.d)) takeOffPrintedDay(m.d, m.h);
+      moving.push(m.h); out.placed.push(m.h.name || '(no name)');
+    });
+    /* "and no one more": everybody else still to do on that day goes to the first open day after it */
+    const spill = installDays().filter(function(d){ const dt = dayDate(d); if(!dt) return false; const s = isoOf(dt);
+      return s > ds && !routeDayIsLocked(s) && !d.printedAt && !dayHasHeldCrew(d); })
+      .sort(function(a, b){ return dayDate(a) - dayDate(b); })[0];
+    const keep = [];
+    day.houses.forEach(function(h){
+      if(markedSet.has(h) || h.done) { if(!markedSet.has(h)) keep.push(h); return; }
+      if(spill){ spill.houses.push(h); out.bumped.push(h.name || '(no name)'); }
+      else { keep.push(h); out.stayed.push(h.name || '(no name)'); }
+    });
+    day.houses = keep.concat(moving);
+    /* the split is worked out again from the new list, and frozen again by the press */
+    delete day.frozenIds; delete day.frozenCrews;
+  });
+  return out;
+}
+function heldCrewRefusal(day){
+  const names = crewIndexes().filter(function(i){ return crewIsHeld(day, i); }).map(crewName).join(' and ');
+  return names + '’s list for ' + dlabel(dayDate(day)).wd + ' ' + dlabel(dayDate(day)).full +
+    ' is checked for tomorrow and cannot change until 5 PM that day — uncheck it first';
+}
 function refreshLockedDates(){
   /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
      the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
     : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
   const upcoming = {}, frozen = {}, printed = {};
+  /* [[SCH-135]] a hold that has run out is taken off here, once per press and per sync, before anything reads it. */
+  if(typeof expireCrewHolds === 'function' && expireCrewHolds() && typeof scheduleSave === 'function') scheduleSave();
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
     if(d.isFixRoute || !(d.houses || []).length) return;
     /* [[SCH-129]] a date holding only houses already done is not one of the next two days of work */
@@ -75050,7 +75219,8 @@ function refreshLockedDates(){
     if(ds <= today) return;
     /* [[SCH-120]] a day that has been PRINTED stays locked for good — even "Recalculate including the next two days",
        whose own tooltip has always said "only if they have not been printed", leaves it alone. */
-    if(d.printedAt){ printed[ds] = 1; upcoming[ds] = 1; return; }
+    /* [[SCH-135]] a crew checked for tomorrow holds its day exactly like a printed one, override included. */
+    if(d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d))){ printed[ds] = 1; upcoming[ds] = 1; return; }
     if(PRINTED_OVERRIDE){ delete d.frozenIds; delete d.frozenCrews; return; }
     upcoming[ds] = 1;
     /* A day frozen as printed stays printed until it is worked, even if a new day lands in front of it. */
@@ -76401,7 +76571,7 @@ function laterDaysLike(day){
     .slice().sort((a,b)=>dayDate(a)-dayDate(b));
   const t=dayDate(day).getTime();
   /* [[SCH-120]] a printed day still ahead is not somewhere a missed house can be sent. */
-  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t&&!(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)));
+  return seq.filter(d=>d!==day&&dayDate(d).getTime()>t&&!(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d))&&!dayHasHeldCrew(d));
 }
 /* "The next day we are in that city" — the first later day of the same kind
    that already has at least one house in that town, so the truck is going
@@ -77653,7 +77823,9 @@ function renderDayList(elId,days,selId,listName){
     const forcedSize=!fr && !day.isTakedown && typeof dayLimitFor==='function' ? dayLimitFor(day) : '';
     const setTag=forcedSize?' · SET':'';
     /* [[SCH-120]] a printed day says so in the list — it will not move again. */
-    const printedBadge=day.printedAt?'<span class="pinbadge" title="Printed '+esc(String(day.printedAt))+' — this day is locked">🖨 PRINTED</span>':'';
+    const printedBadge=(day.printedAt?'<span class="pinbadge" title="Printed '+esc(String(day.printedAt))+' — this day is locked">🖨 PRINTED</span>':'')+
+      /* [[SCH-135]] a crew checked for tomorrow */
+      (dayHasHeldCrew(day)?'<span class="pinbadge" title="Checked for tomorrow — locked until 5 PM">✅ SET FOR TOMORROW</span>':'');
     const sizeBadge=oneMan?'<span class="newbadge">1 MAN'+setTag+'</span>'
       :(oneCrew?'<span class="pinbadge">1 CREW'+setTag+'</span>'
       :(forcedSize?'<span class="pinbadge">1 CREW · SET</span>':''));
@@ -77865,6 +78037,11 @@ function stopHTML(h,n,dayId){
        :'Pin them to this day so nothing moves them off it')+'">'+
       (pinnedHere?'📌 Stuck here — unpin':pinnedElse?('📌 Stuck on '+esc(sd)+' — pin here'):'📌 Stuck here')+
       '</button>';
+    /* [[SCH-136]] mark them for tomorrow — the next Recalculate puts every marked customer on it, and nobody else */
+    const tmk=(typeof tomorrowMarkActive==='function')&&tomorrowMarkActive(h);
+    extra+='<button class="qbtn stuck'+(tmk?' on':'')+'" data-tomorrow="'+h.id+'" title="'+
+      (tmk?'Marked for '+esc(h.tomorrowFor)+' — press to unmark':'Mark them for tomorrow — Recalculate everything puts everyone marked on tomorrow, and nobody else')+'">'+
+      (tmk?'🗓 Marked for tomorrow — unmark':'🗓 For tomorrow')+'</button>';
     /* ⭐⭐ ADD / REMOVE PRIORITY ([[SCH-103]]). The same field as the Priority tick on Edit Customer, so
        the two doors cannot disagree. See setPriorityFor. */
     const pc=(typeof hlxResolvePlanHouse==='function')?hlxResolvePlanHouse(h):null;
@@ -78315,6 +78492,14 @@ function renderPanelInto(elId,day){
         ? '<button class="mini" data-printcrew="'+day.id+'" data-crew="'+i+'">Print '+esc(crewName(i))+'</button>'
         : '';
     }).join('')+
+    /* [[SCH-135]] check a crew's list for tomorrow — offered on tomorrow's day only, one button per crew with houses. */
+    ((!fr&&!td&&(day===tomorrowsInstallDay()||dayHasHeldCrew(day)))?CREWS.map(function(c,i){
+      /* still held on the hang day itself, so Uncheck stays reachable until 5 PM */
+      if(!crewHousesFor(i,day).length||(day!==tomorrowsInstallDay()&&!crewIsHeld(day,i)))return '';
+      return crewIsHeld(day,i)
+        ? '<button class="mini warn" data-holdcrew="'+day.id+'" data-crew="'+i+'" data-hold="0" title="Locked until 5 PM '+esc(dlabel(dayDate(day)).wd)+' — then it unchecks itself">☑ Uncheck '+esc(crewName(i))+' for tomorrow</button>'
+        : '<button class="mini" data-holdcrew="'+day.id+'" data-crew="'+i+'" data-hold="1" title="Lock this list so nothing reschedules it until 5 PM tomorrow">✅ Schedule '+esc(crewName(i))+' for tomorrow</button>';
+    }).join(''):'')+
     /* ⭐ THE SAME DAY'S PHONE NUMBERS, FOR A BULK TEXT (2026-10-05). Dax: "i need a way to bulk text everyone
        on a given day, have it formatted for full day, crew 1 or crew 2, and then i can go to google voice
        and bulk text it to them." Same three splits as the print buttons, and offered on the same rule —
@@ -78957,6 +79142,7 @@ function serialize(){
          split stays a list of lists; only what is written changes, and hydrate reads either shape back. */
       frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>({ids:(Array.isArray(c)?c:[]).slice()})):null,
       printedAt:d.printedAt||null,
+      crewHeld:d.crewHeld&&Object.keys(d.crewHeld).length?Object.assign({},d.crewHeld):null,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
 /* ---------- rebuilding the season's days ----------
@@ -83134,6 +83320,7 @@ function hydrate(o){
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>Array.isArray(c)?c.slice():((c&&Array.isArray(c.ids))?c.ids.slice():[])):undefined,
     printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
+    crewHeld:heldFromSaved(d.crewHeld),
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
   uniqueDayIds(SEASON);
@@ -83425,6 +83612,7 @@ RT.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.pin){const d=getDay(t.dataset.pin);
     /* [[SCH-120]] a printed day's date is fixed. */
     if(d&&typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)){t.value=isoOf(dayDate(d));toast('This day has been printed and can no longer be moved');return;}
+    if(d&&dayHasHeldCrew(d)){t.value=isoOf(dayDate(d));toast(heldCrewRefusal(d));return;}
     if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
@@ -83539,6 +83727,12 @@ RT.addEventListener('click',e=>{const t=e.target;
     let hiddenDone=0;
     try{ hiddenDone=markDoneHousesHidden((typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date())); }
     catch(err){ console.error('[HU] could not hide the finished houses',err); }
+    /* ⭐ [[SCH-136]] the customers marked for tomorrow are put on it — and only them — BEFORE the locked days are
+       snapshotted (it is the one change to tomorrow this press is asked to make) and after `before`, so Undo takes it back.
+       Frozen again straight away, so nothing below re-deals the new lists. */
+    let tomorrowMarks=null;
+    try{ tomorrowMarks=applyTomorrowMarks(); if(tomorrowMarks.dates.length){ refreshLockedDates(); freezePrintedDays(); } }
+    catch(err){ console.error('[HU] could not place the customers marked for tomorrow',err); }
     /* ⭐ SCHEDULE V2: the printed days as they stood BEFORE the press, so invariant 7 (no locked day
        changed) is measured against what the crew is holding rather than assumed. */
     let lockedBefore=null;
@@ -83619,6 +83813,12 @@ RT.addEventListener('click',e=>{const t=e.target;
     }
     /* [[SCH-119]] said, so a list that suddenly got shorter is explained rather than alarming. */
     if(hiddenDone) parts.push(hiddenDone+' finished house'+(hiddenDone===1?'':'s')+' cleared off the day lists (still counted as done)');
+    /* [[SCH-136]] */
+    if(tomorrowMarks&&tomorrowMarks.dates.length) parts.push('tomorrow holds only the customers marked for it'+
+      (tomorrowMarks.bumped.length?' ('+tomorrowMarks.bumped.length+' others moved off to be re-placed)':'')+
+      (tomorrowMarks.stayed.length?' — '+tomorrowMarks.stayed.length+' stayed on, no open day after it':''));
+    if(tomorrowMarks&&tomorrowMarks.blocked.length) parts.push(tomorrowMarks.blocked.length+' marked for tomorrow could not go: '+
+      tomorrowMarks.blocked.slice(0,3).map(function(b){ return b.name+' ('+b.why+')'; }).join(', '));
     /* [[SCH-128]] the days the ten-a-crew rule could not fix, by date */
     try{
       const under=crewDaysUnderMinimum();
@@ -83760,6 +83960,10 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(phonesEl){showDayPhones(phonesEl.dataset.phones,phonesEl.dataset.crew,phonesEl);return;}
   const printCrewEl=t.dataset.printcrew?t:t.closest('[data-printcrew]');
   if(printCrewEl){printCrewSheet(printCrewEl.dataset.printcrew,printCrewEl.dataset.crew);return;}
+  const holdEl=t.dataset.holdcrew?t:t.closest('[data-holdcrew]');
+  if(holdEl){const on=holdEl.dataset.hold==='1',i=+holdEl.dataset.crew;
+    const ok=setCrewHeld(holdEl.dataset.holdcrew,i,on);renderAll();
+    toast(!ok?'Only tomorrow’s lists can be checked':(on?crewName(i)+' is set for tomorrow — locked until 5 PM':crewName(i)+' unchecked — the list can be rescheduled again'));return;}
   const printDayEl=t.dataset.printday?t:t.closest('[data-printday]');
   if(printDayEl){printDaySheet(printDayEl.dataset.printday);return;}
   /* ⭐ THE PRINTING TAB'S BUTTONS ARE ANSWERED HERE, IN THE CLICK LISTENER (fixed 2026-10-14). Dax: "printing Oct 14 isnt working
@@ -83823,6 +84027,8 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.unpin){const d=getDay(t.dataset.unpin);d.pin=null;renderAll();toast('Manual date cleared');return;}
   if(t.dataset.reassign){reassign(t.dataset.reassign,+t.dataset.month);return;}
   if(t.dataset.stuck){setStuckHere(t.dataset.stuck);return;}
+  if(t.dataset.tomorrow){const r=toggleTomorrowMark(t.dataset.tomorrow);renderAll();
+    toast(r===null?'There is no install day after today to mark them for':(r?'Marked for tomorrow — press ⚙ Recalculate everything to put everyone marked on it':'Unmarked for tomorrow'));return;}
   if(t.dataset.prio){setPriorityFor(t.dataset.prio);return;}
   if(t.dataset.taketiming){setTakedownTiming(t.dataset.takehouse,t.dataset.taketiming);return;}
   if(t.dataset.editfix){editFixFromSchedule(t.dataset.editfix);return;}
@@ -83840,7 +84046,7 @@ function cascade(id,delta,msg){
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
   /* [[SCH-120]] a shift that would move a PRINTED day's date is refused — the day itself, or one further on that the
      shift would drag along. Checked by RESULT (dates before and after), so a shift that leaves printed days alone still works. */
-  const printedBefore=affected.filter(function(d){ return typeof dayIsPrintedAhead==='function' && dayIsPrintedAhead(d); })
+  const printedBefore=affected.filter(function(d){ return (typeof dayIsPrintedAhead==='function' && dayIsPrintedAhead(d)) || dayHasHeldCrew(d); })
     .map(function(d){ return {d:d, t:d._date.getTime()}; });
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
   const movedPrinted=printedBefore.filter(function(x){ return x.d._date && x.d._date.getTime()!==x.t; });
@@ -83864,6 +84070,10 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
   if(typeof dayIsPrintedAhead==='function'&&(dayIsPrintedAhead(f.day)||dayIsPrintedAhead(target))){
     const pd=dayIsPrintedAhead(f.day)?f.day:target;renderAll();
     toast(dlabel(dayDate(pd)).wd+' '+dlabel(dayDate(pd)).full+' has been printed and can no longer be changed');return;}
+  /* [[SCH-135]] nothing comes off a crew's list checked for tomorrow, and nothing lands on its day. */
+  if(houseOnHeldCrew(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}
+  if(dayHasHeldCrew(target)){renderAll();toast(heldCrewRefusal(target));return;}
+  if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}}else
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='moved by you';}
   if(target.isFixRoute)selFix=dayId;else if(target.isTakedown)selTake=dayId;else selSchedule=dayId;
@@ -83876,6 +84086,9 @@ function moveLeftover(id,dayId){
   const target=getDay(dayId);if(!target||target===f.day)return null;
   /* [[SCH-120]] a missed house may leave the day the crew worked, but may not land on a printed day still ahead. */
   if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return null;
+  /* [[SCH-135]] a held crew's house stays put until 5 PM, and a held day takes nobody. */
+  if(houseOnHeldCrew(f.day,f.house)||dayHasHeldCrew(target))return null;
+  if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house))return null;}else
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='not done — rescheduled';}
   return target;
@@ -83885,6 +84098,8 @@ function moveLeftover(id,dayId){
    there, which is not "the next day we are already in that city". */
 function planLeftoverMoves(day){
   return unfinishedOn(day).map(function(h){
+    /* [[SCH-135]] a house on a crew checked for tomorrow has no target until the hold ends at 5 PM. */
+    if(houseOnHeldCrew(day,h))return {house:h, city:cityOf(h), target:null, held:true};
     return {house:h, city:cityOf(h), target:nextDayInCity(day,cityOf(h))};
   });
 }
@@ -83896,7 +84111,9 @@ function moveAllLeftoversAuto(dayId){
   const moved=plan.length-stuck.length;
   if(!stuck.length){closeLeftovers();}
   renderAll();
-  if(stuck.length){
+  if(stuck.some(p=>p.held)){
+    toast((moved?moved+' moved — ':'')+heldCrewRefusal(day));
+  }else if(stuck.length){
     toast(moved?(moved+' moved — '+stuck.length+' had nowhere to go'):'None could be moved automatically');
   }else{
     toast(moved+' house'+(moved===1?'':'s')+' moved to the next day in their city');

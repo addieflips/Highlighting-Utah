@@ -36,7 +36,10 @@ module.exports = function makeHarness(liftDeep){
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
     'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
     /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
-    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined'],
+    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined',
+    /* [[SCH-135]] a crew's list checked for tomorrow, and the hand moves it refuses */
+    'setCrewHeld', 'crewIsHeld', 'dayHasHeldCrew', 'tomorrowsInstallDay', 'houseOnHeldCrew', 'expireCrewHolds', 'heldFromSaved',
+    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -65,6 +68,7 @@ module.exports = function makeHarness(liftDeep){
     'function serverTimestamp(){ return null; }',
     /* declared mid-statement in the page (let fixOpen=true, FIXLIST=[], fixRouteSeq=0, …), which the lifter cannot see */
     'var FIXLIST = [], fixRouteSeq = 0;',
+    'var selSchedule = null, selFix = null, selTake = null;',
     gridSrc.replace(/^import[^;]+;/gm, ''),
     moneySrc,
     'var gridPlanBlocks = planBlocks;',
@@ -101,7 +105,7 @@ module.exports = function makeHarness(liftDeep){
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
-    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var tm = applyTomorrowMarks(); if(tm.dates.length){ refreshLockedDates(); freezePrintedDays(); } var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
     '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
     '  season: function(){ return SEASON; },',
@@ -124,7 +128,10 @@ module.exports = function makeHarness(liftDeep){
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
     '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
-    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses}',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses,',
+    '        setCrewHeld: setCrewHeld, crewIsHeld: crewIsHeld, dayHasHeldCrew: dayHasHeldCrew, tomorrowsInstallDay: tomorrowsInstallDay,',
+    '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
+    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive}',
     '};'
   ].join('\n');
 

@@ -1376,6 +1376,88 @@ suite('SCH-120 A day that has been printed can no longer be rescheduled');
   check('20.10 a day never printed is never "printed ahead"', !H.api.dayIsPrintedAhead(all[all.length - 1].day) || !!all[all.length - 1].day.printedAt);
 }
 
+suite('SCH-135 A crew checked for tomorrow cannot be rescheduled until 5 PM that day');
+{
+  /* Dax: "check a list and say schedule this one for tomorrow ... if theyre checked they cant be rescheduled until 5 PM
+     the next day where they auto get unchecked". Lock only — the press moves nothing. RUN through the real press. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const tom = H.api.tomorrowsInstallDay();
+  const tds = tom ? H.api.isoOf(H.api.dayDate(tom)) : '';
+  const T = function(){ return H.season().filter(function(d){ return d.id === tom.id; })[0]; };
+  const crewIds = function(i){ return (H.api.crewHousesFor(i, T()) || []).map(function(h){ return String(h.id); }).sort().join(','); };
+  check('35.0 the scenario has a tomorrow with two crews working it', !!tom && tds === '2026-10-01' && !!crewIds(0) && !!crewIds(1), tds + ' ' + (tom ? crewIds(0) + ' / ' + crewIds(1) : ''));
+  const later = daysOf().filter(function(d){ return d.ds > tds; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const other = later[later.length - 1].day;
+  const O = function(){ return H.season().filter(function(d){ return d.id === other.id; })[0]; };
+  check('35.1 a day that is not tomorrow cannot be checked', H.api.setCrewHeld(other.id, 0, true) === false && !H.api.dayHasHeldCrew(other));
+  check('35.2 tomorrow’s crew can be, and it reads as held', H.api.setCrewHeld(tom.id, 0, true) === true && H.api.crewIsHeld(tom, 0) && !H.api.crewIsHeld(tom, 1));
+  const held0 = crewIds(0);
+  H.press(true);
+  check('35.3 Recalculate INCLUDING the next two days leaves the checked list exactly as it was', crewIds(0) === held0, held0 + '  →  ' + crewIds(0));
+  check('35.4 and the day is still locked', H.api.routeDayIsLocked(tds));
+  const h0 = H.api.crewHousesFor(0, T())[0];
+  H.api.moveHouse(h0.id, O().id);
+  check('35.5 a house on the checked list cannot be moved off by hand', crewIds(0) === held0 && O().houses.indexOf(h0) === -1);
+  const stranger = O().houses[0];
+  H.api.moveHouse(stranger.id, tom.id);
+  check('35.6 and nothing can be moved onto that day (it would re-split the checked crew)', T().houses.indexOf(stranger) === -1 && crewIds(0) === held0);
+  const h1 = H.api.crewHousesFor(1, T())[0];
+  H.api.moveHouse(h1.id, O().id);
+  const movedOff = O().houses.indexOf(h1) !== -1, stillOn = T().houses.indexOf(h1) !== -1;
+  /* it comes off only when the checked list stays exactly as it was — dropping the day below a full one re-deals every sheet */
+  check('35.7 moving the OTHER crew’s house never changes the checked list (it moves, or it stays and is refused)', crewIds(0) === held0 && movedOff !== stillOn, held0 + '  →  ' + crewIds(0) + ' moved=' + movedOff);
+  check('35.8 the leftover flow gives a checked house nowhere to go', H.api.planLeftoverMoves(T()).filter(function(p){ return H.api.houseOnHeldCrew(T(), p.house); }).every(function(p){ return p.target === null && p.held; }));
+  const saved = JSON.parse(JSON.stringify(H.api.serialize()));
+  H.api.hydrate(saved);
+  const tom2 = H.season().filter(function(d){ return d.id === tom.id; })[0];
+  check('35.9 the check survives a save and a reload', !!tom2 && H.api.crewIsHeld(tom2, 0) && !H.api.crewIsHeld(tom2, 1), JSON.stringify(tom2 && tom2.crewHeld));
+  H.setNow(new Date(2026, 9, 1, 16, 59));
+  check('35.10 at 4:59 PM on the day it is still held', H.api.crewIsHeld(tom2, 0));
+  H.setNow(new Date(2026, 9, 1, 17, 0));
+  check('35.11 at 5 PM it unchecks itself', !H.api.crewIsHeld(tom2, 0));
+  H.api.refreshLockedDates();
+  check('35.12 and the next sync deletes the hold from the plan', !tom2.crewHeld, JSON.stringify(tom2.crewHeld));
+  H.setNow(EVENING);
+  H.api.setCrewHeld(tom2.id, 1, true);
+  check('35.13 Uncheck takes it off at once', H.api.crewIsHeld(tom2, 1) && H.api.setCrewHeld(tom2.id, 1, false) && !H.api.crewIsHeld(tom2, 1) && !tom2.crewHeld);
+}
+
+suite('SCH-136 Customers marked for tomorrow: Recalculate puts every one of them on it, and nobody else');
+{
+  /* Dax: "make it so i can mark individual customers for it as well then it just puts everyone marked for tommorrow on
+     the same day when i recalculate and no one more". RUN through the real press. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const tom = H.api.tomorrowsInstallDay();
+  const tds = H.api.isoOf(H.api.dayDate(tom));
+  const open = daysOf().filter(function(d){ return d.ds > tds && !H.api.routeDayIsLocked(d.ds); });
+  const picks = [tom.houses[0]].concat(open.slice(0, 3).map(function(d){ return d.day.houses[0]; }));
+  const want = picks.map(function(h){ return String(h.id); }).sort().join(',');
+  const before = tom.houses.length;
+  check('36.0 the scenario has a full tomorrow and three open days to mark from', before > 4 && open.length >= 3, before + ' / ' + open.length);
+  check('36.1 each customer can be marked for tomorrow', picks.every(function(h){ return H.api.toggleTomorrowMark(h.id) === true && H.api.tomorrowMarkActive(h); }));
+  H.press();
+  const onTom = function(){ const d = H.season().filter(function(x){ return x.id === tom.id; })[0];
+    return d.houses.filter(function(h){ return !h.done; }).map(function(h){ return String(h.id); }).sort().join(','); };
+  check('36.2 after Recalculate tomorrow holds exactly the marked customers', onTom() === want, want + '  vs  ' + onTom());
+  check('36.3 and everybody moved off it is still on a day — nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+  H.press();
+  check('36.4 a second press keeps tomorrow exactly the same', onTom() === want, onTom());
+  const dropped = picks[1];
+  check('36.5 a mark can be taken off', H.api.toggleTomorrowMark(dropped.id) === false && !H.api.tomorrowMarkActive(dropped));
+  H.setNow(new Date(2026, 9, 1, 17, 0));
+  check('36.6 the marks end at 5 PM on the day', picks.every(function(h){ return !H.api.tomorrowMarkActive(h); }));
+}
+
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');
 {
   const mkC = function(id){ const c = TOWNS.Lehi;
