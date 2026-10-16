@@ -1824,7 +1824,8 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
     const ptH = function(h){ const c = H.api.planCustomerFor(h); return H.api.houseGeoPoint(h, (c && c.data) || {}); };
     const near5 = function(h, o){ const p = ptH(h); if(!p) return true; return (o.day.houses || []).some(function(x){ const q = ptH(x); return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }); };
     const tiny = days.filter(function(x){ return x.total < 10 && !H.api.routeDayIsLocked(x.ds); }).filter(function(x){
-      return days.some(function(o){ return o !== x && !H.api.routeDayIsLocked(o.ds) && o.total + x.total <= 40 &&
+      /* [[SCH-134]] an October day is never a fault for not joining a November one — October room goes to them first */
+      return days.some(function(o){ return o !== x && !(x.ds <= '2026-10-31' && o.ds > '2026-10-31') && !H.api.routeDayIsLocked(o.ds) && o.total + x.total <= 40 &&
         x.day.houses.every(function(h){ const c = H.api.planCustomerFor(h); return near5(h, o) && H.api.houseMayGoOn(h, (c && c.data) || {}, o.ds, '2026-10-01').ok; }) &&
         /* [[SCH-133]] and every crew on that day keeps its five miles with them — the planner's own test, as in the season sim */
         H.api.dayHoldsWithHouses(o.day, x.day.houses); });
@@ -1861,6 +1862,63 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
     const s23 = H.api.dayCrewHouses(d23).map(function(c){ return c.length; }).filter(Boolean).sort(function(x, y){ return x - y; });
     check('28.11 twenty-three houses split seventeen and six is re-divided so both crews have ten or more', s23.length === 2 && s23[0] >= 10 && s23[0] + s23[1] === 23, s23.join('/'));
   }
+}
+/* ======================================================================================= */
+suite('SCH-134 October is filled with the people who don\'t care when, before November is');
+{
+  /* Dax, 2026-10-15: "we currently have people for normal schedule in november but we are like out of houses for October
+     so we need to fill those up with people who dont care when first". Mid-October, the real press: no Normal Schedule
+     house may wait in November while an October day could take it, or an October date stands empty that it may use. */
+  const OCT15 = new Date(2026, 9, 15, 7, 0);
+  [[420, 341, false], [300, 342, true], [520, 343, false]].forEach(function(spec, k){
+    const book = makeBook(spec[0], spec[1], {far: spec[2]});
+    H.setNow(OCT15); H.load(book, {}); H.press();
+    H.load(book, {season: H.season()}); H.press();
+    const startStr = '2026-10-01';
+    const today = H.api.scheduleTodayStr();
+    const custOf = function(h){ const c = H.api.planCustomerFor(h); return (c && c.data) || {}; };
+    const days = daysOf();
+    const open = function(x){ return x.ds > today && !H.api.routeDayIsLocked(x.ds) && !x.day.printedAt && !x.day.isFixRoute && !x.day.isTakedown; };
+    const octOpen = days.filter(function(x){ return open(x) && x.ds <= '2026-10-31'; });
+    const waiting = [];
+    days.filter(function(x){ return open(x) && x.ds > '2026-10-31'; }).forEach(function(x){
+      (x.day.houses || []).forEach(function(h){
+        if(h.done || h.isFix || h.isTakedown || String(h.stuck || '').trim() || H.api.houseDeadline(h)) return;
+        const legal = octOpen.length ? octOpen.some(function(o){ return H.api.houseMayGoOn(h, custOf(h), o.ds, startStr).ok; }) : true;
+        if(!legal) return;
+        /* ⛔ unless taking them off strands somebody left behind on that day — the five-mile rule outranks this */
+        const keep = x.day.houses.slice(), before = H.api.dayHoldsWithHouses(x.day, []);
+        x.day.houses = keep.filter(function(o){ return o !== h; });
+        const after = H.api.dayHoldsWithHouses(x.day, []);
+        x.day.houses = keep;
+        if(x.day.houses.filter(function(o){ return !o.done; }).length > 1 && before && !after) return;
+        waiting.push({h: h, ds: x.ds});
+      });
+    });
+    const couldJoin = waiting.filter(function(w){
+      return octOpen.some(function(o){
+        const n = (o.day.houses || []).filter(function(h){ return !h.done; }).length;
+        return n < 40 && H.api.houseMayGoOn(w.h, custOf(w.h), o.ds, startStr).ok && H.api.dayHoldsWithHouse(o.day, w.h);
+      });
+    });
+    check('29.' + k + 'a book ' + spec[1] + ': no Normal Schedule house waits in November when an October day could take it',
+      couldJoin.length === 0, couldJoin.slice(0, 5).map(function(w){ return (w.h.name || w.h.id) + ' ' + w.ds; }).join(' | '));
+    const taken = new Set(days.map(function(x){ return x.ds; }));
+    const emptyOct = [];
+    for(let d = 16; d <= 31; d++){
+      const dt = new Date(2026, 9, d), ds = H.api.isoOf(dt);
+      if(!H.api.isWorkingDay(dt) || taken.has(ds) || ds <= today || H.api.routeDayIsLocked(ds)) continue;
+      if(waiting.some(function(w){ return H.api.houseMayGoOn(w.h, custOf(w.h), ds, startStr).ok; })) emptyOct.push(ds);
+    }
+    check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
+      emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
+    const v = H.api.validateSeasonPlan({});
+    check('29.' + k + 'c book ' + spec[1] + ': every placement rule still holds (month, deadline, away, nobody lost)', v.length === 0, JSON.stringify(v.slice(0, 2)));
+    const lateOct = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
+    check('29.' + k + 'd book ' + spec[1] + ': nobody who asked for October was pushed into November to make room', lateOct.length === 0, String(lateOct.length));
+    const novInOct = book.filter(function(b){ return /^(November|11\/9)/.test(b.data.installPreference) && dayOfCust(b.id) && dayOfCust(b.id) <= '2026-10-31'; });
+    check('29.' + k + 'e book ' + spec[1] + ': and nobody who asked for November or a later day was pulled into October', novInOct.length === 0, String(novInOct.length));
+  });
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};

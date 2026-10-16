@@ -36,7 +36,7 @@ module.exports = function makeHarness(liftDeep){
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
     'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
     /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
-    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined',
+    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined', 'houseDeadline', 'isWorkingDay', 'dayHoldsWithHouse', 'fillOctoberWithAnyTime',
     /* [[SCH-135]] a crew's list checked for tomorrow, and the hand moves it refuses */
     'setCrewHeld', 'crewIsHeld', 'dayHasHeldCrew', 'tomorrowsInstallDay', 'houseOnHeldCrew', 'expireCrewHolds', 'heldFromSaved',
     'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive'],
@@ -128,7 +128,7 @@ module.exports = function makeHarness(liftDeep){
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
     '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
-    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses,',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses, houseDeadline: houseDeadline, isWorkingDay: isWorkingDay, dayHoldsWithHouse: dayHoldsWithHouse, fillOctoberWithAnyTime: fillOctoberWithAnyTime,',
     '        setCrewHeld: setCrewHeld, crewIsHeld: crewIsHeld, dayHasHeldCrew: dayHasHeldCrew, tomorrowsInstallDay: tomorrowsInstallDay,',
     '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
     '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive}',
