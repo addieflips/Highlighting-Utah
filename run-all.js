@@ -67072,3 +67072,32 @@ suite('384. No batches on Text the RSVP: one list, tick where you stopped, Submi
     })());
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * 385. A FIX CAN BE ADDED FROM ALL CUSTOMERS ([[FIX-11]]). Addie, 2026-10-07: "We also need to be able to add fix
+ * to the costumers list with notes and picture there as well." The row opens the SAME showAddFixPopup every other door
+ * opens. The cell is RUN, not matched: every claim here is about what the row shows.
+ * --------------------------------------------------------------------------- */
+suite('385. Add a fix from All Customers');
+{
+  const cellSrc = extractFn(admin, 'allCustFixCell');
+  check('S385', 'the row helper is findable', !!cellSrc);
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const photosSrc = extractFn(admin, 'fixPhotosOf');
+  const cell = cellSrc ? new Function('esc', 'cloudThumb', (photosSrc || '') + cellSrc + 'return allCustFixCell;')(esc, (u, w) => u + '?w=' + w) : () => '';
+  const none = cell('abc', {name: 'Kim'});
+  check('S385', 'a house with no fix offers Add fix, wired to its own id', /data-addfix="abc"/.test(none) && /Add fix/.test(none) && !/Needs fix/.test(none));
+  const open = cell('xyz', {needsFix: true, fixNote: 'two strands out <front>', fixPhotoUrls: ['https://img/x.jpg', 'https://img/y.jpg']});
+  check('S385', 'an open fix says Needs fix and offers Edit fix', /Needs fix/.test(open) && /Edit fix/.test(open) && /data-addfix="xyz"/.test(open));
+  check('S385', 'the note the crew will read is on the row, escaped', open.indexOf('two strands out &lt;front&gt;') !== -1 && open.indexOf('<front>') === -1);
+  check('S385', 'every photo is on the row, as a thumbnail linking to the full picture',
+    (open.match(/<img /g) || []).length === 2 && open.indexOf('href="https://img/y.jpg"') !== -1 && open.indexOf('src="https://img/x.jpg?w=160"') !== -1);
+  check('S385', 'an old single-photo fix still shows its photo', /<img /.test(cell('o', {needsFix: true, fixPhotoUrl: 'https://img/old1.jpg'})));
+  check('S385', 'an open fix with no note says so rather than showing nothing', /no note yet/.test(cell('q', {needsFix: true})));
+  check('S385', 'a closed fix leaves no stale note or photo on the row', !/strands|<img/.test(cell('q', {needsFix: false, fixNote: 'old strands', fixPhotoUrl: 'https://img/old.jpg'})));
+  const render = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
+  check('S385', 'every row carries the fix cell', /allCustFixCell\(r\.item\.id, r\.d\)/.test(render));
+  check('S385', 'the button opens the shared fix popup', /\[data-addfix\][^]*?showAddFixPopup\(btn\.dataset\.addfix/.test(render));
+  check('S385', 'the empty-state row still spans the same eight columns', /colspan="8"/.test(render));
+  check('S385', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')));
+}
