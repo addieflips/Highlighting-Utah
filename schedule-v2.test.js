@@ -1458,6 +1458,73 @@ suite('SCH-136 Customers marked for tomorrow: Recalculate puts every one of them
   check('36.6 the marks end at 5 PM on the day', picks.every(function(h){ return !H.api.tomorrowMarkActive(h); }));
 }
 
+suite('SCH-137 On a Warehouse list means on no day — every door');
+{
+  /* Dax, 2026-10-16, on Lori Pugh scheduled while on the build list: "make it so that never happens again, yes build list
+     means no on schedule". Every way a customer can be sitting on a day when a Warehouse job is opened for them, each with a
+     different list, then the five-minute sync and every kind of press. RUN through the real code. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const byId = {}; book.forEach(function(b){ byId[b.id] = b; });
+  const all = daysOf().filter(function(d){ return d.ds; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const tom = all[0], second = all[1];
+  const open = all.filter(function(d){ return !H.api.routeDayIsLocked(d.ds); });
+  const custOf = function(h){ return byId[String(h.id).replace(/^cust-/, '')]; };
+  const crewHouse = function(d, i, k){ return custOf(H.api.crewHousesFor(i, d.day)[k || 0]); };
+  check('37.0 the scenario has tomorrow, the day after and at least four open days', tom.ds === '2026-10-01' && second.ds === '2026-10-02' && open.length >= 4,
+    tom.ds + ' ' + second.ds + ' open ' + open.length);
+  /* who goes on which list, from where */
+  const cases = [
+    ['an open day, a new build', crewHouse(open[0], 0), {needsLightBuild: true}],
+    ['tomorrow, on a crew CHECKED for tomorrow, a timer job', crewHouse(tom, 0), {needsTimerOnly: true}],
+    ['tomorrow, the other crew, a build', crewHouse(tom, 1), {needsLightBuild: true}],
+    ['the day after (locked), a recycle', crewHouse(second, 0), {needsLightRecycle: true}],
+    ['a PRINTED open day, a colour change', crewHouse(open[1], 0), {needsColorChange: true}],
+    ['MARKED for tomorrow, a build', crewHouse(open[2], 0), {needsLightBuild: true}],
+    ['STUCK on their day and a priority, a timer removal', crewHouse(open[3], 0), {needsTimerRemoved: true, rushInstall: true}]
+  ];
+  H.api.setCrewHeld(tom.day.id, 0, true);
+  H.api.markDayPrinted(open[1].day);
+  H.api.toggleTomorrowMark('cust-' + cases[5][1].id);
+  cases[6][1].data.stuckOnDate = open[3].ds;
+  check('37.1 every one of them starts on a day', cases.every(function(c){ return !!c[1] && !!dayOfCust(c[1].id); }),
+    cases.map(function(c){ return c[0] + '=' + (c[1] ? dayOfCust(c[1].id) : 'none'); }).join(' | '));
+  cases.forEach(function(c){ Object.assign(c[1].data, c[2]); });
+  const onDays = function(){ return cases.filter(function(c){ return !!dayOfCust(c[1].id); }).map(function(c){ return c[0] + ' @ ' + dayOfCust(c[1].id); }); };
+  H.tick();
+  check('37.2 the five-minute sync takes every one of them off every day', onDays().length === 0, onDays().join(' | '));
+  H.press();
+  check('37.3 Recalculate everything does not put any back', onDays().length === 0, onDays().join(' | '));
+  H.press(true);
+  check('37.4 nor does Recalculate INCLUDING the next two days', onDays().length === 0, onDays().join(' | '));
+  check('37.5 and nobody Confirmed was left off a day getting there (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+  /* a hand move cannot put one back either */
+  const target = daysOf().filter(function(d){ return d.ds && !H.api.routeDayIsLocked(d.ds); })[0];
+  const strayH = {id: 'cust-' + cases[0][1].id, name: cases[0][1].data.name, city: cases[0][1].data.city, address: cases[0][1].data.address};
+  const other = daysOf().filter(function(d){ return d.ds && d.day !== target.day && !H.api.routeDayIsLocked(d.ds); })[0];
+  other.day.houses.push(strayH);
+  H.api.moveHouse(strayH.id, target.day.id);
+  check('37.6 a hand move will not put somebody on a Warehouse list onto a day', target.day.houses.indexOf(strayH) === -1);
+  other.day.houses = other.day.houses.filter(function(h){ return h !== strayH; });
+  /* the other half: off the list, back on a day */
+  cases.forEach(function(c){ Object.keys(c[2]).forEach(function(k){ if(k !== 'rushInstall') c[1].data[k] = false; }); });
+  H.press();
+  const back = cases.filter(function(c){ return !dayOfCust(c[1].id); }).map(function(c){ return c[0]; });
+  check('37.7 the moment the warehouse lets go of them, the next press puts every one back on a day', back.length === 0, back.join(' | '));
+  /* a house on a day that has already gone (missed), then put on the build list */
+  H.setNow(new Date(2026, 9, 2, 8, 0));
+  H.api.refreshLockedDates();
+  const gone = daysOf().filter(function(d){ return d.ds && d.ds < '2026-10-02'; }).map(function(d){ return d.day; })
+    .reduce(function(a, d){ return a.concat(d.houses.filter(function(h){ return !h.done; })); }, []);
+  const missed = gone.length ? custOf(gone[0]) : null;
+  if(missed){ missed.data.needsLightBuild = true; H.tick(); }
+  check('37.8 a missed house from a day already gone is not carried forward onto a new day while on the build list', !!missed && !dayOfCust(missed.id), missed ? dayOfCust(missed.id) : 'no missed house in the scenario');
+}
+
 suite('SCH-119 A house ticked done leaves the day lists on the next Recalculate, and not before');
 {
   const mkC = function(id){ const c = TOWNS.Lehi;

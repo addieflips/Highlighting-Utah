@@ -75156,6 +75156,8 @@ function applyTomorrowMarks(){
     (d.houses || []).forEach(function(h){
       if(h.tomorrowFor && !tomorrowMarkActive(h)) delete h.tomorrowFor;
       if(d.isFixRoute || d.isTakedown || h.done || !tomorrowMarkActive(h)) return;
+      /* [[SCH-137]] a mark never puts somebody on a Warehouse list onto tomorrow */
+      if(houseOnWarehouseList(h)){ out.blocked.push({name: h.name || '(no name)', why: 'still on a Warehouse list'}); return; }
       (groups[h.tomorrowFor] = groups[h.tomorrowFor] || []).push({h: h, d: d});
     });
   });
@@ -75195,6 +75197,20 @@ function applyTomorrowMarks(){
     delete day.frozenIds; delete day.frozenCrews;
   });
   return out;
+}
+/* ⭐⭐ [[SCH-137]] ON A WAREHOUSE LIST MEANS ON NO DAY, WHATEVER THE DOOR (2026-10-16). Dax, on Lori Pugh being on a day and on
+   the build list at once: "make it so that never happens again, yes build list means no on schedule". The sync and every
+   press already take such a house off ([[SCH-117]], dropHousesWhoLeftSeason); what could still put one ON was a hand move
+   (Reschedule to, the not-done flow) and a "for tomorrow" mark ([[SCH-136]]), neither of which asked. They ask this now —
+   the same isOffTheSchedule the sync asks, so the two can never disagree about who is held. ⚠ Fix routes and takedowns are
+   not install days and are not held: a fix is not a hang. ⚠ A house with no customer behind it (an imported row) answers no. */
+const WAREHOUSE_HOLD_TEXT = 'is on a Warehouse list (build, timer, colour change or recycle) or not in this season — nobody goes on a day until that is cleared';
+function houseOnWarehouseList(h){
+  if(!h || h.isFix || h.isTakedown) return false;
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const d = c && c.data;
+  if(!d) return false;
+  return typeof isOffTheSchedule === 'function' ? !!isOffTheSchedule(d) : false;
 }
 function heldCrewRefusal(day){
   const names = crewIndexes().filter(function(i){ return crewIsHeld(day, i); }).map(crewName).join(' and ');
@@ -84319,6 +84335,8 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
     const pd=dayIsPrintedAhead(f.day)?f.day:target;renderAll();
     toast(dlabel(dayDate(pd)).wd+' '+dlabel(dayDate(pd)).full+' has been printed and can no longer be changed');return;}
   /* [[SCH-135]] nothing comes off a crew's list checked for tomorrow, and nothing lands on its day. */
+  /* [[SCH-137]] somebody on a Warehouse list goes on no day — not even by hand. */
+  if(!target.isFixRoute&&!target.isTakedown&&houseOnWarehouseList(f.house)){renderAll();toast((f.house.name||'They')+' '+WAREHOUSE_HOLD_TEXT);return;}
   if(houseOnHeldCrew(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}
   if(dayHasHeldCrew(target)){renderAll();toast(heldCrewRefusal(target));return;}
   if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}}else
@@ -84336,6 +84354,8 @@ function moveLeftover(id,dayId){
   if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return null;
   /* [[SCH-135]] a held crew's house stays put until 5 PM, and a held day takes nobody. */
   if(houseOnHeldCrew(f.day,f.house)||dayHasHeldCrew(target))return null;
+  /* [[SCH-137]] a missed house now on a Warehouse list is not given another day — the sync takes it off its old one */
+  if(!target.isFixRoute&&!target.isTakedown&&houseOnWarehouseList(f.house))return null;
   if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house))return null;}else
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='not done — rescheduled';}
