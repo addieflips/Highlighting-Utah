@@ -9574,7 +9574,10 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
-    const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
+    /* [[SCH-135]] the crew-check helpers these moves now ask — lifted, never stubbed (nothing here is held, so they answer no) */
+    const holdStart = admin.indexOf('const CREW_HOLD_UNTIL_HOUR');
+    const holdEnd = admin.indexOf('function refreshLockedDates(', holdStart);
+    const api = eval(admin.slice(holdStart, holdEnd) + '\n' + admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
       ' plan: planLeftoverMoves, move: moveLeftover})');
 
