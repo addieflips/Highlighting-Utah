@@ -67,7 +67,8 @@ touching scheduling must know before editing anything:
 - **`syncInstallStampsFromSchedule` is the only writer of `scheduled` / `scheduledDate` / `assignedCrew`**,
   copying the Schedule plan onto the record after every plan save and on Recalculate.
 - **The lock is the next two SCHEDULED days** ([[SCH-106]]) — today, the next two days with work on them, and any day
-  already frozen as printed; worked out once per press and per sync (`refreshLockedDates`), then `routeDayIsLocked` answers
+  printed or checked for tomorrow — a frozen split alone no longer locks a day ([[SCH-140]]); those days are anchored
+  to their dates (`fixedOn`) so no layout can slide them; worked out once per press and per sync (`refreshLockedDates`), then `routeDayIsLocked` answers
   from it. No mover may put a house on, take one off, or reorder a locked day, and a locked day's crew split is frozen
   (`frozenCrewSplit`). Only **⚙ Recalculate including the next two days** resets them.
 - **`houseMayGoOn` is the one legality check** (working day, `houseEarliestDay`, `houseDeadline`, away,

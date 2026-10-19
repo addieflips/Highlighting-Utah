@@ -1569,9 +1569,9 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
   /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
      older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
-  const RECORDED = {schema: 3,
+  const RECORDED = {schema: 4,
     top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
-    day: 'base,cascade,crewHeld,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
+    day: 'base,cascade,crewHeld,fixedOn,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
   const top = Object.keys(out).sort().join(',');
   const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });
   const day = Array.from(dayKeys).sort().join(',');

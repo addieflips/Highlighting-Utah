@@ -75280,6 +75280,37 @@ function heldCrewRefusal(day){
     ' is checked for tomorrow and cannot change until 5 PM that day — uncheck it first';
 }
 function refreshLockedDates(){
+  computeLockedDatesOnce();
+  /* [[SCH-140]] anchor what must not move, let go of what may; a day let go can land somewhere new, so once more */
+  if(anchorLockedDays()){ computeDates(); computeLockedDatesOnce(); anchorLockedDays(); }
+  return LOCKED_DATES;
+}
+/* [[SCH-140]] every install day that has been worked (today or before, still holding houses) or is locked keeps the date it
+   has; every other day is free to be laid out. Returns true when an anchor was LET GO, because that day's date may move. */
+function anchorLockedDays(){
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
+  let released = false;
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    if(d.isFixRoute || d.isTakedown) return;
+    const dt = dayDate(d); if(!dt) return;
+    const ds = isoOf(dt);
+    /* a printed or checked day keeps its date even while empty; a day a customer is stuck to keeps it too ([[SCH-100]]) */
+    const keep = (ds <= today && (d.houses || []).length) || (LOCKED_DATES && LOCKED_DATES.has(ds)) ||
+      (ds > today && (d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d)))) ||
+      (d.houses || []).some(function(h){ return h && !h.done && ('' + (h.stuck || '')).trim() === ds; });
+    if(keep){ if(d.fixedOn !== ds && (!effectivePin(d) || d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d)))) d.fixedOn = ds; }
+    else if(d.fixedOn){
+      /* let go WITHOUT moving it: the day's base is re-measured so it lays out on the date it already has. Released
+         as it stood, it fell back to wherever its old base and the season start put it — after the sweeps that had
+         just checked every house on it against that date. */
+      d.base = daysBetween(dt, startFor(d)) - deltaFor(d) - (d.cascade || 0);
+      delete d.fixedOn; released = true;
+    }
+  });
+  return released;
+}
+function computeLockedDatesOnce(){
   /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
      the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
@@ -75301,11 +75332,22 @@ function refreshLockedDates(){
     if(d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d))){ printed[ds] = 1; upcoming[ds] = 1; return; }
     if(PRINTED_OVERRIDE){ delete d.frozenIds; delete d.frozenCrews; return; }
     upcoming[ds] = 1;
-    /* A day frozen as printed stays printed until it is worked, even if a new day lands in front of it. */
-    if(typeof frozenCrewSplit === 'function' && frozenCrewSplit(d)) frozen[ds] = 1;
   });
   const next = Object.keys(upcoming).sort().slice(0, ROUTE_LOCK_SCHEDULED_DAYS);
-  LOCKED_DATES = new Set(next.concat(Object.keys(frozen), Object.keys(printed)));
+  /* ⛔ [[SCH-140]] (2026-10-18) A DAY THAT WAS ONCE ONE OF THE NEXT TWO IS NOT LOCKED FOR EVER. This used to keep any day
+     whose crew split had been frozen locked "until it is worked, even if a new day lands in front of it". That predates
+     [[SCH-120]]: a sheet really printed now carries printedAt and is locked above for good, so the frozen split no longer
+     needs to stand in for a print. What it did instead was lock days nobody printed — the live plan on 2026-10-18 had
+     Mon Nov 2 (one house, a one-man day) and Tue Nov 3 locked a fortnight out, which no Recalculate could ever fix, and
+     schedule-chaos.test.js found it on every season it played. The lock is what [[SCH-118]] says and nothing else: the
+     hang day, the next two days with work, and the days printed or checked for tomorrow. A frozen split on a day that is
+     no longer locked is let go, so the day is split afresh like any other. */
+  (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
+    if(d.isFixRoute || !d.frozenCrews || d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d))) return;
+    const dt = dayDate(d); const ds = dt ? isoOf(dt) : '';
+    if(ds > today && next.indexOf(ds) === -1){ delete d.frozenIds; delete d.frozenCrews; }
+  });
+  LOCKED_DATES = new Set(next.concat(Object.keys(printed)));
   if(typeof window !== 'undefined' && window) window.scheduleLockedDates = function(){ return LOCKED_DATES; };
   return LOCKED_DATES;
 }
@@ -75504,17 +75546,40 @@ function effectivePin(day){
    This is the same rule seasonFirstDate already states for the BUILDER ("with no
    floor, building the season in August books Christmas installs for August"). It was
    simply never applied to a plan that already existed. */
+/* ⭐⭐ [[SCH-140]] A DAY THAT HAS BEEN WORKED, LOCKED, PRINTED OR CHECKED FOR TOMORROW KEEPS ITS DATE (2026-10-18). A day's
+   date is not stored: it is laid out here from its base, the season start and every push or pull, one day per date. So
+   anything that moved those — moving the Season start box, a Push, a Pull, a Day off, a forced date, a day added in front —
+   slid EVERY later day, the printed ones and the ones already worked included. schedule-chaos.test.js measured all of it:
+   a printed Nov 10 sheet turned into Nov 12, a worked Oct 5 day became "Oct 9" with its missed houses now on a day that
+   had passed, and October customers rode a pushed day into November. `fixedOn` anchors such a day to the date it has,
+   set by refreshLockedDates (and markDayPrinted / setCrewHeld) and let go when the day is open again; an anchored day is
+   laid out exactly there and every other day steps round it. An office pin still wins — "Force exact date" is a person
+   deciding. */
+function dayAnchor(day){
+  /* a printed or checked day's own date beats an older forced date that has only now come close ([[SCH-120]]) */
+  if(day&&day.fixedOn&&(day.printedAt||(day.crewHeld&&Object.keys(day.crewHeld).length))&&/^\d{4}-\d{2}-\d{2}$/.test(String(day.fixedOn))) return new Date(day.fixedOn+'T00:00:00');
+  const pin=effectivePin(day);
+  if(pin) return pin;
+  if(day&&day.fixedOn&&/^\d{4}-\d{2}-\d{2}$/.test(String(day.fixedOn))) return new Date(day.fixedOn+'T00:00:00');
+  return null;
+}
 function layoutSequence(days,floor){
-  const arr=days.sort((a,b)=>{const pa=effectivePin(a),pb=effectivePin(b);const ka=pa||desired(a),kb=pb||desired(b);return ka-kb||a.base-b.base;});
+  const anchored=[],free=[];
+  days.forEach(d=>{(dayAnchor(d)?anchored:free).push(d);});
+  const occupied=new Set();
+  anchored.forEach(d=>{d._date=dayAnchor(d);occupied.add(isoOf(d._date));});
+  free.sort((a,b)=>desired(a)-desired(b)||a.base-b.base);
   let cursor=null;
-  for(const day of arr){
-    const pin=effectivePin(day);
-    if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
+  for(const day of free){
     let d=desired(day);
     if(floor&&d<floor)d=new Date(floor);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
-    while(isDayOff(d))d=addDays(d,1);
-    while(cursor&&d<=cursor){d=addDays(d,1);while(isDayOff(d))d=addDays(d,1);}
+    while(isDayOff(d)||occupied.has(isoOf(d)))d=addDays(d,1);
+    /* [[SCH-140]] a day stepped off the date its base names (a weekend, the season floor, a day already there) KEEPS the
+       date it was given: its base is re-measured to it. Otherwise it snapped back the moment the day in its way went —
+       a day put on 19 November because 18 November was taken returned to the 18th after a sync emptied that one, under
+       houses that may not be hung before the 19th. A date only moves when somebody moves it. */
+    if(daysBetween(d,desired(day))!==0) day.base=daysBetween(d,startFor(day))-deltaFor(day)-(day.cascade||0);
     day._date=d;cursor=d;
   }
 }
@@ -77885,7 +77950,15 @@ function renderSeasonBar(){
      already been fixed — the season lives in Firestore, so the days on screen
      were the ones built before it, and nothing said so. The check existed and
      was never shown, which is the same as not having it. */
-  const stale = (typeof crewDaysOverTownLimit === 'function') ? crewDaysOverTownLimit() : [];
+  /* ⛔ [[SCH-140]] (2026-10-18) THIS WARNING IS RETIRED. It counted TOWN NAMES on a day against "each crew does its own
+     town plus at most one other" — the rule [[SCH-129]] replaced with the map ("geography matters more than town
+     names"). The builder lays a crew-day out as one small area of the map, which routinely carries five or six town
+     names along a border, so the note showed on the live plan (15 days) and on every press of every simulated season,
+     and its own advice — press Recalculate everything — could never clear it. A warning that cannot be cleared by doing
+     what it says is the one the office learns to read past. What it was protecting (a crew sent across the valley) is
+     checked by the map now: the five-mile rule [[SCH-131]] on every press. crewDaysOverTownLimit is kept for the suites
+     that still run it. */
+  const stale = [];
   const sn = RT.getElementById('staleNote');
   if(sn){
     if(stale.length){
@@ -79289,7 +79362,7 @@ function switchTab(name){activeTab=name;syncTabs();renderActive();}
    reloads itself into the new code. ⚠ BUMP PLAN_SCHEMA WHENEVER serialize() GAINS OR LOSES A FIELD on the plan or a day —
    schedule-v2.test.js (38.x) fingerprints serialize() and fails the build until you do. Houses are saved whole, so a new
    house field needs no bump. ⚠ A page from before this guard existed cannot be stopped from here: it must be reloaded once. */
-const PLAN_SCHEMA = 3;   // 3: lastRecalc ([[SCH-139]])
+const PLAN_SCHEMA = 4;   // 3: lastRecalc ([[SCH-139]]); 4: a day's fixedOn ([[SCH-140]])
 let PLAN_PAGE_OUTDATED = false;
 function planSchemaOf(o){ const n = Math.floor(Number(o && o.schema)); return n > 0 ? n : 1; }
 function planIsNewerThanPage(o){ return planSchemaOf(o) > PLAN_SCHEMA; }
@@ -79356,6 +79429,8 @@ function serialize(){
          split stays a list of lists; only what is written changes, and hydrate reads either shape back. */
       frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>({ids:(Array.isArray(c)?c:[]).slice()})):null,
       printedAt:d.printedAt||null,
+      /* [[SCH-140]] the date a worked, locked, printed or checked day is anchored to — see dayAnchor */
+      fixedOn:d.fixedOn||null,
       crewHeld:d.crewHeld&&Object.keys(d.crewHeld).length?Object.assign({},d.crewHeld):null,
       houses:d.houses.map(h=>{const o=Object.assign({},h);delete o._date;if(o.addedDate instanceof Date)o.addedDate=isoOf(o.addedDate);return o;})}))};
 }
@@ -80012,6 +80087,17 @@ function uniqueDayIds(days, taken){
   });
   return seen;
 }
+/* [[SCH-140]] Recalculate lays the new season out from the season start with no shift (BASE_START = start, globalDelta = 0).
+   A day it KEEPS still carries a base measured from the old start and shift, so — whenever the two differ (the Season start
+   box moved before 1 October, which the start floors) — every kept day that is not anchored would jump by the difference.
+   Each kept install day's base is re-measured so it lays out on the date it already has. */
+function rebaseKeptDays(keep, start){
+  (keep || []).forEach(function(d){
+    if(!d || d.isFixRoute || d.isTakedown) return;
+    const dt = dayDate(d); if(!dt) return;
+    d.base = daysBetween(dt, start) - (d.cascade || 0);
+  });
+}
 function rebuildSeasonDays(){
   /* Before anything is grouped: the clustering below measures distances, and a
      house with no position at all cannot be clustered. */
@@ -80300,7 +80386,7 @@ function rebuildSeasonDays(){
      reached the plan and sat on the day they were ticked. Keep what was kept; only when no fix is riding along, since
      riders need a built day to sit on. */
   if(!movable.length && !riders.length && doneRecord.length){
-    BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
+    rebaseKeptDays(keep, start); BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
   }
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
@@ -80549,6 +80635,8 @@ function rebuildSeasonDays(){
             stuckBlocked: stuck0.blocked.length,
             stuckBlockedNames: stuck0.blocked.slice(0, 5).map(function(x){ return x.name; })};
   }
+  /* [[SCH-140]] the kept days are re-measured against the new start first, so resetting the start cannot move them */
+  rebaseKeptDays(keep, start);
   BASE_START=start;
   globalDelta=0;
   SEASON=newDays.concat(keep);
@@ -80637,6 +80725,9 @@ function rebuildSeasonDays(){
   let stuckMoves = {placed: [], blocked: []};
   try{ if(typeof placeStuckHouses === 'function') stuckMoves = placeStuckHouses(floorStr); }
   catch(err){ console.error('Could not hold the pinned customers on their day:', err); }
+  /* [[SCH-140]] the last word: whatever the dozen movers above did, nobody leaves this press outside their window */
+  try{ if(typeof keepEveryHouseLegal === 'function'){ const g = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g.moved); } }
+  catch(err){ console.error('Could not make the last check of every window:', err); }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
           safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
           /* ⚠ SAID OUT LOUD ([[SCH-100]]). A pin that could not be honoured because its day is
@@ -81005,7 +81096,12 @@ const SCHEDULE_SYNC_FIELDS = [
      it is the whole of unpinning somebody: without it, a day typed once holds that house
      for the rest of the season and clearing the box would do nothing. */
   {key:'stuck', label:'stuck on this day', blankClears:true,
-                                   read:function(d){ return ('' + (d.stuckOnDate || '')).trim(); }}
+                                   /* [[SCH-140]] a day that has gone cannot hold anybody: a pin to it is spent, and
+                                      the house is scheduled like everybody else (blankClears lifts it off the plan).
+                                      Kept, it was a window of one day in the past — no day could ever be legal for
+                                      them, and every rule reported them for the rest of the season. */
+                                   read:function(d){ const s = ('' + (d.stuckOnDate || '')).trim();
+                                     return (s && typeof scheduleTodayStr === 'function' && s < scheduleTodayStr()) ? '' : s; }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
@@ -81612,18 +81708,9 @@ function enforceFiveMileOnce(){
   const keepOf = function(crew){ return crewFiveMileKeep(crew, ptOf); };
   const crewMemo = new Map();
   const crewsOf = function(d){ if(!crewMemo.has(d)){ let cs; try{ cs = (dayCrewHouses(d) || []).map(function(c){ return (c || []).filter(live); }); }catch(e){ cs = [d.houses.filter(live)]; } crewMemo.set(d, cs); } return crewMemo.get(d); };
-  const tailDay = function(ds){
-    let d = SEASON.filter(function(x){ return !x.isFixRoute && !x.isTakedown && dsOf(x) === ds; })[0];
-    if(!d){
-      const taken = new Set(SEASON.map(function(x){ return x.id; }));
-      let n = 0; while(taken.has('nv' + n)) n++;
-      d = {id: 'nv' + n, base: daysBetween(new Date(ds.slice(0, 4) * 1, ds.slice(5, 7) * 1 - 1, ds.slice(8, 10) * 1), BASE_START), cascade: 0, pin: null, houses: []};
-      SEASON.push(d); computeDates();
-      /* the layout keeps one day per date in order, so a new day can be pushed off the date asked for — then it is no use */
-      if(dsOf(d) !== ds){ SEASON.splice(SEASON.indexOf(d), 1); computeDates(); return null; }
-    }
-    return d;
-  };
+  /* [[SCH-140]] the shared maker, which measures the day against the season start the office has set (this copy left the
+     shift out, so after the Season start box had moved every overflow day landed on the wrong date and was thrown away) */
+  const tailDay = function(ds){ return installDayOnDate(ds); };
   /* 0. nothing waits past the overflow: a house laid out after its last day goes onto the first overflow day with room */
   const lastTail = tail.length ? tail[tail.length - 1] : '';
   if(lastTail) SEASON.filter(function(d){ return isOpen(d) && dsOf(d) > lastTail; }).forEach(function(d){
@@ -82031,6 +82118,50 @@ function deadlineNearestDayFor(h, fromDay, until){
   });
   return best;
 }
+/* ⭐⭐ [[SCH-140]] THE LAST WORD ON EVERY PRESS AND EVERY SYNC: NOBODY IS LEFT ON A DAY THEY MAY NOT BE ON (2026-10-18).
+   A Recalculate runs a dozen movers in a row (the map relayout, the deadline pull, priority, closing up short days, the
+   five-mile crews, October fill, the Confirmed net, pins) and each is careful about its own move — but a later one can undo
+   what an earlier one guaranteed, and nothing checked the end result. This does, three times at most: a house outside its
+   window goes to the nearest day it may have, a house past a deadline that can still be met is pulled inside it (or, once it
+   cannot, to the soonest day after it), and a house left on a day that has gone is carried forward. Locked days are never
+   touched ([[SCH-106]]). */
+function keepEveryHouseLegal(){
+  const out = {moved: [], stuck: []};
+  for(let i = 0; i < 3; i++){
+    const a = enforceInstallTiming(), b = pullBackPastDeadline(), g = sweepGoneDaysForward();
+    const m = a.moved.concat(b.moved, g.moved);
+    out.moved = out.moved.concat(m); out.stuck = a.stuck.concat(b.stuck, g.stuck);
+    if(!m.length) break;
+    computeDates();
+  }
+  return out;
+}
+/* [[SCH-140]] For a house whose last day has gone by with nowhere left inside it: the open days it may otherwise have (its
+   floor, away dates and a pin still hold — only the deadline is set aside, because it can no longer be met), earliest
+   first; the first whose crews keep their five miles with it wins, else the first with room. Null if none. */
+function pastDeadlineSoonestDay(h, fromDay){
+  if(typeof SEASON === 'undefined') return null;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+  const cd = (c && c.data) || {};
+  const liveN = function(d){ return (d.houses || []).filter(function(x){ return x && !x.done && !x.hiddenDone && !x.isFix && !x.isTakedown; }).length; };
+  const open = SEASON.filter(function(d){
+    if(d === fromDay || d.isFixRoute || d.isTakedown || d.printedAt) return false;
+    const dt = dayDate(d); if(!dt) return false;
+    const ds = isoOf(dt);
+    if(ds <= today || (typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds))) return false;
+    if(typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d)) return false;
+    const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    const capT = lim === 'man' ? ONE_MAN_MAX_HOUSES : (lim === 'crew' ? crewCap() : cap);
+    if(liveN(d) >= capT) return false;
+    const ok = houseMayGoOn(h, cd, ds, startStr);
+    return ok.ok || /last day/.test(ok.why);
+  }).sort(function(a, b){ return dayDate(a) - dayDate(b); });
+  const pick = open.filter(function(d){ return liveN(d) && typeof dayHoldsWithHouse === 'function' && dayHoldsWithHouse(d, h); })[0] || open[0];
+  return pick ? {day: pick, ds: isoOf(dayDate(pick))} : null;
+}
 function pullBackPastDeadline(){
   const res = {moved: [], stuck: []};
   if(typeof SEASON === 'undefined' || !SEASON.length) return res;
@@ -82044,7 +82175,7 @@ function pullBackPastDeadline(){
         if(('' + (h.stuck || '')).trim()) return;
         const until = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
         if(!until || ds <= until) return;
-        const target = nextInstallDayFor(h, {exclude: day});
+        const target = nextInstallDayFor(h, {exclude: day, makeDay: true});
         const ts = target ? dayStr(target) : null;
         if(!target || !ts || ts > until){
           /* ⭐ [[SCH-122]] NO ROOM INSIDE THEIR LAST DAY — SO TRADE PLACES WITH SOMEBODY WHO SAID ANY TIME. Dax: "theres a lot
@@ -82068,6 +82199,23 @@ function pullBackPastDeadline(){
             day.houses.splice(day.houses.indexOf(h), 1);
             near.day.houses.push(h);
             res.moved.push({name: h.name || '(no name)', from: ds, to: near.ds});
+            return;
+          }
+          /* ⭐ [[SCH-140]] THE DEADLINE CAN NO LONGER BE MET — SO THE SOONEST DAY AFTER IT, NOT THE OVERFLOW. Measured in
+             schedule-chaos.test.js on a plain season with nobody touching anything: an October house the crew missed on
+             the last October day was laid on 27 November, the after-Thanksgiving overflow, three weeks after "everyone who
+             asked for October is done in October; November only if there is literally no other way, and then 1 November"
+             ([[SCH-07]]). Once the promise is broken the next-best promise is the soonest day: the earliest open day whose
+             crews still keep their five miles with them on it, else the earliest open day with room. */
+          const soon = pastDeadlineSoonestDay(h, day);
+          /* sooner, or — when this day is wrong for another reason too (away, before their floor) — any day that is not */
+          const hereCd = ((typeof planCustomerFor === 'function' ? planCustomerFor(h) : null) || {}).data || {};
+          const hereOk = houseMayGoOn(h, hereCd, ds, isoOf(seasonStartDate()));
+          const wrongHere = !hereOk.ok && !/last day/.test(hereOk.why);
+          if(soon && (soon.ds < ds || wrongHere)){
+            day.houses.splice(day.houses.indexOf(h), 1);
+            soon.day.houses.push(h);
+            res.moved.push({name: h.name || '(no name)', from: ds, to: soon.ds});
             return;
           }
           res.stuck.push({name: h.name || '(no name)', day: ds, until: until}); return;
@@ -82225,7 +82373,7 @@ function placeJoinedHouses(){
     const h = houseFromCustomer(item);
     if(!h) return;
     const d = (item && item.data) || {};
-    let target = nextInstallDayFor(h);
+    let target = nextInstallDayFor(h, {makeDay: true});
     if(d.rushInstall === true){
       const early = bestEarlierDayFor(h, d, target ? isoOf(dayDate(target)) : '');
       if(early) target = early.day;
@@ -82406,13 +82554,20 @@ function nextInstallDayFor(h, opts){
     : houseAllowedFrom(h, startStr);
   const until = houseDeadline(h);
   const town = extractCleanCity(h.city);
+  const liveH = function(x){ return x && !x.done && !x.hiddenDone && !x.isFix && !x.isTakedown; };
   const room = SEASON
     .filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
     .sort(function(a, b){ return dayStr(a) < dayStr(b) ? -1 : (dayStr(a) > dayStr(b) ? 1 : 0); })
     .filter(function(t){
       const ts = dayStr(t);
       if(t === o.exclude) return false;
-      if((t.houses || []).length >= cap) return false;
+      /* [[SCH-140]] full means the houses still to do against THAT day's own limit (one man, one crew), and a weekend a
+         day was forced onto, a printed day or a checked crew never takes a house it was not given by hand. */
+      const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ts) : '';
+      const capT = lim === 'man' ? ONE_MAN_MAX_HOUSES : (lim === 'crew' ? crewCap() : cap);
+      if((t.houses || []).filter(liveH).length >= capT) return false;
+      if(typeof isWorkingDay === 'function' && !isWorkingDay(dayDate(t))) return false;
+      if(t.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(t))) return false;
       if(from && ts < from) return false;
       if(until && ts > until) return false;
       /* ⭐ AND NOT A DAY THEY ARE AWAY ([[SCH-98]]). This is the answer BOTH the timing
@@ -82424,11 +82579,66 @@ function nextInstallDayFor(h, opts){
       if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ts)) return false;
       return true;
     });
+  /* ⛔ [[SCH-140]] (2026-10-18) THE FOUR-TOWNS COUNT IS GONE FROM HERE. This answered "a day under the town limit" —
+     the old one-dominant-town rule [[SCH-129]] retired in favour of the MAP. Days are laid out by area now and routinely
+     hold six town names, so almost every day failed the count and this returned null: a missed house sat on a day that
+     had passed ("no later day has room" with a day of 39 next door), a customer whose timing changed stayed outside
+     their window, and a rejoiner waited for a press. Found on the live plan (Oct 16) and by schedule-chaos.test.js.
+     The order now: the earliest legal day whose crews stay within five miles with them on it (the planner's own test,
+     dayHoldsWithHouse — "the crew is already in its area", [[SCH-96]]); else a day already in their town; else the
+     earliest legal day with room — legal beats tidy, and the next Recalculate tidies; else, when the caller allows it,
+     a day of their own on the first free working date in their window. Only then null. */
+  const near = room.filter(function(t){ return typeof dayHoldsWithHouse === 'function' && (t.houses || []).some(liveH) && dayHoldsWithHouse(t, h); })[0];
+  if(near) return near;
   const sameTown = room.filter(function(t){
-    return (t.houses || []).some(function(x){ return extractCleanCity(x.city) === town; });
+    return (t.houses || []).some(function(x){ return liveH(x) && extractCleanCity(x.city) === town; });
   })[0];
-  const roomy = room.filter(function(t){ return dayTownCount(t) < maxTownsPerDay(); })[0];
-  return sameTown || roomy || null;
+  if(sameTown) return sameTown;
+  if(room.length) return room[0];
+  if(!o.makeDay) return null;
+  return freeInstallDayFor(h, from, until);
+}
+/* [[SCH-140]] A day of its own, on the first working date after the locked days that is inside the house's window, not a
+   day they are away, and holding no install day yet. The day's base is measured against the season start the office has
+   set (globalDelta included — the five-mile tail's own copy of this left it out and lost its day whenever the season start
+   had been moved), and it is checked AFTER the layout: if anything pushed it off the date asked for it is taken back and
+   the next date is tried. Returns null when the window holds no such date. */
+function freeInstallDayFor(h, from, until){
+  if(typeof SEASON === 'undefined') return null;
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const used = new Set(SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown; }).map(dsOf));
+  let ds = (from && from > today) ? from : today;
+  const last = until || isoOf(addDays(seasonStartDate(), 120));
+  for(let i = 0; i < 160 && ds <= last; i++){
+    const p = ds.split('-').map(Number);
+    const dt = new Date(p[0], p[1] - 1, p[2]);
+    if(ds > today && !used.has(ds) && isWorkingDay(dt) && !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) &&
+       !(typeof houseAwayOn === 'function' && houseAwayOn(h, ds))){
+      const d = installDayOnDate(ds);
+      if(d) return d;
+    }
+    ds = isoOf(addDays(dt, 1));
+  }
+  return null;
+}
+/* The install day on a date — the one there, or a new empty one laid out exactly there. Null if the layout will not put
+   a day on that date (a pinned or printed day already holds it, or it is not a working day). */
+function installDayOnDate(ds){
+  if(typeof SEASON === 'undefined') return null;
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const there = SEASON.filter(function(x){ return !x.isFixRoute && !x.isTakedown && dsOf(x) === ds; })[0];
+  if(there) return there;
+  const taken = new Set(SEASON.map(function(x){ return x.id; }));
+  let n = 0; while(taken.has('nd' + n)) n++;
+  const p = ds.split('-').map(Number);
+  /* anchored where it is made (fixedOn), so an earlier day already pushed off its own date cannot push this one too;
+     the next lock refresh lets the anchor go once the day lays out there on its own base */
+  const d = {id: 'nd' + n, base: daysBetween(new Date(p[0], p[1] - 1, p[2]), BASE_START) - (typeof globalDelta === 'number' ? globalDelta : 0),
+             cascade: 0, pin: null, fixedOn: ds, houses: []};
+  SEASON.push(d); computeDates();
+  if(dsOf(d) !== ds){ SEASON.splice(SEASON.indexOf(d), 1); computeDates(); return null; }
+  return d;
 }
 /* ⭐ SOMEBODY WHO CHANGED THEIR MIND BACK TO YES GETS THE NEXT SLOT GOING (2026-08-22).
    Owner: "The ones that are marked as a yes after saying no should be scheduled at
@@ -82470,7 +82680,7 @@ function placeUnscheduledOnNextDay(){
     if(have.has(item.id)) return;
     const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
     if(!h) return;
-    const target = nextInstallDayFor(h);
+    const target = nextInstallDayFor(h, {makeDay: true});
     if(!target){ stuck.push({name: d.name || '(no name)'}); return; }
     target.houses.push(h);
     have.add(item.id);
@@ -82543,7 +82753,20 @@ function enforceInstallTiming(){
          timer, and two copies of "which day can take this house" is two answers. The
          reasoning for each clause now lives on nextInstallDayFor. */
 
-      const target = nextInstallDayFor(h, {exclude: day});
+      /* [[SCH-140]] a customer the office STUCK to a day goes on that day even when it is one of the next two — a person
+         chose that date, the lock is there to stop the machine re-laying a sheet, not to overrule the office. Never onto a
+         printed day or a checked crew's day (those are reported). The date has a day made for it if it has none. */
+      const stuckTo = ('' + (h.stuck || '')).trim();
+      let target = null;
+      if(stuckTo && stuckTo > ((typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : '')){
+        const onIt = SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d) === stuckTo; })[0] ||
+          ((typeof installDayOnDate === 'function') ? installDayOnDate(stuckTo) : null);
+        if(onIt && !onIt.printedAt && !(typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(onIt))) target = onIt;
+      }
+      if(!target) target = nextInstallDayFor(h, {exclude: day, makeDay: true});
+      /* [[SCH-140]] no day is left inside the window at all (it is all locked, away or gone) — they still may not stay on
+         a day they are away or one before their floor: the soonest day after the window, as for a missed deadline */
+      if(!target && (awayHere || tooEarly) && typeof pastDeadlineSoonestDay === 'function'){ const s = pastDeadlineSoonestDay(h, day); target = s ? s.day : null; }
       if(!target){
         /* `notBefore` is kept for the too-early case that has always been here;
            `notAfter` and `late` are what the office needs to read a deadline miss,
@@ -82619,7 +82842,10 @@ function sweepGoneDaysForward(){
         day.houses = day.houses.filter(function(x){ return x !== h; });
         return;
       }
-      const target = nextInstallDayFor(h, {exclude: day});
+      let target = nextInstallDayFor(h, {exclude: day, makeDay: true});
+      /* [[SCH-140]] a house missed on its last allowed day has no day left inside its window — it still may not stay on a
+         day that has gone: the soonest day after the deadline ([[SCH-07]]) */
+      if(!target && typeof pastDeadlineSoonestDay === 'function'){ const s = pastDeadlineSoonestDay(h, day); target = s ? s.day : null; }
       if(!target){ stuck.push({name: h.name || '(no name)', day: ds}); return; }
       day.houses = day.houses.filter(function(x){ return x !== h; });
       target.houses.push(h);
@@ -83053,7 +83279,7 @@ function rehomeMovedHouses(ids){
         out.locked.push({name: h.name || '(no name)', town: h.city || '', date: here});
         return;
       }
-      const target = nextInstallDayFor(h, {exclude: day});
+      const target = nextInstallDayFor(h, {exclude: day, makeDay: true});
       if(!target){
         out.stuck.push({name: h.name || '(no name)', town: h.city || '', date: here});
         return;
@@ -83429,8 +83655,13 @@ function placeStuckHouses(floorStr){
       /* ⚠ THE EXACT DATE, NOT the next working day. The office pinned this house to this
          day; quietly sliding a Saturday pin to the Monday is the schedule overruling the
          person who set it, on the one control whose whole promise is that nothing moves. */
+      /* [[SCH-140]] anchored to that date (fixedOn — kept while a house is stuck to it, see anchorLockedDays), and its
+         base measured against the season start the office set. Before, the comment above was not true: the new day had
+         no anchor, so the layout slid a Saturday pin to Monday anyway, and after the Season start box had moved it landed
+         on a different date altogether — the pinned house sat on the wrong day and every rule then reported it. */
       target = {id: 'st' + Date.now().toString(36) + res.placed.length,
-                base: daysBetween(dt, BASE_START), cascade: 0, pin: null, houses: []};
+                base: daysBetween(dt, BASE_START) - (typeof globalDelta === 'number' ? globalDelta : 0), cascade: 0, pin: null,
+                fixedOn: p.want, houses: []};
       SEASON.push(target);
       computeDates();
     }
@@ -83718,6 +83949,7 @@ function hydrate(o){
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:crewSlotOf(d.soloCrew),
     frozenIds:Array.isArray(d.frozenIds)?d.frozenIds.slice():undefined,frozenCrews:Array.isArray(d.frozenCrews)?d.frozenCrews.map(c=>Array.isArray(c)?c.slice():((c&&Array.isArray(c.ids))?c.ids.slice():[])):undefined,
     printedAt:/^\d{4}-\d{2}-\d{2}$/.test(String(d.printedAt||''))?String(d.printedAt):undefined,
+    fixedOn:/^\d{4}-\d{2}-\d{2}$/.test(String(d.fixedOn||''))?String(d.fixedOn):undefined,
     crewHeld:heldFromSaved(d.crewHeld),
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   /* [[SCH-112]] a plan saved with two days sharing an id is repaired on load, before anything selects by it. */
@@ -83956,14 +84188,12 @@ RT.addEventListener('change',e=>{const t=e.target;
   /* ⭐ [[SCH-116]] the office says which sheet the crews are on. Picked as of TODAY, so it walks forward one working
      day per working day from here; a day on or after today (or a cleared box) means "on today's date". */
   if(t.id==='hangDayInput'){
-    const real=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date());
-    HANG_DAY=(t.value&&t.value<real)?{date:t.value,setOn:real}:null;
-    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+    const s=setHangDayByHand(t.value);
     renderAll();
-    toast(HANG_DAY?('Crews on the '+dlabel(new Date(HANG_DAY.date+'T00:00:00')).full+' sheet — that day and the next two are locked'):'Crews on today’s date');
+    toast((HANG_DAY?('Crews on the '+dlabel(new Date(HANG_DAY.date+'T00:00:00')).full+' sheet — that day and the next two are locked'):'Crews on today’s date')+settledNote(s));
     return;
   }
-  if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
+  if(t.id==='startDate'){if(t.value){const s=setSeasonStartByHand(t.value);renderAll();toast((globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days')+settledNote(s));}return;}
   if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
   if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){
     /* ⚠ ⚠ BEFORE UNTICKING A HOUSE THAT HAS ALREADY BEEN BILLED. Unticking cannot
@@ -84011,18 +84241,17 @@ RT.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
   if(t.dataset.pin){const d=getDay(t.dataset.pin);
-    /* [[SCH-120]] a printed day's date is fixed. */
-    if(d&&typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(d)){t.value=isoOf(dayDate(d));toast('This day has been printed and can no longer be moved');return;}
-    if(d&&dayHasHeldCrew(d)){t.value=isoOf(dayDate(d));toast(heldCrewRefusal(d));return;}
-    if(d&&t.value){d.pin=new Date(t.value+'T00:00:00');renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':''));}return;}
+    /* [[SCH-120]] a printed day's date is fixed; [[SCH-140]] forceDayDateByHand also settles anybody the new date does not suit. */
+    const r=forceDayDateByHand(d,t.value);
+    if(!r.ok){if(d)t.value=isoOf(dayDate(d));if(r.why)toast(r.why);return;}
+    renderAll();toast('Date set'+(dayOffName(d.pin)?' ('+dayOffName(d.pin)+')':'')+settledNote(r.settled));return;}
 });
 RT.addEventListener('click',e=>{const t=e.target;
   const tab=t.closest('.tab');if(tab){switchTab(tab.dataset.tab);return;}
   /* [[SCH-116]] the crews have caught up. */
   if(t.id==='hangDayClear'){
-    HANG_DAY=null;
-    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
-    renderAll(); toast('Crews on today’s date'); return;
+    const s=setHangDayByHand('');
+    renderAll(); toast('Crews on today’s date'+settledNote(s)); return;
   }
   /* It says what it did even when nothing moved. "Nothing to change" and "the
      button did not work" look identical otherwise, and this is the button
@@ -84151,6 +84380,9 @@ RT.addEventListener('click',e=>{const t=e.target;
     let td=null;
     try{ td=rebuildTakedownDays(); computeDates(); }
     catch(err){ console.error('[HU] takedown rebuild failed',err); }
+    /* [[SCH-140]] the lock is worked out again for the days the rebuild made, and every window is checked against it once more */
+    try{ refreshLockedDates(); keepEveryHouseLegal(); computeDates(); }
+    catch(err){ console.error('[HU] could not make the last check of every window',err); }
     const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
     /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button
        and in the console; never repaired here — a check that quietly fixed what it found would hide
@@ -84448,9 +84680,65 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.buildfix||t.closest('[data-buildfix]')){buildFixRoutes();return;}
   if(t.id==='fixH'||t.closest('#fixH')){fixOpen=!fixOpen;renderActive();return;}
 });
+/* ⭐⭐ [[SCH-140]] A HAND CHANGE NEVER LEAVES SOMEBODY ON A DAY THEY MAY NOT BE ON (2026-10-18). Push, Pull, Day off, a forced
+   date and the Season start box move DATES, not houses — so the houses ride along, and nothing asked whether they still
+   could. schedule-chaos.test.js measured it: a Day off on the last October day carried every October customer on it into
+   November, and moving the season start a day earlier put November customers on 30 October and missed houses onto a day
+   that had already gone. Those faults then sat there until somebody pressed Recalculate. This runs the same two sweeps
+   the five-minute sync runs — a gone day's houses forward, and anybody outside their window onto the nearest day they
+   may have — at once, and the caller says who moved. It never touches a locked day ([[SCH-106]]). */
+function settleAfterHandChange(){
+  const out = {moved: [], stuck: []};
+  try{
+    refreshLockedDates();
+    const k = keepEveryHouseLegal();
+    out.moved = k.moved; out.stuck = k.stuck;
+    if(out.moved.length) computeDates();
+    refreshLockedDates();
+  }catch(err){ console.error('[HU] could not settle the plan after a hand change', err); }
+  return out;
+}
+function settledNote(s){
+  if(!s || !s.moved || !s.moved.length) return '';
+  return ' · ' + s.moved.length + ' customer' + (s.moved.length === 1 ? '' : 's') + ' moved to a day that suits them';
+}
+/* [[SCH-140]] "Force exact date" — the same refusals the box always had, then the settle step. */
+function forceDayDateByHand(d, value){
+  if(!d || !value) return {ok: false, why: ''};
+  if(typeof dayIsPrintedAhead === 'function' && dayIsPrintedAhead(d)) return {ok: false, why: 'This day has been printed and can no longer be moved'};
+  if(dayHasHeldCrew(d)) return {ok: false, why: heldCrewRefusal(d)};
+  /* a day cannot be moved onto a date the crews have already worked — its houses would be "missed" before anybody went */
+  if(String(value) <= scheduleTodayStr()) return {ok: false, why: 'That date has already been worked — pick a day after today'};
+  if(d.fixedOn && !effectivePin(d)) return {ok: false, why: 'This is one of the next two days and is locked'};
+  d.pin = new Date(value + 'T00:00:00'); delete d.fixedOn;
+  computeDates();
+  return {ok: true, settled: settleAfterHandChange()};
+}
+/* [[SCH-116]] / [[SCH-140]] "Crew is hanging". Picked as of TODAY; a day on or after today (or a cleared box) means "on
+   today's date". When the crews catch up, the days between become days that have gone, so their missed houses are moved on
+   at once rather than waiting for a sync or a press. */
+function setHangDayByHand(value){
+  const real=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date());
+  HANG_DAY=(value&&value<real)?{date:value,setOn:real}:null;
+  try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+  return settleAfterHandChange();
+}
+/* [[SCH-140]] the Season start box. Days already worked, locked, printed or checked keep their dates (dayAnchor). */
+function setSeasonStartByHand(value){
+  if(!value) return null;
+  globalDelta = daysBetween(new Date(value + 'T00:00:00'), BASE_START);
+  computeDates();
+  return settleAfterHandChange();
+}
 function cascade(id,delta,msg){
   const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
+  /* [[SCH-140]] the layout now re-measures a day it steps aside, so taking the shift back means putting every day's
+     base and shift back exactly as they were, not subtracting the steps */
+  const snap=SEASON.map(function(d){ return [d, d.base, d.cascade]; });
+  const restore=function(){ snap.forEach(function(x){ x[0].base=x[1]; x[0].cascade=x[2]; }); computeDates(); };
+  /* [[SCH-140]] a locked day (one of the next two, anchored to its date) does not shift — say so, rather than "could not" */
+  if(day0.fixedOn&&!effectivePin(day0)){const l=dlabel(day0._date);toast(l.wd+' '+l.full+' is one of the next two days and is locked — nothing was shifted');return;}
   /* [[SCH-120]] a shift that would move a PRINTED day's date is refused — the day itself, or one further on that the
      shift would drag along. Checked by RESULT (dates before and after), so a shift that leaves printed days alone still works. */
   const printedBefore=affected.filter(function(d){ return (typeof dayIsPrintedAhead==='function' && dayIsPrintedAhead(d)) || dayHasHeldCrew(d); })
@@ -84458,7 +84746,7 @@ function cascade(id,delta,msg){
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
   const movedPrinted=printedBefore.filter(function(x){ return x.d._date && x.d._date.getTime()!==x.t; });
   if(movedPrinted.length){
-    affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+    restore();renderAll();
     const l=dlabel(new Date(movedPrinted[0].t));
     toast(l.wd+' '+l.full+' has been printed and can no longer be moved — nothing was shifted');return;
   }
@@ -84467,10 +84755,11 @@ function cascade(id,delta,msg){
      start, this branch puts the cascade back, and the press does nothing instead of
      silently walking the plan into September. Worth saying WHICH wall was hit — "no
      gap before this day" sent the office looking for a day to delete. */
-  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+  if(getDay(id)._date.getTime()===before){restore();renderAll();
     const atFloor=delta<0&&!day0.isTakedown&&getDay(id)._date.getTime()<=seasonStartDate().getTime();
     toast(delta<0?(atFloor?'That is the season start — nothing goes earlier than '+dlabel(seasonStartDate()).full:'No earlier slot — no gap before this day'):'Could not push later');return;}
-  renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
+  const settled=settleAfterHandChange();
+  renderAll();toast((msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'))+settledNote(settled));
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;
   /* [[SCH-120]] nothing moves onto or off a printed day the crew has not reached yet. */
@@ -84480,6 +84769,16 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
   /* [[SCH-135]] nothing comes off a crew's list checked for tomorrow, and nothing lands on its day. */
   /* [[SCH-137]] somebody on a Warehouse list goes on no day — not even by hand. */
   if(!target.isFixRoute&&!target.isTakedown&&houseOnWarehouseList(f.house)){renderAll();toast((f.house.name||'They')+' '+WAREHOUSE_HOLD_TEXT);return;}
+  /* [[SCH-140]] a hand move is held to the same window as every other mover: never onto a day that has gone or is today,
+     never before their earliest day, after their last, on a day they are away, or off the day they are stuck to. It used to
+     be the one door with no window at all, so a slip of the dropdown put an October customer in November and nothing
+     moved them back. The refusal says why, and where to change it if it really is meant. */
+  if(!target.isFixRoute&&!target.isTakedown&&!f.house.isFix&&!f.house.isTakedown){
+    const tds=isoOf(dayDate(target));
+    const c=(typeof planCustomerFor==='function')?planCustomerFor(f.house):null;
+    const ok=(tds<=scheduleTodayStr())?{ok:false,why:'that day has already been worked'}:houseMayGoOn(f.house,(c&&c.data)||{},tds,isoOf(seasonStartDate()));
+    if(!ok.ok){renderAll();toast((f.house.name||'They')+' cannot go on '+dlabel(dayDate(target)).full+' — '+ok.why+(/already been worked/.test(ok.why)?'':' (change their dates in Customers if this is meant)'));return;}
+  }
   if(houseOnHeldCrew(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}
   if(dayHasHeldCrew(target)){renderAll();toast(heldCrewRefusal(target));return;}
   if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house)){renderAll();toast(heldCrewRefusal(f.day));return;}}else
@@ -85884,7 +86183,8 @@ function exportCSV(){
     let prioV2={moved:[],stayed:[]};
     try{ prioV2=advancePriorityHouses(); }catch(err){ console.error('Priority placement failed:',err); }
     let timing={moved:[],stuck:[]};
-    try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
+    /* [[SCH-140]] the timing sweep, the deadline pull and the gone-day sweep together, until nothing moves */
+    try{ timing=keepEveryHouseLegal(); }catch(err){ console.error("Timing sweep failed:",err); }
     /* ⭐ [[SCH-94]] AND THE TAKEDOWN DAYS FOLLOW. Somebody who has just said No or Back
        Next Year, or been deleted, will not be hung, so they come off their takedown day
        and the takedown days are laid out again. Only when somebody actually went — a
@@ -85922,7 +86222,9 @@ function exportCSV(){
     if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged || joinedV2.placed.length || prioV2.moved.length || goneDays.moved.length){
       try{ routes=generateAllRoutes(); }catch(err){ console.error('Route generation failed:',err); }
     }
-    computeDates(); renderAll(); scheduleSave();
+    /* [[SCH-140]] the lock is worked out again once the sweeps are done, so it names the next two days as they now are */
+    computeDates(); try{ refreshLockedDates(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+    renderAll(); scheduleSave();
     if(!(opts&&opts.quiet)){
       const bits=[];
       if(moved.length) bits.push(moved.length===1

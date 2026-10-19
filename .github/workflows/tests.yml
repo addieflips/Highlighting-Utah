@@ -409,6 +409,13 @@ jobs:
       - name: The schedule keeps every rule over a whole season
         run: npm run test:season-sim
 
+      # ⭐⭐ [[SCH-140]] EVERY BUTTON THE OFFICE HAS, PRESSED AT RANDOM, FOR A WHOLE SEASON. Prints ahead, checks crews,
+      # marks for tomorrow, moves by hand, pushes, pulls, takes days off, forces dates, moves the season start, sets the crews
+      # behind, edits away dates and windows — and checks the rules after every single action. Its own named step so a red
+      # here reads as "an office action breaks a rule" — see schedule-chaos.test.js. Fix the change, never the simulation.
+      - name: No office action breaks a schedule rule
+        run: npm run test:chaos
+
       - name: Run the fast suite
         run: npm test
 
