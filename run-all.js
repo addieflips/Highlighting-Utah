@@ -26565,7 +26565,7 @@ suite('Suite 104. The Printing tab');
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
     extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-    extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+    extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
     chargeNewMemberFee: true,
@@ -26649,7 +26649,7 @@ suite('Suite 104. The Printing tab');
          whole claim. printCrewColumns comes with it because the column only exists
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
-      extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
+      extractFn(admin, 'printNotDone') + extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
       /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
          not only a flagged one, so this is lifted unconditionally rather than beside
          the fix-only helpers above. A stub would prove the column renders and nothing
@@ -26879,7 +26879,7 @@ suite('Suite 104. The Printing tab');
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
       extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-      extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
+      extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
     return (out[0] || {}).body || '';
@@ -66151,7 +66151,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
   const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
-                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml', 'printNotDone']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
   const make = (opts) => new Function('o',
@@ -66263,7 +66263,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
  * --------------------------------------------------------------------------- */
 suite('368. A new hang\'s photos and its row carry the same letter and colour');
 {
-  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const names = ['printNotDone', 'printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
   const src = names.map(n => extractFn(admin, n));
   const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
   check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
@@ -66893,7 +66893,9 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
     Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
   check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
   check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
-    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
+    /* 3 → 4 on 2026-10-19: printOneStop ([[SCH-144]], one stop on its own page) asks the same rule — a census, so a
+       reader arriving is written down here rather than the check being loosened */
+    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 4 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
 }
 
 /* =====================================================================

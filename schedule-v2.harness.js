@@ -22,7 +22,7 @@ module.exports = function makeHarness(liftDeep){
     'renderOneMan renderWaitingRsvp renderOwesLastYear renderPrinting renderTakedownBar renderCrewBar renderLeftovers ' +
     'renderImportedAt paintForecastNote renderFixTray dayMapDraw dayMapPanes routePictureHTML dayMapPaneAt ' +
     'loadSeasonForecast loadSeasonNormals ensureForecastForPanel firebaseConfig app db PLAN_REF ' +
-    'stopHTML weekGuideHTML dayCrewLimitControlHTML dayForecastChips refreshTownGrids').split(/\s+/));
+    'stopHTML weekGuideHTML dayCrewLimitControlHTML dayForecastChips refreshTownGrids updateDoc doc schedOpenPrintPages').split(/\s+/));
   const L = liftDeep(['rebuildSeasonDays', 'sweepGoneDaysForward', 'pullBackPastDeadline', 'generateAllRoutes', 'crewHousesFor',
     'installDays', 'dayCrewHouses', 'crewIndexes', 'houseMayGoOn', 'houseDateWindow', 'houseInstallPriority',
     'nextInstallDayFor', 'placeConfirmedLeftOff', 'confirmedNotOnAnyDay', 'enforceInstallTiming',
@@ -39,7 +39,7 @@ module.exports = function makeHarness(liftDeep){
     'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined', 'houseDeadline', 'isWorkingDay', 'dayHoldsWithHouse', 'fillOctoberWithAnyTime',
     /* [[SCH-135]] a crew's list checked for tomorrow, and the hand moves it refuses */
     'setCrewHeld', 'crewIsHeld', 'dayHasHeldCrew', 'tomorrowsInstallDay', 'houseOnHeldCrew', 'expireCrewHolds', 'heldFromSaved',
-    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive',
+    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive', 'scheduleOnDate', 'scheduleOnDateTarget', 'scheduleOnDateMove', 'printCrewDayList', 'printWarehouseDayList', 'printNotDone', 'printOneStop',
     /* [[SCH-138]] a page older than the plan never saves it */
     'PLAN_SCHEMA', 'planSchemaOf', 'planIsNewerThanPage', 'planKey',
     /* the office's own hand controls, for schedule-chaos.test.js */
@@ -76,6 +76,9 @@ module.exports = function makeHarness(liftDeep){
     'var selSchedule = null, selFix = null, selTake = null;',
     gridSrc.replace(/^import[^;]+;/gm, ''),
     moneySrc,
+    /* [[SCH-144]] the schedule's own esc — admin.html defines esc twice, so the lifter cannot pick one; this is the
+       one-line copy inside the schedule widget, read from the page rather than typed here */
+    (fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8').match(/function esc\(s\)\{return\(''\+s\)[^\r\n]*/) || [''])[0],
     'var gridPlanBlocks = planBlocks;',
     stubs
   ].join('\n');
@@ -136,7 +139,7 @@ module.exports = function makeHarness(liftDeep){
     '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses, houseDeadline: houseDeadline, isWorkingDay: isWorkingDay, dayHoldsWithHouse: dayHoldsWithHouse, fillOctoberWithAnyTime: fillOctoberWithAnyTime,',
     '        setCrewHeld: setCrewHeld, crewIsHeld: crewIsHeld, dayHasHeldCrew: dayHasHeldCrew, tomorrowsInstallDay: tomorrowsInstallDay,',
     '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
-    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive,',
+    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive, scheduleOnDate: scheduleOnDate, scheduleOnDateTarget: scheduleOnDateTarget, scheduleOnDateMove: scheduleOnDateMove, printCrewDayList: printCrewDayList, printWarehouseDayList: printWarehouseDayList, printNotDone: printNotDone, printOneStop: printOneStop,',
     '        PLAN_SCHEMA: PLAN_SCHEMA, planSchemaOf: planSchemaOf, planIsNewerThanPage: planIsNewerThanPage, planKey: planKey,',
     '        cascade: cascade, getDay: getDay, findHouse: findHouse, setDayLimitOn: setDayLimitOn, dayLimitOn: dayLimitOn,',
     '        crewDaysOverTownLimit: crewDaysOverTownLimit, unassignedHousesFor: unassignedHousesFor, oneManDays: oneManDays,',

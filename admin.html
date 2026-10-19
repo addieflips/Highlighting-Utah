@@ -77668,6 +77668,76 @@ function stuckDayOf(h){
   const stored = cust && cust.data ? cust.data.stuckOnDate : null;
   return ('' + (stored || h.stuck || '')).trim();
 }
+/* ⭐⭐ [[SCH-142]] SCHEDULE ON A DATE THE OFFICE PICKS (2026-10-19). Dax: "give me a way to pick a day to schedule a specific
+   customer and they just go wherever they make sense in a route".
+   ⭐ THE SAME PIN, A WIDER DOOR. "📌 Stuck here" pins to the day the house is already on; Edit Customer's box takes a typed
+   date. This takes any date from the stop itself and writes the SAME stuckOnDate — so Recalculate, the sync and every mover
+   keep them there ([[SCH-100]]) — then moves them NOW, onto the install day already on that date or a new one made there
+   (installDayOnDate), and re-orders that day with the route generator Recalculate uses (generateDayRoutes), so they land
+   where they make sense in the drive rather than on the end of the list.
+   ⚠ REFUSED, AND SAYS WHY: a date that has come, a weekend or holiday, a day they are away, somebody on a Warehouse list
+   ([[SCH-137]]), and a day that is printed, has a crew checked for tomorrow, or is one of the next two locked days — those
+   sheets are frozen, and adding a house re-deals both crews (use 🗓 For tomorrow for tomorrow). The house is not taken off
+   a printed or checked day either. Nothing is written until every check has passed. */
+/* Every check, and the day the house would go on (made if the date has none). Writes nothing; a day it made is returned as
+   `made` so the caller can take it back. Its own function so the suites can RUN it — the write is the only async part. */
+function scheduleOnDateTarget(houseId, ds){
+  const f = findHouse(houseId);
+  if(!f || !f.house || f.house.isTakedown || f.house.isFix) return {why: 'Only an install stop can be scheduled on a date'};
+  const h = f.house, who = personName(h.name, h) || 'They';
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(ds || ''))) return {why: 'Pick a date first'};
+  const dt = isoToLocalDate(ds);
+  if(!dt || ds <= scheduleTodayStr()) return {why: who + ' cannot go on ' + ds + ' — pick a day after today'};
+  if(!isWorkingDay(dt)) return {why: who + ' cannot go on ' + fmtDayLabel(dt) + ' — it is not a working day'};
+  if(houseOnWarehouseList(h)) return {why: who + ' ' + WAREHOUSE_HOLD_TEXT};
+  if(typeof houseAwayOn === 'function' && houseAwayOn(h, ds)) return {why: who + ' are away on ' + fmtDayLabel(dt) + ' — pick another day, or change their away dates in Customers'};
+  if(routeDayIsLocked(ds)) return {why: fmtDayLabel(dt) + ' is one of the next two days and its sheets are set — use 🗓 For tomorrow, or pick a later day'};
+  if((typeof dayIsPrintedAhead === 'function' && dayIsPrintedAhead(f.day)) || f.day.printedAt) return {why: who + ' are on a printed day and cannot be moved off it'};
+  if(houseOnHeldCrew(f.day, h)) return {why: heldCrewRefusal(f.day)};
+  const dsOf = function(d){ const x = dayDate(d); return x ? isoOf(x) : ''; };
+  const there = SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dsOf(d) === ds; })[0];
+  if(there && (there.printedAt || dayHasHeldCrew(there))) return {why: there.printedAt ? (fmtDayLabel(dt) + ' has been printed and can no longer be changed') : heldCrewRefusal(there)};
+  const cust = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
+  if(!cust) return {why: 'Could not find this customer in All Customers — nothing was saved'};
+  /* the day before the write, so a date the layout will not hold is refused before anything is written */
+  const target = (f.day && dsOf(f.day) === ds) ? f.day : (there || installDayOnDate(ds));
+  if(!target) return {why: 'A day could not be laid out on ' + fmtDayLabel(dt) + ' — nothing was saved'};
+  return {f: f, h: h, who: who, dt: dt, cust: cust, target: target, made: !there && target !== f.day ? target : null};
+}
+/* The move, once the pin is saved: stuck to the date, onto the day, and the day re-ordered with the same route generator
+   Recalculate gives it, aimed at the work after it — so they land where they make sense, not on the end of the list. */
+function scheduleOnDateMove(r, ds){
+  const h = r.h, f = r.f, target = r.target;
+  h.stuck = ds;
+  if(target !== f.day){
+    if(dayHasHeldCrew(f.day)) takeOffHeldDay(f.day, h); else f.day.houses = f.day.houses.filter(function(x){ return x !== h; });
+    target.houses.push(h);
+  }
+  try{
+    computeDates();
+    const aims = (typeof seasonAimPoints === 'function') ? seasonAimPoints(SEASON) : [];
+    generateDayRoutes(target, {aim: aims[SEASON.indexOf(target)] || null});
+  }catch(err){ console.error('[HU] could not order the day', err); }
+  return target.houses.indexOf(h) + 1;
+}
+async function scheduleOnDate(houseId, ds){
+  const r = scheduleOnDateTarget(houseId, ds);
+  if(r.why){ renderAll(); toast(r.why); return; }
+  try{
+    await updateDoc(doc(db, 'jobAddresses', r.cust.id), {stuckOnDate: ds, updatedAt: serverTimestamp()});
+  }catch(err){
+    console.error('[HU] could not save the scheduled day', err);
+    if(r.made && !(r.made.houses || []).length && SEASON.indexOf(r.made) !== -1){ SEASON.splice(SEASON.indexOf(r.made), 1); computeDates(); }
+    renderAll(); toast('Could not save that — ' + ((err && err.message) || 'try again'));
+    return;
+  }
+  /* mirrored into the cache before the repaint, the same as 📌 Stuck here, or the panel springs back */
+  if(r.cust.data) r.cust.data.stuckOnDate = ds;
+  const pos = scheduleOnDateMove(r, ds);
+  selSchedule = r.target.id;
+  renderAll(); scheduleSave();
+  toast(r.who + ' → ' + fmtDayLabel(r.dt) + ', stop ' + pos + ' of ' + r.target.houses.length + ' — stuck there, so Recalculate keeps them on it');
+}
 async function setTakedownTiming(houseId, value){
   const f = findHouse(houseId);
   if(!f || !f.house.isTakedown) return;
@@ -78289,6 +78359,12 @@ function stopHTML(h,n,dayId){
        :'Pin them to this day so nothing moves them off it')+'">'+
       (pinnedHere?'📌 Stuck here — unpin':pinnedElse?('📌 Stuck on '+esc(sd)+' — pin here'):'📌 Stuck here')+
       '</button>';
+    /* [[SCH-142]] pick ANY date: they are stuck to it (the same stuckOnDate as above), moved there now — onto the day
+       already on that date or a new one — and that day's route is re-ordered so they sit where they make sense */
+    extra+='<label class="lbl" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px" title="Pick a date — they are stuck to it and slotted into that day\'s route where they make sense">Schedule on '+
+      '<input type="date" class="ondate" data-ondate="'+h.id+'" min="'+esc(isoOf(addDays(isoToLocalDate(scheduleTodayStr()),1)))+'" value="'+esc(sd||'')+'"></label>';
+    /* [[SCH-144]] this one stop on its own page */
+    extra+='<button class="qbtn" data-printstop="'+h.id+'" title="Print just this customer — the crew-sheet line, and their photo if they are a new hang">🖨 Print</button>';
     /* [[SCH-136]] mark them for tomorrow — the next Recalculate puts every marked customer on it, and nobody else */
     const tmk=(typeof tomorrowMarkActive==='function')&&tomorrowMarkActive(h);
     extra+='<button class="qbtn stuck'+(tmk?' on':'')+'" data-tomorrow="'+h.id+'" title="'+
@@ -84379,6 +84455,7 @@ RT.addEventListener('change',e=>{const t=e.target;
     return;
   }
   if(t.dataset.move){moveHouse(t.dataset.move,t.value);return;}
+  if(t.dataset.ondate){if(t.value)scheduleOnDate(t.dataset.ondate,t.value);return;}
   if(t.dataset.fixadd&&t.value){addListFixToDay(t.dataset.fixadd,t.value);return;}
   if(t.dataset.pin){const d=getDay(t.dataset.pin);
     /* [[SCH-120]] a printed day's date is fixed; [[SCH-140]] forceDayDateByHand also settles anybody the new date does not suit. */
@@ -84807,6 +84884,7 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.dataset.unpin){const d=getDay(t.dataset.unpin);d.pin=null;renderAll();toast('Manual date cleared');return;}
   if(t.dataset.reassign){reassign(t.dataset.reassign,+t.dataset.month);return;}
   if(t.dataset.stuck){setStuckHere(t.dataset.stuck);return;}
+  if(t.dataset.printstop){printOneStop(t.dataset.printstop);return;}
   if(t.dataset.tomorrow){const r=toggleTomorrowMark(t.dataset.tomorrow);renderAll();
     toast(r===null?'There is no install day after today to mark them for':(r?'Marked for tomorrow — press ⚙ Recalculate everything to put everyone marked on it':'Unmarked for tomorrow'));return;}
   if(t.dataset.prio){setPriorityFor(t.dataset.prio);return;}
@@ -85074,7 +85152,6 @@ function printDaySheet(dayId){
   const rows=schedRouteRows(day);
   const l=dlabel(dayDate(day));
   const what=day.isFixRoute?'Fixer Route':(day.isTakedown?'Takedown':'Install');
-  const left=rows.filter(r=>!r.done).length;
   const routes=new Set(rows.map(r=>r.route)).size;
   /* ⭐ ONE BLOCK PER CREW, EACH NUMBERED FROM 1. This is the sheet that gets cut in
      half and handed out when nobody printed the crew sheets, so each half has to stand
@@ -85085,9 +85162,11 @@ function printDaySheet(dayId){
      It is already reported on screen as nobody's; a printed sheet that silently drops it
      is how it gets missed on the road. */
   const blocks=[], backs=[];
+  let printedN=0;   /* [[SCH-143]] the header counts what is on the paper, not the houses already done */
   (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c,i){
     const mine=printCrewDayList(day,i);
     if(!mine.length) return;
+    printedN+=mine.length;
     /* ⭐ AND THE NEW HANGS' PHOTOS, under their own crew's half (added 2026-08-20).
        Owner, having printed this very sheet for 16 November: "ashley wray is on this day
        but it isnt showing her house here", and "i should be seeing a picture of her
@@ -85106,9 +85185,10 @@ function printDaySheet(dayId){
       printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos');
     if(back) backs.push('<h2>'+esc(crewName(i))+'</h2>'+back);
   });
-  const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
+  const spare=printNotDone((typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[]);
   if(spare.length){
     const sr=spare.map(function(h){ return printCrewRow(h); });
+    printedN+=sr.length;
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
       printTableHtml(sr,printCrewColumns(sr)));
   }
@@ -85116,8 +85196,8 @@ function printDaySheet(dayId){
   const title='Schedule — '+what+' — '+l.wd+', '+l.full;
   schedOpenPrintPages(title,[{
     title:title,
-    summary:rows.length?(rows.length+' stop'+(rows.length===1?'':'s')+' · '+routes+
-      ' route'+(routes===1?'':'s')+' · '+left+' still to do · '+dayMainArea(day)):'',
+    summary:printedN?(printedN+' stop'+(printedN===1?'':'s')+' still to do · '+routes+
+      ' route'+(routes===1?'':'s')+' · '+dayMainArea(day)+(rows.length>printedN?' · '+(rows.length-printedN)+' already done, not printed':'')):'',
     body:blocks.join(''),
     empty:'No houses on this day.'
   }]);
@@ -85716,7 +85796,7 @@ function printNeedsBuildList(){
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }
 function printWarehouseDayList(day){
-  return ((day && day.houses) || []).map(function(h){
+  return printNotDone((day && day.houses) || []).map(function(h){
     const d = printCustData(h);
     /* [[WH-49]] the same two boxes the Warehouse tab and both build sheets read, through
        whNoteText — never the crew's Permanent Notes ([[WH-48]]), and NOT whNotesCell: its
@@ -85759,8 +85839,42 @@ function printNewHangKeys(day){
   });
   return keys;
 }
+/* ⭐⭐ [[SCH-143]] A HOUSE THAT IS DONE IS NEVER PRINTED (2026-10-19). Dax: "make it so it automatically doesnt print houses
+   that are already done even if theyre on a day with a bunch of not done houses in case we didnt recalculate".
+   Asked of the CUSTOMER as well as the plan row (derivedDoneFor — completed for an install, removalDone for a takedown),
+   so a house ticked off on Routes or in All Customers since the last repaint still drops off the paper. Every sheet that
+   lists houses goes through this: both crew sheets, the day sheet (and its in-neither-crew block), the new-hang and fix
+   photos, and the warehouse loading list — nobody loads a bin for a house that is already hung. The schedule itself is
+   untouched; this decides only what reaches paper. */
+function printNotDone(houses){
+  return (houses || []).filter(function(h){
+    if(!h || h.done || h.hiddenDone) return false;
+    const fresh = (typeof derivedDoneFor === 'function') ? derivedDoneFor(h) : null;
+    return fresh !== true;
+  });
+}
+/* ⭐ [[SCH-144]] ONE STOP ON ITS OWN PAGE (2026-10-19). Dax: "i can print it but i cant create the page" — one customer's
+   sheet, for a house added or handed out on its own. The same row and columns as the crew sheet (printCrewRow /
+   printCrewColumns) and, for a new hang, the same photos, so a single page never says anything the crew sheet would not.
+   ⚠ IT DOES NOT LOCK THE DAY. markDayPrinted is for a whole day's paper; one stop handed out does not freeze everybody
+   else's sheet. And it prints even a house already done — somebody asked for this one by name. */
+function printOneStop(houseId){
+  const f = (typeof findHouse === 'function') ? findHouse(houseId) : null;
+  if(!f || !f.house){ toast('Could not find that stop'); return; }
+  const h = f.house, d = printCustData(h);
+  const rows = [printCrewRow(h)];
+  const photos = printIsNewHang(d, h) ? ((typeof printNewHangPhotoList === 'function') ? printNewHangPhotoList(d, h) : [])
+    .filter(function(p){ return p && p.url; })
+    .map(function(p, k, all){ return {url: p.url, number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
+      of: [all.length > 1 ? ((k + 1) + ' of ' + all.length) : '', p.label || ''].filter(Boolean).join(' · ')}; }) : [];
+  const who = d.name || h.name || 'Customer';
+  const num = d.customerNumber || h.cu || '';
+  const title = (num ? '#' + num + ' ' : '') + who + ' — ' + printDayLabel(f.day);
+  schedOpenPrintPages(title, [{title: title, summary: [h.address || d.address || '', h.city || d.city || ''].filter(Boolean).join(', '),
+    body: printTableHtml(rows, printCrewColumns(rows)) + printPhotosHtml(photos), empty: 'Nothing to print.'}]);
+}
 function printCrewDayList(day, i){
-  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const mine = printNotDone((typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : []);
   const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
   return mine.map(function(h){
     const r = printCrewRow(h);
@@ -85825,7 +85939,7 @@ function printNewHangPhotoList(d, h){
   return fromQuote.filter(function(p){ return p && p.url; }).map(function(p){ return {url: p.url, label: p.label || 'from their quote'}; });
 }
 function printCrewPhotos(day, i){
-  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const mine = printNotDone((typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : []);
   const keys = (typeof printNewHangKeys === 'function') ? printNewHangKeys(day) : new Map();
   const out = [];
   mine.forEach(function(h){
@@ -85870,7 +85984,7 @@ function printCrewPhotos(day, i){
    house it had never seen with no picture and no word that one was missing, and the office never
    found out it should have taken one. One line under the photos says who. */
 function printCrewPhotoGaps(day, i){
-  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const mine = printNotDone((typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : []);
   const out = [];
   mine.forEach(function(h){
     const d = printCustData(h);
@@ -85889,7 +86003,7 @@ function printPhotoGapsHtml(names){
     esc(names.join(', ')) + ' — take one at the house.</p>';
 }
 function printFixPhotos(day, i){
-  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const mine = printNotDone((typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : []);
   const out = [];
   mine.forEach(function(h){
     const d = printCustData(h);
