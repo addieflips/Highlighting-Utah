@@ -75257,6 +75257,15 @@ function applyTomorrowMarks(){
     day.houses = keep.concat(moving);
     /* the split is worked out again from the new list, and frozen again by the press */
     delete day.frozenIds; delete day.frozenCrews;
+    /* ⭐ [[SCH-141]] AND THE DAY IS SET FOR TOMORROW, every crew on it (2026-10-19). Dax: "when i mark people for tomorrow and i
+       recalculate that day should be the day in the set for tomorrow spot and also, there should be no one on that day other
+       than the people i marked because those people are already in the trailer we cant just throw more in". Left unchecked,
+       the rebuild that runs after this filled the day back up to forty — the marks emptied it and the planner saw room. The
+       crew check ([[SCH-135]]) is what keeps a list exactly as it is until 5 PM, so the marked day gets it: locked, badged,
+       nothing added, nothing taken. Uncheck a crew to let it change again. */
+    const held = {};
+    crewIndexes().forEach(function(i){ if(crewHousesFor(i, day).length) held[i] = ds; });
+    if(Object.keys(held).length) day.crewHeld = held;
   });
   return out;
 }
@@ -82713,11 +82722,13 @@ function nextInstallDayFor(h, opts){
      rather than wait for a press; the next Recalculate tidies the area ([[SCH-129]]) */
   if(o.anyRoom && room.length) return room[0];
   if(!o.makeDay) return null;
-  /* a day of their own: an open day already on the plan with nothing on it first, so no second empty day is made */
+  /* a day of their own: the earliest of a free working date and an open day already on the plan with nothing on it —
+     an empty day is taken rather than making a second one beside it, but never a later one over an earlier free date */
   const emptyDay = room.filter(function(t){ return !(t.houses || []).some(liveH); })[0];
-  if(emptyDay) return emptyDay;
-  if(typeof freeInstallDayFor !== 'function') return null;
-  return freeInstallDayFor(h, from, until);
+  const emptyStr = emptyDay ? dayStr(emptyDay) : '';
+  const made = (typeof freeInstallDayFor === 'function')
+    ? freeInstallDayFor(h, from, emptyStr && (!until || emptyStr < until) ? emptyStr : until) : null;
+  return made || emptyDay || null;
 }
 /* [[SCH-140]] A day of its own, on the first working date after the locked days that is inside the house's window, not a
    day they are away, and holding no install day yet. The day's base is measured against the season start the office has
