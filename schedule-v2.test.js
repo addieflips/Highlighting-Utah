@@ -1452,6 +1452,14 @@ suite('SCH-136 Customers marked for tomorrow: Recalculate puts every one of them
   check('36.3 and everybody moved off it is still on a day — nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
   H.press();
   check('36.4 a second press keeps tomorrow exactly the same', onTom() === want, onTom());
+  /* [[SCH-141]] Dax: "that day should be the day in the set for tomorrow spot and also, there should be no one on that day
+     other than the people i marked because those people are already in the trailer". */
+  const tomNow = function(){ return H.season().filter(function(x){ return x.id === tom.id; })[0]; };
+  check('36.4b the marked day is SET FOR TOMORROW — every crew on it checked', H.api.dayHasHeldCrew(tomNow()) &&
+    H.api.crewIndexes().every(function(i){ return !H.api.crewHousesFor(i, tomNow()).length || H.api.crewIsHeld(tomNow(), i); }),
+    JSON.stringify(tomNow().crewHeld || null));
+  H.press(true);
+  check('36.4c and "Recalculate including the next two days" adds nobody to it either', onTom() === want, want + '  vs  ' + onTom());
   const dropped = picks[1];
   check('36.5 a mark can be taken off', H.api.toggleTomorrowMark(dropped.id) === false && !H.api.tomorrowMarkActive(dropped));
   H.setNow(new Date(2026, 9, 1, 17, 0));
