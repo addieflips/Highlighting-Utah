@@ -82713,6 +82713,10 @@ function nextInstallDayFor(h, opts){
      rather than wait for a press; the next Recalculate tidies the area ([[SCH-129]]) */
   if(o.anyRoom && room.length) return room[0];
   if(!o.makeDay) return null;
+  /* a day of their own: an open day already on the plan with nothing on it first, so no second empty day is made */
+  const emptyDay = room.filter(function(t){ return !(t.houses || []).some(liveH); })[0];
+  if(emptyDay) return emptyDay;
+  if(typeof freeInstallDayFor !== 'function') return null;
   return freeInstallDayFor(h, from, until);
 }
 /* [[SCH-140]] A day of its own, on the first working date after the locked days that is inside the house's window, not a
