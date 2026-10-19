@@ -2071,7 +2071,16 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     for(let d = 16; d <= 31; d++){
       const dt = new Date(2026, 9, d), ds = H.api.isoOf(dt);
       if(!H.api.isWorkingDay(dt) || taken.has(ds) || ds <= today || H.api.routeDayIsLocked(ds)) continue;
-      if(waiting.some(function(w){ return H.api.houseMayGoOn(w.h, custOf(w.h), ds, startStr).ok; })) emptyOct.push(ds);
+      /* [[SCH-140]] where SCH-134 meets SCH-128: a date is only owed to them when a crew's worth (ten) of the waiting
+         houses that may go on it hold together within five miles — a date opened for one or two scattered houses is
+         exactly the one-house October day SCH-128 forbids */
+      const legalHere = waiting.filter(function(w){ return H.api.houseMayGoOn(w.h, custOf(w.h), ds, startStr).ok; });
+      const crewsWorth = legalHere.some(function(seed){
+        const group = {houses: [seed.h]};
+        legalHere.forEach(function(w){ if(w !== seed && group.houses.length < 20 && H.api.dayHoldsWithHouse(group, w.h)) group.houses.push(w.h); });
+        return group.houses.length >= 10;
+      });
+      if(crewsWorth) emptyOct.push(ds);
     }
     check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
       emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
