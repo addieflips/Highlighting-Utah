@@ -1577,9 +1577,9 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
   /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
      older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
-  const RECORDED = {schema: 3,
+  const RECORDED = {schema: 4,
     top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
-    day: 'base,cascade,crewHeld,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
+    day: 'base,cascade,crewHeld,fixedOn,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
   const top = Object.keys(out).sort().join(',');
   const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });
   const day = Array.from(dayKeys).sort().join(',');
@@ -2079,7 +2079,16 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     for(let d = 16; d <= 31; d++){
       const dt = new Date(2026, 9, d), ds = H.api.isoOf(dt);
       if(!H.api.isWorkingDay(dt) || taken.has(ds) || ds <= today || H.api.routeDayIsLocked(ds)) continue;
-      if(waiting.some(function(w){ return H.api.houseMayGoOn(w.h, custOf(w.h), ds, startStr).ok; })) emptyOct.push(ds);
+      /* [[SCH-140]] where SCH-134 meets SCH-128: a date is only owed to them when a crew's worth (ten) of the waiting
+         houses that may go on it hold together within five miles — a date opened for one or two scattered houses is
+         exactly the one-house October day SCH-128 forbids */
+      const legalHere = waiting.filter(function(w){ return H.api.houseMayGoOn(w.h, custOf(w.h), ds, startStr).ok; });
+      const crewsWorth = legalHere.some(function(seed){
+        const group = {houses: [seed.h]};
+        legalHere.forEach(function(w){ if(w !== seed && group.houses.length < 20 && H.api.dayHoldsWithHouse(group, w.h)) group.houses.push(w.h); });
+        return group.houses.length >= 10;
+      });
+      if(crewsWorth) emptyOct.push(ds);
     }
     check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
       emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
