@@ -82021,7 +82021,10 @@ function fillOctoberWithAnyTime(){
     const ids = new Set(SEASON.map(function(x){ return x.id; }));
     let n = 0; while(ids.has('oa' + n)) n++;
     const before = new Map(SEASON.map(function(d){ return [d, dsOf(d)]; }));
-    const nd = {id: 'oa' + n, base: daysBetween(new Date(ds.slice(0, 4) * 1, ds.slice(5, 7) * 1 - 1, ds.slice(8, 10) * 1), BASE_START), cascade: 0, pin: null, houses: []};
+    /* [[SCH-140]] the base allows for the global shift and the day is anchored to its date, the same as installDayOnDate —
+       without both, any shift laid the new day out on a different date and it was refused every time */
+    const nd = {id: 'oa' + n, base: daysBetween(new Date(ds.slice(0, 4) * 1, ds.slice(5, 7) * 1 - 1, ds.slice(8, 10) * 1), BASE_START) - (typeof globalDelta === 'number' ? globalDelta : 0),
+                cascade: 0, pin: null, fixedOn: ds, houses: []};
     SEASON.push(nd); computeDates();
     /* ⚠ only if no other day moves: the calendar packs days in order, and a new one can push the rest along */
     const shifted = SEASON.some(function(d){ return d !== nd && before.has(d) && before.get(d) !== dsOf(d); });
@@ -82043,9 +82046,24 @@ function fillOctoberWithAnyTime(){
       if(!best) break;
       group.push(best);
     }
-    /* the group may be too big for one day that holds — shrink it from the far end until somewhere takes it */
-    for(let size = group.length; size >= 1; size--){
-      const g = group.slice(0, size);
+    /* the group may be too big for one day that holds — shrink it from the far end until somewhere takes it.
+       [[SCH-140]] but first try it trimmed only on the days that refuse to let go: taking 13 of a crew's 20 leaves 7, a crew
+       SCH-128 will not send, while taking 10 leaves 10 — dropping from the far end alone never finds that, it shrinks the
+       whole group under ten first. */
+    const tries = [];
+    {
+      const tr = group.slice();
+      for(let guard = 0; guard < group.length && tr.length; guard++){
+        const froms = []; tr.forEach(function(x){ if(froms.indexOf(x.from) === -1) froms.push(x.from); });
+        const bad = froms.filter(function(d){ return !leaveOk(tr.filter(function(x){ return x.from === d; })); })[0];
+        if(!bad) break;
+        for(let i = tr.length - 1; i >= 0; i--){ if(tr[i].from === bad){ tr.splice(i, 1); break; } }
+      }
+      if(tr.length && tr.length < group.length) tries.push(tr);
+    }
+    for(let size = group.length; size >= 1; size--) tries.push(group.slice(0, size));
+    for(let ti = 0; ti < tries.length; ti++){
+      const g = tries[ti];
       if(!leaveOk(g)) continue;
       const hs = g.map(function(x){ return x.h; });
       g.forEach(function(x){ const i = x.from.houses.indexOf(x.h); if(i !== -1) x.from.houses.splice(i, 1); });
@@ -82070,6 +82088,38 @@ function fillOctoberWithAnyTime(){
       if(target){ g.forEach(function(x){ move(x, target); }); break; }
     }
   });
+  /* (3b) [[SCH-140]] a whole crew off a November day. The gathering above takes the nearest houses wherever they sit, so a
+     crew's worth spread over two November days takes PART of each — and what is left on those days no longer holds, so
+     leaveOk refuses every size down to a group too small to open a date for. A whole crew comes off whole: the other crew
+     on that day is left exactly as it was. Every one of its houses must be free to go in October. */
+  if(typeof dayCrewHouses === 'function'){
+    const minCrew3 = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+    const candOf = new Map(cands.map(function(c){ return [c.h, c]; }));
+    SEASON.filter(function(d){ return isOpen(d) && dsOf(d) > octEnd; })
+      .sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; })
+      .forEach(function(d){
+        dayCrewHouses(d).map(function(crew){ return crew.filter(live); }).forEach(function(crew){
+          if(crew.length < minCrew3) return;
+          if(!crew.every(function(h){ return candOf.has(h) && !done.has(h) && d.houses.indexOf(h) !== -1; })) return;
+          const g = crew.map(function(h){ return candOf.get(h); });
+          if(!leaveOk(g)) return;
+          const hs = crew.slice();
+          g.forEach(function(x){ const i = x.from.houses.indexOf(x.h); if(i !== -1) x.from.houses.splice(i, 1); });
+          let target = octDays().find(function(t){ return roomFor(t, hs.length) && legalOn(g, dsOf(t)) && dayHoldsWithHouses(t, hs); }) || null;
+          for(let i = 0; i < octDates.length && !target; i++){
+            const ds = octDates[i];
+            if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
+            if(!legalOn(g, ds) || hs.length > capFor(ds)) continue;
+            const nd = openDayOn(ds);
+            if(!nd) continue;
+            if(dayHoldsWithHouses(nd, hs)) target = nd;
+            else { SEASON.splice(SEASON.indexOf(nd), 1); computeDates(); }
+          }
+          g.forEach(function(x){ x.from.houses.push(x.h); });
+          if(target) g.forEach(function(x){ move(x, target); });
+        });
+      });
+  }
   /* (4) a short October day is folded into another October day that holds with all of it — smallest first, so the
      handful of little groups opened above become as few mornings as the five-mile rule allows ([[SCH-128]]). Every press,
      not only one that moved somebody: a short October day left by an earlier press is folded in the same way. */
