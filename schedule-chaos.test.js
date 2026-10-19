@@ -124,7 +124,7 @@ function chaosSeason(cfg){
   const byId = {}; book.forEach(function(b){ byId['cust-' + b.id] = b; });
   const api = H.api;
   let realToday = '2026-09-30';
-  const ctx = {r: r, today: function(){ return api.scheduleTodayStr(); }, real: function(){ return realToday; }};
+  const ctx = {r: r, today: function(){ return api.scheduleTodayStr(); }, real: function(){ return realToday; }, staleLocks: new WeakMap()};
   const A = makeActions(ctx);
   const ds = function(d){ return api.isoOf(api.dayDate(d)); };
   const live = function(h){ return !h.done && !h.hiddenDone; };
@@ -185,6 +185,15 @@ function chaosSeason(cfg){
       const ok = {};
       work.slice(0, 2).forEach(function(x){ ok[x] = 1; });
       all.forEach(function(d){ if(d.printedAt || api.dayHasHeldCrew(d)) ok[ds(d)] = 1; });
+      /* a day frozen as one of the next two keeps its lock until the start of the next press (SCH-140) — so it may be locked
+         now, but it must not still be locked, without being one of the next two, after a SECOND press */
+      all.forEach(function(d){
+        if(!d.frozenCrews || ok[ds(d)]) return;
+        ok[ds(d)] = 1;
+        /* after a press it may only be one the press started out holding as one of the next two */
+        if(label.indexOf('press') === 0 && !d.isTakedown && L.has(ds(d)) && !(ctx.nextAtStart && ctx.nextAtStart[ds(d)]))
+          add('no day stays locked through two presses without being one of the next two (SCH-140)', label + ': ' + ds(d) + ' (' + d.id + ')');
+      });
       L.forEach(function(x){ if(x > today && !ok[x]) add('only the next two days with work, printed days and checked crews are locked (SCH-106/118)', label + ' after "' + last + '": ' + x + ' locked'); });
     }
     if(!full) return;
@@ -211,7 +220,11 @@ function chaosSeason(cfg){
       const p = x.split('-').map(Number);
       if(!api.isWorkingDay(new Date(p[0], p[1] - 1, p[2])) || api.routeDayIsLocked(x) || usedDates[x]) continue;
       const could = novWaiting.filter(function(h){ const c = api.planCustomerFor(h); return api.houseMayGoOn(h, (c && c.data) || {}, x, T0()).ok; });
-      if(could.length >= 10) add('no October working day stands empty while ten or more houses that could go on it wait in November (SCH-134)', label + ' after "' + last + '": ' + x + ' empty, ' + could.length + ' could go');
+      /* a crew's worth that could work TOGETHER — within five miles of one of them (SCH-131), not ten spread over the valley */
+      const pt = function(h){ const c = api.planCustomerFor(h); return api.houseGeoPoint(h, (c && c.data) || {}); };
+      let bestGroup = 0;
+      could.forEach(function(s){ const p = pt(s); if(!p) return; const n = could.filter(function(o){ const q = pt(o); return q && api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }).length; if(n > bestGroup) bestGroup = n; });
+      if(bestGroup >= 10) add('no October working day stands empty while ten or more houses that could go on it wait in November (SCH-134)', label + ' after "' + last + '": ' + x + ' empty, ' + could.length + ' could go');
     }
   };
   H.setNow(new Date(2026, 8, 30, 18, 0)); H.load(book, {}); H.press();
@@ -255,6 +268,10 @@ function chaosSeason(cfg){
     H.setNow(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 18, 0));
     H.load(book, {season: H.season(), globalDelta: api.getGlobalDelta(), baseStart: api.getBaseStart()});
     const all = r() < 0.1;
+    /* which days the press starts out holding as one of the next two (worked out here, touching nothing) */
+    ctx.nextAtStart = {};
+    (function(){ const t = api.scheduleTodayStr(); H.season().filter(function(d){ return !d.isFixRoute && api.dayDate(d) && ds(d) > t && (d.houses.some(live) || d.printedAt); })
+      .map(ds).sort().filter(function(x, i, a){ return a.indexOf(x) === i; }).slice(0, 2).forEach(function(x){ ctx.nextAtStart[x] = 1; }); })();
     try{ H.press(all); }catch(e){ add('Recalculate never throws', realToday + ': ' + String(e && e.message)); }
     audit('press ' + realToday, (all ? 'Recalculate including the next two days' : 'Recalculate everything') + ' after "' + last + '"', true);
   }
@@ -271,6 +288,7 @@ const RULES = [
   'no day holds more than forty',
   'every house on a day is on exactly one crew (SCH-67)',
   'only the next two days with work, printed days and checked crews are locked (SCH-106/118)',
+  'no day stays locked through two presses without being one of the next two (SCH-140)',
   'a printed day never changes its date (SCH-120)',
   'every Confirmed customer is on a day after Recalculate (SCH-85)',
   'no crew goes out under ten when its houses could join another day (SCH-128)',

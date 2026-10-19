@@ -75279,10 +75279,12 @@ function heldCrewRefusal(day){
   return names + '’s list for ' + dlabel(dayDate(day)).wd + ' ' + dlabel(dayDate(day)).full +
     ' is checked for tomorrow and cannot change until 5 PM that day — uncheck it first';
 }
-function refreshLockedDates(){
-  computeLockedDatesOnce();
+function refreshLockedDates(opts){
+  /* opts.releaseFrozen: the start of a press — a frozen day no longer one of the next two is let go (see below) */
+  const rel = !!(opts && opts.releaseFrozen);
+  computeLockedDatesOnce(rel);
   /* [[SCH-140]] anchor what must not move, let go of what may; a day let go can land somewhere new, so once more */
-  if(anchorLockedDays()){ computeDates(); computeLockedDatesOnce(); anchorLockedDays(); }
+  if(anchorLockedDays()){ computeDates(); computeLockedDatesOnce(rel); anchorLockedDays(); }
   return LOCKED_DATES;
 }
 /* [[SCH-140]] every install day that has been worked (today or before, still holding houses) or is locked keeps the date it
@@ -75310,7 +75312,7 @@ function anchorLockedDays(){
   });
   return released;
 }
-function computeLockedDatesOnce(){
+function computeLockedDatesOnce(releaseFrozen){
   /* [[SCH-116]] the crew's hang day when they are behind — the day itself is locked (it is <= today below) and
      the next two days with work AFTER it are the printed ones, so behind or not the lock is three days of sheets. */
   const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
@@ -75334,20 +75336,23 @@ function computeLockedDatesOnce(){
     upcoming[ds] = 1;
   });
   const next = Object.keys(upcoming).sort().slice(0, ROUTE_LOCK_SCHEDULED_DAYS);
-  /* ⛔ [[SCH-140]] (2026-10-18) A DAY THAT WAS ONCE ONE OF THE NEXT TWO IS NOT LOCKED FOR EVER. This used to keep any day
-     whose crew split had been frozen locked "until it is worked, even if a new day lands in front of it". That predates
-     [[SCH-120]]: a sheet really printed now carries printedAt and is locked above for good, so the frozen split no longer
-     needs to stand in for a print. What it did instead was lock days nobody printed — the live plan on 2026-10-18 had
-     Mon Nov 2 (one house, a one-man day) and Tue Nov 3 locked a fortnight out, which no Recalculate could ever fix, and
-     schedule-chaos.test.js found it on every season it played. The lock is what [[SCH-118]] says and nothing else: the
-     hang day, the next two days with work, and the days printed or checked for tomorrow. A frozen split on a day that is
-     no longer locked is let go, so the day is split afresh like any other. */
+  /* ⛔ [[SCH-140]] (2026-10-18) A DAY THAT WAS ONE OF THE NEXT TWO STAYS LOCKED UNTIL THE NEXT PRESS — NOT FOR EVER. This used to
+     keep any day whose crew split had been frozen locked "until it is worked, even if a new day lands in front of it": right
+     for the sheet the crew may already be holding, wrong as a rule with no end. The live plan on 2026-10-18 had Mon Nov 2
+     (one house, a one-man day) and Tue Nov 3 locked a fortnight out, which no Recalculate could ever fix, and
+     schedule-chaos.test.js found it on every season it played. So a frozen day keeps its lock through the press and the
+     syncs that follow (a Recalculate that lays new days in front of it must not then unlock and re-lay a sheet that was
+     one of the next two when it was pressed — measured: a locked 3 November left short and open), and is let go at the
+     START of the next press (`releaseFrozen`) if by then it is no longer one of the next two days with work. A really
+     printed sheet carries printedAt and is locked above for good ([[SCH-120]]). */
   (typeof SEASON !== 'undefined' ? SEASON : []).forEach(function(d){
-    if(d.isFixRoute || !d.frozenCrews || d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d))) return;
+    if(d.isFixRoute || d.printedAt || (typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d))) return;
     const dt = dayDate(d); const ds = dt ? isoOf(dt) : '';
-    if(ds > today && next.indexOf(ds) === -1){ delete d.frozenIds; delete d.frozenCrews; }
+    if(!(ds > today) || next.indexOf(ds) !== -1 || !d.frozenCrews) return;
+    if(releaseFrozen){ delete d.frozenIds; delete d.frozenCrews; }
+    else if(typeof frozenCrewSplit === 'function' && frozenCrewSplit(d)) frozen[ds] = 1;
   });
-  LOCKED_DATES = new Set(next.concat(Object.keys(printed)));
+  LOCKED_DATES = new Set(next.concat(Object.keys(printed), Object.keys(frozen)));
   if(typeof window !== 'undefined' && window) window.scheduleLockedDates = function(){ return LOCKED_DATES; };
   return LOCKED_DATES;
 }
@@ -80386,7 +80391,7 @@ function rebuildSeasonDays(){
      reached the plan and sat on the day they were ticked. Keep what was kept; only when no fix is riding along, since
      riders need a built day to sit on. */
   if(!movable.length && !riders.length && doneRecord.length){
-    rebaseKeptDays(keep, start); BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
+    if(typeof rebaseKeptDays === 'function') rebaseKeptDays(keep, start); BASE_START=start; globalDelta=0; SEASON=keep; computeDates();
   }
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
@@ -80636,7 +80641,7 @@ function rebuildSeasonDays(){
             stuckBlockedNames: stuck0.blocked.slice(0, 5).map(function(x){ return x.name; })};
   }
   /* [[SCH-140]] the kept days are re-measured against the new start first, so resetting the start cannot move them */
-  rebaseKeptDays(keep, start);
+  if(typeof rebaseKeptDays === 'function') rebaseKeptDays(keep, start);
   BASE_START=start;
   globalDelta=0;
   SEASON=newDays.concat(keep);
@@ -80726,7 +80731,8 @@ function rebuildSeasonDays(){
   try{ if(typeof placeStuckHouses === 'function') stuckMoves = placeStuckHouses(floorStr); }
   catch(err){ console.error('Could not hold the pinned customers on their day:', err); }
   /* [[SCH-140]] the last word: whatever the dozen movers above did, nobody leaves this press outside their window */
-  try{ if(typeof keepEveryHouseLegal === 'function'){ const g = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g.moved); } }
+  try{ if(typeof keepEveryHouseLegal === 'function'){ const g = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g.moved);
+    const f = foldShortCrewDays(); if(f.moved.length){ shortMerged.merged = shortMerged.merged.concat(f.moved); const g2 = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g2.moved); } } }
   catch(err){ console.error('Could not make the last check of every window:', err); }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
           safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
@@ -82049,6 +82055,11 @@ function fillOctoberWithAnyTime(){
           const ds = octDates[i];
           if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) continue;
           if(!legalOn(g, ds) || hs.length > capFor(ds)) continue;
+          /* [[SCH-140]] an empty date is only opened for a crew's worth ([[SCH-128]]: no crew under ten). Smaller groups wait
+             where they are; the fold below and the next press gather them. Before, this rarely succeeded for a lone house
+             because opening a day shoved its neighbours along and was refused; with the days now holding their dates it
+             opened October days of one house apart, which nothing could ever fold together. */
+          if(hs.length < ((typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10)) continue;
           const nd = openDayOn(ds);
           if(!nd) continue;
           if(dayHoldsWithHouses(nd, hs)) target = nd;
@@ -82136,6 +82147,60 @@ function keepEveryHouseLegal(){
   }
   return out;
 }
+/* ⭐ [[SCH-128]] / [[SCH-140]] NO CREW GOES OUT UNDER TEN WHEN ITS HOUSES COULD JOIN ANOTHER DAY — checked as that sentence
+   says, last of all. The movers before this each fold short days by their own measure (the nearest run, the reach, the
+   October fold), and a later mover can leave a day short again. This takes every open day still under ten and puts the
+   whole of it on another open day where: every house may legally go, every house is within five miles of a house already
+   there, the day stays at or under its limit, its crews still keep their five miles (dayHoldsWithHouses), and an October
+   day never folds into November ([[SCH-134]]). Earliest such day first. The overflow after Thanksgiving is left alone. */
+function foldShortCrewDays(){
+  const res = {moved: []};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const minCrew = (typeof MIN_CREW_HOUSES === 'number') ? MIN_CREW_HOUSES : 10;
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const tail0 = (typeof crewTailDates === 'function') ? (crewTailDates(seasonStartDate().getFullYear())[0] || '') : '';
+  const octEnd = seasonStartDate().getFullYear() + '-10-31';
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const custOf = function(h){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; return (c && c.data) || {}; };
+  const ptOf = function(h){ const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, custOf(h)) : null; return (p && typeof p.lat === 'number') ? p : null; };
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; return lim === 'man' ? ONE_MAN_MAX_HOUSES : (lim === 'crew' ? crewCap() : cap); };
+  const open = function(d){ const ds = dsOf(d); return ds && ds > today && !d.isFixRoute && !d.isTakedown && !d.printedAt &&
+    !(typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d)) && !(routeDayIsLocked(ds) && (d.fixedOn || effectivePin(d))); };
+  /* ⚠ locked means THIS day is the locked one (anchored to its date), not merely that its date is in the press-start list:
+     a locked day emptied during the press (its finished houses moved to the front) frees its date, and a new day the
+     rebuild puts there is not a sheet anybody holds */
+  for(let pass = 0; pass < 40; pass++){
+    const days = SEASON.filter(open).sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; });
+    let moved = false;
+    for(let i = 0; i < days.length && !moved; i++){
+      const S = days[i], x = dsOf(S), hs = S.houses.filter(live);
+      if(!hs.length || hs.length >= minCrew || (tail0 && x >= tail0)) continue;
+      if(hs.some(function(h){ return ('' + (h.stuck || '')).trim(); })) continue;
+      const T = days.find(function(o){
+        if(o === S) return false;
+        const y = dsOf(o);
+        if(x <= octEnd && y > octEnd) return false;
+        const ol = o.houses.filter(live);
+        if(!ol.length || ol.length + hs.length > capFor(y)) return false;
+        if(!hs.every(function(h){ return houseMayGoOn(h, custOf(h), y, startStr).ok; })) return false;
+        if(!hs.every(function(h){ const p = ptOf(h); if(!p) return true;
+          return ol.some(function(z){ const q = ptOf(z); return q && haversine(p.lat, p.lng, q.lat, q.lng) <= MAX_CREW_HOP_MILES; }); })) return false;
+        return dayHoldsWithHouses(o, hs);
+      });
+      if(!T) continue;
+      S.houses = S.houses.filter(function(h){ return hs.indexOf(h) === -1; });
+      hs.forEach(function(h){ T.houses.push(h); res.moved.push({name: h.name || '(no name)', from: x, to: dsOf(T)}); });
+      if(!S.houses.length && !S.pin && !S.fixedOn) SEASON.splice(SEASON.indexOf(S), 1);
+      computeDates();
+      moved = true;
+    }
+    if(!moved) break;
+  }
+  return res;
+}
 /* [[SCH-140]] For a house whose last day has gone by with nowhere left inside it: the open days it may otherwise have (its
    floor, away dates and a pin still hold — only the deadline is set aside, because it can no longer be met), earliest
    first; the first whose crews keep their five miles with it wins, else the first with room. Null if none. */
@@ -82175,7 +82240,7 @@ function pullBackPastDeadline(){
         if(('' + (h.stuck || '')).trim()) return;
         const until = (typeof houseDeadline === 'function') ? (houseDeadline(h) || '') : '';
         if(!until || ds <= until) return;
-        const target = nextInstallDayFor(h, {exclude: day, makeDay: true});
+        const target = nextInstallDayFor(h, {exclude: day});
         const ts = target ? dayStr(target) : null;
         if(!target || !ts || ts > until){
           /* ⭐ [[SCH-122]] NO ROOM INSIDE THEIR LAST DAY — SO TRADE PLACES WITH SOMEBODY WHO SAID ANY TIME. Dax: "theres a lot
@@ -82373,7 +82438,7 @@ function placeJoinedHouses(){
     const h = houseFromCustomer(item);
     if(!h) return;
     const d = (item && item.data) || {};
-    let target = nextInstallDayFor(h, {makeDay: true});
+    let target = nextInstallDayFor(h, {anyRoom: true});
     if(d.rushInstall === true){
       const early = bestEarlierDayFor(h, d, target ? isoOf(dayDate(target)) : '');
       if(early) target = early.day;
@@ -82585,16 +82650,18 @@ function nextInstallDayFor(h, opts){
      had passed ("no later day has room" with a day of 39 next door), a customer whose timing changed stayed outside
      their window, and a rejoiner waited for a press. Found on the live plan (Oct 16) and by schedule-chaos.test.js.
      The order now: the earliest legal day whose crews stay within five miles with them on it (the planner's own test,
-     dayHoldsWithHouse — "the crew is already in its area", [[SCH-96]]); else a day already in their town; else the
-     earliest legal day with room — legal beats tidy, and the next Recalculate tidies; else, when the caller allows it,
-     a day of their own on the first free working date in their window. Only then null. */
+     dayHoldsWithHouse — "the crew is already in its area", [[SCH-96]]); else a day already in their town; else, when
+     the caller allows it, a day of their own on the first free working date in their window. Only then null. (Any day
+     with room, however far, was tried and measured: it broke the five-mile crews, [[SCH-131]].) */
   const near = room.filter(function(t){ return typeof dayHoldsWithHouse === 'function' && (t.houses || []).some(liveH) && dayHoldsWithHouse(t, h); })[0];
   if(near) return near;
   const sameTown = room.filter(function(t){
     return (t.houses || []).some(function(x){ return liveH(x) && extractCleanCity(x.city) === town; });
   })[0];
   if(sameTown) return sameTown;
-  if(room.length) return room[0];
+  /* the placers that bring somebody back (a rejoiner, a new customer, a moved house) take the earliest legal day with room
+     rather than wait for a press; the next Recalculate tidies the area ([[SCH-129]]) */
+  if(o.anyRoom && room.length) return room[0];
   if(!o.makeDay) return null;
   return freeInstallDayFor(h, from, until);
 }
@@ -82680,7 +82747,7 @@ function placeUnscheduledOnNextDay(){
     if(have.has(item.id)) return;
     const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
     if(!h) return;
-    const target = nextInstallDayFor(h, {makeDay: true});
+    const target = nextInstallDayFor(h, {anyRoom: true});
     if(!target){ stuck.push({name: d.name || '(no name)'}); return; }
     target.houses.push(h);
     have.add(item.id);
@@ -83279,7 +83346,7 @@ function rehomeMovedHouses(ids){
         out.locked.push({name: h.name || '(no name)', town: h.city || '', date: here});
         return;
       }
-      const target = nextInstallDayFor(h, {exclude: day, makeDay: true});
+      const target = nextInstallDayFor(h, {exclude: day, anyRoom: true});
       if(!target){
         out.stuck.push({name: h.name || '(no name)', town: h.city || '', date: here});
         return;
@@ -84349,8 +84416,9 @@ RT.addEventListener('click',e=>{const t=e.target;
     /* [[SCH-124]] any press counts as this morning's — see morningRecalcDue */
     try{ LAST_RECALC_ON=(typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date()); }catch(err){ console.error('[HU] could not stamp the recalculate date',err); }
     /* ⭐ [[SCH-106]] which days are printed is decided once, before anything moves, and those days are
-       frozen as they stand — so nothing below can reshuffle them. */
-    try{ refreshLockedDates(); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
+       frozen as they stand — so nothing below can reshuffle them. [[SCH-140]] a day frozen by an earlier press that is no
+       longer one of the next two is let go here, and only here. */
+    try{ refreshLockedDates({releaseFrozen: true}); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
     const before=JSON.stringify(serialize());
     /* ⭐ [[SCH-119]] everybody ticked done since the last press leaves the day lists and the sheets now — after
        `before` is taken, so Undo brings them back too. Hidden, never removed: see dayCrewHouses. */
@@ -84380,8 +84448,10 @@ RT.addEventListener('click',e=>{const t=e.target;
     let td=null;
     try{ td=rebuildTakedownDays(); computeDates(); }
     catch(err){ console.error('[HU] takedown rebuild failed',err); }
-    /* [[SCH-140]] the lock is worked out again for the days the rebuild made, and every window is checked against it once more */
-    try{ refreshLockedDates(); keepEveryHouseLegal(); computeDates(); }
+    /* [[SCH-140]] every window checked once more after the takedowns — against the lock worked out at the START of the press,
+       never a fresh one: the rebuild can put new days in front of a locked day, and a lock re-worked here would stop
+       protecting a sheet the crew may already hold (measured: a house taken off a locked 20 November) */
+    try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }
     catch(err){ console.error('[HU] could not make the last check of every window',err); }
     const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
     /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button

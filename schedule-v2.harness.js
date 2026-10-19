@@ -44,7 +44,7 @@ module.exports = function makeHarness(liftDeep){
     'PLAN_SCHEMA', 'planSchemaOf', 'planIsNewerThanPage', 'planKey',
     /* the office's own hand controls, for schedule-chaos.test.js */
     'cascade', 'getDay', 'findHouse', 'setDayLimitOn', 'dayLimitOn', 'crewDaysOverTownLimit', 'unassignedHousesFor', 'oneManDays', 'houseOnWarehouseList',
-    'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay'],
+    'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -110,7 +110,7 @@ module.exports = function makeHarness(liftDeep){
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
-    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var tm = applyTomorrowMarks(); if(tm.dates.length){ refreshLockedDates(); freezePrintedDays(); } var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); try{ refreshLockedDates(); keepEveryHouseLegal(); computeDates(); }catch(e){} var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates({releaseFrozen: true}); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var tm = applyTomorrowMarks(); if(tm.dates.length){ refreshLockedDates(); freezePrintedDays(); } var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }catch(e){} var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
     '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = keepEveryHouseLegal(); computeDates(); out.routes = generateAllRoutes(); computeDates(); refreshLockedDates(); return out; },',
     '  season: function(){ return SEASON; },',
@@ -144,7 +144,7 @@ module.exports = function makeHarness(liftDeep){
     '        setGlobalDelta: function(n){ globalDelta = n; computeDates(); }, getGlobalDelta: function(){ return globalDelta; }, getBaseStart: function(){ return BASE_START; },',
     '        houseOnWarehouseList: houseOnWarehouseList, isWorkingDay: isWorkingDay,',
     '        forceDayDateByHand: forceDayDateByHand, setSeasonStartByHand: setSeasonStartByHand, setHangDayByHand: setHangDayByHand, settleAfterHandChange: settleAfterHandChange,',
-    '        freezePrintedDays: freezePrintedDays, installDayOnDate: installDayOnDate}',
+    '        freezePrintedDays: freezePrintedDays, installDayOnDate: installDayOnDate, foldShortCrewDays: foldShortCrewDays, keepEveryHouseLegal: keepEveryHouseLegal}',
     '};'
   ].join('\n');
 

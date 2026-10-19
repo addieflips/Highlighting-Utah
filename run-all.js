@@ -13376,7 +13376,8 @@ suite('Suite 25. A day is only SET if it is within two business days');
   // The wiring: both the layout and the badge must go through effectivePin.
   const layout = lift('layoutSequence') || '';
   check('S25', 'the date engine honours the horizon, not the raw pin',
-    /effectivePin\(day\)/.test(layout) && !/if\(day\.pin\)\{day\._date/.test(layout),
+    /* [[SCH-140]] the layout asks dayAnchor, and dayAnchor asks effectivePin — repointed, not weakened */
+    /dayAnchor\(d\)/.test(layout) && /effectivePin\(day\)/.test(lift('dayAnchor') || '') && !/day\.pin/.test(layout),
     'reading day.pin directly here is what pinned Oct 1 and Oct 2 in place');
   check('S25', 'the SET badge only shows when the pin is actually in force',
     /effectivePin\(day\)\?'<span class="pinbadge">SET</.test(admin) &&
