@@ -82899,6 +82899,14 @@ function enforceInstallTiming(){
       /* [[SCH-140]] no day is left inside the window at all (it is all locked, away or gone) — they still may not stay on
          a day they are away or one before their floor: the soonest day after the window, as for a missed deadline */
       if(!target && (awayHere || tooEarly) && typeof pastDeadlineSoonestDay === 'function'){ const s = pastDeadlineSoonestDay(h, day); target = s ? s.day : null; }
+      /* [[SCH-140]] and when no day stands after it either, the first legal working date gets a day of its own. Found by
+         schedule-chaos.test.js: an office date closing the window on 25 December, the customer then away 24-27 December,
+         and no install day after the 25th — so the house stayed on a day its family is away. Never left there. */
+      if(!target && (awayHere || tooEarly) && typeof freeInstallDayFor === 'function'){
+        const cf = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null;
+        const fl = (typeof houseEarliestDay === 'function') ? houseEarliestDay(h, (cf && cf.data) || null, startStr) : from;
+        target = freeInstallDayFor(h, fl || from, '');
+      }
       if(!target){
         /* `notBefore` is kept for the too-early case that has always been here;
            `notAfter` and `late` are what the office needs to read a deadline miss,

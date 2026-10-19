@@ -43,6 +43,11 @@ function loadLifter(){
   return m.exports.liftDeep || null;
 }
 const liftDeep = loadLifter();
+/* the five-mile hop and the one-man limit are read from admin.html, never typed here, so the check follows the code */
+const ADMIN_SRC = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+const HOP = Number((ADMIN_SRC.match(/const MAX_CREW_HOP_MILES = (\d+(?:\.\d+)?);/) || [])[1]);
+const ONE_MAN = Number((ADMIN_SRC.match(/const ONE_MAN_MAX_HOUSES = (\d+);/) || [])[1]);
+if(!(HOP > 0) || !(ONE_MAN > 0)) throw new Error('could not read MAX_CREW_HOP_MILES / ONE_MAN_MAX_HOUSES from admin.html');
 suite('The harness');
 check('the lifter was found in schedule-v2.test.js', !!liftDeep);
 let H = null;
@@ -205,9 +210,19 @@ function chaosSeason(cfg){
       const x = ds(d);
       if(api.routeDayIsLocked(x) || x >= TAIL0) return;
       const n = d.houses.filter(live).length;
-      if(n < 10){
-        const could = fut.some(function(o){ if(o === d || api.routeDayIsLocked(ds(o))) return false; if(x.slice(5) <= '10-31' && ds(o).slice(5) > '10-31') return false; if(o.houses.filter(live).length + n > 40) return false;
-          return d.houses.filter(live).every(function(h){ const c = api.planCustomerFor(h); return api.houseMayGoOn(h, (c && c.data) || {}, ds(o), T0()).ok; }) && api.dayHoldsWithHouses(o, d.houses.filter(live)); });
+      /* [[SCH-140]] "could join" is the rule SCH-128 is coded to — foldShortCrewDays — and nothing looser: a house only joins
+         a day where it is within MAX_CREW_HOP_MILES of a house already there (SCH-131), the target is not printed or checked,
+         stays at or under ITS OWN limit (one man, one crew), and a day holding a pinned house is never folded. Measured
+         2026-10-19: every flagged case here was an 8-9 house day "joinable" only onto a day of one or two houses more than
+         five miles from all of them — the planner's crew test passes a lone house, the five-mile rule does not. */
+      const hs = d.houses.filter(live);
+      const ptOf = function(h){ const c = api.planCustomerFor(h); const p = api.houseGeoPoint(h, (c && c.data) || {}); return (p && typeof p.lat === 'number') ? p : null; };
+      const capOf = function(y){ const lim = api.dayLimitOn(y); return lim === 'man' ? ONE_MAN : (lim === 'crew' ? 20 : 40); };
+      if(n < 10 && !hs.some(function(h){ return ('' + (h.stuck || '')).trim(); })){
+        const could = fut.some(function(o){ if(o === d || api.routeDayIsLocked(ds(o)) || o.printedAt || api.dayHasHeldCrew(o)) return false; if(x.slice(5) <= '10-31' && ds(o).slice(5) > '10-31') return false;
+          const ol = o.houses.filter(live); if(ol.length + n > capOf(ds(o))) return false;
+          if(!hs.every(function(h){ const p = ptOf(h); if(!p) return true; return ol.some(function(z){ const q = ptOf(z); return q && api.haversine(p.lat, p.lng, q.lat, q.lng) <= HOP; }); })) return false;
+          return hs.every(function(h){ const c = api.planCustomerFor(h); return api.houseMayGoOn(h, (c && c.data) || {}, ds(o), T0()).ok; }) && api.dayHoldsWithHouses(o, hs); });
         if(could) add('no crew goes out under ten when its houses could join another day (SCH-128)', label + ' after "' + last + '": ' + x + ' holds ' + n + ' (' + d.id + ')');
       }
     });
