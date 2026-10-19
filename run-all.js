@@ -17071,7 +17071,14 @@ suite('Suite 46. Nobody is hung before the month they asked for');
          and this sandbox has no customer book to find anybody in, so here it falls back to
          houseAllowedFrom exactly as it always did. The hold half is RUN, with real customers,
          by schedule-v2.test.js (suites 2.1 and 9.4). */
-      'houseEarliestDay', 'planCustomerFor'];
+      'houseEarliestDay', 'planCustomerFor',
+      /* ⚠ AND THE [[SCH-140]] HELPERS, DELIBERATELY NOT SUPPLIED for the same reason: every one is called behind a typeof
+         guard (dayHasHeldCrew, dayHoldsWithHouse, freeInstallDayFor, installDayOnDate, pastDeadlineSoonestDay,
+         scheduleTodayStr), so here the picker answers from the days that exist, as it always did; and crewCap is reached
+         only on a date the office has marked one crew, which no fixture here does. The making of a day, the five-mile hold
+         and the checked crew are RUN with real days by schedule-v2.test.js and schedule-chaos.test.js. */
+      'crewCap', 'dayHasHeldCrew', 'dayHoldsWithHouse', 'freeInstallDayFor', 'installDayOnDate',
+      'pastDeadlineSoonestDay', 'scheduleTodayStr'];
     /* ⭐ THEIR OWN CALENDAR ([[SCH-98]], 2026-09-28). LIFTED, NEVER STUBBED. This sweep is
        what moves a house off a day its family is away on, and it runs on the five-minute
        customer sync — long after Recalculate everything. A stubbed houseAwayOn answering
@@ -17373,8 +17380,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
      matches the START of the condition rather than the whole line — what it is
      asserting is that the sweep is NOT gated on a field having changed, not the
      exact list of things the sync stays quiet about. S44 owns that list. */
+  /* [[SCH-140]] the sync runs the sweep through keepEveryHouseLegal — repointed: that call, and the sweep inside it */
   check('S46', 'the sweep runs on every sync, not only when a field changed',
-    admin.indexOf('timing=enforceInstallTiming();') > 0 &&
+    admin.indexOf('timing=keepEveryHouseLegal();') > 0 &&
+    /const a = enforceInstallTiming\(\),/.test(extractFn(admin, 'keepEveryHouseLegal') || '') &&
     admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length') > 0,
     'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
@@ -17945,8 +17954,13 @@ suite('Suite 49. The Season start box decides the start');
     }
   }
 
+  /* [[SCH-140]] the box goes through setSeasonStartByHand (which also settles the plan afterwards) — repointed, not
+     weakened: the box must call it, and it must still set ONLY the shift */
+  const startByHand = extractFn(admin, 'setSeasonStartByHand') || '';
   check('S49', 'the box still only shifts, and the rebuild reads the shift',
-    /globalDelta=daysBetween\(new Date\(t\.value\+.T00:00:00.\),BASE_START\)/.test(admin) &&
+    /t\.id==='startDate'\)\{if\(t\.value\)\{const s=setSeasonStartByHand\(t\.value\)/.test(admin) &&
+    /globalDelta = daysBetween\(new Date\(value \+ 'T00:00:00'\), BASE_START\);/.test(startByHand) &&
+    !/BASE_START\s*=(?!=)/.test(startByHand) &&
     /const chosen = addDays\(BASE_START, globalDelta \|\| 0\);/.test(admin),
     'these two have to agree, or the number on screen is not the number that builds');
 }
@@ -25143,7 +25157,12 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
     const out = run([
       {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
       {date: '2026-10-27', houses: full},
-      {date: '2026-10-28', houses: [H('E', 'Orem')]}
+      {date: '2026-10-28', houses: [H('E', 'Orem')]},
+      /* [[SCH-140]] an open day with nothing on it. The four-towns count this suite was written for is retired — days are
+         laid out by the five-mile map now, and a house with no crew near it gets a day of its own (an empty open day
+         first, else a new one; the making of a day is RUN by schedule-v2.test.js). This sandbox has no customer
+         coordinates, so the empty day is how that answer is reached here. */
+      {date: '2026-10-29', houses: []}
     ]);
 
     check('S98', 'the house still moves off the day it is not allowed on',
@@ -25153,8 +25172,13 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       townsOn(dayNamed(out, '2026-10-27')).length === 4,
       'got ' + townsOn(dayNamed(out, '2026-10-27')).join(', ') + ' — this is the ' +
       'exact day she reported: four legal towns plus strays the sweep dropped on it');
-    check('S98', 'it lands on a day that can afford a new town',
-      townsOn(dayNamed(out, '2026-10-28')).indexOf('Payson') !== -1);
+    /* ⛔ REPOINTED ([[SCH-140]]): this read "it lands on a day that can afford a new town" — 28 October, by the
+       four-towns count, which is retired. The guarantee that survives is that it goes to an open day of its own rather
+       than onto anybody's crew it is not near. */
+    check('S98', 'it lands on an open day of its own',
+      townsOn(dayNamed(out, '2026-10-29')).indexOf('Payson') !== -1 &&
+      townsOn(dayNamed(out, '2026-10-28')).indexOf('Payson') === -1,
+      'got 29th: ' + townsOn(dayNamed(out, '2026-10-29')).join(', ') + '; 28th: ' + townsOn(dayNamed(out, '2026-10-28')).join(', '));
     check('S98', 'and never earlier than it is allowed',
       out.report.moved.length === 1 && out.report.moved[0].toDate >= '2026-10-27',
       'moving somebody to honour a town rule, into a month they ruled out, would be ' +
@@ -34911,8 +34935,11 @@ suite('77. Schedule route generator');
   check('S77', 'but only when a house actually moved day or town',
     /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged(?: \|\| [\w.]+\.length)*\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
+  /* [[SCH-140]] the lock is refreshed between the ordering and the draw now, so the draw is its own line — repointed,
+     and asserted present as well as after, since indexOf -1 would pass the old comparison vacuously */
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
-    sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
+    sync.indexOf('generateAllRoutes()') !== -1 && sync.indexOf('renderAll(); scheduleSave();') !== -1 &&
+    sync.indexOf('generateAllRoutes()') < sync.indexOf('renderAll(); scheduleSave();'),
     'ordering after the draw shows the office one order and saves another');
   check('S77', 'a failure ordering routes cannot take the sync down',
     /catch\(err\)\{ console\.error\('Route generation failed:'/.test(sync),
@@ -36356,14 +36383,17 @@ suite('125. The schedule keeps off Thanksgiving, not just off weekends');
 {
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
-  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays',
+  /* [[SCH-140]] layoutSequence lays out anchored days first (dayAnchor: a printed, checked, forced or fixed date) and
+     reads isoOf — both lifted, never stubbed; the fixtures here carry no anchors, so the layout is the one this suite
+     was written for */
+  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays', 'isoOf', 'dayAnchor', 'startFor',
                  'layoutSequence', 'nextWeekday', 'thanksgivingDate', 'isThanksgivingDay']
     .map(pick).filter(Boolean).join(LF_);
   if (!pick('layoutSequence') || !pick('isDayOff')) {
     check('S125', 'the schedule’s date layout is findable', false,
       'renamed or removed — update this test rather than deleting it');
   } else {
-    const prelude = 'let BASE_START=new Date(2026,10,16), globalDelta=0, SEASON=[];' + LF_ +
+    const prelude = 'let BASE_START=new Date(2026,10,16), TAKE_BASE_START=new Date(2027,0,4), globalDelta=0, SEASON=[];' + LF_ +
       'function daysBetween(a,b){return Math.round((a-b)/86400000);}' + LF_ +
       'function deltaFor(){return globalDelta;}' + LF_ +
       'function effectivePin(d){return d && d.pin ? d.pin : null;}' + LF_ +
@@ -54312,6 +54342,10 @@ suite('Suite 295. Nothing is hung before the season starts');
         'const PIN_HONOURED_BUSINESS_DAYS=2;' +
         'function pinHorizon(){const d=new Date(2099,0,1);return d;}' +
         fn('desired') + fn('effectivePin') + fn('seasonStartDate') +
+        /* [[SCH-140]] the layout lays out anchored days first and re-measures a day it steps aside — both lifted,
+           never stubbed; no fixture here carries an anchor */
+        'const DAYMS=' + ((admin.match(/const DAYMS=(\d+)/) || [])[1] || 86400000) + ';' +
+        fn('daysBetween') + fn('dayAnchor') +
         fn('layoutSequence') + fn('computeDates') +
         'this.run=function(season,delta){SEASON=season;globalDelta=delta||0;computeDates();' +
         'return {box:isoOf(addDays(BASE_START,globalDelta)),' +
@@ -63051,8 +63085,10 @@ suite('Suite 334. Somebody who leaves the season comes off the plan on its own')
     /leftSeason=dropHousesWhoLeftSeason\(\)/.test(sync),
     'every behavioural check above passes with the call deleted from the page');
   check('S334', 'and before the three sweeps that move or place anybody',
+    /* [[SCH-140]] the timing sweep runs through keepEveryHouseLegal now — repointed, and both calls asserted present */
+    sync.indexOf('placeUnscheduledOnNextDay()') !== -1 && sync.indexOf('keepEveryHouseLegal()') !== -1 &&
     sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('placeUnscheduledOnNextDay()') &&
-    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('enforceInstallTiming()'),
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('keepEveryHouseLegal()'),
     're-homing and re-timing a house that is about to come off is work thrown away');
   /* ⚠ THE ONE THAT DECIDES WHETHER ANY OF THIS REACHES FIRESTORE. A tick whose only
      finding is a drop returns before renderAll and scheduleSave, so the house comes off

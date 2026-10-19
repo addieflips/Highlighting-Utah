@@ -749,8 +749,13 @@ if (portalRsvp) {
     'ever scheduled');
   /* ⚠ BEFORE THE TIMING SWEEP, so a house placed this tick is held to its own
      timing in the same pass rather than sitting on a wrong day until the next one. */
+  /* [[SCH-140]] the sync runs the timing sweep through keepEveryHouseLegal (sweep + deadline pull + gone days, until
+     nothing moves) — repointed, not weakened: the placer must come before that call, and that call must run the sweep */
+  const keeper = fn('keepEveryHouseLegal') || '';
   check('and runs it BEFORE the timing sweep',
-    sync.indexOf('placeUnscheduledOnNextDay()') < sync.indexOf('enforceInstallTiming()'),
+    sync.indexOf('placeUnscheduledOnNextDay()') !== -1 && sync.indexOf('keepEveryHouseLegal()') !== -1 &&
+    sync.indexOf('placeUnscheduledOnNextDay()') < sync.indexOf('keepEveryHouseLegal()') &&
+    /enforceInstallTiming\(\)/.test(keeper),
     'placed after it, a rejoiner waits five minutes to be checked against their ' +
     'own install timing');
   /* ⚠ AND A THROW IN IT CANNOT TAKE THE SYNC DOWN, same as the two beside it. */
@@ -804,7 +809,7 @@ if (portalRsvp) {
   const picker = fn('nextInstallDayFor');
   const sweep = fn('enforceInstallTiming');
   check('the day-picker is shared, not copied', !!picker &&
-    /nextInstallDayFor\(h\)/.test(placer) && /nextInstallDayFor\(h, \{exclude: day\}\)/.test(sweep),
+    /nextInstallDayFor\(h(, \{[^}]*\})?\)/.test(placer) && /nextInstallDayFor\(h, \{exclude: day[,}]/.test(sweep),
     'the timing sweep and the placer must not disagree about which day is available');
   /* ⚠ AND IT NEVER DROPS A HOUSE ONTO A PRINTED SHEET. This was a real gap in the
      timing sweep: it could move a house onto a day inside the 48-hour lock — a stop
@@ -814,7 +819,7 @@ if (portalRsvp) {
     'every other writer in the planner honours that lock; this was the one that did not');
   check('and it still prefers a day already working their town',
     /extractCleanCity\(x\.city\) === town/.test(picker) &&
-    picker.indexOf('sameTown || roomy') !== -1,
+    /if\(sameTown\) return sameTown;/.test(picker),
     'the crew is driving there anyway — and a stray house in a town nobody is ' +
     'visiting is the thing the town rules exist to prevent');
 }
