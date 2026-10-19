@@ -1493,6 +1493,93 @@ suite('SCH-136b Customers marked for tomorrow from TODAY’s list — the crew d
   check('36b.4 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
 }
 
+suite('SCH-142 Schedule on a date the office picks — stuck there, and slotted into that day where it makes sense');
+{
+  /* Dax: "give me a way to pick a day to schedule a specific customer and they just go wherever they make sense in a
+     route". RUN through the real code: the checks and the day (scheduleOnDateTarget), the move and the ordering
+     (scheduleOnDateMove), then a real Recalculate. The async wrapper adds only the stuckOnDate write. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const open = daysOf().filter(function(d){ return !H.api.routeDayIsLocked(d.ds) && d.day.houses.length > 3; });
+  const A = open[0], B = open[open.length - 1];
+  const h = A && A.day.houses[1];
+  check('42.0 the scenario has two open days to move between', !!h && A !== B, open.length + ' open days');
+  const r = H.api.scheduleOnDateTarget(h.id, B.ds);
+  check('42.1 a later open day is accepted', !r.why && r.target === B.day, String(r.why || ''));
+  /* the write the async wrapper makes, done the way it does it: the customer's stuckOnDate, which the sync carries */
+  const cB = H.api.planCustomerFor(h); if(cB && cB.data) cB.data.stuckOnDate = B.ds;
+  H.api.scheduleOnDateMove(r, B.ds);
+  /* by the DATE — Recalculate lays the days out again and may hand that date a new day object */
+  const onB = function(){ return H.season().some(function(x){ return !x.isTakedown && !x.isFixRoute && H.api.dayDate(x) && H.api.isoOf(H.api.dayDate(x)) === B.ds && x.houses.indexOf(h) !== -1; }); };
+  check('42.2 they are on that day now, and stuck to it', onB() && h.stuck === B.ds, String(h.stuck));
+  /* where they make sense: the day's order is the route generator's own answer — ordering it again changes nothing */
+  const before = B.day.houses.map(function(x){ return String(x.id); }).join(',');
+  H.api.generateDayRoutes(B.day, {});
+  check('42.3 and the day is in driving order with them in it, not with them tacked on the end',
+    B.day.houses.map(function(x){ return String(x.id); }).join(',') === before, 'the order moved when re-run');
+  H.press();
+  check('42.4 Recalculate keeps them on the date they were given', onB(), 'moved off ' + B.ds);
+  /* a date with no install day gets one */
+  const used = new Set(daysOf().map(function(d){ return d.ds; }));
+  let empty = '';
+  for(let k = 1; k < 120 && !empty; k++){
+    const dt = new Date(2026, 9, 1 + k); const ds = H.api.isoOf(dt);
+    if(!used.has(ds) && H.api.isWorkingDay(dt) && !H.api.routeDayIsLocked(ds) && ds > H.api.scheduleTodayStr()) empty = ds;
+  }
+  const h2 = open[1] && open[1].day.houses.filter(function(x){ return x !== h; })[0];
+  const r2 = (h2 && empty) ? H.api.scheduleOnDateTarget(h2.id, empty) : {why: 'no date'};
+  if(!r2.why) H.api.scheduleOnDateMove(r2, empty);
+  check('42.5 a date with no install day gets a day of its own, with them on it',
+    !r2.why && !!r2.made && H.api.isoOf(H.api.dayDate(r2.target)) === empty && r2.target.houses.indexOf(h2) !== -1, String(r2.why || '') + ' ' + empty);
+  /* refused, and says why */
+  const tom = daysOf().filter(function(d){ return H.api.routeDayIsLocked(d.ds) && d.ds > H.api.scheduleTodayStr(); })[0];
+  const sat = (function(){ for(let k = 1; k < 14; k++){ const dt = new Date(2026, 9, 1 + k); if(dt.getDay() === 6) return H.api.isoOf(dt); } return ''; })();
+  const h3 = open[2] ? open[2].day.houses[0] : h;
+  check('42.6 one of the next two (locked) days is refused', !!tom && !!H.api.scheduleOnDateTarget(h3.id, tom.ds).why);
+  check('42.7 a weekend is refused', !!H.api.scheduleOnDateTarget(h3.id, sat).why);
+  check('42.8 a day that has gone is refused', !!H.api.scheduleOnDateTarget(h3.id, '2026-09-29').why);
+  check('42.9 nothing was moved by a refusal', H.season().some(function(d){ return d.houses.indexOf(h3) !== -1; }) && !h3.stuck);
+}
+
+suite('SCH-143 A house that is done is never printed, even on a day nobody recalculated');
+{
+  /* Dax: "make it so it automatically doesnt print houses that are already done even if theyre on a day with a bunch of not
+     done houses in case we didnt recalculate". RUN: a customer is ticked complete on their RECORD only (the way Routes or All
+     Customers does it) — no press, no repaint — and the real crew list and warehouse list are built for that day. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const day = daysOf().filter(function(d){ return d.day.houses.length > 4 && !d.day.isTakedown && !d.day.isFixRoute; })[0].day;
+  const crewOf = function(h){ return H.api.crewIndexes().filter(function(i){ return H.api.crewHousesFor(i, day).indexOf(h) !== -1; })[0]; };
+  const h = day.houses[0], ci = crewOf(h);
+  const nameIn = function(rows){ return rows.some(function(r){ return r && (r.name === h.name || String(r.number) === String(h.cu)); }); };
+  check('43.0 before: the house is on its crew sheet and the warehouse list', ci !== undefined &&
+    nameIn(H.api.printCrewDayList(day, ci)) && nameIn(H.api.printWarehouseDayList(day)));
+  const c = H.api.planCustomerFor(h);
+  if(c && c.data) c.data.completed = true;
+  check('43.1 ticked complete on the customer record, with no Recalculate: off the crew sheet', !nameIn(H.api.printCrewDayList(day, ci)));
+  check('43.2 and off the warehouse loading list', !nameIn(H.api.printWarehouseDayList(day)));
+  const others = H.api.printCrewDayList(day, ci).length + (H.api.crewIndexes().filter(function(i){ return i !== ci; })
+    .reduce(function(n, i){ return n + H.api.printCrewDayList(day, i).length; }, 0));
+  check('43.3 and every house still to do on that day still prints', others === day.houses.filter(function(x){ return x !== h && !x.done; }).length,
+    others + ' printed of ' + (day.houses.length - 1));
+  check('43.4 the schedule itself is untouched — the house is still on its day', day.houses.indexOf(h) !== -1);
+  if(c && c.data) c.data.completed = false;
+  check('43.5 un-ticked, it prints again', nameIn(H.api.printCrewDayList(day, ci)));
+  /* [[SCH-144]] one stop on its own page: builds without throwing, and does NOT lock the day the way a whole day's paper does */
+  let oneErr = null; const wasPrinted = day.printedAt;
+  try{ H.api.printOneStop(h.id); }catch(e){ oneErr = e; }
+  check('43.6 one stop prints on its own page', !oneErr, String(oneErr && oneErr.message));
+  check('43.7 and printing one stop does not lock its day', day.printedAt === wasPrinted);
+}
+
 suite('SCH-137 On a Warehouse list means on no day — every door');
 {
   /* Dax, 2026-10-16, on Lori Pugh scheduled while on the build list: "make it so that never happens again, yes build list
