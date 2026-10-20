@@ -82750,6 +82750,25 @@ function placeJoinedHouses(){
     res.placed.push({name: d.name || '(no name)', toDate: isoOf(dayDate(target)), toDay: target});
   });
   if(res.placed.length) computeDates();
+  /* ⭐⭐ [[SCH-146]] CONFIRMED IS ALWAYS ON A DAY OR ON A WAREHOUSE LIST — NEVER NEITHER (2026-10-20). Dax: "if they are
+     confirmed they are always either on the build list or schedule but always one or the other". A customer the warehouse
+     lets go of reads Confirmed at once, and this placer only ever used a day that already existed with room — so with no
+     such day they were left `waiting`, on no day and no list, until somebody pressed Recalculate. They now go through the
+     same safety net Recalculate uses (placeConfirmedLeftOff), which makes the day when there is none; it still never
+     touches a locked day and never goes before tomorrow. */
+  if(res.waiting.length && typeof placeConfirmedLeftOff === 'function'){
+    try{
+      const t = new Date(); t.setHours(0,0,0,0);
+      const floorStr = isoOf(nextWorkingDay(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)));
+      const net = placeConfirmedLeftOff(floorStr, isoOf(seasonStartDate()));
+      net.placed.forEach(function(name, i){
+        const day = (net.days || [])[i] || null;
+        const dt = day ? dayDate(day) : null;
+        res.placed.push({name: name, toDate: dt ? isoOf(dt) : '', toDay: day});
+      });
+      res.waiting = (net.still || []).map(function(name){ return {name: name}; });
+    }catch(err){ console.error('[HU] could not make a day for the confirmed customers left waiting', err); }
+  }
   return res;
 }
 
@@ -84126,6 +84145,7 @@ function placeConfirmedLeftOff(floorStr, startStr){
     }
     day.houses.push(h);
     res.placed.push(d.name || '(no name)');
+    (res.days = res.days || []).push(day);   /* [[SCH-146]] the day each name went on, for the sync's own report */
   });
   computeDates();
   res.still = confirmedNotOnAnyDay().map(function(x){ return (x && x.data && x.data.name) || '(no name)'; });
@@ -84770,6 +84790,16 @@ RT.addEventListener('click',e=>{const t=e.target;
        protecting a sheet the crew may already hold (measured: a house taken off a locked 20 November) */
     try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }
     catch(err){ console.error('[HU] could not make the last check of every window',err); }
+    /* [[SCH-146]] THE HEADLINE, ASKED ONCE MORE AT THE VERY END. rebuildSeasonDays' safety net runs before the takedowns,
+       the window checks and the short-day fold above; whatever any of those does, nobody Confirmed leaves this press on no day. */
+    let lateNet={placed:[],still:[]};
+    try{
+      if(typeof placeConfirmedLeftOff==='function'){
+        const t=new Date(); t.setHours(0,0,0,0);
+        lateNet=placeConfirmedLeftOff(isoOf(nextWorkingDay(new Date(t.getFullYear(),t.getMonth(),t.getDate()+1))), isoOf(seasonStartDate()));
+        if(lateNet.placed.length){ keepEveryHouseLegal(); computeDates(); }
+      }
+    }catch(err){ console.error('[HU] could not make the last check that every confirmed customer is on a day',err); }
     const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
     /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button
        and in the console; never repaired here — a check that quietly fixed what it found would hide
@@ -84856,7 +84886,11 @@ RT.addEventListener('click',e=>{const t=e.target;
     }
     if(r.safetyNet) parts.push(r.safetyNet+' confirmed customer'+(r.safetyNet===1?'':'s')+
       ' added to the schedule so every Confirmed is on a day: '+(r.safetyNetNames||[]).join(', ')+(r.safetyNet>5?' and others':''));
-    if(r.confirmedOff) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
+    if(lateNet.placed.length) parts.push(lateNet.placed.length+' confirmed customer'+(lateNet.placed.length===1?'':'s')+
+      ' put back on a day after the last checks: '+lateNet.placed.slice(0,5).join(', ')+(lateNet.placed.length>5?' and others':''));
+    if(lateNet.still.length) parts.push('⚠ '+lateNet.still.length+' CONFIRMED customer'+(lateNet.still.length===1?'':'s')+
+      ' still not on any day: '+lateNet.still.slice(0,5).join(', ')+(lateNet.still.length>5?' and others':''));
+    else if(r.confirmedOff && !lateNet.placed.length) parts.push('⚠ '+r.confirmedOff+' CONFIRMED customer'+(r.confirmedOff===1?'':'s')+
       ' still not on any day: '+(r.confirmedOffNames||[]).join(', ')+(r.confirmedOff>5?' and others':''));
     /* ⭐ [[SCH-100]] — the pinned houses. Said on the press for the same reason the safety
        net is: a control whose whole promise is "nothing moves them" has to be able to show
