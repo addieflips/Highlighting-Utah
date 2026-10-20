@@ -1518,6 +1518,41 @@ suite('SCH-146 Confirmed is on a day or on a warehouse list, never neither — e
   check('46.6 and a Recalculate keeps them on one', !!dayOfCust('whdone') && H.api.confirmedNotOnAnyDay().length === 0);
 }
 
+suite('SCH-145 The marks win: printed tomorrow, a second round of marks, and marks on printed days all land on tomorrow');
+{
+  /* Dax, 2026-10-20: "all the marked for tommorrows arent in tomorrow, they should all be in that day and there should be
+     no other days in that day". The normal evening: mark some, press (tomorrow is checked), print tomorrow, mark more —
+     some of them off a printed later day — press again. RUN through the real press. */
+  const book = makeBook(160, 4420);
+  run(book, {now: new Date(2026, 8, 28, 7, 0)});
+  const season = H.season();
+  H.setNow(EVENING);
+  H.load(book, {season: season});
+  H.api.refreshLockedDates();
+  const tom = H.api.tomorrowsInstallDay();
+  const tds = H.api.isoOf(H.api.dayDate(tom));
+  const T = function(){ return H.season().filter(function(x){ return x.id === tom.id; })[0]; };
+  const onTom = function(){ return T().houses.filter(function(h){ return !h.done; }).map(function(h){ return String(h.id); }).sort().join(','); };
+  const later = daysOf().filter(function(d){ return d.ds > tds && d.day.houses.length > 3; });
+  const first = [tom.houses[0], later[0].day.houses[0]];
+  first.forEach(function(h){ H.api.toggleTomorrowMark(h.id); });
+  H.press();
+  check('45.0 first round: tomorrow holds exactly the first marks, and is checked', onTom() === first.map(function(h){ return String(h.id); }).sort().join(',') && H.api.dayHasHeldCrew(T()), onTom());
+  H.api.markDayPrinted(T());
+  const printedLater = later[later.length - 1].day;
+  H.api.markDayPrinted(printedLater);
+  const second = [later[1].day.houses[0], printedLater.houses[0]];
+  second.forEach(function(h){ H.api.toggleTomorrowMark(h.id); });
+  const want = first.concat(second).map(function(h){ return String(h.id); }).sort().join(',');
+  const r = H.press();
+  check('45.1 second round on a PRINTED and CHECKED tomorrow: every mark is on it, and nobody else', onTom() === want, want + '  vs  ' + onTom() + '  ' + JSON.stringify(r && r.tomorrow || ''));
+  check('45.2 the one marked off a printed later day left that day', H.season().every(function(d){ return d.id === tom.id || d.houses.indexOf(second[1]) === -1; }));
+  check('45.3 tomorrow is checked again over the new list', H.api.crewIndexes().every(function(i){ return !H.api.crewHousesFor(i, T()).length || H.api.crewIsHeld(T(), i); }));
+  H.press(true);
+  check('45.4 Recalculate including the next two days changes nothing on it', onTom() === want, onTom());
+  check('45.5 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+}
+
 suite('SCH-142 Schedule on a date the office picks — stuck there, and slotted into that day where it makes sense');
 {
   /* Dax: "give me a way to pick a day to schedule a specific customer and they just go wherever they make sense in a

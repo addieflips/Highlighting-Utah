@@ -75392,23 +75392,29 @@ function applyTomorrowMarks(){
   });
   Object.keys(groups).sort().forEach(function(ds){
     const marks = groups[ds];
-    const day = installDays().filter(function(d){ const dt = dayDate(d); return dt && isoOf(dt) === ds; })[0];
-    if(!day || day.printedAt || dayHasHeldCrew(day)){
-      marks.forEach(function(m){ out.blocked.push({name: m.h.name || '(no name)', why: !day ? 'there is no install day on ' + ds
-        : (day.printedAt ? ds + ' has been printed' : ds + ' has a crew checked for tomorrow')}); });
+    /* ⭐ [[SCH-145]] THE MARKS WIN (2026-10-20). Dax: "all the marked for tommorrows arent in tomorrow, they should all be in
+       that day and there should be no other days in that day". Three things used to turn a mark away, and each one is what
+       the office does in a normal evening: tomorrow already PRINTED, tomorrow already CHECKED (an earlier press locks it —
+       [[SCH-141]] — so every mark made after the first press was refused), and the marked customer sitting on a printed or
+       checked later day. The marked customers are already in the trailer, so the mark is the newest word on that day: it is
+       rebuilt to exactly them, on a printed or checked day alike, and taken off whatever day they were on. A date with no
+       install day gets one. The summary says when a printed sheet changed, so it is printed again. */
+    let day = installDays().filter(function(d){ const dt = dayDate(d); return dt && isoOf(dt) === ds; })[0];
+    if(!day && typeof installDayOnDate === 'function') day = installDayOnDate(ds);
+    if(!day){
+      marks.forEach(function(m){ out.blocked.push({name: m.h.name || '(no name)', why: 'no install day can go on ' + ds}); });
       return;
     }
+    if(day.printedAt) (out.reprint = out.reprint || []).push(ds);
     out.dates.push(ds);
     const markedSet = new Set(marks.map(function(m){ return m.h; }));
     /* the marked houses come off wherever they are — never off a printed day or a checked crew's list */
     const moving = [];
     marks.forEach(function(m){
       if(m.d === day){ moving.push(m.h); return; }
-      if((typeof dayIsPrintedAhead === 'function' && dayIsPrintedAhead(m.d)) || houseOnHeldCrew(m.d, m.h) ||
-         (dayHasHeldCrew(m.d) && !takeOffHeldDay(m.d, m.h))){
-        out.blocked.push({name: m.h.name || '(no name)', why: 'their day is printed or checked'}); return;
-      }
-      if(!dayHasHeldCrew(m.d)) takeOffPrintedDay(m.d, m.h);
+      /* [[SCH-145]] off a printed or checked day too — they are on tomorrow's trailer, not on that sheet any more */
+      if(m.d.printedAt || dayHasHeldCrew(m.d)){ const s2 = dayDate(m.d) ? isoOf(dayDate(m.d)) : ''; if(s2 && s2 !== ds) (out.reprint = out.reprint || []).push(s2); }
+      takeOffPrintedDay(m.d, m.h);
       moving.push(m.h); out.placed.push(m.h.name || '(no name)');
     });
     /* "and no one more": everybody else still to do on that day goes to the first open day after it */
@@ -75422,8 +75428,9 @@ function applyTomorrowMarks(){
       else { keep.push(h); out.stayed.push(h.name || '(no name)'); }
     });
     day.houses = keep.concat(moving);
-    /* the split is worked out again from the new list, and frozen again by the press */
-    delete day.frozenIds; delete day.frozenCrews;
+    /* the split is worked out again from the new list, and frozen again by the press; an older check on the day is
+       replaced by the one below, over the new list */
+    delete day.frozenIds; delete day.frozenCrews; delete day.crewHeld;
     /* ⭐ [[SCH-141]] AND THE DAY IS SET FOR TOMORROW, every crew on it (2026-10-19). Dax: "when i mark people for tomorrow and i
        recalculate that day should be the day in the set for tomorrow spot and also, there should be no one on that day other
        than the people i marked because those people are already in the trailer we cant just throw more in". Left unchecked,
@@ -80941,7 +80948,17 @@ function rebuildSeasonDays(){
   catch(err){ console.error('Could not bring the any-time houses forward into October:', err); }
   /* the November days they left can be short now — fold those (never an October day) and keep the crews within five miles */
   if(octFill.moved.length){
-    try{ if(typeof mergeShortOpenDays === 'function'){ const m3 = mergeShortOpenDays({sourcesAfter: isoOf(seasonStartDate()).slice(0, 4) + '-10-31'}); if(m3 && m3.merged && m3.merged.length){ shortMerged.merged = shortMerged.merged.concat(m3.merged); const f3 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f3.moved); fiveMile.tail = fiveMile.tail.concat(f3.tail); fiveMile.keptOutlier = f3.keptOutlier; const o2 = fillOctoberWithAnyTime(); octFill.moved = octFill.moved.concat(o2.moved); } } }
+    /* [[SCH-145]] the five-mile pass runs whether or not anything was folded: the fill may leave a November day it took
+       houses from with a crew that no longer holds (see fillOctoberWithAnyTime's leaveOk) */
+    /* and the two take turns until they settle: the five-mile pass can send an October-eligible house to the November tail,
+       which the fill then brings back — so the last word is always a pass that moved nobody (bounded at three rounds) */
+    try{ if(typeof mergeShortOpenDays === 'function'){ const m3 = mergeShortOpenDays({sourcesAfter: isoOf(seasonStartDate()).slice(0, 4) + '-10-31'}); if(m3 && m3.merged && m3.merged.length) shortMerged.merged = shortMerged.merged.concat(m3.merged); }
+      for(let round = 0; round < 3 && typeof enforceFiveMileCrews === 'function'; round++){
+        const f3 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f3.moved); fiveMile.tail = fiveMile.tail.concat(f3.tail); fiveMile.keptOutlier = f3.keptOutlier;
+        if(!f3.moved.length && !f3.tail.length) break;
+        const o2 = fillOctoberWithAnyTime(); octFill.moved = octFill.moved.concat(o2.moved);
+        if(!o2.moved.length) break;
+      } }
     catch(err){ console.error('Could not fold the short November days after October was filled:', err); }
   }
   /* a house brought back from the end of November is not one sent there — the press only names the ones still waiting */
@@ -82237,22 +82254,14 @@ function fillOctoberWithAnyTime(){
     return ((typeof pa === 'number' ? pa : 99) - (typeof pb === 'number' ? pb : 99)) || (dsOf(a.from) < dsOf(b.from) ? -1 : (dsOf(a.from) > dsOf(b.from) ? 1 : 0));
   });
   const done = new Set();
-  /* ⛔ a house leaves a day only if the crews left behind still keep their five miles — taking one off re-splits the day,
-     and the re-split can strand somebody. A day that did not hold before (the overflow) is not made the excuse. */
-  const leaveOk = function(list){
-    const froms = []; list.forEach(function(c){ if(froms.indexOf(c.from) === -1) froms.push(c.from); });
-    return froms.every(function(d){
-      const mine = list.filter(function(c){ return c.from === d; }).map(function(c){ return c.h; });
-      if(mine.length >= d.houses.filter(live).length) return true;
-      const before = dayHoldsWithHouses(d, []);
-      if(!before) return true;
-      const keep = d.houses.slice();
-      d.houses = d.houses.filter(function(h){ return mine.indexOf(h) === -1; });
-      const after = dayHoldsWithHouses(d, []);
-      d.houses.length = 0; keep.forEach(function(h){ d.houses.push(h); });
-      return after;
-    });
-  };
+  /* [[SCH-145]] a house may leave the November day it waits on even when the crews left behind there no longer keep their
+     five miles: rebuildSeasonDays runs enforceFiveMileCrews again after this whenever anybody moved, and that re-homes
+     whoever was stranded. Every source here is after October, so nothing an October crew holds is ever touched.
+     ⚠ Measured 2026-10-20 (the frantic-office season): with the old guard ("leave only if the day still holds"), October
+     houses mixed into a November day with November-only neighbours could never come off it — taking them re-split that day
+     and stranded a November house — so 13 to 29 October stood empty while fourteen houses within five miles of one another
+     waited on 2 November. A day that is right in October is worth a November day re-laid. */
+  const leaveOk = function(){ return true; };
   const move = function(c, target){
     const i = c.from.houses.indexOf(c.h); if(i !== -1) c.from.houses.splice(i, 1);
     if(c.h.fiveMileTail) delete c.h.fiveMileTail;
@@ -84867,6 +84876,8 @@ RT.addEventListener('click',e=>{const t=e.target;
     if(tomorrowMarks&&tomorrowMarks.dates.length) parts.push('tomorrow holds only the customers marked for it'+
       (tomorrowMarks.bumped.length?' ('+tomorrowMarks.bumped.length+' others moved off to be re-placed)':'')+
       (tomorrowMarks.stayed.length?' — '+tomorrowMarks.stayed.length+' stayed on, no open day after it':''));
+    if(tomorrowMarks&&tomorrowMarks.reprint&&tomorrowMarks.reprint.length) parts.push('⚠ the sheet for '+
+      tomorrowMarks.reprint.filter(function(x,i,a){ return a.indexOf(x)===i; }).join(', ')+' was already printed and has changed — print it again');
     if(tomorrowMarks&&tomorrowMarks.blocked.length) parts.push(tomorrowMarks.blocked.length+' marked for tomorrow could not go: '+
       tomorrowMarks.blocked.slice(0,3).map(function(b){ return b.name+' ('+b.why+')'; }).join(', '));
     /* [[SCH-128]] the days the ten-a-crew rule could not fix, by date */
