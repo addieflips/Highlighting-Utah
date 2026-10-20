@@ -84521,7 +84521,7 @@ async function saveNow(){
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
-  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;planSaveRunaway(Date.now(),data);if(typeof window.huNoteWrite==='function'){let kb=0;try{kb=JSON.stringify(data).length;}catch(e){/* the size is decoration on the census; the count is what matters */}window.huNoteWrite('plan',1,kb);}mirrorStampsSoon();}catch(e){planSyncedKey=prev;
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;planSaveRunaway(Date.now(),data);if(typeof window.huNoteWrite==='function')window.huNoteWrite('plan',1,planBytes(data));mirrorStampsSoon();}catch(e){planSyncedKey=prev;
     /* ⛔ SAID, AND WITH THE REAL REASON (2026-10-12). This read "check connection" whatever went wrong and logged
        nothing, so a plan Firestore was REFUSING — not a network fault at all — failed in five grey words for twelve
        days while each computer went on showing its own schedule. planSaveProblem names the field when it is ours. */
@@ -84539,6 +84539,8 @@ async function saveNow(){
    naming how many and how big, which is what the next occurrence needs to be diagnosed rather than guessed at.
    ⚠ IT REPORTS, IT NEVER STOPS A SAVE: holding back the plan is how two computers end up on different schedules,
    which is worse than a burst of writes. Pure apart from the console line, so a test can run it. */
+/* The plan's size for the write census (2026-10-20) — its own line so saveNow's try stays one brace-free statement, which schedule-v2.test.js matches on. The size is decoration on the census; the count is what matters. */
+function planBytes(data){try{return JSON.stringify(data).length;}catch(e){return 0;}}
 const PLAN_RUNAWAY_SAVES=30, PLAN_RUNAWAY_MS=60000;   // one every two seconds for a whole minute — faster than anybody ticks a list
 let planSaveTimes=[], planRunawayTold=false;
 function planSaveRunaway(now,data){
