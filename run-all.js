@@ -9818,6 +9818,9 @@ suite('17. A new customer lands on the next day in their city');
      takes the whole suite down. */
   eval(extractFn(admin, 'prefSpecificDate'));
   eval(extractFn(admin, 'prefNamedFloor'));
+  /* [[SCH-145]] the office date opens on the Monday of its week; one helper for both sides */
+  eval(extractFn(admin, 'staffDateWeekMonday'));
+  eval(extractFn(admin, 'isEarliestInstallDateLocked'));
   eval(extractFn(admin, 'earliestAllowedInstallDate'));
   eval(extractFn(admin, 'extractCleanCity'));
   eval(extractFn(admin, 'toDateStr'));
@@ -9857,11 +9860,19 @@ suite('17. A new customer lands on the next day in their city');
     earliestAllowedInstallDate({installPreference:'After Thanksgiving'}).getTime() ===
       (today > dayAfter ? today : dayAfter).getTime());
 
-  // A staff-only earliestInstallDate outranks the customer's own preference.
-  const farOff = new Date(now.getFullYear() + 1, 5, 9);
-  check('autosched', 'a staff-set earliest date beats the timing preference',
-    earliestAllowedInstallDate({installPreference:'October', earliestInstallDate: farOff}).getTime() === farOff.getTime(),
-    'the staff date is the one restriction the customer cannot see or override');
+  // A staff-only earliestInstallDate outranks the customer's own preference — and since
+  // [[SCH-145]] it opens on the MONDAY of its week, not on the date itself.
+  const juneMon = new Date(now.getFullYear() + 1, 5, 1);
+  while(juneMon.getDay() !== 1) juneMon.setDate(juneMon.getDate() + 1);
+  const farOff = new Date(juneMon.getFullYear(), juneMon.getMonth(), juneMon.getDate() + 2);   // a Wednesday
+  check('autosched', 'a staff-set date beats the timing preference and opens on the Monday of its week',
+    earliestAllowedInstallDate({installPreference:'October', earliestInstallDate: farOff}).getTime() === juneMon.getTime(),
+    'the staff date is the one restriction the customer cannot see or override; a Wednesday ' +
+    'typed on the record opens the house on that Monday ([[SCH-145]])');
+  check('autosched', 'and the Routes-side lock lifts on that same Monday',
+    isEarliestInstallDateLocked({earliestInstallDate: farOff}) === true &&
+    isEarliestInstallDateLocked({earliestInstallDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)}) === false,
+    'a date a year off is locked; a date already gone is not');
   check('autosched', 'a staff date already in the past never pulls the answer backwards',
     earliestAllowedInstallDate({installPreference:'Normal Schedule',
       earliestInstallDate: new Date(now.getFullYear() - 1, 0, 1)}).getTime() === today.getTime());
@@ -9991,7 +10002,7 @@ suite('17. A new customer lands on the next day in their city');
 {
   const recStart = admin.indexOf('const RECONCILE_INTERVAL_MS');
   const recEnd = admin.indexOf('function scheduledFieldForType');
-  const NEEDED = ['thanksgivingDate','earliestAllowedInstallDate','extractCleanCity','toDateStr',
+  const NEEDED = ['thanksgivingDate','staffDateWeekMonday','earliestAllowedInstallDate','extractCleanCity','toDateStr',
                   /* a named day (1-Nov, 11/9+) is a floor the fill has to respect too */
                   'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
@@ -10156,6 +10167,12 @@ suite('17. A new customer lands on the next day in their city');
     /* Two upcoming Lehi days and one Orem day, plus a past day, a fix day and a
        removal day that must all be left alone. */
     const buildCase = () => {
+      /* ⚠ THE OFFICE DATE OPENS ON THE MONDAY OF ITS WEEK ([[SCH-145]], 2026-10-20), so a date
+         nine calendar days out opened before or after the seven-day route depending on which
+         weekday the suite ran on — a flaky check. The date is pinned to the Wednesday after the
+         first Monday past the seven-day route: its week opens eight to fourteen days out, which
+         is after the soon day and never after the fourteen-day one, whatever day it is today. */
+      const weekAfterSoon = (function(){ const d = new Date(); d.setDate(d.getDate() + 8); while(d.getDay() !== 1) d.setDate(d.getDate() + 1); d.setDate(d.getDate() + 2); return d; })();
       const houses = [
         {id:'ok',    data:{name:'Fine House',  city:'Lehi', address:'1 Fine St', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
         /* needsLightRecycle alongside the status, because portalRsvp always
@@ -10165,7 +10182,7 @@ suite('17. A new customer lands on the next day in their city');
         {id:'drift', data:{name:'Moved House', city:'Lehi', address:'9 NEW Rd',  lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
         {id:'dupe',  data:{name:'Twice Booked',city:'Lehi', address:'4 Two Way', lat:40.4, lng:-111.8, rsvpStatus:'yes'}},
         {id:'late',  data:{name:'Later Please',city:'Lehi', address:'5 Wait Ln', lat:40.4, lng:-111.8, rsvpStatus:'yes',
-                           earliestInstallDate: new Date(Date.now() + 9*86400000)}},
+                           earliestInstallDate: weekAfterSoon}},
         {id:'strand',data:{name:'Left Over',   city:'Lehi', address:'6 Miss Ct', lat:40.4, lng:-111.8, rsvpStatus:'yes',
                            scheduled:true, scheduledDate: dstr(-9)}},
         {id:'nocity',data:{name:'No Town',     city:'',     address:'7 Lost Way',lat:40.4, lng:-111.8, rsvpStatus:'yes',
@@ -12836,6 +12853,9 @@ suite('24. The same preference, written five different ways');
      takes the whole suite down. */
   eval(extractFn(admin, 'prefSpecificDate'));
   eval(extractFn(admin, 'prefNamedFloor'));
+  /* [[SCH-145]] the office date opens on the Monday of its week; one helper for both sides */
+  eval(extractFn(admin, 'staffDateWeekMonday'));
+  eval(extractFn(admin, 'isEarliestInstallDateLocked'));
   eval(extractFn(admin, 'earliestAllowedInstallDate'));
   const nov = earliestAllowedInstallDate({installPreference:'NOV'});
   const novLong = earliestAllowedInstallDate({installPreference:'November'});
@@ -17043,24 +17063,22 @@ suite('Suite 46. Nobody is hung before the month they asked for');
        ReferenceError raised inside a forEach with no suite name attached. */
     /* The sandbox's parameter names and its assembled body, named once so the guard
        below can be asked the same question the engine will be. */
-    /* ⚠ AND THE OFFICE-DATE WINDOW IS LIFTED TOO (2026-09-09). houseDeadline now asks
-       staffDateWindowEnd whether this house carries a date somebody typed, and that
-       reaches isWorkingDay through addWorkingDays — five names, one behaviour. Stubbing
-       any of them would make every claim below about a house with a date a claim about
-       the stub, and the fixtures here carry none, so the real chain simply answers ''.
-       The window itself is read out of the source rather than written as 5, so moving
-       the constant cannot leave this suite proving the old number. */
-    const staffWindow = (admin.match(/const STAFF_DATE_WINDOW_DAYS\s*=\s*(\d+);/) || [])[1];
-    /* ⚠ ASSERTED, NOT ASSUMED. A miss here would splice 'const X=undefined;' into the
-       sandbox — legal JavaScript, so nothing would throw, and staffDateWindowEnd would
-       quietly return the date itself as its own window end. A silent wrong answer is
-       worse than a red line, so the read is checked before it is used. */
-    check('S46', 'the office-date window was found in the source', !!staffWindow,
-      'const STAFF_DATE_WINDOW_DAYS did not match — fix this regex, do not let it splice undefined');
+    /* ⚠ AND THE OFFICE-DATE WINDOW IS LIFTED TOO (2026-09-09; the week shape since
+       [[SCH-145]], 2026-10-20). houseAllowedFrom asks staffDateWindowStart and houseDeadline
+       asks staffDateWindowEnd whether this house carries a date somebody typed, and both
+       reach staffDateWeekMonday in shared scope — one helper, one week. Stubbing any of
+       them would make every claim below about a house with a date a claim about the stub,
+       and the fixtures here carry none, so the real chain simply answers ''.
+       ⚠ ASSERTED, NOT ASSUMED. extractFn answers null for a missing name and 'null' would
+       be spliced into the sandbox as legal JavaScript, so each one is checked before it is
+       used — a rename is a real change and this suite refuses to pass over one. */
+    const STAFF_NAMES = ['staffDateWeekMonday', 'staffDateWindowStart', 'staffDateWindowEnd'];
+    check('S46', 'the office-date week helpers were found in the source',
+      STAFF_NAMES.every(n => !!fn(n)),
+      'missing: ' + STAFF_NAMES.filter(n => !fn(n)).join(', '));
     const STAFF_SRC =
-      'const STAFF_DATE_WINDOW_DAYS=' + (staffWindow || 5) + ';' +
       fn('isThanksgivingDay') + fn('isWorkingDay') + fn('isoToLocalDate') +
-      fn('addWorkingDays') + fn('staffDateWindowEnd');
+      STAFF_NAMES.map(n => fn(n) || '').join('');
     const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
       'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
       'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
@@ -25971,7 +25989,7 @@ suite('Suite 103. A named day is read everywhere, not just by the season');
                                 admin.indexOf('function normInstallPref'));
     const early = (pref) => new Function('pref',
       aliases + extractFn(admin, 'normInstallPref') + extractFn(admin, 'prefSpecificDate') +
-      floorSrc + extractFn(admin, 'thanksgivingDate') + earlySrc +
+      floorSrc + extractFn(admin, 'thanksgivingDate') + extractFn(admin, 'staffDateWeekMonday') + earlySrc +
       'const d = earliestAllowedInstallDate({installPreference: pref});' +
       'return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ' +
       '("0" + d.getDate()).slice(-2);')(pref);
@@ -60427,10 +60445,16 @@ suite('Suite 316. Closest to a date the office typed');
     const m = new RegExp('const ' + name + '\\s*=\\s*(-?\\d+);').exec(admin);
     return m ? Number(m[1]) : null;
   };
-  check('S316', 'a week is five working days, in both halves of the feature',
-    num('STAFF_DATE_WINDOW_DAYS') === 5 && num('DEADLINE_PRESSURE_DAYS') === 5,
-    'she was asked calendar or working and said working days; got ' +
-    num('STAFF_DATE_WINDOW_DAYS') + ' and ' + num('DEADLINE_PRESSURE_DAYS'));
+  /* ⭐ THE WINDOW IS A WEEK ON THE CALENDAR, NOT A COUNT ([[SCH-145]], 2026-10-20). The old
+     STAFF_DATE_WINDOW_DAYS — five working days after the date — went with the rule it
+     measured; a constant left behind would be a number nothing reads, wearing the name of
+     a rule the app no longer has. DEADLINE_PRESSURE_DAYS is a different question and stays. */
+  check('S316', 'the five-working-day window constant is gone with its rule',
+    num('STAFF_DATE_WINDOW_DAYS') === null,
+    'STAFF_DATE_WINDOW_DAYS is back — the office date means its calendar week now, not a count after it');
+  check('S316', 'a house starts climbing a working week out from its last day',
+    num('DEADLINE_PRESSURE_DAYS') === 5,
+    'she was asked calendar or working and said working days; got ' + num('DEADLINE_PRESSURE_DAYS'));
   check('S316', 'a new member is a week to hang and two weeks at the outside',
     num('NEW_HANG_TARGET_DAYS') === 5 && num('NEW_HANG_LIMIT_DAYS') === 10,
     '"within a week but can push it to 2 weeks if necessary"; got ' +
@@ -60442,7 +60466,6 @@ suite('Suite 316. Closest to a date the office typed');
      of missed days, which these fixtures do not have, and it is proved by Suite 300. */
   const BODY =
     'const PRE_THANKSGIVING_DAYS=' + (admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/) || [])[1] + ';' +
-    'const STAFF_DATE_WINDOW_DAYS=' + num('STAFF_DATE_WINDOW_DAYS') + ';' +
     'const DEADLINE_PRESSURE_DAYS=' + num('DEADLINE_PRESSURE_DAYS') + ';' +
     'const NEW_HANG_TARGET_DAYS=' + num('NEW_HANG_TARGET_DAYS') + ';' +
     'const NEW_HANG_LIMIT_DAYS=' + num('NEW_HANG_LIMIT_DAYS') + ';' +
@@ -60456,8 +60479,8 @@ suite('Suite 316. Closest to a date the office typed');
     fn('awayDayAfter') + fn('awayKeyToList') + fn('houseAwayOn') + fn('awayClearFrom') +
     fn('isoOf') + fn('thanksgivingDate') + fn('isThanksgivingDay') + fn('isWorkingDay') +
     fn('anyStampMillis') + fn('prefSpecificDate') +
-    fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
-    fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
+    fn('isoToLocalDate') + fn('workingDaysBetween') + fn('staffDateWeekMonday') +
+    fn('staffDateWindowStart') + fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
     fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
     'this.from = houseAllowedFrom; this.until = houseDeadline; this.pri = houseInstallPriority;' +
     'this.close = deadlineIsClose; this.waited = newHangWaitDays; this.wd = workingDaysBetween;';
@@ -60472,10 +60495,19 @@ suite('Suite 316. Closest to a date the office typed');
   const OLD = { chargeNewMemberFee: false };
   const NEWWAIT = { chargeNewMemberFee: true, createdAt: new Date(2026, 9, 1) };
 
-  /* ---- the floor half: never before, and never instead of their own month ---- */
-  check('S316', 'a date the office typed holds the house until that day',
-    sb.from({ pref: 'Any', notBefore: '2026-11-12' }, START) === '2026-11-12',
-    'this is the half that already worked on Routes and had never reached the plan');
+  /* ---- the floor half: the Monday of the date's week, and never instead of their own month ---- */
+  /* ⭐ [[SCH-145]] (2026-10-20): "I want them same week that they are put closest date on.
+     Even if its befor." A Thursday date opens on its Monday — three days BEFORE the date —
+     which is the whole of what changed. Until then the floor was the date itself (SCH-56). */
+  check('S316', 'a date the office typed opens the house on the Monday of that week, before the date itself',
+    sb.from({ pref: 'Any', notBefore: '2026-11-12' }, START) === '2026-11-09',
+    'Thu 12 Nov sits in the week of Mon 9 Nov; a floor on the 12th is the old "never before" rule');
+  check('S316', 'a date that is already a Monday opens on itself',
+    sb.from({ pref: 'Any', notBefore: '2026-11-16' }, START) === '2026-11-16');
+  check('S316', 'a Saturday belongs to the week before it and a Sunday to the week after',
+    sb.from({ pref: 'Any', notBefore: '2026-11-21' }, START) === '2026-11-16' &&
+    sb.from({ pref: 'Any', notBefore: '2026-11-22' }, START) === '2026-11-23',
+    'the calendar on the wall runs Sunday to Saturday; a weekend date still names one working week');
   check('S316', 'no date on the house changes nothing at all',
     sb.from({ pref: 'Any' }, START) === START &&
     sb.from({ pref: 'November' }, START) === '2026-11-01',
@@ -60484,28 +60516,35 @@ suite('Suite 316. Closest to a date the office typed');
     sb.from({ pref: 'November', notBefore: '2026-10-12' }, START) === '2026-11-01',
     'THE LATER OF THE TWO WINS — the office date must never hang somebody in a month ' +
     'they did not ask for, which is the rule every other branch of this function keeps');
-  check('S316', 'and a November customer with a later date waits for the date',
-    sb.from({ pref: 'November', notBefore: '2026-11-20' }, START) === '2026-11-20');
+  check('S316', 'and a November customer with a date in November opens on that week\'s Monday',
+    sb.from({ pref: 'November', notBefore: '2026-11-20' }, START) === '2026-11-16');
+  check('S316', 'a week that opens before the season start opens on the season start',
+    sb.from({ pref: 'Any', notBefore: '2026-10-01' }, START) === START,
+    'Thu 1 Oct 2026 sits in the week of Mon 28 Sep, which is this fixture\'s season start');
 
-  /* ---- the aiming half: a ceiling, counted in working days ---- */
-  check('S316', 'the window ends five WORKING days later, so a weekend does not shrink it',
-    sb.until({ pref: 'Any', notBefore: '2026-11-12' }) === '2026-11-19',
-    'Thu 12 Nov + five working days is Thu 19 Nov; a calendar week would say the 17th ' +
-    'and quietly take two days off the window');
-  check('S316', 'and Thanksgiving Day does not count either',
-    sb.until({ pref: 'Any', notBefore: '2026-11-24' }) === '2026-12-02',
-    'nobody works the holiday — isWorkingDay has excluded it since 2026-08-18, and a ' +
-    'window that spent a day on it would be four days long');
+  /* ---- the aiming half: a ceiling on the Friday of that week ---- */
+  check('S316', 'the window ends on the Friday of the date\'s week',
+    sb.until({ pref: 'Any', notBefore: '2026-11-12' }) === '2026-11-13' &&
+    sb.until({ pref: 'Any', notBefore: '2026-11-16' }) === '2026-11-20',
+    'Thu 12 Nov closes on Fri 13 Nov; Mon 16 Nov closes on Fri 20 Nov — the next Monday, ' +
+    'which the old five-working-day count allowed, is the week late this ruling came from');
+  check('S316', 'Thanksgiving week still ends on its Friday — the holiday is a hole in it, not a shorter week',
+    sb.until({ pref: 'Any', notBefore: '2026-11-24' }) === '2026-11-27',
+    'isWorkingDay refuses the Thursday itself; the Friday after is a working day');
+  check('S316', 'the floor never sits after the ceiling for a dated house',
+    ['2026-11-09', '2026-11-12', '2026-11-13', '2026-11-21', '2026-11-22', '2026-11-26'].every(d =>
+      sb.from({ pref: 'Any', notBefore: d }, START) <= sb.until({ pref: 'Any', notBefore: d })),
+    'an impossible window is read by the packer as "never move me"');
   check('S316', 'a house with no date keeps exactly the ceiling it had before',
     sb.until({ pref: 'October' }) === '2026-10-31' &&
     sb.until({ pref: 'Any' }) === '' &&
     sb.until({ pref: '11/9+' }) === '',
     'a named day is a floor and never a ceiling — that is 2026-08-20 and is untouched');
   check('S316', 'an office date beats the month on their form, rather than dating a ceiling before its own floor',
-    sb.until({ pref: 'October', notBefore: '2026-11-12' }) === '2026-11-19' &&
-    sb.from({ pref: 'October', notBefore: '2026-11-12' }, START) === '2026-11-12',
+    sb.until({ pref: 'October', notBefore: '2026-11-12' }) === '2026-11-13' &&
+    sb.from({ pref: 'October', notBefore: '2026-11-12' }, START) === '2026-11-09',
     'October would otherwise hand this house a 31 October ceiling sitting BEFORE its ' +
-    '12 November floor, and the packer reads an impossible window as "never move me"');
+    'November floor, and the packer reads an impossible window as "never move me"');
 
   /* ---- where it sits in the queue ---- */
   check('S316', 'an office date goes behind a new member and ahead of October',

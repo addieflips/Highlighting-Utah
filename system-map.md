@@ -3389,6 +3389,15 @@ Ruling **SCH-100**.
   its own day. And a stop that came in from an imported CSV cannot be pinned, because there is no
   customer record to write to — it says so rather than doing nothing.
 
+- **A pin to a day that has come is spent** ([[SCH-140]], and *today counts as come* since 2026-10-20).
+  The sync reads `stuckOnDate` as blank once that date is today or earlier, and the house is
+  scheduled like everybody else from then on. ⚠ It used to spend the pin only once the date was
+  strictly *before* today, and `schedule-chaos.test.js` found what that costs: a house the crew
+  missed yesterday, pinned to today, had nowhere legal to go — today is locked and every placer
+  refuses it, and every other day answered "pinned to today" — so it sat on the day that had
+  passed, every tick, for the rest of the season. The timing sweep had always honoured a pin only
+  while its day was still ahead; the read now agrees. `schedule-v2.test.js` suite *SCH-140 A pin to
+  TODAY is spent* runs both halves. The date stays on the record until the office clears it.
 - It is expressed as **a window one day wide**: `houseAllowedFrom` and `houseDeadline` both
   return the pinned day. Every mover in the app already refuses a day outside that window, so
   one rule in two functions holds the house in all eight places at once.
@@ -3463,6 +3472,39 @@ Date** — it was *Don't Install Before This Date*, and it means both halves. Ad
 whether it should stay a floor, become a pure target, or sit beside a second field:
 *"Still never before, but aim just after it."* Asked how close: within a week. Asked
 calendar or working days: *"Working days."*
+
+⛔ **CHANGED 2026-10-20 — THE WINDOW IS THE CALENDAR WEEK THE DATE SITS IN, BEFORE THE DATE
+AS WELL AS AFTER IT** ([[SCH-145]]). A house typed for Monday 16 November came out on Monday
+the 23rd: five *working* days after a Monday is the next Monday, so the rule below was obeyed
+and the house was a week late. The office: *"I want them same week that they are put closest
+date on. Even if its befor"*, then *"Do this for all closest to date. Even if that means our
+schedule switchs up a little bit. So we do eagle mountain a different day and put lehi the
+date eagle mountain was."* What that changes, and nothing else:
+
+* **The floor** is now the **Monday** of the week the date sits in (`staffDateWindowStart`),
+  so a Monday or Tuesday ahead of a Thursday date is a legal day. *Still never instead of
+  their own month* — the later of that Monday and 1 November wins for a November customer.
+* **The ceiling** is now the **Friday** of that week (`staffDateWindowEnd`). It still sits
+  above the preference branches and still wins. Thanksgiving week ends on its Friday like any
+  other; the Thursday is a hole in it, not a shorter week.
+* **Both read one helper**, `staffDateWeekMonday`, declared in shared scope so the Routes-side
+  readers (`earliestAllowedInstallDate`, `isEarliestInstallDateLocked`) count the same Monday.
+  A Sunday date opens the week after it; a Saturday closes the week before it.
+* **The place in the queue is unchanged** (tier 20), and *"switches up a little bit"* is the
+  planner's own machinery doing its job: `deadlineIsClose` lifts the house's **town** as the
+  Friday nears, and the five-mile pass opens or re-homes a day for a dated house nobody is
+  near ([[SCH-133]]). `schedule-v2.test.js` suite **SCH-145** presses the real Recalculate with
+  a lone Lehi house dated into a week the plan was not going to visit Lehi, and holds that
+  the house lands in that week — on a day before the typed date when that is what the week
+  offers — with every other rule on the plan still holding.
+* The box under **Install Closest To This Date** in Edit Customer says all of this in the
+  office's words, and the All Customers row reads *Hang the week of …* until that Monday.
+* `STAFF_DATE_WINDOW_DAYS` and `addWorkingDays` are gone with the count they served. *"A week is
+  five working days"* below described that count and no longer applies to this field;
+  `DEADLINE_PRESSURE_DAYS` is a different number and stays.
+
+The rest of this section is the 2026-09-09 account, kept because its reasoning about the
+later-of-the-floors rule and the ceiling-above-the-preferences rule is unchanged.
 
 ⚠ **The season planner had never heard of the field at all**, which is the part worth
 knowing before anybody hunts a bug here. `houseAllowedFrom` read the customer's own
@@ -3565,9 +3607,10 @@ nothing left on screen to remove.
 
 *Takes effect on* **Recalculate everything**, like the three above.
 *Where it's proved*: run-all.js **Suite 315** runs the shipped functions in a sandbox — the
-floor, the working-day ceiling across a weekend and across Thanksgiving, the tier order, the
-single bump, the new member's clock, and the date travelling both ways through the sync.
-*Rulings*: [[SCH-56]], [[SCH-57]], [[SCH-58]], [[SCH-59]], [[SCH-60]] in
+week floor and the Friday ceiling (since [[SCH-145]]; the working-day count before it), the tier
+order, the single bump, the new member's clock, and the date travelling both ways through the
+sync; schedule-v2.test.js suite **SCH-145** presses the real Recalculate.
+*Rulings*: [[SCH-56]] (superseded), [[SCH-57]], [[SCH-58]], [[SCH-59]], [[SCH-60]], [[SCH-145]] in
 `claude/questions-map.md`.
 
 ### How many crews there are, and what they are called

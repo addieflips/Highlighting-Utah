@@ -310,9 +310,10 @@ if(D){
   check('After Thanksgiving: Nov 25 refused, Nov 27 allowed', !ok({pref: 'After Thanksgiving'}, {}, '2026-11-25') && ok({pref: 'After Thanksgiving'}, {}, '2026-11-27'));
   check('a named day (11/9+) is a floor: Nov 6 refused, Nov 9 allowed, Nov 20 allowed',
     !ok({pref: '11/9+'}, {}, '2026-11-06') && ok({pref: '11/9+'}, {}, '2026-11-09') && ok({pref: '11/9+'}, {}, '2026-11-20'));
-  check('office date: never before it, and not more than 5 working days after',
-    !ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-09') && ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-19') &&
-    !ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-20'));
+  /* [[SCH-145]] Wed 14 Oct sits in the week of Mon 12 Oct: the Monday BEFORE the date is legal, the Monday after is not. */
+  check('office date: the whole calendar week it sits in, Monday to Friday, before the date as well as after it (SCH-145)',
+    !ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-09') && ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-12') &&
+    ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-16') && !ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-19'));
   check('wanted window: boundaries inclusive', !ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-09') &&
     ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-12') &&
     ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-16') &&
@@ -1511,7 +1512,11 @@ suite('SCH-146 Confirmed is on a day or on a warehouse list, never neither — e
   check('46.1 off the build list they read Confirmed', H.api.seasonBadgeKey(built.data) === 'confirmed');
   const pj = H.tick().joined;   // the five-minute sync itself, not a hand call
   check('46.2 and are put on a day without a Recalculate, though no day on the plan suited them', !!dayOfCust('whdone'), JSON.stringify(pj));
-  check('46.3 that day is not before their earliest date', dayOfCust('whdone') >= H.api.isoOf(late), dayOfCust('whdone') + ' < ' + H.api.isoOf(late));
+  /* [[SCH-145]]: an office date means the calendar week it sits in, Monday to Friday — a day BEFORE the date is right when
+     it is the same week. This check used to read "not before their earliest date", which SCH-145 retired the same day. */
+  const lateIso = H.api.isoOf(late), lateMon = (function(){ const d = new Date(late); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return H.api.isoOf(d); })();
+  const lateFri = (function(){ const p = lateMon.split('-').map(Number); return H.api.isoOf(new Date(p[0], p[1] - 1, p[2] + 4)); })();
+  check('46.3 that day is inside the week of their office date, Monday to Friday', dayOfCust('whdone') >= lateMon && dayOfCust('whdone') <= lateFri, dayOfCust('whdone') + ' not in ' + lateMon + '..' + lateFri + ' (date ' + lateIso + ')');
   check('46.4 the report names the day they went on', pj.placed.some(function(p){ return p.name === 'Warehouse Done' && p.toDate === dayOfCust('whdone'); }), JSON.stringify(pj.placed));
   check('46.5 nobody Confirmed is left off a day', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
   H.press();
@@ -2211,6 +2216,98 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     const novInOct = book.filter(function(b){ return /^(November|11\/9)/.test(b.data.installPreference) && dayOfCust(b.id) && dayOfCust(b.id) <= '2026-10-31'; });
     check('29.' + k + 'e book ' + spec[1] + ': and nobody who asked for November or a later day was pulled into October', novInOct.length === 0, String(novInOct.length));
   });
+}
+/* ======================================================================================= */
+/* ⭐ [[SCH-145]] (2026-10-20). The office, on a Lehi house typed for Monday 16 November and
+   placed on the 23rd: "I want them same week that they are put closest date on. Even if its
+   befor", then "Do this for all closest to date. Even if that means our schedule switchs up a
+   little bit. So we do eagle mountain a different day and put lehi the date eagle mountain was."
+   1.3 holds the floor and the ceiling; this holds the thing she can actually see — that the
+   REAL press puts the house in that week when its town was not going to be worked then, on a
+   day before the typed date when that is what the week offers, and leaves the rest of the plan
+   legal while it does it. */
+if(H){
+suite('SCH-145 An office date is hung in its own week, and the plan moves other towns to make room');
+{
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const shift = function(iso, n){ const p = iso.split('-').map(Number); return H.api.isoOf(new Date(p[0], p[1] - 1, p[2] + n)); };
+  const mondayOf = function(iso){ const p = iso.split('-').map(Number); const d = new Date(p[0], p[1] - 1, p[2]); return shift(iso, -((d.getDay() + 6) % 7)); };
+  /* One Lehi house in a book that otherwise has none, so where it lands is the rule's doing and nobody else's. */
+  const others = Object.keys(TOWNS).filter(function(t){ return t !== 'Lehi'; });
+  const book = makeBook(320, 23, {towns: others});
+  const lehi = {id: 'lehi1', data: Object.assign({name: 'Lehi Closest', customerNumber: '7001', city: 'Lehi', address: '1 Week St',
+    phone: '8015557001', lat: TOWNS['Lehi'][0], lng: TOWNS['Lehi'][1], installPreference: 'Normal Schedule'}, YES)};
+  book.push(lehi);
+  run(book);
+  const first = dayOfCust('lehi1');
+  check('45.0 with no date the Lehi house is on a day somewhere', !!first, 'nobody is left off');
+  /* A week the plan already works, on which Lehi was NOT going to be visited. */
+  const weeks = {};
+  H.api.installDays().forEach(function(d){ const w = mondayOf(ds(d)); weeks[w] = (weeks[w] || 0) + 1; });
+  const target = Object.keys(weeks).filter(function(w){ return w >= '2026-10-12' && weeks[w] >= 2 && w !== mondayOf(first || '2026-10-01'); }).sort()[0];
+  check('45.0b the season has another week with days on it to aim at', !!target, JSON.stringify(weeks) + ' first=' + first);
+  if(target){
+    const fri = shift(target, 4);
+    [['a Monday', 0], ['a Thursday', 3]].forEach(function(spec){
+      const typed = shift(target, spec[1]);
+      lehi.data.earliestInstallDate = {toMillis: function(){ const p = typed.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]).getTime(); }};
+      run(book);
+      const landed = dayOfCust('lehi1');
+      check('45.1 typed for ' + spec[0] + ' (' + typed + '): the house is on a day of that week, ' + target + ' to ' + fri + ' (it was on ' + first + ')',
+        !!landed && landed >= target && landed <= fri, 'landed ' + landed);
+      check('45.2 typed for ' + spec[0] + ': and never on the Monday after — the old five-working-day count let a Monday date drift exactly there',
+        !!landed && landed !== shift(target, 7), 'landed ' + landed);
+      const v = H.api.validateSeasonPlan({});
+      check('45.3 typed for ' + spec[0] + ': every other rule still holds on the plan that made room', v.length === 0, JSON.stringify(v.slice(0, 3)));
+      check('45.4 typed for ' + spec[0] + ': nobody fell off the schedule to make it happen', book.every(function(b){ return !!dayOfCust(b.id); }));
+    });
+    check('45.5 the Monday is a legal day for a house typed for the Thursday of that same week',
+      H.api.houseMayGoOn({pref: '', notBefore: shift(target, 3)}, {}, target, '2026-10-01').ok === true);
+    check('45.6 and the Monday after is not',
+      H.api.houseMayGoOn({pref: '', notBefore: shift(target, 3)}, {}, shift(target, 7), '2026-10-01').ok === false);
+  }
+}
+}
+
+suite('SCH-140 A pin to TODAY is spent: a house the crew missed yesterday, pinned to today, never stays on the day that passed');
+{
+  /* Found by schedule-chaos.test.js on 2026-10-20 (seed 19, 9 December): cust-c63 sat on 8 December with stuckOnDate
+     9 December, today 9 December. The sync spent a pin only while `s < today`, so a pin to today itself stayed live —
+     and today is locked, nextInstallDayFor and pastDeadlineSoonestDay both refuse it, and every other day answered
+     "pinned to 2026-12-09". Nowhere legal, so the house stayed on a day that had gone, every tick, for ever. The timing
+     sweep already honoured a pin only while `stuckTo > today`; the read now agrees (`<=`). RUN, both halves: a pin to a
+     day still ahead is honoured by the sync, and a pin to today lets go. */
+  const book = makeBook(200, 4140);
+  run(book);
+  const open = daysOf().filter(function(d){ return !H.api.routeDayIsLocked(d.ds) && d.ids.length; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  check('40.0 the plan has enough open days to stage this on', open.length >= 8, String(open.length));
+  const dX = open[5], dY = open[6];           // two consecutive open install days, well past the lock
+  const hid = (dX.ids[0] || '').replace(/^cust-/, '');
+  const cust = book.filter(function(b){ return b.id === hid; })[0];
+  check('40.1 a house was found on the earlier day', !!cust && dayOfCust(hid) === dX.ds, hid + ' on ' + dayOfCust(hid));
+  /* half one: the office pins them to the LATER day while it is still ahead — the sync carries the pin and moves them */
+  cust.data.stuckOnDate = dY.ds;
+  H.load(book, {season: H.season()});
+  H.tick();
+  check('40.2 a pin to a day still ahead is honoured by the five-minute sync', dayOfCust(hid) === dY.ds, dayOfCust(hid) + ' vs ' + dY.ds);
+  /* half two: the crew missed them — they are still on the EARLIER day when the clock reaches the pinned day */
+  const season2 = H.season();
+  (function(){ const from = season2.filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === dY.ds; })[0];
+               const to = season2.filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === dX.ds; })[0];
+               const h = from.houses.filter(function(x){ return x.id === 'cust-' + hid; })[0];
+               from.houses = from.houses.filter(function(x){ return x !== h; }); to.houses.push(h); })();
+  const p = dY.ds.split('-').map(Number);
+  H.setNow(new Date(p[0], p[1] - 1, p[2], 7, 0));   // the pinned day is today; dX has gone
+  H.load(book, {season: season2});
+  check('40.3 staged: on the day that has gone, pinned to today', dayOfCust(hid) === dX.ds && H.api.scheduleTodayStr() === dY.ds, dayOfCust(hid) + ' / today ' + H.api.scheduleTodayStr());
+  H.tick();
+  const landed = dayOfCust(hid);
+  check('40.4 the sync takes them off the day that has passed', landed !== dX.ds, 'still on ' + landed);
+  check('40.5 and puts them on a day after today — never today, which is locked', !!landed && landed > dY.ds, landed || '(no day)');
+  check('40.6 the pin is spent: the house carries no stuck date any more',
+    (function(){ var hh = null; H.season().forEach(function(d){ (d.houses || []).forEach(function(x){ if(x.id === 'cust-' + hid) hh = x; }); }); return !!hh && !String(hh.stuck || '').trim(); })());
+  check('40.7 nobody Confirmed is left off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+  H.setNow(TODAY);
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};

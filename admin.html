@@ -2629,7 +2629,7 @@
             </div>
             <div class="form-row"><label>Install Closest To This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
-          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). We will <b>never</b> hang them before it, and the schedule now aims to hang them <b>within a week of it</b> (five working days) rather than whenever we are next in their town. It puts them behind new members and ahead of everyone else, and it does not move them into a month they did not ask for. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. Leave blank for no restriction.</p>
+          <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us at a particular time (e.g. they're out of town until then). The schedule hangs them <b>in the same week as this date</b> &mdash; Monday to Friday of that week, so a day before the date is fine as long as it is the same week &mdash; and it will move other towns to other days to make that happen. It puts them behind new members and ahead of everyone else, and it does not move them into a month they did not ask for. Takes effect the next time you press <b>Recalculate everything</b> on the Schedule tab. Leave blank for no restriction.</p>
           <!-- ⭐⭐ THEIR OWN CALENDAR (2026-09-28, [[SCH-98]] / [[SCH-99]]). Addie: "Can we do a
                calendar for members for when they will be gone and not schedule them during that
                time frame and be able to add that on costumers?", then "Also a calendar timeframe
@@ -42549,11 +42549,38 @@ function isInstallPrefLocked(installPreferenceRaw){
   if(named) return now < named;
   return false;
 }
+/* ⭐ THE OFFICE'S DATE MEANS THAT WEEK, NOT THAT DAY ([[SCH-145]], 2026-10-20). "Install
+   Closest To This Date" was a floor — never before that day — with five working days after
+   it to aim at (SCH-56, 2026-09-09). Then a real house met it: typed for Monday 16 November,
+   placed on Monday the 23rd, because five working days after a Monday IS the next Monday.
+   The office: "I want them same week that they are put closest date on. Even if its befor",
+   then "Do this for all closest to date. Even if that means our schedule switchs up a little
+   bit." So the WEEK is the window — Monday to Friday of the calendar week the date sits in —
+   and a day before the typed date is as good as a day after it.
+   ⚠ ONE HELPER, SHARED BY BOTH SIDES. The season planner (staffDateWindowStart /
+   staffDateWindowEnd, inside the Schedule widget) and the Routes side (the two readers just
+   below, and earliestAllowedInstallDate) all have to agree about which Monday a date belongs
+   to, so the arithmetic is declared out here in shared scope exactly as prefNamedFloor is:
+   the widget can see it, Edit Customer can see it, and there is one copy of it.
+   ⚠ A SUNDAY OPENS THE WEEK THAT FOLLOWS IT, a Saturday closes the week before it — the
+   calendar on the wall runs Sunday to Saturday and the crews work Monday to Friday inside
+   it, so a date typed on a weekend still names exactly one working week.
+   ⚠ RETURNS A LOCAL MIDNIGHT, never the time of day a stored stamp carries. The lock below
+   compares it against new Date(), and a Monday carrying 7 PM would hold the house off that
+   whole Monday. */
+function staffDateWeekMonday(dt){
+  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const w = d.getDay();                       // 0 Sunday … 6 Saturday
+  d.setDate(d.getDate() - (w === 0 ? -1 : w - 1));
+  return d;
+}
 // Staff-only date restriction, independent of Install Timing — set from Edit Customer, never visible/editable by the customer.
+// Locked until the MONDAY of the date's week ([[SCH-145]]), not until the date itself.
 function isEarliestInstallDateLocked(data){
   if(!data || !data.earliestInstallDate) return false;
   const d = data.earliestInstallDate.toDate ? data.earliestInstallDate.toDate() : new Date(data.earliestInstallDate);
-  return new Date() < d;
+  if(isNaN(d)) return false;
+  return new Date() < staffDateWeekMonday(d);
 }
 /* ---------------- THEIR OWN CALENDAR (2026-09-28, [[SCH-98]] / [[SCH-99]]) ----------
    Addie: "Can we do a calendar for members for when they will be gone and not schedule
@@ -51419,7 +51446,7 @@ function buildAddressRowHtml(item){
         (d.oneTimeNote ? '<div class="row-phone-line" style="color:var(--ember);">&#128221; (this visit only) '+esc(d.oneTimeNote)+'</div>' : '')+
         (d.seasonStatus === 'cancellation_requested' && d.cancellationReason ? '<div class="row-phone-line" style="color:var(--ember);">&#128683; Cancellation reason: '+esc(d.cancellationReason)+'</div>' : '')+
         (d.contactMethod ? '<div class="row-phone-line">&#128172; Prefers: '+esc(d.contactMethod)+'</div>' : '')+
-        (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Hang closest to '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
+        (isEarliestInstallDateLocked(d) ? '<div class="row-phone-line" style="color:var(--ember); font-weight:600;">&#128197; Hang the week of '+fmtDate(d.earliestInstallDate)+'</div>' : '')+
         (d.housePhotoUrl ? '<div class="row-phone-line">&#128247; Photo on file'+(d.houseHighlights && d.houseHighlights.length ? ' &middot; '+d.houseHighlights.length+' section(s), '+fmtMoney(d.houseHighlights.reduce((s,h)=>s+(Number(h.price)||0),0)) : '')+'</div>' : '')+
         '<div class="diff-pick-row">'+
           '<select class="diff-select" data-setdiff="'+item.id+'" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:13px; font-weight:600; background:var(--snow); color:var(--ink);">'+
@@ -63871,7 +63898,11 @@ function earliestAllowedInstallDate(d){
   }
   if(d && d.earliestInstallDate){
     const staff = d.earliestInstallDate.toDate ? d.earliestInstallDate.toDate() : new Date(d.earliestInstallDate);
-    if(!isNaN(staff) && staff > earliest) earliest = new Date(staff.getFullYear(), staff.getMonth(), staff.getDate());
+    /* [[SCH-145]] the office's date opens on the MONDAY of its week — the same Monday the
+       season planner's staffDateWindowStart answers, through the same helper, so the two
+       sides of the app cannot disagree about which week a date belongs to. */
+    const weekOpens = isNaN(staff) ? null : staffDateWeekMonday(staff);
+    if(weekOpens && weekOpens > earliest) earliest = weekOpens;
   }
   return earliest;
 }
@@ -79737,21 +79768,34 @@ function seasonStartDate(){
    no preference at all and offered the FIRST day of October, which is the one
    month they explicitly did not want. Checked before the others because the
    words "after thanksgiving" contain neither "oct" nor "nov". */
-/* ⭐ "CLOSEST TO THIS DATE" — THE OFFICE'S OWN DATE, AND WHAT A WEEK MEANS
-   (added 2026-09-09, SCH-49 to SCH-52).
+/* ⭐ "CLOSEST TO THIS DATE" — THE OFFICE'S OWN DATE MEANS THAT WEEK ([[SCH-145]], 2026-10-20;
+   from 2026-09-09 to then it was a floor plus five working days, SCH-56 to SCH-60).
 
-   Addie, asked whether "Don't Install Before This Date" should stay a floor or become
-   a target: **"Still never before, but aim just after it."** So the floor half is
-   unchanged and lives in houseAllowedFrom; the aiming half is a CEILING (houseDeadline)
-   plus a PLACE IN THE QUEUE (houseInstallPriority). Three functions, one field.
+   Addie, 2026-09-09, asked whether "Don't Install Before This Date" should stay a floor or
+   become a target: "Still never before, but aim just after it." That stood for six weeks and
+   then met a real house: typed for Monday 16 November, placed on Monday the 23rd — five
+   working days after a Monday IS the next Monday, so the rule was obeyed and the house was
+   a week late. The office, 2026-10-20: "I want them same week that they are put closest date
+   on. Even if its befor", and "Do this for all closest to date. Even if that means our
+   schedule switchs up a little bit. So we do eagle mountain a different day and put lehi the
+   date eagle mountain was."
 
-   ⚠ A WEEK IS FIVE WORKING DAYS, EVERYWHERE IN THIS FEATURE. Asked calendar or
-   working, she said working days. The 72-hour warehouse hold already skips weekends and
-   Thanksgiving, so a ceiling counted in calendar days sitting beside a floor counted in
-   working ones would quietly shrink every window that crossed a Sunday — and the two
-   would disagree about the same customer, which is the failure this whole area keeps
-   producing. Do not "fix" the five to a seven. */
-const STAFF_DATE_WINDOW_DAYS = 5;   // how long after the office's date still counts as closest to it
+   So the WEEK is the window. staffDateWindowStart is its Monday and is the floor
+   (houseAllowedFrom); staffDateWindowEnd is its Friday and is the ceiling (houseDeadline);
+   houseInstallPriority still puts the house second in the queue (tier 20) and
+   deadlineIsClose still lifts its TOWN as the Friday nears, which is what moves another
+   town off that day. Three functions, one field, one helper — staffDateWeekMonday, in
+   shared scope beside the Routes-side readers so both halves of the app agree about which
+   week a date is in.
+
+   ⚠ "NEVER BEFORE" IS GONE ON PURPOSE. A Monday or Tuesday ahead of a Wednesday date is a
+   legal day now, which is the whole of what was asked for. What has NOT changed: the later
+   of the week's Monday and their own month still wins (a November customer with a late
+   October date is still a November customer), a pin still beats everything, and their away
+   dates still punch holes in the week.
+   ⚠ THERE IS NO COUNT TO TUNE ANY MORE. STAFF_DATE_WINDOW_DAYS went with the rule it
+   measured; a week is Monday to Friday, and isWorkingDay still takes Thanksgiving out of it.
+   DEADLINE_PRESSURE_DAYS below is a different number — how far out a house starts climbing. */
 const DEADLINE_PRESSURE_DAYS = 5;   // a house starts climbing this far out from its last allowed day
 const NEW_HANG_TARGET_DAYS   = 5;   // a new member should be hung inside this
 const NEW_HANG_LIMIT_DAYS    = 10;  // ... and past this they go ahead of everybody
@@ -79760,21 +79804,6 @@ function isoToLocalDate(iso){
   if(parts.length !== 3) return null;
   const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
   return isNaN(dt) ? null : dt;
-}
-/* ⚠ FAILS TO null, NOT TO CALENDAR DAYS. Without isWorkingDay this cannot answer the
-   question it was asked, and quietly counting weekends would hand back a shorter window
-   wearing the right name. Callers turn null into "no ceiling", which is what every house
-   had before this existed. */
-function addWorkingDays(dt, n){
-  if(!dt || typeof isWorkingDay !== 'function') return null;
-  const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-  let left = Math.max(0, Math.floor(Number(n) || 0));
-  let guard = 0;
-  while(left > 0 && guard++ < 400){
-    d.setDate(d.getDate() + 1);
-    if(isWorkingDay(d)) left--;
-  }
-  return d;
 }
 /* Whole working days from one ISO day to another. 0 when the second is not later —
    never a negative, because every caller is asking "how long has this been" or "how
@@ -79791,12 +79820,23 @@ function workingDaysBetween(fromIso, toIso){
   }
   return n;
 }
-/* The last day a house carrying an office date is still "closest to" it. */
+/* The Monday and the Friday of the week the office's date sits in ([[SCH-145]]). Both answer
+   '' for anything that is not a date, which every caller reads as "no floor" / "no ceiling" —
+   the behaviour a house with no date has always had.
+   ⚠ THE FRIDAY, NOT "THE LAST WORKING DAY". Thanksgiving week ends on the Friday after the
+   holiday like any other week, and houseMayGoOn refuses the Thursday itself through
+   isWorkingDay. A ceiling that stepped back to the Wednesday would quietly shorten that one
+   week for a house that asked for nothing of the kind. */
+function staffDateWindowStart(notBeforeIso){
+  const start = isoToLocalDate(notBeforeIso);
+  if(!start) return '';
+  return isoOf(staffDateWeekMonday(start));
+}
 function staffDateWindowEnd(notBeforeIso){
   const start = isoToLocalDate(notBeforeIso);
   if(!start) return '';
-  const end = addWorkingDays(start, STAFF_DATE_WINDOW_DAYS);
-  return end ? isoOf(end) : '';
+  const mon = staffDateWeekMonday(start);
+  return isoOf(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4));
 }
 /* ⭐ IS THIS HOUSE INSIDE THE LAST WEEK OF ITS OWN WINDOW? Addie, on when a house
    should start climbing because time is running out: "1 week out".
@@ -79825,9 +79865,13 @@ function newHangWaitDays(custData, todayStr){
   return workingDaysBetween(isoOf(new Date(ms)), todayStr);
 }
 function houseAllowedFrom(h, startStr){
-  /* ⭐ AND THE OFFICE'S OWN DATE IS A FLOOR TOO (2026-09-09, SCH-49). "Still never
-     before, but aim just after it" — this is the "never before" half, and it is the
-     only half that changes what the builder is ALLOWED to do.
+  /* ⭐ AND THE OFFICE'S OWN DATE IS A FLOOR TOO — THE MONDAY OF ITS WEEK ([[SCH-145]],
+     2026-10-20). From 2026-09-09 until then the floor was the date itself (SCH-49 / SCH-56,
+     "Still never before, but aim just after it"); the office, on a house typed for a Monday
+     and hung the Monday after: "I want them same week that they are put closest date on.
+     Even if its befor." So the floor is the Monday of the week the date sits in, a day
+     BEFORE the typed date is legal when it is the same week, and staffDateWindowEnd puts the
+     Friday on the other side in houseDeadline.
      ⚠ THE LATER OF THE TWO WINS, never the office date on its own. A November customer
      with 12 October typed on them is still a November customer; taking the office date
      alone would hang somebody in a month they did not ask for, which is the one thing
@@ -79835,7 +79879,8 @@ function houseAllowedFrom(h, startStr){
      ⚠ IT READS h.notBefore RATHER THAN THE CUSTOMER RECORD, so this stays self-contained
      for the suites that lift it alone. SCHEDULE_SYNC_FIELDS is what puts it on the house,
      and that entry is the one place a cleared date has to travel. */
-  const nb = (''+((h&&h.notBefore)||'')).trim();
+  const nbRaw = (''+((h&&h.notBefore)||'')).trim();
+  const nb = nbRaw ? (staffDateWindowStart(nbRaw) || nbRaw) : '';
   const base = (function(){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX'){
@@ -79994,7 +80039,10 @@ function houseDeadline(h){
   const stuckDay = ('' + ((h && h.stuck) || '')).trim();
   if(stuckDay) return stuckDay;
   /* ⭐ AN OFFICE DATE IS A WINDOW, NOT JUST A STARTING GUN (2026-09-09, SCH-49). Asked
-     how close "just after" should be, Addie chose within a week of the date. Without a
+     how close "just after" should be, Addie chose within a week of the date.
+     ⭐ AND SINCE [[SCH-145]] (2026-10-20) THAT WEEK IS THE CALENDAR WEEK THE DATE SITS IN:
+     staffDateWindowEnd answers its Friday, houseAllowedFrom's floor is its Monday, and a day
+     before the typed date is as legal as a day after it. Without a
      ceiling the tail sweep is free to push the house to the end of the season, which is
      exactly the drift the word "closest" was asked for to stop.
      ⚠ IT SITS ABOVE THE PREFERENCE BRANCHES ON PURPOSE, and it wins. A house with 12
@@ -80173,7 +80221,8 @@ function houseInstallPriority(h, custData, opts){
      — and since [[SCH-49]] that box is tier 10, so the two sit one step apart rather
      than at opposite ends of the ladder.
      ⚠ IT DECIDES ORDER, NOT MONTH. houseAllowedFrom already holds the house until the
-     date, so this only ever governs what happens once the date has arrived.
+     Monday of the date's week ([[SCH-145]]), so this only ever governs what happens once
+     that week has opened.
      ⛔ AND IT IS DROPPED FOR A TOWN, exactly like the rush box beside it ([[SCH-54]]).
      It is the same act — a person deciding for one customer — so one house with a date
      typed on it would otherwise make a town of one look more urgent than a town holding
@@ -81357,9 +81406,15 @@ const SCHEDULE_SYNC_FIELDS = [
                                    /* [[SCH-140]] a day that has gone cannot hold anybody: a pin to it is spent, and
                                       the house is scheduled like everybody else (blankClears lifts it off the plan).
                                       Kept, it was a window of one day in the past — no day could ever be legal for
-                                      them, and every rule reported them for the rest of the season. */
+                                      them, and every rule reported them for the rest of the season.
+                                      ⚠ TODAY COUNTS AS COME (2026-10-20, found by schedule-chaos.test.js). This read
+                                      `s < today`, so a pin to today itself stayed live — and today is locked, every
+                                      placer refuses it, and the timing sweep below already honours a pin only while
+                                      `stuckTo > today`. A house the crew missed yesterday, pinned to today, therefore
+                                      had no legal day anywhere and stayed on the day that had passed. `<=` is the
+                                      same answer the chaos audit gives ("a pin to a day that has come is spent"). */
                                    read:function(d){ const s = ('' + (d.stuckOnDate || '')).trim();
-                                     return (s && typeof scheduleTodayStr === 'function' && s < scheduleTodayStr()) ? '' : s; }}
+                                     return (s && typeof scheduleTodayStr === 'function' && s <= scheduleTodayStr()) ? '' : s; }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
