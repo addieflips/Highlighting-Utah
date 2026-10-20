@@ -2268,6 +2268,47 @@ suite('SCH-145 An office date is hung in its own week, and the plan moves other 
   }
 }
 }
+
+suite('SCH-140 A pin to TODAY is spent: a house the crew missed yesterday, pinned to today, never stays on the day that passed');
+{
+  /* Found by schedule-chaos.test.js on 2026-10-20 (seed 19, 9 December): cust-c63 sat on 8 December with stuckOnDate
+     9 December, today 9 December. The sync spent a pin only while `s < today`, so a pin to today itself stayed live —
+     and today is locked, nextInstallDayFor and pastDeadlineSoonestDay both refuse it, and every other day answered
+     "pinned to 2026-12-09". Nowhere legal, so the house stayed on a day that had gone, every tick, for ever. The timing
+     sweep already honoured a pin only while `stuckTo > today`; the read now agrees (`<=`). RUN, both halves: a pin to a
+     day still ahead is honoured by the sync, and a pin to today lets go. */
+  const book = makeBook(200, 4140);
+  run(book);
+  const open = daysOf().filter(function(d){ return !H.api.routeDayIsLocked(d.ds) && d.ids.length; }).sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  check('40.0 the plan has enough open days to stage this on', open.length >= 8, String(open.length));
+  const dX = open[5], dY = open[6];           // two consecutive open install days, well past the lock
+  const hid = (dX.ids[0] || '').replace(/^cust-/, '');
+  const cust = book.filter(function(b){ return b.id === hid; })[0];
+  check('40.1 a house was found on the earlier day', !!cust && dayOfCust(hid) === dX.ds, hid + ' on ' + dayOfCust(hid));
+  /* half one: the office pins them to the LATER day while it is still ahead — the sync carries the pin and moves them */
+  cust.data.stuckOnDate = dY.ds;
+  H.load(book, {season: H.season()});
+  H.tick();
+  check('40.2 a pin to a day still ahead is honoured by the five-minute sync', dayOfCust(hid) === dY.ds, dayOfCust(hid) + ' vs ' + dY.ds);
+  /* half two: the crew missed them — they are still on the EARLIER day when the clock reaches the pinned day */
+  const season2 = H.season();
+  (function(){ const from = season2.filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === dY.ds; })[0];
+               const to = season2.filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === dX.ds; })[0];
+               const h = from.houses.filter(function(x){ return x.id === 'cust-' + hid; })[0];
+               from.houses = from.houses.filter(function(x){ return x !== h; }); to.houses.push(h); })();
+  const p = dY.ds.split('-').map(Number);
+  H.setNow(new Date(p[0], p[1] - 1, p[2], 7, 0));   // the pinned day is today; dX has gone
+  H.load(book, {season: season2});
+  check('40.3 staged: on the day that has gone, pinned to today', dayOfCust(hid) === dX.ds && H.api.scheduleTodayStr() === dY.ds, dayOfCust(hid) + ' / today ' + H.api.scheduleTodayStr());
+  H.tick();
+  const landed = dayOfCust(hid);
+  check('40.4 the sync takes them off the day that has passed', landed !== dX.ds, 'still on ' + landed);
+  check('40.5 and puts them on a day after today — never today, which is locked', !!landed && landed > dY.ds, landed || '(no day)');
+  check('40.6 the pin is spent: the house carries no stuck date any more',
+    (function(){ var hh = null; H.season().forEach(function(d){ (d.houses || []).forEach(function(x){ if(x.id === 'cust-' + hid) hh = x; }); }); return !!hh && !String(hh.stuck || '').trim(); })());
+  check('40.7 nobody Confirmed is left off a day (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+  H.setNow(TODAY);
+}
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){

@@ -3389,6 +3389,15 @@ Ruling **SCH-100**.
   its own day. And a stop that came in from an imported CSV cannot be pinned, because there is no
   customer record to write to — it says so rather than doing nothing.
 
+- **A pin to a day that has come is spent** ([[SCH-140]], and *today counts as come* since 2026-10-20).
+  The sync reads `stuckOnDate` as blank once that date is today or earlier, and the house is
+  scheduled like everybody else from then on. ⚠ It used to spend the pin only once the date was
+  strictly *before* today, and `schedule-chaos.test.js` found what that costs: a house the crew
+  missed yesterday, pinned to today, had nowhere legal to go — today is locked and every placer
+  refuses it, and every other day answered "pinned to today" — so it sat on the day that had
+  passed, every tick, for the rest of the season. The timing sweep had always honoured a pin only
+  while its day was still ahead; the read now agrees. `schedule-v2.test.js` suite *SCH-140 A pin to
+  TODAY is spent* runs both halves. The date stays on the record until the office clears it.
 - It is expressed as **a window one day wide**: `houseAllowedFrom` and `houseDeadline` both
   return the pinned day. Every mover in the app already refuses a day outside that window, so
   one rule in two functions holds the house in all eight places at once.

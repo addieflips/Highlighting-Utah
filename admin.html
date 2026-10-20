@@ -81406,9 +81406,15 @@ const SCHEDULE_SYNC_FIELDS = [
                                    /* [[SCH-140]] a day that has gone cannot hold anybody: a pin to it is spent, and
                                       the house is scheduled like everybody else (blankClears lifts it off the plan).
                                       Kept, it was a window of one day in the past — no day could ever be legal for
-                                      them, and every rule reported them for the rest of the season. */
+                                      them, and every rule reported them for the rest of the season.
+                                      ⚠ TODAY COUNTS AS COME (2026-10-20, found by schedule-chaos.test.js). This read
+                                      `s < today`, so a pin to today itself stayed live — and today is locked, every
+                                      placer refuses it, and the timing sweep below already honours a pin only while
+                                      `stuckTo > today`. A house the crew missed yesterday, pinned to today, therefore
+                                      had no legal day anywhere and stayed on the day that had passed. `<=` is the
+                                      same answer the chaos audit gives ("a pin to a day that has come is spent"). */
                                    read:function(d){ const s = ('' + (d.stuckOnDate || '')).trim();
-                                     return (s && typeof scheduleTodayStr === 'function' && s < scheduleTodayStr()) ? '' : s; }}
+                                     return (s && typeof scheduleTodayStr === 'function' && s <= scheduleTodayStr()) ? '' : s; }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
