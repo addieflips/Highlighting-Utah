@@ -1493,6 +1493,31 @@ suite('SCH-136b Customers marked for tomorrow from TODAY’s list — the crew d
   check('36b.4 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
 }
 
+suite('SCH-146 Confirmed is on a day or on a warehouse list, never neither — even when no day exists that suits them');
+{
+  /* Dax, 2026-10-20: "if they are confirmed they are always either on the build list or schedule but always one or the
+     other". The five-minute placer only used a day that already existed with room, so somebody let go by the warehouse
+     whose first allowed day is after the last day on the plan read Confirmed and sat on no day until a Recalculate. RUN. */
+  const book = makeBook(120, 4610);
+  run(book);
+  const lastDs = daysOf().map(function(d){ return d.ds; }).sort().pop();
+  const late = new Date(lastDs + 'T00:00:00'); late.setDate(late.getDate() + 14);
+  const built = {id: 'whdone', data: Object.assign({name: 'Warehouse Done', customerNumber: '5146', city: 'Orem', address: '46 Bin St',
+    lat: TOWNS['Orem'][0] + 0.003, lng: TOWNS['Orem'][1], installPreference: 'Normal Schedule', needsLightBuild: true,
+    earliestInstallDate: late}, YES)};
+  H.load(book.concat([built]), {season: H.season()});
+  check('46.0 while on the build list they are off every day, and not Confirmed', !dayOfCust('whdone') && H.api.seasonBadgeKey(built.data) === 'building');
+  built.data.needsLightBuild = false;   // the warehouse presses Mark Done
+  check('46.1 off the build list they read Confirmed', H.api.seasonBadgeKey(built.data) === 'confirmed');
+  const pj = H.tick().joined;   // the five-minute sync itself, not a hand call
+  check('46.2 and are put on a day without a Recalculate, though no day on the plan suited them', !!dayOfCust('whdone'), JSON.stringify(pj));
+  check('46.3 that day is not before their earliest date', dayOfCust('whdone') >= H.api.isoOf(late), dayOfCust('whdone') + ' < ' + H.api.isoOf(late));
+  check('46.4 the report names the day they went on', pj.placed.some(function(p){ return p.name === 'Warehouse Done' && p.toDate === dayOfCust('whdone'); }), JSON.stringify(pj.placed));
+  check('46.5 nobody Confirmed is left off a day', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
+  H.press();
+  check('46.6 and a Recalculate keeps them on one', !!dayOfCust('whdone') && H.api.confirmedNotOnAnyDay().length === 0);
+}
+
 suite('SCH-142 Schedule on a date the office picks — stuck there, and slotted into that day where it makes sense');
 {
   /* Dax: "give me a way to pick a day to schedule a specific customer and they just go wherever they make sense in a
