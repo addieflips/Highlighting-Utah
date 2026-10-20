@@ -811,6 +811,9 @@
     color:var(--dusk); font-weight:600; text-decoration:underline; font-size:14.5px;
   }
   .address-link-btn:hover{ color:var(--ink); }
+  /* The way out to Google Maps beside every address (2026-10-20) — see mapsLinkFor. */
+  .map-open-link{ font-size:11.5px; color:var(--slate); text-decoration:none; margin-left:6px; white-space:nowrap; }
+  .map-open-link:hover{ color:var(--ink); text-decoration:underline; }
   .row-name-line{ font-weight:700; font-size:14.5px; color:var(--ink); margin-bottom:2px; }
   .row-phone-line{ font-size:12.5px; color:var(--slate); margin-top:2px; }
   /* ⭐ The contact line sits under the name and is the one thing on the row you press.
@@ -18232,7 +18235,7 @@ function renderQuoteRows(filtered){
         (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived'+(d.quoteArchivedReason ? ' \u2014 '+esc(d.quoteArchivedReason) : '')+'</span>' : '')+
         (d.smsOptedOut ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C;">No texts (STOP)</span>' : '')+
         (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
-        '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+
+        '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+mapOpenLinkHtml(d.address)+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
         quoteContactMatchHtml(item)+
         /* ⭐ THE CONTACT DETAILS ARE EDITABLE HERE, AND ONLY HERE. Until
@@ -26468,6 +26471,52 @@ function adminErrorWhereNow(){
                   names something, and the message it sits under is already enough to file. */ }
   return String((location && location.hash) || '(no panel open)');
 }
+/* ⭐ WHAT THIS TAB WROTE IN THE LAST FIVE MINUTES (2026-10-20). Twice now — 1:04 AM on 14 October and 6:36 AM
+   on 19 October, Routes open both times — Firestore refused this project's writes with "This database has
+   exceeded their maximum bandwidth for writes" (resource-exhausted) and the SDK fell back to its maximum
+   backoff. The 14 October read added planSaveRunaway, which files a row when the plan saves itself 30+ times a
+   minute; on 19 October it filed nothing, so the plan is NOT saving at that rate. What is still unknown is
+   WHICH writes were in flight, and the SDK's own line names none of them. So the three bulk writers on that tab
+   — the plan save, the Schedule → customer day mirror (up to ~950 records a pass), and the stale-booking clear
+   on Recalculate — each note what they wrote here, and a report that mentions the write refusal or the backoff
+   carries a census of them. ⚠ IT IS A CENSUS, NOT A CAUSE: the quota is for the whole database, so another
+   open computer's writes count too, and an empty census on a refusal is itself the finding — the writes came
+   from somewhere else. No FIXED_ERRORS entry, because nothing is fixed; this is the instrument the next
+   occurrence needs. ⚠ Pure apart from Date.now, so a suite can run it over a fixture log. */
+const HU_WRITE_CENSUS_MS = 5 * 60 * 1000;
+const HU_WRITE_KINDS = {
+  plan: 'the schedule plan saved', stamps: 'customer day stamps mirrored', stale: 'stale bookings cleared',
+  recalc: 'Recalculate pressed'
+};
+const huWriteLog = [];
+function huNoteWrite(kind, docs, bytes){
+  huWriteLog.push({t: Date.now(), kind: String(kind || 'other'), docs: Number(docs) || 0, bytes: Number(bytes) || 0});
+  while(huWriteLog.length > 500) huWriteLog.shift();
+}
+function huWriteCensusTextFrom(log, now){
+  const since = now - HU_WRITE_CENSUS_MS;
+  const sums = {};
+  (log || []).forEach(function(e){
+    if(!e || e.t < since || e.t > now) return;
+    const k = e.kind || 'other';
+    sums[k] = sums[k] || {times: 0, docs: 0, bytes: 0};
+    sums[k].times++; sums[k].docs += e.docs || 0; sums[k].bytes += e.bytes || 0;
+  });
+  const parts = Object.keys(sums).map(function(k){
+    const x = sums[k];
+    const label = HU_WRITE_KINDS[k] || k;
+    let out = label + ' ' + x.times + '\u00d7';
+    if(x.docs) out += ', ' + x.docs + ' record' + (x.docs === 1 ? '' : 's');
+    if(x.bytes) out += ', ~' + Math.round(x.bytes / 1024) + ' KB';
+    return out;
+  });
+  return parts.length ? parts.join('; ') : 'none from this tab';
+}
+function huWriteCensusText(now){ return huWriteCensusTextFrom(huWriteLog, now || Date.now()); }
+window.huNoteWrite = huNoteWrite;
+function adminErrorIsWriteRefusal(text){
+  return /resource-exhausted|maximum bandwidth|maximum backoff/i.test(String(text || ''));
+}
 function reportAdminError(text, whoAtCatch){
   try{
     text = String(text || '').trim();
@@ -26505,6 +26554,9 @@ function reportAdminError(text, whoAtCatch){
         message: 'Something went wrong on the admin page.' + String.fromCharCode(10,10) +
           text.slice(0, 1500) + String.fromCharCode(10,10) +
           'Where: ' + adminErrorWhereNow().slice(0, 120) + String.fromCharCode(10) +
+          /* The census rides on the BODY only — errorKey is built from the text above, so the
+             dedupe and FIXED_ERRORS see the same key they always did. */
+          (adminErrorIsWriteRefusal(text) ? 'Writes from this tab in the last 5 min: ' + huWriteCensusText(Date.now()).slice(0, 400) + String.fromCharCode(10) : '') +
           'Signed in as: ' + signedInAs + String.fromCharCode(10) +
           'Browser: ' + String(navigator.userAgent || '').slice(0, 200),
         autoQueuedToWarehouse: false, needsReassign: false,
@@ -41698,14 +41750,45 @@ function getGeocoder(){
   return geocoder;
 }
 let mapPreviewInstances = {};
+/* ⭐ AN ADDRESS ALWAYS OPENS A MAP (2026-10-20). Addie: "the maps will not open when I click on
+   address." Three doors and each could fail in silence: showMapPreview RETURNED when Google's
+   library had not loaded (an ad blocker, a refused key, a slow network — nothing on screen
+   moved), the preview box it draws into sits below a list of ~960 rows on a narrow screen so a
+   map drawn there is a map nobody sees, and the address on an All Customers row was plain grey
+   text that did nothing at all. One link rule for all of them: mapsLinkFor, Google Maps in a new
+   tab, the same address the schedule's own stop links have always opened.
+   ⚠ THE INLINE PREVIEW IS KEPT where it exists — it is the better answer when it works — and
+   the box is scrolled into view, so the click is seen to do something. The new tab is the
+   fallback for the one case the preview cannot draw, and a side link on every row otherwise. */
+function mapsLinkFor(text){
+  return 'https://maps.google.com/?q=' + encodeURIComponent(String(text || '').trim());
+}
+function mapOpenLinkHtml(text){
+  const t = String(text || '').trim();
+  if(!t) return '';
+  return '<a class="map-open-link" href="' + esc(mapsLinkFor(t)) + '" target="_blank" rel="noopener" title="Open this address in Google Maps">Google Maps &#8599;</a>';
+}
+function mapsLibraryLoaded(){
+  return !!(window.google && google.maps && typeof google.maps.Map === 'function');
+}
 function showMapPreview(containerId, lat, lng, label){
   const box = document.getElementById(containerId);
-  if(!box || !window.google) return;
+  if(!box) return;
+  if(!mapsLibraryLoaded()){
+    /* Google's library is not on this page, so the preview cannot draw. The address still
+       opens — in a new tab, from the click that asked for it — and the box says why. */
+    if(label) window.open(mapsLinkFor(label), '_blank', 'noopener');
+    box.innerHTML = '<div class="map-preview-placeholder">Google Maps did not load on this page, so the address was opened in a new tab instead.</div>';
+    return;
+  }
   if(typeof lat !== 'number' || typeof lng !== 'number'){
-    box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address on the map.</div>';
+    box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address on the map.' +
+      (label ? ' <a href="' + esc(mapsLinkFor(label)) + '" target="_blank" rel="noopener">Open it in Google Maps &#8599;</a>' : '') + '</div>';
+    try{ box.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }catch(err){ /* an old browser without options still drew the message */ }
     return;
   }
   if(box.querySelector('.map-preview-placeholder')) box.innerHTML = '';
+  try{ box.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }catch(err){ /* an old browser without options still gets the map */ }
   if(mapPreviewInstances[containerId] && !mapsInstanceIsCurrent(mapPreviewInstances[containerId].map)){
     mapPreviewInstances[containerId] = null;
   }
@@ -41726,12 +41809,15 @@ function showMapPreview(containerId, lat, lng, label){
 }
 async function showMapPreviewByAddress(containerId, addressText){
   const box = document.getElementById(containerId);
+  /* Decided BEFORE the await: a new tab opened after one is a popup the browser blocks. */
+  if(!mapsLibraryLoaded()){ showMapPreview(containerId, null, null, addressText); return; }
   if(box) box.innerHTML = '<div class="map-preview-placeholder">Locating…</div>';
   try{
     const coords = await geocodeAddress(addressText);
     showMapPreview(containerId, coords.lat, coords.lng, addressText);
   } catch(err){
-    if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.</div>';
+    if(box) box.innerHTML = '<div class="map-preview-placeholder">Couldn\'t locate this address.' +
+      (addressText ? ' <a href="' + esc(mapsLinkFor(addressText)) + '" target="_blank" rel="noopener">Open it in Google Maps &#8599;</a>' : '') + '</div>';
   }
 }
 const LIGHTS_COLOR_OPTIONS = ['Warm White','Pure White','Red','Green','Blue','Purple','Orange','Pink','Multi'];
@@ -51406,7 +51492,7 @@ function buildAddressRowHtml(item){
         (d.name ? '<div class="row-name-line">'+esc(d.name)+'</div>' : '<div></div>')+
         (d.gateCode ? '<span class="status-pill" style="background:#FAEEDA; color:#633806; font-weight:600; flex-shrink:0; white-space:nowrap;">&#128274; '+esc(d.gateCode)+'</span>' : '')+
       '</div>'+
-      '<button type="button" class="address-link-btn" data-previewaddr="'+item.id+'">'+esc(d.address)+'</button>'+propLabelChip(d)+
+      '<button type="button" class="address-link-btn" data-previewaddr="'+item.id+'">'+esc(d.address)+'</button>'+mapOpenLinkHtml(d.address)+propLabelChip(d)+
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
@@ -59313,7 +59399,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+newHangChip(r.item)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+newHangChip(r.item)+binBadge+custSheetChips(r.d)+'<br>'+(r.d.address ? '<a class="address-link-btn" style="font-size:12px; font-weight:500;" href="'+esc(mapsLinkFor(r.d.address))+'" target="_blank" rel="noopener" title="Open this address in Google Maps">'+esc(r.d.address)+'</a>' : '<span style="font-size:12px; color:var(--slate);"></span>')+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -68623,6 +68709,7 @@ async function syncInstallStampsFromSchedule(){
         });
         try{
           await batch.commit();
+          if(typeof huNoteWrite === 'function') huNoteWrite('stamps', chunk.length, 0);
           chunk.forEach(function(x){
             const local = jobAddresses.find(function(a){ return a.id === x.id; });
             if(local) Object.assign(local.data, x.updates);
@@ -69575,6 +69662,7 @@ async function clearStaleInstallBookingsRun(){
          the listener, so a chunk that failed must not leave the screen claiming it
          cleared records that are still stamped. */
       chunk.forEach(function(item){ Object.assign(item.data, freeUpFieldForType('install')); });
+      if(typeof huNoteWrite === 'function') huNoteWrite('stale', chunk.length, 0);
       cleared += chunk.length;
     }catch(err){
       console.error('Could not clear a batch of ' + chunk.length + ' stale bookings', err);
@@ -84433,7 +84521,7 @@ async function saveNow(){
   /* Nothing new to say — a redraw, or the plan we just received from another computer. */
   if(k===planSyncedKey){ RT.getElementById('saveNote').textContent='all changes saved ✓'; return; }
   const prev=planSyncedKey; planSyncedKey=k;
-  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;planSaveRunaway(Date.now(),data);mirrorStampsSoon();}catch(e){planSyncedKey=prev;
+  try{await setDoc(PLAN_REF(),data);RT.getElementById('saveNote').textContent='all changes saved ✓';saveFailTold=false;planSaveRunaway(Date.now(),data);if(typeof window.huNoteWrite==='function'){let kb=0;try{kb=JSON.stringify(data).length;}catch(e){/* the size is decoration on the census; the count is what matters */}window.huNoteWrite('plan',1,kb);}mirrorStampsSoon();}catch(e){planSyncedKey=prev;
     /* ⛔ SAID, AND WITH THE REAL REASON (2026-10-12). This read "check connection" whatever went wrong and logged
        nothing, so a plan Firestore was REFUSING — not a network fault at all — failed in five grey words for twelve
        days while each computer went on showing its own schedule. planSaveProblem names the field when it is ours. */
@@ -84703,6 +84791,7 @@ RT.addEventListener('click',e=>{const t=e.target;
     return;
   }
   if(t.id==='recalcBtn'){
+    if(typeof window.huNoteWrite==='function') window.huNoteWrite('recalc',0,0);
     const unlockPrinted = PRINTED_OVERRIDE_NEXT; PRINTED_OVERRIDE_NEXT=false;
     if(typeof jobAddresses==='undefined'||!jobAddresses.length){
       /* The rebuild reads the customer records for towns, timings and new-hang

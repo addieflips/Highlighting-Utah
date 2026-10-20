@@ -2057,6 +2057,9 @@ if (JSDOM) {
   global.quoteContactMatchCache = null; global.quoteContactMatchCacheFor = null;
   ['quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteContactMatchHtml'].forEach(n =>
     eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
+  /* 2026-10-20: the Google Maps side link beside the card's address — lifted, never stubbed (Suite 388 runs it). */
+  ['mapsLinkFor', 'mapOpenLinkHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -67343,4 +67346,136 @@ suite('387. The Invoice List counts only people who have RSVP\'d or paid this se
     'the safe direction: a missing box must narrow, never widen');
   check('S387', 'the note under the cards says who is counted', /Only people who have RSVP'd yes for this season, or paid this season, are counted and listed/.test(admin));
   check('S387', 'nothing in the gate writes', !/updateDoc|setDoc|deleteDoc|addDoc/.test(stripComments(gateSrc || '') + showSrc));
+}
+
+/* ---------------------------------------------------------------------------
+ * 388. AN ADDRESS ALWAYS OPENS A MAP. Addie, 2026-10-20: "the maps will not open when I click on
+ * address." showMapPreview returned in silence when Google's library was not on the page, the
+ * preview box sits below ~960 rows on a narrow screen, and the All Customers address was plain
+ * text. The fallback is RUN against a fake window with no google on it; the rows are matched.
+ * --------------------------------------------------------------------------- */
+suite('388. An address always opens a map');
+{
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const src = extractFn(admin, 'mapsLinkFor') + extractFn(admin, 'mapOpenLinkHtml') + extractFn(admin, 'mapsLibraryLoaded') + extractFn(admin, 'showMapPreview');
+  check('S388', 'the four pieces are findable', /function mapsLinkFor/.test(src) && /function mapOpenLinkHtml/.test(src) && /function mapsLibraryLoaded/.test(src) && /function showMapPreview\(/.test(src));
+  const mk = (win) => {
+    const box = {innerHTML: '<div class="map-preview-placeholder">Click an address to preview it here</div>', scrolled: 0,
+      querySelector: function(){ return null; }, scrollIntoView: function(){ this.scrolled++; }};
+    const doc = {getElementById: (id) => id === 'routeListMap' ? box : null};
+    /* In the browser google is a bare global as well as window.google; the sandbox hands both in. */
+    const fns = new Function('window', 'document', 'esc', 'mapPreviewInstances', 'google', src + ';return {mapsLinkFor, mapOpenLinkHtml, showMapPreview};')(win, doc, esc, {}, win.google);
+    return {fns, box};
+  };
+  check('S388', 'the link is Google Maps with the whole address in it',
+    mk({}).fns.mapsLinkFor('1 Elm St, Lehi, UT 84043') === 'https://maps.google.com/?q=1%20Elm%20St%2C%20Lehi%2C%20UT%2084043');
+  check('S388', 'the side link opens in a new tab and carries the address, escaped',
+    /target="_blank"/.test(mk({}).fns.mapOpenLinkHtml('1 Elm <St>')) && /rel="noopener"/.test(mk({}).fns.mapOpenLinkHtml('1 Elm')) &&
+    mk({}).fns.mapOpenLinkHtml('1 Elm <St>').indexOf('1%20Elm%20%3CSt%3E') !== -1 && mk({}).fns.mapOpenLinkHtml('') === '');
+
+  /* No google on the page: the click still opens the address, from the click. */
+  const opened = [];
+  const noLib = mk({open: function(u, t){ opened.push([u, t]); }});
+  noLib.fns.showMapPreview('routeListMap', 40.39, -111.85, '1 Elm St, Lehi');
+  check('S388', 'with no Google library the address opens in a new tab instead of nothing happening',
+    opened.length === 1 && opened[0][0] === 'https://maps.google.com/?q=1%20Elm%20St%2C%20Lehi' && opened[0][1] === '_blank',
+    'this is the silent return she was clicking into');
+  check('S388', 'and the box says why', /did not load/.test(noLib.box.innerHTML) && /new tab/.test(noLib.box.innerHTML));
+  const noLib2 = mk({open: function(u){ opened.push([u]); }});
+  noLib2.fns.showMapPreview('routeListMap', 40.39, -111.85, '');
+  check('S388', 'but nothing is opened for a blank address', opened.length === 1);
+
+  /* The library IS here: the preview draws and the box is brought into view. */
+  const drawn = [];
+  const google = {maps: {
+    Map: function(el, o){ drawn.push(o); this.setCenter = function(){}; this.setZoom = function(){}; },
+    Marker: function(o){ this.setMap = function(){}; },
+    SymbolPath: {CIRCLE: 0}
+  }};
+  const withLib = mk({google: google, open: function(){ opened.push(['SHOULD NOT']); }});
+  withLib.fns.showMapPreview('routeListMap', 40.39, -111.85, '1 Elm St');
+  check('S388', 'with the library the preview is drawn and no tab is opened', drawn.length === 1 && opened.length === 1);
+  check('S388', 'and the box is scrolled into view, so a map below a long list is seen', withLib.box.scrolled === 1,
+    'on a narrow screen the preview box is under ~960 rows; a map drawn there is a map nobody sees');
+  const noPin = mk({google: google, open: function(){ opened.push(['SHOULD NOT']); }});
+  noPin.fns.showMapPreview('routeListMap', null, undefined, '1 Elm St');
+  check('S388', 'a house with no pin is told so and still offered Google Maps',
+    /locate this address/.test(noPin.box.innerHTML) && /maps\.google\.com/.test(noPin.box.innerHTML) && opened.length === 1);
+
+  /* The by-address door decides before its await, or the new tab is a blocked popup. */
+  const byAddr = extractFn(admin, 'showMapPreviewByAddress') || '';
+  check('S388', 'the quote-card door checks for the library BEFORE it awaits the geocoder',
+    byAddr.indexOf('mapsLibraryLoaded()') !== -1 && byAddr.indexOf('mapsLibraryLoaded()') < byAddr.indexOf('await geocodeAddress'));
+  check('S388', 'and a failed geocode still offers Google Maps', /Open it in Google Maps/.test(byAddr));
+
+  /* The three rows. */
+  const routesRow = stripComments(extractFn(admin, 'buildAddressRowHtml') || '');
+  check('S388', 'the Routes customer row keeps the inline preview and gains the Google Maps link',
+    /data-previewaddr="'\+item\.id\+'"/.test(routesRow) && /mapOpenLinkHtml\(d\.address\)/.test(routesRow));
+  const quoteCard = stripComments(sectionFrom(admin, admin.indexOf('data-previewquoteaddr="')));
+  check('S388', 'the quote card keeps its preview and gains the Google Maps link',
+    /data-previewquoteaddr="'\+esc\(d\.address\)\+'"/.test(quoteCard.slice(0, 400)) && /mapOpenLinkHtml\(d\.address\)/.test(quoteCard.slice(0, 400)));
+  const allCust = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
+  check('S388', 'the All Customers address is a Google Maps link in a new tab, no longer plain text',
+    /href="'\+esc\(mapsLinkFor\(r\.d\.address\)\)\+'" target="_blank" rel="noopener"[^>]*>'\+esc\(r\.d\.address\)\+'<\/a>/.test(allCust));
+  check('S388', 'the schedule stop link still opens Google Maps the same way', /https:\/\/maps\.google\.com\/\?q='\+encodeURIComponent\(\(h\.address/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 389. WHAT THIS TAB WROTE, ON A WRITE REFUSAL. Firestore refused the project's writes twice
+ * (14 and 19 October, Routes open) and the SDK's own line names no writer. The three bulk writers
+ * on that tab note what they wrote, and a report of the refusal carries the census. RUN over a
+ * fixture log; the call sites and the reporter line are matched. No FIXED_ERRORS entry: nothing is
+ * fixed, this is the instrument.
+ * --------------------------------------------------------------------------- */
+suite('389. A write refusal names what this tab wrote');
+{
+  const src = extractFn(admin, 'huWriteCensusTextFrom') + extractFn(admin, 'adminErrorIsWriteRefusal');
+  const kindsSrc = (admin.match(/const HU_WRITE_KINDS = \{[\s\S]*?\n\};/) || [''])[0];
+  const msSrc = (admin.match(/const HU_WRITE_CENSUS_MS = [^;]+;/) || [''])[0];
+  check('S389', 'the census and its constants are findable', !!kindsSrc && !!msSrc && /function huWriteCensusTextFrom/.test(src));
+  const api = new Function(msSrc + kindsSrc + src + ';return {huWriteCensusTextFrom, adminErrorIsWriteRefusal, HU_WRITE_CENSUS_MS};')();
+  const now = 1000000000;
+  const log = [
+    {t: now - 1000, kind: 'plan', docs: 1, bytes: 640 * 1024},
+    {t: now - 2000, kind: 'plan', docs: 1, bytes: 640 * 1024},
+    {t: now - 3000, kind: 'stamps', docs: 400, bytes: 0},
+    {t: now - 4000, kind: 'stamps', docs: 550, bytes: 0},
+    {t: now - 5000, kind: 'recalc', docs: 0, bytes: 0},
+    {t: now - api.HU_WRITE_CENSUS_MS - 1, kind: 'stale', docs: 900, bytes: 0},
+    {t: now + 5, kind: 'plan', docs: 1, bytes: 1}
+  ];
+  const text = api.huWriteCensusTextFrom(log, now);
+  check('S389', 'the census counts each writer inside the window, with records and size',
+    /the schedule plan saved 2\u00d7, 2 records, ~1280 KB/.test(text) && /customer day stamps mirrored 2\u00d7, 950 records/.test(text) && /Recalculate pressed 1\u00d7/.test(text),
+    text);
+  check('S389', 'a write older than five minutes is left out, and so is one from the future', !/stale/.test(text) && !/3\u00d7/.test(text));
+  check('S389', 'an empty window says so rather than saying nothing', api.huWriteCensusTextFrom([], now) === 'none from this tab',
+    'an empty census on a refusal is itself the finding: the writes came from another computer');
+  check('S389', 'the refusal is recognised by its three spellings',
+    api.adminErrorIsWriteRefusal('FirebaseError: [code=resource-exhausted]: This database has exceeded their maximum bandwidth for writes') &&
+    api.adminErrorIsWriteRefusal('Firestore (10.12.2): Using maximum backoff delay to prevent overloading the backend.') &&
+    !api.adminErrorIsWriteRefusal('Missing or insufficient permissions'));
+
+  /* The reporter carries it, on the body only. */
+  const rep = stripComments(extractFn(admin, 'reportAdminError') || '');
+  check('S389', 'the report body carries the census when the text is a write refusal',
+    /adminErrorIsWriteRefusal\(text\) \? 'Writes from this tab in the last 5 min: ' \+ huWriteCensusText\(Date\.now\(\)\)/.test(rep));
+  check('S389', 'and the error key is still built from the text alone, so dedupe and FIXED_ERRORS are untouched',
+    /const key = errorKeyFor\(ADMIN_ERROR_TOPIC, text\);/.test(rep) && !/errorKeyFor\([^)]*huWriteCensus/.test(rep));
+
+  /* The three writers, and the press. */
+  const save = stripComments(extractFn(admin, 'saveNow') || '');
+  check('S389', 'the plan save notes itself after the write lands, with its size',
+    /await setDoc\(PLAN_REF\(\),data\);[\s\S]*?window\.huNoteWrite\('plan',1,kb\)/.test(save));
+  const mirror = stripComments(extractFn(admin, 'syncInstallStampsFromSchedule') || '');
+  check('S389', 'the day mirror notes every batch it commits',
+    /await batch\.commit\(\);\s*if\(typeof huNoteWrite === 'function'\) huNoteWrite\('stamps', chunk\.length, 0\);/.test(mirror));
+  const stale = stripComments(extractFn(admin, 'clearStaleInstallBookingsRun') || '');
+  check('S389', 'the stale-booking clear notes every batch it commits', /huNoteWrite\('stale', chunk\.length, 0\)/.test(stale));
+  check('S389', 'and the Recalculate press is noted', /t\.id==='recalcBtn'\)\{\s*if\(typeof window\.huNoteWrite==='function'\) window\.huNoteWrite\('recalc',0,0\);/.test(stripComments(admin)));
+  check('S389', 'the schedule widget reaches the census through window, never a bare name', /window\.huNoteWrite = huNoteWrite;/.test(admin));
+  check('S389', 'no FIXED_ERRORS entry claims the write refusal is fixed',
+    !/match: '[^']*(resource-exhausted|maximum bandwidth|maximum backoff)/i.test((admin.match(/const FIXED_ERRORS = \[[\s\S]*?\n\];/) || [''])[0]),
+    'the cause is unproven; an entry would delete the evidence the census exists to collect');
 }
