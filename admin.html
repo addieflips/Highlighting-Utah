@@ -3615,7 +3615,7 @@
           <!-- Status summary. Counts and money come from the same computeInvoiceStatus()
                the rows below use, so the strip can never disagree with the list. -->
           <div id="invStatusStrip" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(150px,100%),1fr)); gap:10px; margin-bottom:8px;"></div>
-          <p class="form-note" style="margin:0 0 14px;">Counts are of invoices, not houses &mdash; one payer covering several houses counts once. Tap a card to filter the list; tap it again to clear.</p>
+          <p class="form-note" style="margin:0 0 14px;">Counts are of invoices, not houses &mdash; one payer covering several houses counts once. Only people who have RSVP'd yes for this season, or paid this season, are counted and listed &mdash; tick <strong>Everyone</strong> below to see the whole book. Tap a card to filter the list; tap it again to clear.</p>
           <div class="form-row"><input type="text" id="invoiceSearchInput" placeholder="Search by customer name..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; position:relative;">
             <button type="button" class="btn btn-outline btn-sm" id="openInvFilterBtn">Filter &#9662;</button>
@@ -3635,6 +3635,10 @@
                  ever deleted, because that would destroy a payment record - they are
                  just out of the way. Every figure on them still counts everywhere else. -->
             <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowArchived"> Show archived (no customer)</label>
+            <!-- ⭐ RSVP'D ONLY, BY DEFAULT ([[MON-85]], 2026-10-20). Addie: "I only want to see for
+                 people who did RSVP." The cards above and the list below count only invoices with
+                 somebody on them who has RSVP'd yes or paid this season; this box widens both. -->
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowEveryone"> Everyone (RSVP'd or not)</label>
           </div>
           <div class="row-list" id="invoicesList"><div class="empty-note">Loading…</div></div>
         </div>
@@ -30231,12 +30235,53 @@ async function resendMissingReceipts(){
       + (problems.length > 12 ? '\n\n…and ' + (problems.length - 12) + ' more.' : ''));
   }
 }
+/* ⭐ THE INVOICE LIST COUNTS ONLY PEOPLE WHO HAVE RSVP'D ([[MON-85]], 2026-10-20). Addie:
+   "look at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only
+   want to see for people who did RSVP."
+
+   ⚠ SHE WAS RIGHT, AND IT IS BY CONSTRUCTION. An invoice document outlives the season —
+   Start New Season zeroes what was paid and keeps the bill — so on 1 October every one of
+   ~960 customers has an Unpaid invoice carrying their house price, and the Not Paid card
+   summed the lot: "how much we get if everyone RSVP", to the dollar. The nightly run is
+   untouched by this (it bills on `completed`); this is what the OFFICE is shown.
+
+   ⭐ AN INVOICE COUNTS WHEN SOMEBODY ON IT HAS SAID YES THIS SEASON, OR PAID THIS SEASON.
+   "Said yes" is `effectiveRsvpStatus`, the same rule as the Dashboard's RSVP cards and the
+   Financial Overview's season figure (MON-84): a bare yes with no reply behind it counts
+   for nothing, a no / Back Next Year / the office's badge always wins, a first-year
+   customer reads as yes. "Paid" is `housePaidThisSeason` (SCH-82): this year's money on the
+   bill, which confirms them whatever they have answered — and which must never vanish off
+   the Paid in Full card because the payer has not clicked an email.
+
+   ⚠ EVERY HOUSE ON THE BILL IS ASKED, through `billedHousesFor` — a parent paying for a
+   child's house has RSVP'd for the child, not necessarily for themselves.
+
+   ⚠ A BILL WITH NOBODY ON IT (archived — the customer is gone) is left to the Show archived
+   box, which is the control that already governs it. And a typed search bypasses the gate:
+   somebody looking a name up wants that person's bill, whatever they have answered.
+
+   ⚠ A VIEW RULE AND NOTHING MORE. No invoice is written, archived or deleted by it; the
+   Everyone box puts the whole book back. */
+function invoiceCountsThisSeason(item){
+  const houses = billedHousesFor(item && item.id);
+  return houses.some(function(h){
+    const d = (h && h.data) || {};
+    return effectiveRsvpStatus(d) === 'yes' || housePaidThisSeason(d);
+  });
+}
+function invShowingEveryone(){
+  const box = document.getElementById('invShowEveryone');
+  return !!(box && box.checked);
+}
 function renderInvStatusStrip(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
   const tally = { 'Paid in Full':{n:0,money:0}, 'Partial Payment':{n:0,money:0}, 'Unpaid':{n:0,money:0}, 'Not sent':{n:0,money:0} };
+  const everyone = invShowingEveryone();
   allInvoicesCache.forEach(function(item){
     const d = item.data;
+    /* MON-85: the cards say what this season's people owe, not the whole book. */
+    if(!everyone && !invoiceCountsThisSeason(item)) return;
     if(invoiceNotSentReason(item)){
       tally['Not sent'].n++;
       tally['Not sent'].money += Math.max(0, (Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0) - (Number(d.credits)||0) - (Number(d.deposit)||0));
@@ -30411,6 +30456,11 @@ function renderInvoicesList(){
   let filtered = (showArch && showArch.checked)
     ? allInvoicesCache
     : allInvoicesCache.filter(function(item){ return !(item.data || {}).archived; });
+  /* MON-85: only this season's people, unless Everyone is ticked or a name is being
+     searched for. An archived bill stays with the Show archived box above. */
+  if(!invShowingEveryone() && !invoiceSearchTerm){
+    filtered = filtered.filter(function(item){ return (item.data || {}).archived || invoiceCountsThisSeason(item); });
+  }
   if(invoiceSearchTerm){
     const t = invoiceSearchTerm.toLowerCase();
     /* Search what is on the screen. Typing "heather" has to find Heather's bill even
@@ -73941,6 +73991,9 @@ function startHealthCheckAuto(){
   /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
   const sa = document.getElementById('invShowArchived');
   if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN — no invoice is touched. Toggling back and forth redraws it. */ } });
+  /* MON-85: the Everyone box is the same kind of toggle — it widens what is drawn and counted. */
+  const se = document.getElementById('invShowEveryone');
+  if(se) se.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN — no invoice is touched. Toggling back and forth redraws it. */ } });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:

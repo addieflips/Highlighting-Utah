@@ -2928,6 +2928,19 @@ Dashboard › Financial Overview carries a **This Season, As It Stands** card un
 
 `fovSeasonProjection` / `fovRenderProjection` in admin.html; run-all.js Suite 386 runs the rule and the renderer.
 
+### The Invoice List counts only people who have RSVP'd (added 2026-10-20, [[MON-85]])
+
+Addie: *"look at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only want to see for people who did RSVP."* She was right. An invoice outlives the season — Start New Season zeroes what was paid and keeps the bill — so on 1 October every one of ~960 customers has an Unpaid invoice carrying their house price, and the **Not Paid** card on Dashboard › Invoices › Invoice List summed the whole book.
+
+- **The three status cards and the list now count only bills with somebody on them who has RSVP'd yes for this season, or paid this season.** "RSVP'd yes" is the same `effectiveRsvpStatus` rule as everywhere else (a bare yes with no reply behind it is nothing; a no, Back Next Year or the office's Maybe Next Year badge wins; a first-year customer reads as yes). "Paid this season" is `housePaidThisSeason` — this year's money confirms them whatever they answered, so a prepayment never disappears off the Paid in Full card. Every house on the bill is asked, because a parent paying for a child's house has RSVP'd for the child.
+- **Everyone (RSVP'd or not)** — a box beside Show archived — puts the whole book back on the cards and in the list. **Typing a name in the search box also finds anybody**, whatever they answered.
+- **Archived bills** (the customer is gone) are still governed by the Show archived box alone.
+- **Nothing is written.** This decides what is drawn and counted, nothing more; the 7 PM run bills on `completed` exactly as before.
+
+**If somebody is missing from the Invoice List:** they have not RSVP'd yes and have not paid this season. Search their name, or tick Everyone.
+
+`invoiceCountsThisSeason` / `invShowingEveryone` in admin.html; run-all.js Suite 387.
+
 ## 4. Every Firestore collection, one line each
 
 **Read/written directly by the browser** (staff-authenticated, `request.auth != null`):

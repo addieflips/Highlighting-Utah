@@ -32647,14 +32647,17 @@ pendingAsync.push((async () => {
     const blk = at < 0 ? "" : render.slice(at, render.indexOf("if(invoiceSearchTerm)", at));
     check('S79', 'the archived filter block was found to run', !!blk);
     if (blk) {
-      const run = new Function("allInvoicesCache", "document", blk + "return filtered;");
+      /* MON-85 put the this-season gate inside this slice. It is STUBBED OPEN here on purpose:
+         this block's claim is the archived toggle alone, and Suite 387 runs the real gate. */
+      const run = new Function("allInvoicesCache", "document", "invoiceSearchTerm", "invShowingEveryone", "invoiceCountsThisSeason",
+        blk + "return filtered;");
       const book = [{id: "a", data: {}}, {id: "b", data: {archived: true}}];
       const docStub = (checked) => ({ getElementById: () => ({ checked: checked }) });
       check('S79', 'an archived invoice is off the working list by default',
-        run(book, docStub(false)).map(x => x.id).join() === "a",
+        run(book, docStub(false), "", () => false, () => true).map(x => x.id).join() === "a",
         'archiving that leaves them on screen has achieved nothing at all');
       check('S79', 'and ticking the box brings them back',
-        run(book, docStub(true)).map(x => x.id).join() === "a,b",
+        run(book, docStub(true), "", () => false, () => true).map(x => x.id).join() === "a,b",
         'the money is still theirs to look up; it is only out of the way');
     }
   }
@@ -67266,4 +67269,78 @@ suite('386. The Financial Overview says what this season is shaping up to bring 
     /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(qListener.slice(0, 600)));
   check('S386', 'the render is deferred to the Dashboard like the rest of that panel',
     /fovProjection: 'dashboard'/.test((admin.match(/const RENDER_PANEL = \{[\s\S]*?\n\};/) || [''])[0]));
+}
+
+/* ---------------------------------------------------------------------------
+ * 387. THE INVOICE LIST COUNTS ONLY PEOPLE WHO HAVE RSVP'D ([[MON-85]]). Addie, 2026-10-20: "look
+ * at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only want to see
+ * for people who did RSVP." An invoice outlives the season, so every customer carries an Unpaid
+ * bill from 1 October and the Not Paid card summed the whole book. invoiceCountsThisSeason is RUN
+ * with the real effectiveRsvpStatus and housePaidThisSeason lifted in; billedHousesFor is stubbed
+ * ON PURPOSE — the claim is about this function's own composition, not about grouping.
+ * --------------------------------------------------------------------------- */
+suite('387. The Invoice List counts only people who have RSVP\'d or paid this season');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const gateSrc = extractFn(admin, 'invoiceCountsThisSeason');
+  check('S387', 'the rule is findable', !!gateSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandbox = (houses, invoices) =>
+    'let quotesCache = [];' +
+    'const billedHousesFor = function(){ return ' + JSON.stringify(houses || []) + '; };' +
+    'const invoiceById = new Map(' + JSON.stringify(Object.keys(invoices || {}).map(k => [k, {data: invoices[k]}])) + ');' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') + custInvoiceKeySrc +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + extractFn(admin, 'toJsDate') +
+    extractFn(admin, 'paymentSeasonYear') + extractFn(admin, 'housePaidThisSeason') + (gateSrc || '');
+  assertSandbox('S387', 'the invoice-gate sandbox', sandbox([], {}), admin,
+    ['quotesCache', 'billedHousesFor', 'invoiceById', 'custInvoiceKey']);
+  const counts = (houses, invoices) => new Function(sandbox(houses, invoices) + ';return invoiceCountsThisSeason;')()({id: '8015550100', data: {}});
+  const h = (d) => ({id: 'h1', data: Object.assign({phone: '8015550100'}, d)});
+
+  check('S387', 'a bill whose customer RSVP\'d yes counts', counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]) === true);
+  check('S387', 'a bill whose customer has not answered does NOT',
+    counts([h({})]) === false && counts([h({rsvpStatus: 'unanswered'})]) === false,
+    'that is the whole book on 1 October — "how much we get if everyone RSVP"');
+  check('S387', 'a bare yes with no reply behind it does not', counts([h({rsvpStatus: 'yes'})]) === false);
+  check('S387', 'a no does not, nor Back Next Year, nor the office\'s badge',
+    counts([h({rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'backnextyear', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]) === false);
+  check('S387', 'a new member (the $30 box) counts without a reply', counts([h({chargeNewMemberFee: true})]) === true,
+    'effectiveRsvpStatus reads a first-year customer as yes — same rule as every other screen');
+  const paidThisYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr)}};
+  const paidLastYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr - 1)}};
+  check('S387', 'money paid THIS season counts whatever they answered', counts([h({})], paidThisYear) === true,
+    'SCH-82: paid for this year confirms them, and the Paid in Full card must not lose them');
+  check('S387', 'money paid LAST season does not', counts([h({})], paidLastYear) === false);
+  check('S387', 'any house on the bill saying yes is enough — a parent paying for a child',
+    counts([h({}), {id: 'h2', data: {phone: '8015550100', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}}]) === true);
+  check('S387', 'a bill with nobody on it does not count', counts([]) === false,
+    'an archived bill is the Show archived box\'s business');
+  check('S387', 'the rule reads the shared status rule, not rsvpStatus for itself',
+    /effectiveRsvpStatus\(/.test(gateSrc || '') && !/rsvpStatus/.test(stripComments(gateSrc || '').replace(/effectiveRsvpStatus/g, '')));
+  check('S387', 'and asks every house on the bill through billedHousesFor', /billedHousesFor\(/.test(gateSrc || '') && /\.some\(/.test(gateSrc || ''));
+
+  /* Wiring — the cards, the list, the box. */
+  const strip = stripComments(extractFn(admin, 'renderInvStatusStrip') || '');
+  check('S387', 'the status cards skip a bill that does not count, unless Everyone is ticked',
+    /const everyone = invShowingEveryone\(\);/.test(strip) && /if\(!everyone && !invoiceCountsThisSeason\(item\)\) return;/.test(strip));
+  check('S387', 'and that skip sits before the tally, not after it',
+    strip.indexOf('invoiceCountsThisSeason(item)') < strip.indexOf("tally['Not sent'].n++"));
+  const list = stripComments(sectionFrom(admin, admin.indexOf('function renderInvoicesList()')));
+  check('S387', 'the list hides the same bills, unless Everyone is ticked or a name is searched',
+    /if\(!invShowingEveryone\(\) && !invoiceSearchTerm\)\{\s*filtered = filtered\.filter\(function\(item\)\{ return \(item\.data \|\| \{\}\)\.archived \|\| invoiceCountsThisSeason\(item\); \}\);/.test(list));
+  check('S387', 'and the list gate runs after the archived filter and before the status filters',
+    list.indexOf('invoiceCountsThisSeason(item)') > list.indexOf('invShowArchived') &&
+    list.indexOf('invoiceCountsThisSeason(item)') < list.indexOf('activeInvFilters.paid'));
+  check('S387', 'the Everyone box exists once', admin.split('id="invShowEveryone"').length === 2);
+  check('S387', 'and redraws the list when toggled',
+    /getElementById\('invShowEveryone'\);\s*if\(se\) se\.addEventListener\('change', function\(\)\{ try\{ renderInvoicesList\(\);/.test(admin));
+  const showSrc = extractFn(admin, 'invShowingEveryone') || '';
+  check('S387', 'the box reads as unticked when the markup is missing', /!!\(box && box\.checked\)/.test(showSrc),
+    'the safe direction: a missing box must narrow, never widen');
+  check('S387', 'the note under the cards says who is counted', /Only people who have RSVP'd yes for this season, or paid this season, are counted and listed/.test(admin));
+  check('S387', 'nothing in the gate writes', !/updateDoc|setDoc|deleteDoc|addDoc/.test(stripComments(gateSrc || '') + showSrc));
 }
