@@ -3166,6 +3166,35 @@
             <div class="dash-stat-value" id="fovBills">$0</div>
           </div>
         </div>
+        <!-- ⭐ WHAT THIS SEASON IS SHAPING UP TO BRING IN ([[MON-84]], 2026-10-20). Filled by
+             fovRenderProjection from fovSeasonProjection; see the note on that function. -->
+        <div class="card" style="margin-bottom:16px;" id="fovProjectionCard">
+          <h3 style="font-size:14.5px;">This Season, As It Stands</h3>
+          <p style="font-size:12.5px; color:var(--slate); margin-top:-6px;">Roughly what this year will bring in: everybody who has RSVP'd yes, plus every new quote converted to a customer this year, at the house price on their record. Nobody who said no or Back Next Year, and nobody who has not answered yet. It moves as answers come in.</p>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(150px,100%),1fr)); gap:12px;">
+            <div class="card dash-stat" style="text-align:center; padding:16px; background:#FFF8E9; border-color:var(--gold-dim);">
+              <div class="dash-stat-label" style="color:var(--gold-dim);">Expected this season</div>
+              <div class="dash-stat-value" id="fovProjTotal">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjTotalSub">0 houses</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">RSVP'd yes</div>
+              <div class="dash-stat-value" id="fovProjRsvp">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjRsvpSub">0 returning customers</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">New this year</div>
+              <div class="dash-stat-value" id="fovProjNew">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjNewSub">0 new customers</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">Set-up fees</div>
+              <div class="dash-stat-value" id="fovProjFees">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjFeesSub">0 new members charged</div>
+            </div>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin:10px 0 0;" id="fovProjNote"></p>
+        </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(320px,100%),1fr)); gap:16px; margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:14.5px;">Income Trend</h3>
@@ -3586,7 +3615,7 @@
           <!-- Status summary. Counts and money come from the same computeInvoiceStatus()
                the rows below use, so the strip can never disagree with the list. -->
           <div id="invStatusStrip" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(150px,100%),1fr)); gap:10px; margin-bottom:8px;"></div>
-          <p class="form-note" style="margin:0 0 14px;">Counts are of invoices, not houses &mdash; one payer covering several houses counts once. Tap a card to filter the list; tap it again to clear.</p>
+          <p class="form-note" style="margin:0 0 14px;">Counts are of invoices, not houses &mdash; one payer covering several houses counts once. Only people who have RSVP'd yes for this season, or paid this season, are counted and listed &mdash; tick <strong>Everyone</strong> below to see the whole book. Tap a card to filter the list; tap it again to clear.</p>
           <div class="form-row"><input type="text" id="invoiceSearchInput" placeholder="Search by customer name..." style="padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:14.5px;"></div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; position:relative;">
             <button type="button" class="btn btn-outline btn-sm" id="openInvFilterBtn">Filter &#9662;</button>
@@ -3606,6 +3635,10 @@
                  ever deleted, because that would destroy a payment record - they are
                  just out of the way. Every figure on them still counts everywhere else. -->
             <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowArchived"> Show archived (no customer)</label>
+            <!-- ⭐ RSVP'D ONLY, BY DEFAULT ([[MON-85]], 2026-10-20). Addie: "I only want to see for
+                 people who did RSVP." The cards above and the list below count only invoices with
+                 somebody on them who has RSVP'd yes or paid this season; this box widens both. -->
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--slate);"><input type="checkbox" id="invShowEveryone"> Everyone (RSVP'd or not)</label>
           </div>
           <div class="row-list" id="invoicesList"><div class="empty-note">Loading…</div></div>
         </div>
@@ -16332,6 +16365,9 @@ function loadQuotes(){
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
+    /* MON-84: who is "new this year" is read off the quotes, so a quote closing moves
+       the Financial Overview's season figure. */
+    safeRender('fovProjection', typeof fovRenderProjection === 'function' ? fovRenderProjection : null);
     // Nudges the Schedule tab's New Members panel to redraw when a quote closes
     // (or reopens) live - see scheduleOnCustomersUpdated in the Schedule module.
     if(typeof scheduleOnCustomersUpdated === 'function') scheduleOnCustomersUpdated();
@@ -30199,12 +30235,53 @@ async function resendMissingReceipts(){
       + (problems.length > 12 ? '\n\n…and ' + (problems.length - 12) + ' more.' : ''));
   }
 }
+/* ⭐ THE INVOICE LIST COUNTS ONLY PEOPLE WHO HAVE RSVP'D ([[MON-85]], 2026-10-20). Addie:
+   "look at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only
+   want to see for people who did RSVP."
+
+   ⚠ SHE WAS RIGHT, AND IT IS BY CONSTRUCTION. An invoice document outlives the season —
+   Start New Season zeroes what was paid and keeps the bill — so on 1 October every one of
+   ~960 customers has an Unpaid invoice carrying their house price, and the Not Paid card
+   summed the lot: "how much we get if everyone RSVP", to the dollar. The nightly run is
+   untouched by this (it bills on `completed`); this is what the OFFICE is shown.
+
+   ⭐ AN INVOICE COUNTS WHEN SOMEBODY ON IT HAS SAID YES THIS SEASON, OR PAID THIS SEASON.
+   "Said yes" is `effectiveRsvpStatus`, the same rule as the Dashboard's RSVP cards and the
+   Financial Overview's season figure (MON-84): a bare yes with no reply behind it counts
+   for nothing, a no / Back Next Year / the office's badge always wins, a first-year
+   customer reads as yes. "Paid" is `housePaidThisSeason` (SCH-82): this year's money on the
+   bill, which confirms them whatever they have answered — and which must never vanish off
+   the Paid in Full card because the payer has not clicked an email.
+
+   ⚠ EVERY HOUSE ON THE BILL IS ASKED, through `billedHousesFor` — a parent paying for a
+   child's house has RSVP'd for the child, not necessarily for themselves.
+
+   ⚠ A BILL WITH NOBODY ON IT (archived — the customer is gone) is left to the Show archived
+   box, which is the control that already governs it. And a typed search bypasses the gate:
+   somebody looking a name up wants that person's bill, whatever they have answered.
+
+   ⚠ A VIEW RULE AND NOTHING MORE. No invoice is written, archived or deleted by it; the
+   Everyone box puts the whole book back. */
+function invoiceCountsThisSeason(item){
+  const houses = billedHousesFor(item && item.id);
+  return houses.some(function(h){
+    const d = (h && h.data) || {};
+    return effectiveRsvpStatus(d) === 'yes' || housePaidThisSeason(d);
+  });
+}
+function invShowingEveryone(){
+  const box = document.getElementById('invShowEveryone');
+  return !!(box && box.checked);
+}
 function renderInvStatusStrip(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
   const tally = { 'Paid in Full':{n:0,money:0}, 'Partial Payment':{n:0,money:0}, 'Unpaid':{n:0,money:0}, 'Not sent':{n:0,money:0} };
+  const everyone = invShowingEveryone();
   allInvoicesCache.forEach(function(item){
     const d = item.data;
+    /* MON-85: the cards say what this season's people owe, not the whole book. */
+    if(!everyone && !invoiceCountsThisSeason(item)) return;
     if(invoiceNotSentReason(item)){
       tally['Not sent'].n++;
       tally['Not sent'].money += Math.max(0, (Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0) - (Number(d.credits)||0) - (Number(d.deposit)||0));
@@ -30379,6 +30456,11 @@ function renderInvoicesList(){
   let filtered = (showArch && showArch.checked)
     ? allInvoicesCache
     : allInvoicesCache.filter(function(item){ return !(item.data || {}).archived; });
+  /* MON-85: only this season's people, unless Everyone is ticked or a name is being
+     searched for. An archived bill stays with the Show archived box above. */
+  if(!invShowingEveryone() && !invoiceSearchTerm){
+    filtered = filtered.filter(function(item){ return (item.data || {}).archived || invoiceCountsThisSeason(item); });
+  }
   if(invoiceSearchTerm){
     const t = invoiceSearchTerm.toLowerCase();
     /* Search what is on the screen. Typing "heather" has to find Heather's bill even
@@ -40691,8 +40773,87 @@ function fovLastNMonths(n){
   }
   return out;
 }
+/* ⭐ WHAT THIS SEASON IS SHAPING UP TO BRING IN (added 2026-10-20, [[MON-84]]). Addie: "on
+   finance dashboard can we make it show how much we are approximating this year based on
+   whos RSVP'd and who is a new quote that is converted to costumer."
+
+   ⚠ IT RE-DECIDES NOTHING. Who counts is the two rules the rest of the page already lives
+   by: `effectiveRsvpStatus` says who has actually said yes (a bare yes with no reply on
+   record is nothing, a no or Back Next Year always wins, the office's badge wins, and a
+   first-year customer reads as yes), and `audienceNeverAsked` says who is new this year —
+   the $30 box, or a quote that CREATED them this year. A second opinion here is how this
+   card starts disagreeing with the RSVP cards on the Dashboard tab beside it.
+
+   ⚠ THE PRICE IS `housePrice`, THE NUMBER ON THEIR RECORD — never the invoice. The invoice
+   is what has been BILLED, and before the 7 PM run has reached somebody it is empty or last
+   season's; the point of this card is to count people the run has not reached yet. A house
+   with no price on file counts as $0 and is NAMED in the note under the tiles rather than
+   silently rounding the season down.
+
+   ⚠ THE SET-UP FEE IS ITS OWN TILE, counted only for a new member whose box is ticked —
+   that box is what the nightly run bills the $30 off, so counting it for every new customer
+   would promise money a waived fee never collects. Same constant the run uses.
+
+   ⚠ A TEST RECORD IS LEFT OUT. The Build Test Customer rows carry a real price and are
+   deleted a minute later; counting them moves the season by $250 every time one exists.
+
+   ⚠ PURE, ON PURPOSE: it takes the book and returns numbers, so Suite 386 can RUN it. */
+function fovSeasonProjection(custs){
+  const out = {
+    rsvp: {count: 0, total: 0},
+    fresh: {count: 0, total: 0, fees: 0, feeCount: 0},
+    noPrice: [],
+    total: 0
+  };
+  (custs || []).forEach(function(item){
+    const d = item && item.data;
+    if(!d || d.isTestRecord === true) return;
+    if(effectiveRsvpStatus(d) !== 'yes') return;
+    const isNew = audienceNeverAsked(d);
+    const price = Number(d.housePrice) || 0;
+    const group = isNew ? out.fresh : out.rsvp;
+    group.count++;
+    group.total += price;
+    if(!(price > 0)) out.noPrice.push(String(d.name || item.id || ''));
+    if(isNew && d.chargeNewMemberFee === true){
+      out.fresh.feeCount++;
+      out.fresh.fees += NEW_MEMBER_FEE;
+    }
+  });
+  out.total = out.rsvp.total + out.fresh.total + out.fresh.fees;
+  return out;
+}
+/* Draws the card. Called from fovRenderAll (the invoices and expenses listeners), and
+   through safeRender from the customer and quote listeners — an RSVP answer or a quote
+   closing changes this figure and neither of those touches an invoice, so without those
+   two doors the card would show the numbers from whenever a payment last landed. */
+function fovRenderProjection(){
+  const totalEl = document.getElementById('fovProjTotal');
+  if(!totalEl) return;
+  const p = fovSeasonProjection(jobAddresses);
+  const houses = p.rsvp.count + p.fresh.count;
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  totalEl.textContent = fmtMoney(p.total);
+  document.getElementById('fovProjTotalSub').textContent = plural(houses, 'house', 'houses');
+  document.getElementById('fovProjRsvp').textContent = fmtMoney(p.rsvp.total);
+  document.getElementById('fovProjRsvpSub').textContent = plural(p.rsvp.count, 'returning customer', 'returning customers');
+  document.getElementById('fovProjNew').textContent = fmtMoney(p.fresh.total);
+  document.getElementById('fovProjNewSub').textContent = plural(p.fresh.count, 'new customer', 'new customers');
+  document.getElementById('fovProjFees').textContent = fmtMoney(p.fresh.fees);
+  document.getElementById('fovProjFeesSub').textContent = plural(p.fresh.feeCount, 'new member charged', 'new members charged');
+  const note = document.getElementById('fovProjNote');
+  if(!houses){
+    note.textContent = 'Nobody has RSVP\'d yes yet and no quote has been converted this year, so there is nothing to add up.';
+  } else if(p.noPrice.length){
+    const shown = p.noPrice.slice(0, 6).join(', ') + (p.noPrice.length > 6 ? ' and ' + (p.noPrice.length - 6) + ' more' : '');
+    note.textContent = plural(p.noPrice.length, 'house counts', 'houses count') + ' as $0 because there is no House Price on the record — ' + shown + '. Put a price on them for a truer number.';
+  } else {
+    note.textContent = 'Every house counted has a price on its record.';
+  }
+}
 function fovRenderAll(){
   if(!document.getElementById('fovNetWorth')) return;
+  fovRenderProjection();
   /* ⚠ TIPS ARE REVENUE. tipTotal is real money charged to a real card — the
      PayPal capture increments it alongside deposit — and until now it appeared
      exactly once in this whole file, as a line of text on an invoice card. No
@@ -52477,6 +52638,7 @@ const RENDER_PANEL = {
   whCustomerList: 'warehouse',
   customerNumbers: 'customer-numbers',
   dashRsvp: 'dashboard',
+  fovProjection: 'dashboard',
   rsvpCheckList: 'automation',
   rsvpDrip: 'automation',
   etMemberSelect: 'automation',
@@ -52631,6 +52793,8 @@ function retryFailedRenders(){
    write always draws — nothing is skipped, just not repeated. */
 function renderJobAddressPanels(){
     safeRender('cityDropdowns', populateCityDropdowns);
+    /* MON-84: an RSVP answer moves the season figure and touches no invoice. */
+    safeRender('fovProjection', typeof fovRenderProjection === 'function' ? fovRenderProjection : null);
     safeRender('routeAddressList', renderRouteAddressList);
     safeRender('takedowns', renderTakedownsList);
     safeRender('overviewMap', renderOverviewMap);
@@ -73827,6 +73991,9 @@ function startHealthCheckAuto(){
   /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
   const sa = document.getElementById('invShowArchived');
   if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN — no invoice is touched. Toggling back and forth redraws it. */ } });
+  /* MON-85: the Everyone box is the same kind of toggle — it widens what is drawn and counted. */
+  const se = document.getElementById('invShowEveryone');
+  if(se) se.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN — no invoice is touched. Toggling back and forth redraws it. */ } });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:

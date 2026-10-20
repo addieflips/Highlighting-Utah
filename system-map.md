@@ -2913,6 +2913,34 @@ the bill line still shows, because *what do they owe* is asked of them just as o
 
 ---
 
+### What this season is shaping up to bring in (Financial Overview, added 2026-10-20, [[MON-84]])
+
+Dashboard › Financial Overview carries a **This Season, As It Stands** card under the five money tiles. It is a rough figure for the year, and it says so: everybody who has RSVP'd yes, plus every new quote converted to a customer this year, at the **House Price on their record**. Four tiles — **Expected this season** (the total), **RSVP'd yes** (returning customers), **New this year**, and **Set-up fees** — each with a count underneath.
+
+- **Who counts is decided by the rules the rest of the page already uses**, never a copy. `effectiveRsvpStatus` says who has actually said yes: a bare yes with no reply on record is nothing (that is what an imported record looks like), a no or Back Next Year always wins, the office's Maybe Next Year badge wins, and a first-year customer reads as yes. `audienceNeverAsked` says who is new this year — the $30 set-up box, or a quote that CREATED them this year (a last year's quote makes them a returning customer, MON-07). So this card can never disagree with the RSVP cards on the Dashboard tab beside it.
+- **The set-up fee is counted only where the box is ticked.** That box is what the nightly run bills the $30 off; counting it for every new customer would promise money a waived fee never collects. It is the same `NEW_MEMBER_FEE` constant the run uses.
+- **The price is the record's, never the invoice's.** The invoice is what has been billed, and before the 7 PM run has reached somebody it is empty or last season's. The whole point of this card is to count the people the run has not reached yet.
+- **A house with no price counts as $0 and is named under the tiles** ("3 houses count as $0 because there is no House Price on the record — Ann, Bea, Cal. Put a price on them for a truer number."). Dropping them would round the season down silently.
+- **Test records are left out.** A Build Test Customer row carries a real price and is deleted a minute later.
+- **It moves as answers come in.** It redraws when a payment lands (with the rest of the Financial Overview), and also when a customer record changes or a quote closes — an RSVP answer touches no invoice, so without those two doors the card would show the numbers from whenever a payment last landed.
+
+**If the figure looks wrong, check:** whether the customer's reply is actually on the record (a yes typed into the dropdown with no reply date counts for nothing — the Dashboard tab's RSVP cards will show them as Pending too); whether the House Price box on their record is filled in (the note under the tiles names anybody it is not); and, for a new customer, whether the quote that created them is dated this year.
+
+`fovSeasonProjection` / `fovRenderProjection` in admin.html; run-all.js Suite 386 runs the rule and the renderer.
+
+### The Invoice List counts only people who have RSVP'd (added 2026-10-20, [[MON-85]])
+
+Addie: *"look at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only want to see for people who did RSVP."* She was right. An invoice outlives the season — Start New Season zeroes what was paid and keeps the bill — so on 1 October every one of ~960 customers has an Unpaid invoice carrying their house price, and the **Not Paid** card on Dashboard › Invoices › Invoice List summed the whole book.
+
+- **The three status cards and the list now count only bills with somebody on them who has RSVP'd yes for this season, or paid this season.** "RSVP'd yes" is the same `effectiveRsvpStatus` rule as everywhere else (a bare yes with no reply behind it is nothing; a no, Back Next Year or the office's Maybe Next Year badge wins; a first-year customer reads as yes). "Paid this season" is `housePaidThisSeason` — this year's money confirms them whatever they answered, so a prepayment never disappears off the Paid in Full card. Every house on the bill is asked, because a parent paying for a child's house has RSVP'd for the child.
+- **Everyone (RSVP'd or not)** — a box beside Show archived — puts the whole book back on the cards and in the list. **Typing a name in the search box also finds anybody**, whatever they answered.
+- **Archived bills** (the customer is gone) are still governed by the Show archived box alone.
+- **Nothing is written.** This decides what is drawn and counted, nothing more; the 7 PM run bills on `completed` exactly as before.
+
+**If somebody is missing from the Invoice List:** they have not RSVP'd yes and have not paid this season. Search their name, or tick Everyone.
+
+`invoiceCountsThisSeason` / `invShowingEveryone` in admin.html; run-all.js Suite 387.
+
 ## 4. Every Firestore collection, one line each
 
 **Read/written directly by the browser** (staff-authenticated, `request.auth != null`):

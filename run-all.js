@@ -32647,14 +32647,17 @@ pendingAsync.push((async () => {
     const blk = at < 0 ? "" : render.slice(at, render.indexOf("if(invoiceSearchTerm)", at));
     check('S79', 'the archived filter block was found to run', !!blk);
     if (blk) {
-      const run = new Function("allInvoicesCache", "document", blk + "return filtered;");
+      /* MON-85 put the this-season gate inside this slice. It is STUBBED OPEN here on purpose:
+         this block's claim is the archived toggle alone, and Suite 387 runs the real gate. */
+      const run = new Function("allInvoicesCache", "document", "invoiceSearchTerm", "invShowingEveryone", "invoiceCountsThisSeason",
+        blk + "return filtered;");
       const book = [{id: "a", data: {}}, {id: "b", data: {archived: true}}];
       const docStub = (checked) => ({ getElementById: () => ({ checked: checked }) });
       check('S79', 'an archived invoice is off the working list by default',
-        run(book, docStub(false)).map(x => x.id).join() === "a",
+        run(book, docStub(false), "", () => false, () => true).map(x => x.id).join() === "a",
         'archiving that leaves them on screen has achieved nothing at all');
       check('S79', 'and ticking the box brings them back',
-        run(book, docStub(true)).map(x => x.id).join() === "a,b",
+        run(book, docStub(true), "", () => false, () => true).map(x => x.id).join() === "a,b",
         'the money is still theirs to look up; it is only out of the way');
     }
   }
@@ -67139,4 +67142,205 @@ suite('385. Add a fix from All Customers');
   check('S385', 'the button opens the shared fix popup', /\[data-addfix\][^]*?showAddFixPopup\(btn\.dataset\.addfix/.test(render));
   check('S385', 'the empty-state row still spans the same eight columns', /colspan="8"/.test(render));
   check('S385', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')));
+}
+
+/* ---------------------------------------------------------------------------
+ * 386. WHAT THIS SEASON IS SHAPING UP TO BRING IN ([[MON-84]]). Addie, 2026-10-20: "on finance
+ * dashboard can we make it show how much we are approximating this year based on whos RSVP'd and
+ * who is a new quote that is converted to costumer." fovSeasonProjection is RUN against a book,
+ * with the REAL effectiveRsvpStatus and audienceNeverAsked lifted in — a stub of either would let
+ * this card disagree with the RSVP cards beside it with every check green. The renderer is run
+ * too, against a fake document, because a rule that is right and a tile that never reads it is
+ * the shape this repo has shipped before.
+ * --------------------------------------------------------------------------- */
+suite('386. The Financial Overview says what this season is shaping up to bring in');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const projSrc = extractFn(admin, 'fovSeasonProjection');
+  check('S386', 'the rule is findable', !!projSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandboxSrc = (quotes) =>
+    'let quotesCache = ' + JSON.stringify(quotes || []) + '; const NEW_MEMBER_FEE = 30;' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + (projSrc || '');
+  assertSandbox('S386', 'the projection sandbox supplies everything it calls', sandboxSrc([]), admin, ['quotesCache', 'NEW_MEMBER_FEE']);
+  const run = (book, quotes) => new Function(sandboxSrc(quotes) + ';return fovSeasonProjection;')()(book);
+  const c = (id, d) => ({id, data: d});
+  const q = (over) => ({id: 'q1', data: Object.assign({
+    status: 'closed', convertedToCustomerAt: ts(yr), phone: '8015550001', address: '1 Elm St'}, over || {})});
+
+  /* Who counts. */
+  let p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a returning customer who RSVP\'d yes counts, at the price on their record',
+    p.rsvp.count === 1 && p.rsvp.total === 400 && p.fresh.count === 0 && p.total === 400);
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes'})]);
+  check('S386', 'a bare yes with no reply behind it counts for nothing',
+    p.rsvp.count === 0 && p.total === 0,
+    'that is what an imported record looks like — effectiveRsvpStatus\'s own first rule');
+  ['no', 'backnextyear', 'unanswered', ''].forEach(function(said){
+    p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: said, rsvpRespondedAt: ts(yr)})]);
+    check('S386', 'an answer of "' + (said || 'nothing') + '" is not money this season', p.total === 0 && p.rsvp.count === 0);
+  });
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]);
+  check('S386', 'the office\'s Maybe Next Year badge wins over a yes', p.total === 0,
+    'the badge is the office recording what they were told');
+
+  /* New this year — both doors, and the fee only where the box is ticked. */
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true})]);
+  check('S386', 'the $30 box alone makes somebody new this year, counted with their set-up fee',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.feeCount === 1 && p.fresh.fees === 30 &&
+    p.rsvp.count === 0 && p.total === 380);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', chargeNewMemberFee: false})], [q()]);
+  check('S386', 'a quote converted this year makes them new, with NO fee when the box is unticked',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.fees === 0 && p.fresh.feeCount === 0 && p.total === 350,
+    'a waived fee is money the nightly run never collects');
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})],
+    [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'a quote from LAST year does not make them new — they are a returning yes',
+    p.fresh.count === 0 && p.rsvp.count === 1 && p.rsvp.total === 350, 'MON-07: a ' + (yr - 1) + ' quote is not new in ' + yr);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St'})], [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'and with no reply of their own they count for nothing', p.total === 0);
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a new member who then said no is out', p.total === 0 && p.fresh.count === 0);
+
+  /* The things that would quietly move the number. */
+  p = run([c('a', {name: 'Cal', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}), c('b', {name: 'Dee', housePrice: 500, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a house with no price still counts as a house, at $0, and is NAMED',
+    p.rsvp.count === 2 && p.rsvp.total === 500 && p.noPrice.length === 1 && p.noPrice[0] === 'Cal',
+    'silently rounding the season down is the one thing this card must not do');
+  p = run([c('t', {name: 'Test', housePrice: 250, chargeNewMemberFee: true, isTestRecord: true})]);
+  check('S386', 'a test record is left out', p.total === 0 && p.fresh.count === 0);
+  p = run([
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: '350', chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', housePrice: 'n/a', chargeNewMemberFee: true}),
+    c('d', {name: 'Dee', housePrice: 200, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'the total is the two groups plus the fees, and a price typed as text still adds',
+    p.rsvp.total === 400 && p.fresh.total === 350 && p.fresh.fees === 60 && p.total === 810 && p.noPrice.join() === 'Cal');
+  check('S386', 'the fee is the shared constant, never a typed 30',
+    /NEW_MEMBER_FEE/.test(projSrc || '') && !/\b30\b/.test(stripComments(projSrc || '')));
+  check('S386', 'the rule reads the record\'s price, never an invoice',
+    /housePrice/.test(projSrc || '') && !/allInvoicesCache|invoiceById|\.install\b/.test(stripComments(projSrc || '')),
+    'the invoice is what has been billed; this counts people the run has not reached yet');
+
+  /* The renderer, run against a fake document. */
+  const rendSrc = extractFn(admin, 'fovRenderProjection');
+  check('S386', 'the renderer is findable', !!rendSrc);
+  const nodes = {};
+  const doc = {getElementById: (id) => (nodes[id] = nodes[id] || {textContent: ''})};
+  const book = [
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', chargeNewMemberFee: true})];
+  const fmt = n => '$' + Number(n).toFixed(2);
+  let threw = null;
+  try{
+    new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, book, fmt);
+  }catch(e){ threw = e; }
+  check('S386', 'the renderer runs', !threw, threw && threw.message);
+  check('S386', 'the tiles carry the rule\'s numbers',
+    nodes.fovProjTotal && nodes.fovProjTotal.textContent === '$810.00' &&
+    nodes.fovProjRsvp && nodes.fovProjRsvp.textContent === '$400.00' &&
+    nodes.fovProjNew && nodes.fovProjNew.textContent === '$350.00' &&
+    nodes.fovProjFees && nodes.fovProjFees.textContent === '$60.00',
+    JSON.stringify(nodes));
+  check('S386', 'and the counts under them',
+    /^3 houses$/.test(nodes.fovProjTotalSub.textContent) && /^1 returning customer$/.test(nodes.fovProjRsvpSub.textContent) &&
+    /^2 new customers$/.test(nodes.fovProjNewSub.textContent) && /^2 new members charged$/.test(nodes.fovProjFeesSub.textContent));
+  check('S386', 'the note names the house with no price', /Cal/.test(nodes.fovProjNote.textContent) && /\$0/.test(nodes.fovProjNote.textContent));
+  nodes.fovProjNote.textContent = '';
+  new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, [], fmt);
+  check('S386', 'an empty season says so rather than showing a row of noughts', /nothing to add up/.test(nodes.fovProjNote.textContent) && nodes.fovProjTotal.textContent === '$0.00');
+
+  /* Wiring — the renderer has to be reached from every door that moves the figure. */
+  ['fovProjTotal', 'fovProjTotalSub', 'fovProjRsvp', 'fovProjRsvpSub', 'fovProjNew', 'fovProjNewSub', 'fovProjFees', 'fovProjFeesSub', 'fovProjNote'].forEach(function(id){
+    check('S386', 'the markup carries #' + id, admin.indexOf('id="' + id + '"') !== -1 && admin.split('id="' + id + '"').length === 2);
+  });
+  const fovAll = stripComments(extractFn(admin, 'fovRenderAll') || '');
+  check('S386', 'fovRenderAll draws the card', /fovRenderProjection\(\);/.test(fovAll),
+    'the invoices listener is the first thing to draw the dashboard after login');
+  const rjap = stripComments(extractFn(admin, 'renderJobAddressPanels') || '');
+  check('S386', 'a customer change redraws it (an RSVP answer touches no invoice)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(rjap));
+  const qListener = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('badgeQuotes').textContent = newCount;")));
+  check('S386', 'a quote change redraws it (new-this-year is read off the quotes)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(qListener.slice(0, 600)));
+  check('S386', 'the render is deferred to the Dashboard like the rest of that panel',
+    /fovProjection: 'dashboard'/.test((admin.match(/const RENDER_PANEL = \{[\s\S]*?\n\};/) || [''])[0]));
+}
+
+/* ---------------------------------------------------------------------------
+ * 387. THE INVOICE LIST COUNTS ONLY PEOPLE WHO HAVE RSVP'D ([[MON-85]]). Addie, 2026-10-20: "look
+ * at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only want to see
+ * for people who did RSVP." An invoice outlives the season, so every customer carries an Unpaid
+ * bill from 1 October and the Not Paid card summed the whole book. invoiceCountsThisSeason is RUN
+ * with the real effectiveRsvpStatus and housePaidThisSeason lifted in; billedHousesFor is stubbed
+ * ON PURPOSE — the claim is about this function's own composition, not about grouping.
+ * --------------------------------------------------------------------------- */
+suite('387. The Invoice List counts only people who have RSVP\'d or paid this season');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const gateSrc = extractFn(admin, 'invoiceCountsThisSeason');
+  check('S387', 'the rule is findable', !!gateSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandbox = (houses, invoices) =>
+    'let quotesCache = [];' +
+    'const billedHousesFor = function(){ return ' + JSON.stringify(houses || []) + '; };' +
+    'const invoiceById = new Map(' + JSON.stringify(Object.keys(invoices || {}).map(k => [k, {data: invoices[k]}])) + ');' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') + custInvoiceKeySrc +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + extractFn(admin, 'toJsDate') +
+    extractFn(admin, 'paymentSeasonYear') + extractFn(admin, 'housePaidThisSeason') + (gateSrc || '');
+  assertSandbox('S387', 'the invoice-gate sandbox', sandbox([], {}), admin,
+    ['quotesCache', 'billedHousesFor', 'invoiceById', 'custInvoiceKey']);
+  const counts = (houses, invoices) => new Function(sandbox(houses, invoices) + ';return invoiceCountsThisSeason;')()({id: '8015550100', data: {}});
+  const h = (d) => ({id: 'h1', data: Object.assign({phone: '8015550100'}, d)});
+
+  check('S387', 'a bill whose customer RSVP\'d yes counts', counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]) === true);
+  check('S387', 'a bill whose customer has not answered does NOT',
+    counts([h({})]) === false && counts([h({rsvpStatus: 'unanswered'})]) === false,
+    'that is the whole book on 1 October — "how much we get if everyone RSVP"');
+  check('S387', 'a bare yes with no reply behind it does not', counts([h({rsvpStatus: 'yes'})]) === false);
+  check('S387', 'a no does not, nor Back Next Year, nor the office\'s badge',
+    counts([h({rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'backnextyear', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]) === false);
+  check('S387', 'a new member (the $30 box) counts without a reply', counts([h({chargeNewMemberFee: true})]) === true,
+    'effectiveRsvpStatus reads a first-year customer as yes — same rule as every other screen');
+  const paidThisYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr)}};
+  const paidLastYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr - 1)}};
+  check('S387', 'money paid THIS season counts whatever they answered', counts([h({})], paidThisYear) === true,
+    'SCH-82: paid for this year confirms them, and the Paid in Full card must not lose them');
+  check('S387', 'money paid LAST season does not', counts([h({})], paidLastYear) === false);
+  check('S387', 'any house on the bill saying yes is enough — a parent paying for a child',
+    counts([h({}), {id: 'h2', data: {phone: '8015550100', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}}]) === true);
+  check('S387', 'a bill with nobody on it does not count', counts([]) === false,
+    'an archived bill is the Show archived box\'s business');
+  check('S387', 'the rule reads the shared status rule, not rsvpStatus for itself',
+    /effectiveRsvpStatus\(/.test(gateSrc || '') && !/rsvpStatus/.test(stripComments(gateSrc || '').replace(/effectiveRsvpStatus/g, '')));
+  check('S387', 'and asks every house on the bill through billedHousesFor', /billedHousesFor\(/.test(gateSrc || '') && /\.some\(/.test(gateSrc || ''));
+
+  /* Wiring — the cards, the list, the box. */
+  const strip = stripComments(extractFn(admin, 'renderInvStatusStrip') || '');
+  check('S387', 'the status cards skip a bill that does not count, unless Everyone is ticked',
+    /const everyone = invShowingEveryone\(\);/.test(strip) && /if\(!everyone && !invoiceCountsThisSeason\(item\)\) return;/.test(strip));
+  check('S387', 'and that skip sits before the tally, not after it',
+    strip.indexOf('invoiceCountsThisSeason(item)') < strip.indexOf("tally['Not sent'].n++"));
+  const list = stripComments(sectionFrom(admin, admin.indexOf('function renderInvoicesList()')));
+  check('S387', 'the list hides the same bills, unless Everyone is ticked or a name is searched',
+    /if\(!invShowingEveryone\(\) && !invoiceSearchTerm\)\{\s*filtered = filtered\.filter\(function\(item\)\{ return \(item\.data \|\| \{\}\)\.archived \|\| invoiceCountsThisSeason\(item\); \}\);/.test(list));
+  check('S387', 'and the list gate runs after the archived filter and before the status filters',
+    list.indexOf('invoiceCountsThisSeason(item)') > list.indexOf('invShowArchived') &&
+    list.indexOf('invoiceCountsThisSeason(item)') < list.indexOf('activeInvFilters.paid'));
+  check('S387', 'the Everyone box exists once', admin.split('id="invShowEveryone"').length === 2);
+  check('S387', 'and redraws the list when toggled',
+    /getElementById\('invShowEveryone'\);\s*if\(se\) se\.addEventListener\('change', function\(\)\{ try\{ renderInvoicesList\(\);/.test(admin));
+  const showSrc = extractFn(admin, 'invShowingEveryone') || '';
+  check('S387', 'the box reads as unticked when the markup is missing', /!!\(box && box\.checked\)/.test(showSrc),
+    'the safe direction: a missing box must narrow, never widen');
+  check('S387', 'the note under the cards says who is counted', /Only people who have RSVP'd yes for this season, or paid this season, are counted and listed/.test(admin));
+  check('S387', 'nothing in the gate writes', !/updateDoc|setDoc|deleteDoc|addDoc/.test(stripComments(gateSrc || '') + showSrc));
 }
