@@ -67140,3 +67140,130 @@ suite('385. Add a fix from All Customers');
   check('S385', 'the empty-state row still spans the same eight columns', /colspan="8"/.test(render));
   check('S385', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')));
 }
+
+/* ---------------------------------------------------------------------------
+ * 386. WHAT THIS SEASON IS SHAPING UP TO BRING IN ([[MON-84]]). Addie, 2026-10-20: "on finance
+ * dashboard can we make it show how much we are approximating this year based on whos RSVP'd and
+ * who is a new quote that is converted to costumer." fovSeasonProjection is RUN against a book,
+ * with the REAL effectiveRsvpStatus and audienceNeverAsked lifted in — a stub of either would let
+ * this card disagree with the RSVP cards beside it with every check green. The renderer is run
+ * too, against a fake document, because a rule that is right and a tile that never reads it is
+ * the shape this repo has shipped before.
+ * --------------------------------------------------------------------------- */
+suite('386. The Financial Overview says what this season is shaping up to bring in');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const projSrc = extractFn(admin, 'fovSeasonProjection');
+  check('S386', 'the rule is findable', !!projSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandboxSrc = (quotes) =>
+    'let quotesCache = ' + JSON.stringify(quotes || []) + '; const NEW_MEMBER_FEE = 30;' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + (projSrc || '');
+  assertSandbox('S386', 'the projection sandbox supplies everything it calls', sandboxSrc([]), admin, ['quotesCache', 'NEW_MEMBER_FEE']);
+  const run = (book, quotes) => new Function(sandboxSrc(quotes) + ';return fovSeasonProjection;')()(book);
+  const c = (id, d) => ({id, data: d});
+  const q = (over) => ({id: 'q1', data: Object.assign({
+    status: 'closed', convertedToCustomerAt: ts(yr), phone: '8015550001', address: '1 Elm St'}, over || {})});
+
+  /* Who counts. */
+  let p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a returning customer who RSVP\'d yes counts, at the price on their record',
+    p.rsvp.count === 1 && p.rsvp.total === 400 && p.fresh.count === 0 && p.total === 400);
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes'})]);
+  check('S386', 'a bare yes with no reply behind it counts for nothing',
+    p.rsvp.count === 0 && p.total === 0,
+    'that is what an imported record looks like — effectiveRsvpStatus\'s own first rule');
+  ['no', 'backnextyear', 'unanswered', ''].forEach(function(said){
+    p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: said, rsvpRespondedAt: ts(yr)})]);
+    check('S386', 'an answer of "' + (said || 'nothing') + '" is not money this season', p.total === 0 && p.rsvp.count === 0);
+  });
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]);
+  check('S386', 'the office\'s Maybe Next Year badge wins over a yes', p.total === 0,
+    'the badge is the office recording what they were told');
+
+  /* New this year — both doors, and the fee only where the box is ticked. */
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true})]);
+  check('S386', 'the $30 box alone makes somebody new this year, counted with their set-up fee',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.feeCount === 1 && p.fresh.fees === 30 &&
+    p.rsvp.count === 0 && p.total === 380);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', chargeNewMemberFee: false})], [q()]);
+  check('S386', 'a quote converted this year makes them new, with NO fee when the box is unticked',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.fees === 0 && p.fresh.feeCount === 0 && p.total === 350,
+    'a waived fee is money the nightly run never collects');
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})],
+    [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'a quote from LAST year does not make them new — they are a returning yes',
+    p.fresh.count === 0 && p.rsvp.count === 1 && p.rsvp.total === 350, 'MON-07: a ' + (yr - 1) + ' quote is not new in ' + yr);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St'})], [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'and with no reply of their own they count for nothing', p.total === 0);
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a new member who then said no is out', p.total === 0 && p.fresh.count === 0);
+
+  /* The things that would quietly move the number. */
+  p = run([c('a', {name: 'Cal', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}), c('b', {name: 'Dee', housePrice: 500, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a house with no price still counts as a house, at $0, and is NAMED',
+    p.rsvp.count === 2 && p.rsvp.total === 500 && p.noPrice.length === 1 && p.noPrice[0] === 'Cal',
+    'silently rounding the season down is the one thing this card must not do');
+  p = run([c('t', {name: 'Test', housePrice: 250, chargeNewMemberFee: true, isTestRecord: true})]);
+  check('S386', 'a test record is left out', p.total === 0 && p.fresh.count === 0);
+  p = run([
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: '350', chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', housePrice: 'n/a', chargeNewMemberFee: true}),
+    c('d', {name: 'Dee', housePrice: 200, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'the total is the two groups plus the fees, and a price typed as text still adds',
+    p.rsvp.total === 400 && p.fresh.total === 350 && p.fresh.fees === 60 && p.total === 810 && p.noPrice.join() === 'Cal');
+  check('S386', 'the fee is the shared constant, never a typed 30',
+    /NEW_MEMBER_FEE/.test(projSrc || '') && !/\b30\b/.test(stripComments(projSrc || '')));
+  check('S386', 'the rule reads the record\'s price, never an invoice',
+    /housePrice/.test(projSrc || '') && !/allInvoicesCache|invoiceById|\.install\b/.test(stripComments(projSrc || '')),
+    'the invoice is what has been billed; this counts people the run has not reached yet');
+
+  /* The renderer, run against a fake document. */
+  const rendSrc = extractFn(admin, 'fovRenderProjection');
+  check('S386', 'the renderer is findable', !!rendSrc);
+  const nodes = {};
+  const doc = {getElementById: (id) => (nodes[id] = nodes[id] || {textContent: ''})};
+  const book = [
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', chargeNewMemberFee: true})];
+  const fmt = n => '$' + Number(n).toFixed(2);
+  let threw = null;
+  try{
+    new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, book, fmt);
+  }catch(e){ threw = e; }
+  check('S386', 'the renderer runs', !threw, threw && threw.message);
+  check('S386', 'the tiles carry the rule\'s numbers',
+    nodes.fovProjTotal && nodes.fovProjTotal.textContent === '$810.00' &&
+    nodes.fovProjRsvp && nodes.fovProjRsvp.textContent === '$400.00' &&
+    nodes.fovProjNew && nodes.fovProjNew.textContent === '$350.00' &&
+    nodes.fovProjFees && nodes.fovProjFees.textContent === '$60.00',
+    JSON.stringify(nodes));
+  check('S386', 'and the counts under them',
+    /^3 houses$/.test(nodes.fovProjTotalSub.textContent) && /^1 returning customer$/.test(nodes.fovProjRsvpSub.textContent) &&
+    /^2 new customers$/.test(nodes.fovProjNewSub.textContent) && /^2 new members charged$/.test(nodes.fovProjFeesSub.textContent));
+  check('S386', 'the note names the house with no price', /Cal/.test(nodes.fovProjNote.textContent) && /\$0/.test(nodes.fovProjNote.textContent));
+  nodes.fovProjNote.textContent = '';
+  new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, [], fmt);
+  check('S386', 'an empty season says so rather than showing a row of noughts', /nothing to add up/.test(nodes.fovProjNote.textContent) && nodes.fovProjTotal.textContent === '$0.00');
+
+  /* Wiring — the renderer has to be reached from every door that moves the figure. */
+  ['fovProjTotal', 'fovProjTotalSub', 'fovProjRsvp', 'fovProjRsvpSub', 'fovProjNew', 'fovProjNewSub', 'fovProjFees', 'fovProjFeesSub', 'fovProjNote'].forEach(function(id){
+    check('S386', 'the markup carries #' + id, admin.indexOf('id="' + id + '"') !== -1 && admin.split('id="' + id + '"').length === 2);
+  });
+  const fovAll = stripComments(extractFn(admin, 'fovRenderAll') || '');
+  check('S386', 'fovRenderAll draws the card', /fovRenderProjection\(\);/.test(fovAll),
+    'the invoices listener is the first thing to draw the dashboard after login');
+  const rjap = stripComments(extractFn(admin, 'renderJobAddressPanels') || '');
+  check('S386', 'a customer change redraws it (an RSVP answer touches no invoice)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(rjap));
+  const qListener = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('badgeQuotes').textContent = newCount;")));
+  check('S386', 'a quote change redraws it (new-this-year is read off the quotes)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(qListener.slice(0, 600)));
+  check('S386', 'the render is deferred to the Dashboard like the rest of that panel',
+    /fovProjection: 'dashboard'/.test((admin.match(/const RENDER_PANEL = \{[\s\S]*?\n\};/) || [''])[0]));
+}

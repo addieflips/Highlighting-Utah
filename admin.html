@@ -3166,6 +3166,35 @@
             <div class="dash-stat-value" id="fovBills">$0</div>
           </div>
         </div>
+        <!-- ⭐ WHAT THIS SEASON IS SHAPING UP TO BRING IN ([[MON-84]], 2026-10-20). Filled by
+             fovRenderProjection from fovSeasonProjection; see the note on that function. -->
+        <div class="card" style="margin-bottom:16px;" id="fovProjectionCard">
+          <h3 style="font-size:14.5px;">This Season, As It Stands</h3>
+          <p style="font-size:12.5px; color:var(--slate); margin-top:-6px;">Roughly what this year will bring in: everybody who has RSVP'd yes, plus every new quote converted to a customer this year, at the house price on their record. Nobody who said no or Back Next Year, and nobody who has not answered yet. It moves as answers come in.</p>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(150px,100%),1fr)); gap:12px;">
+            <div class="card dash-stat" style="text-align:center; padding:16px; background:#FFF8E9; border-color:var(--gold-dim);">
+              <div class="dash-stat-label" style="color:var(--gold-dim);">Expected this season</div>
+              <div class="dash-stat-value" id="fovProjTotal">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjTotalSub">0 houses</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">RSVP'd yes</div>
+              <div class="dash-stat-value" id="fovProjRsvp">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjRsvpSub">0 returning customers</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">New this year</div>
+              <div class="dash-stat-value" id="fovProjNew">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjNewSub">0 new customers</div>
+            </div>
+            <div class="card dash-stat" style="text-align:center; padding:16px;">
+              <div class="dash-stat-label">Set-up fees</div>
+              <div class="dash-stat-value" id="fovProjFees">$0</div>
+              <div style="font-size:11.5px; color:var(--slate);" id="fovProjFeesSub">0 new members charged</div>
+            </div>
+          </div>
+          <p style="font-size:12px; color:var(--slate); margin:10px 0 0;" id="fovProjNote"></p>
+        </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(320px,100%),1fr)); gap:16px; margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:14.5px;">Income Trend</h3>
@@ -16332,6 +16361,9 @@ function loadQuotes(){
     document.getElementById('badgeQuotes').style.display = newCount ? 'inline-block' : 'none';
     document.getElementById('badgeQuotes').textContent = newCount;
     renderQuotesList();
+    /* MON-84: who is "new this year" is read off the quotes, so a quote closing moves
+       the Financial Overview's season figure. */
+    safeRender('fovProjection', typeof fovRenderProjection === 'function' ? fovRenderProjection : null);
     // Nudges the Schedule tab's New Members panel to redraw when a quote closes
     // (or reopens) live - see scheduleOnCustomersUpdated in the Schedule module.
     if(typeof scheduleOnCustomersUpdated === 'function') scheduleOnCustomersUpdated();
@@ -40691,8 +40723,87 @@ function fovLastNMonths(n){
   }
   return out;
 }
+/* ⭐ WHAT THIS SEASON IS SHAPING UP TO BRING IN (added 2026-10-20, [[MON-84]]). Addie: "on
+   finance dashboard can we make it show how much we are approximating this year based on
+   whos RSVP'd and who is a new quote that is converted to costumer."
+
+   ⚠ IT RE-DECIDES NOTHING. Who counts is the two rules the rest of the page already lives
+   by: `effectiveRsvpStatus` says who has actually said yes (a bare yes with no reply on
+   record is nothing, a no or Back Next Year always wins, the office's badge wins, and a
+   first-year customer reads as yes), and `audienceNeverAsked` says who is new this year —
+   the $30 box, or a quote that CREATED them this year. A second opinion here is how this
+   card starts disagreeing with the RSVP cards on the Dashboard tab beside it.
+
+   ⚠ THE PRICE IS `housePrice`, THE NUMBER ON THEIR RECORD — never the invoice. The invoice
+   is what has been BILLED, and before the 7 PM run has reached somebody it is empty or last
+   season's; the point of this card is to count people the run has not reached yet. A house
+   with no price on file counts as $0 and is NAMED in the note under the tiles rather than
+   silently rounding the season down.
+
+   ⚠ THE SET-UP FEE IS ITS OWN TILE, counted only for a new member whose box is ticked —
+   that box is what the nightly run bills the $30 off, so counting it for every new customer
+   would promise money a waived fee never collects. Same constant the run uses.
+
+   ⚠ A TEST RECORD IS LEFT OUT. The Build Test Customer rows carry a real price and are
+   deleted a minute later; counting them moves the season by $250 every time one exists.
+
+   ⚠ PURE, ON PURPOSE: it takes the book and returns numbers, so Suite 386 can RUN it. */
+function fovSeasonProjection(custs){
+  const out = {
+    rsvp: {count: 0, total: 0},
+    fresh: {count: 0, total: 0, fees: 0, feeCount: 0},
+    noPrice: [],
+    total: 0
+  };
+  (custs || []).forEach(function(item){
+    const d = item && item.data;
+    if(!d || d.isTestRecord === true) return;
+    if(effectiveRsvpStatus(d) !== 'yes') return;
+    const isNew = audienceNeverAsked(d);
+    const price = Number(d.housePrice) || 0;
+    const group = isNew ? out.fresh : out.rsvp;
+    group.count++;
+    group.total += price;
+    if(!(price > 0)) out.noPrice.push(String(d.name || item.id || ''));
+    if(isNew && d.chargeNewMemberFee === true){
+      out.fresh.feeCount++;
+      out.fresh.fees += NEW_MEMBER_FEE;
+    }
+  });
+  out.total = out.rsvp.total + out.fresh.total + out.fresh.fees;
+  return out;
+}
+/* Draws the card. Called from fovRenderAll (the invoices and expenses listeners), and
+   through safeRender from the customer and quote listeners — an RSVP answer or a quote
+   closing changes this figure and neither of those touches an invoice, so without those
+   two doors the card would show the numbers from whenever a payment last landed. */
+function fovRenderProjection(){
+  const totalEl = document.getElementById('fovProjTotal');
+  if(!totalEl) return;
+  const p = fovSeasonProjection(jobAddresses);
+  const houses = p.rsvp.count + p.fresh.count;
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  totalEl.textContent = fmtMoney(p.total);
+  document.getElementById('fovProjTotalSub').textContent = plural(houses, 'house', 'houses');
+  document.getElementById('fovProjRsvp').textContent = fmtMoney(p.rsvp.total);
+  document.getElementById('fovProjRsvpSub').textContent = plural(p.rsvp.count, 'returning customer', 'returning customers');
+  document.getElementById('fovProjNew').textContent = fmtMoney(p.fresh.total);
+  document.getElementById('fovProjNewSub').textContent = plural(p.fresh.count, 'new customer', 'new customers');
+  document.getElementById('fovProjFees').textContent = fmtMoney(p.fresh.fees);
+  document.getElementById('fovProjFeesSub').textContent = plural(p.fresh.feeCount, 'new member charged', 'new members charged');
+  const note = document.getElementById('fovProjNote');
+  if(!houses){
+    note.textContent = 'Nobody has RSVP\'d yes yet and no quote has been converted this year, so there is nothing to add up.';
+  } else if(p.noPrice.length){
+    const shown = p.noPrice.slice(0, 6).join(', ') + (p.noPrice.length > 6 ? ' and ' + (p.noPrice.length - 6) + ' more' : '');
+    note.textContent = plural(p.noPrice.length, 'house counts', 'houses count') + ' as $0 because there is no House Price on the record — ' + shown + '. Put a price on them for a truer number.';
+  } else {
+    note.textContent = 'Every house counted has a price on its record.';
+  }
+}
 function fovRenderAll(){
   if(!document.getElementById('fovNetWorth')) return;
+  fovRenderProjection();
   /* ⚠ TIPS ARE REVENUE. tipTotal is real money charged to a real card — the
      PayPal capture increments it alongside deposit — and until now it appeared
      exactly once in this whole file, as a line of text on an invoice card. No
@@ -52477,6 +52588,7 @@ const RENDER_PANEL = {
   whCustomerList: 'warehouse',
   customerNumbers: 'customer-numbers',
   dashRsvp: 'dashboard',
+  fovProjection: 'dashboard',
   rsvpCheckList: 'automation',
   rsvpDrip: 'automation',
   etMemberSelect: 'automation',
@@ -52631,6 +52743,8 @@ function retryFailedRenders(){
    write always draws — nothing is skipped, just not repeated. */
 function renderJobAddressPanels(){
     safeRender('cityDropdowns', populateCityDropdowns);
+    /* MON-84: an RSVP answer moves the season figure and touches no invoice. */
+    safeRender('fovProjection', typeof fovRenderProjection === 'function' ? fovRenderProjection : null);
     safeRender('routeAddressList', renderRouteAddressList);
     safeRender('takedowns', renderTakedownsList);
     safeRender('overviewMap', renderOverviewMap);
