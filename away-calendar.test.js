@@ -174,11 +174,10 @@ check('a house with no list is handed its own day back', R.clear({}, '2026-11-15
 /* ===================================================================== */
 suite('The floor and the ceiling — the real functions, run');
 const W = (function () {
-  const consts = [(admin.match(/const STAFF_DATE_WINDOW_DAYS = \d+;/) || [''])[0],
-                  (admin.match(/const PRE_THANKSGIVING_DAYS = \d+;/) || [''])[0]].join(LF);
+  const consts = [(admin.match(/const PRE_THANKSGIVING_DAYS = \d+;/) || [''])[0]].join(LF);
   const deps = ['awayDayAfter', 'awayListToKey', 'awayKeyToList', 'houseAwayOn', 'awayClearFrom',
                 'thanksgivingDate', 'isThanksgivingDay', 'isWorkingDay', 'isoOf',
-                'isoToLocalDate', 'addWorkingDays', 'staffDateWindowEnd',
+                'isoToLocalDate', 'staffDateWeekMonday', 'staffDateWindowStart', 'staffDateWindowEnd',
                 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline']
                 .map(n => lift(admin, n));
   const bad = deps.map((s, i) => s ? null : i).filter(x => x !== null);
@@ -233,8 +232,9 @@ check('but a window opening later than their month still delays them',
 check('a typed window beats the month it sits in for the last day',
   W.until({ pref: 'October', wantTo: '2026-11-15' }) === '2026-11-15');
 check("the office's own date still outranks the customer's window",
-  W.until({ notBefore: '2026-10-12', wantTo: '2026-12-20' }) === '2026-10-19',
-  'the staff window is a person overruling the form and stays the window');
+  W.until({ notBefore: '2026-10-12', wantTo: '2026-12-20' }) === '2026-10-16',
+  'the staff window is a person overruling the form and stays the window — the Friday of ' +
+  'the date\'s week since [[SCH-145]], the fifth working day after it before that');
 
 /* ⛔ A CEILING BEFORE THE FLOOR IS A CONTRADICTION, NOT A WINDOW. packTailCrewDays reads
    an impossible window as "this house may never move" rather than as two settings that
@@ -608,15 +608,14 @@ suite('⭐⭐ NO RECALCULATE NEEDED, AND NOTHING ELSE MOVES ([[SCH-101]])');
     (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0] + LF +
     ['awayDayAfter', 'awayKeyToList', 'houseAwayOn', 'awayClearFrom'].map(n => lift(admin, n)).join(LF);
   const names = ['dayTownList', 'dayTownCount', 'maxTownsPerDay', 'thanksgivingDate',
-                 'isThanksgivingDay', 'isWorkingDay', 'isoToLocalDate', 'addWorkingDays',
-                 'staffDateWindowEnd', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
+                 'isThanksgivingDay', 'isWorkingDay', 'isoToLocalDate', 'staffDateWeekMonday',
+                 'staffDateWindowStart', 'staffDateWindowEnd', 'prefSpecificDate', 'houseAllowedFrom', 'houseDeadline',
                  'nextInstallDayFor', 'enforceInstallTiming'];
   const absent = names.filter(n => !lift(admin, n));
   check('the timing sweep and everything it calls were lifted', absent.length === 0,
     'missing: ' + absent.join(', '));
   const BODY = AWAY_SRC + LF +
     'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] + ';' + LF +
-    'const STAFF_DATE_WINDOW_DAYS=' + (admin.match(/const STAFF_DATE_WINDOW_DAYS = (\d+);/) || [])[1] + ';' + LF +
     'const PRE_THANKSGIVING_DAYS=' + (admin.match(/const PRE_THANKSGIVING_DAYS = (\d+);/) || [])[1] + ';' + LF +
     'const CREWS_PER_DAY=2;' + LF + 'function dayLimitFor(){return null;}' + LF +
     names.map(n => lift(admin, n)).join(LF) + LF + 'this.sweep = enforceInstallTiming;';

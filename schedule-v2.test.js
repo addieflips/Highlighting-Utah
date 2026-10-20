@@ -310,9 +310,10 @@ if(D){
   check('After Thanksgiving: Nov 25 refused, Nov 27 allowed', !ok({pref: 'After Thanksgiving'}, {}, '2026-11-25') && ok({pref: 'After Thanksgiving'}, {}, '2026-11-27'));
   check('a named day (11/9+) is a floor: Nov 6 refused, Nov 9 allowed, Nov 20 allowed',
     !ok({pref: '11/9+'}, {}, '2026-11-06') && ok({pref: '11/9+'}, {}, '2026-11-09') && ok({pref: '11/9+'}, {}, '2026-11-20'));
-  check('office date: never before it, and not more than 5 working days after',
-    !ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-09') && ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-19') &&
-    !ok({pref: '', notBefore: '2026-10-12'}, {}, '2026-10-20'));
+  /* [[SCH-145]] Wed 14 Oct sits in the week of Mon 12 Oct: the Monday BEFORE the date is legal, the Monday after is not. */
+  check('office date: the whole calendar week it sits in, Monday to Friday, before the date as well as after it (SCH-145)',
+    !ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-09') && ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-12') &&
+    ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-16') && !ok({pref: '', notBefore: '2026-10-14'}, {}, '2026-10-19'));
   check('wanted window: boundaries inclusive', !ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-09') &&
     ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-12') &&
     ok({pref: '', wantFrom: '2026-10-12', wantTo: '2026-10-16'}, {}, '2026-10-16') &&
@@ -2186,6 +2187,57 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     const novInOct = book.filter(function(b){ return /^(November|11\/9)/.test(b.data.installPreference) && dayOfCust(b.id) && dayOfCust(b.id) <= '2026-10-31'; });
     check('29.' + k + 'e book ' + spec[1] + ': and nobody who asked for November or a later day was pulled into October', novInOct.length === 0, String(novInOct.length));
   });
+}
+/* ======================================================================================= */
+/* ⭐ [[SCH-145]] (2026-10-20). The office, on a Lehi house typed for Monday 16 November and
+   placed on the 23rd: "I want them same week that they are put closest date on. Even if its
+   befor", then "Do this for all closest to date. Even if that means our schedule switchs up a
+   little bit. So we do eagle mountain a different day and put lehi the date eagle mountain was."
+   1.3 holds the floor and the ceiling; this holds the thing she can actually see — that the
+   REAL press puts the house in that week when its town was not going to be worked then, on a
+   day before the typed date when that is what the week offers, and leaves the rest of the plan
+   legal while it does it. */
+if(H){
+suite('SCH-145 An office date is hung in its own week, and the plan moves other towns to make room');
+{
+  const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
+  const shift = function(iso, n){ const p = iso.split('-').map(Number); return H.api.isoOf(new Date(p[0], p[1] - 1, p[2] + n)); };
+  const mondayOf = function(iso){ const p = iso.split('-').map(Number); const d = new Date(p[0], p[1] - 1, p[2]); return shift(iso, -((d.getDay() + 6) % 7)); };
+  /* One Lehi house in a book that otherwise has none, so where it lands is the rule's doing and nobody else's. */
+  const others = Object.keys(TOWNS).filter(function(t){ return t !== 'Lehi'; });
+  const book = makeBook(320, 23, {towns: others});
+  const lehi = {id: 'lehi1', data: Object.assign({name: 'Lehi Closest', customerNumber: '7001', city: 'Lehi', address: '1 Week St',
+    phone: '8015557001', lat: TOWNS['Lehi'][0], lng: TOWNS['Lehi'][1], installPreference: 'Normal Schedule'}, YES)};
+  book.push(lehi);
+  run(book);
+  const first = dayOfCust('lehi1');
+  check('45.0 with no date the Lehi house is on a day somewhere', !!first, 'nobody is left off');
+  /* A week the plan already works, on which Lehi was NOT going to be visited. */
+  const weeks = {};
+  H.api.installDays().forEach(function(d){ const w = mondayOf(ds(d)); weeks[w] = (weeks[w] || 0) + 1; });
+  const target = Object.keys(weeks).filter(function(w){ return w >= '2026-10-12' && weeks[w] >= 2 && w !== mondayOf(first || '2026-10-01'); }).sort()[0];
+  check('45.0b the season has another week with days on it to aim at', !!target, JSON.stringify(weeks) + ' first=' + first);
+  if(target){
+    const fri = shift(target, 4);
+    [['a Monday', 0], ['a Thursday', 3]].forEach(function(spec){
+      const typed = shift(target, spec[1]);
+      lehi.data.earliestInstallDate = {toMillis: function(){ const p = typed.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]).getTime(); }};
+      run(book);
+      const landed = dayOfCust('lehi1');
+      check('45.1 typed for ' + spec[0] + ' (' + typed + '): the house is on a day of that week, ' + target + ' to ' + fri + ' (it was on ' + first + ')',
+        !!landed && landed >= target && landed <= fri, 'landed ' + landed);
+      check('45.2 typed for ' + spec[0] + ': and never on the Monday after — the old five-working-day count let a Monday date drift exactly there',
+        !!landed && landed !== shift(target, 7), 'landed ' + landed);
+      const v = H.api.validateSeasonPlan({});
+      check('45.3 typed for ' + spec[0] + ': every other rule still holds on the plan that made room', v.length === 0, JSON.stringify(v.slice(0, 3)));
+      check('45.4 typed for ' + spec[0] + ': nobody fell off the schedule to make it happen', book.every(function(b){ return !!dayOfCust(b.id); }));
+    });
+    check('45.5 the Monday is a legal day for a house typed for the Thursday of that same week',
+      H.api.houseMayGoOn({pref: '', notBefore: shift(target, 3)}, {}, target, '2026-10-01').ok === true);
+    check('45.6 and the Monday after is not',
+      H.api.houseMayGoOn({pref: '', notBefore: shift(target, 3)}, {}, shift(target, 7), '2026-10-01').ok === false);
+  }
+}
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
