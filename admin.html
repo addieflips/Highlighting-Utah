@@ -80950,10 +80950,15 @@ function rebuildSeasonDays(){
   if(octFill.moved.length){
     /* [[SCH-145]] the five-mile pass runs whether or not anything was folded: the fill may leave a November day it took
        houses from with a crew that no longer holds (see fillOctoberWithAnyTime's leaveOk) */
+    /* and the two take turns until they settle: the five-mile pass can send an October-eligible house to the November tail,
+       which the fill then brings back — so the last word is always a pass that moved nobody (bounded at three rounds) */
     try{ if(typeof mergeShortOpenDays === 'function'){ const m3 = mergeShortOpenDays({sourcesAfter: isoOf(seasonStartDate()).slice(0, 4) + '-10-31'}); if(m3 && m3.merged && m3.merged.length) shortMerged.merged = shortMerged.merged.concat(m3.merged); }
-      if(typeof enforceFiveMileCrews === 'function'){ const f3 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f3.moved); fiveMile.tail = fiveMile.tail.concat(f3.tail); fiveMile.keptOutlier = f3.keptOutlier;
-        if(f3.moved.length || f3.tail.length){ const o2 = fillOctoberWithAnyTime(); octFill.moved = octFill.moved.concat(o2.moved);
-          if(o2.moved.length){ const f4 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f4.moved); fiveMile.tail = fiveMile.tail.concat(f4.tail); fiveMile.keptOutlier = f4.keptOutlier; } } } }
+      for(let round = 0; round < 3 && typeof enforceFiveMileCrews === 'function'; round++){
+        const f3 = enforceFiveMileCrews(); fiveMile.moved = fiveMile.moved.concat(f3.moved); fiveMile.tail = fiveMile.tail.concat(f3.tail); fiveMile.keptOutlier = f3.keptOutlier;
+        if(!f3.moved.length && !f3.tail.length) break;
+        const o2 = fillOctoberWithAnyTime(); octFill.moved = octFill.moved.concat(o2.moved);
+        if(!o2.moved.length) break;
+      } }
     catch(err){ console.error('Could not fold the short November days after October was filled:', err); }
   }
   /* a house brought back from the end of November is not one sent there — the press only names the ones still waiting */
