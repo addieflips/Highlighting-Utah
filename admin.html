@@ -56276,18 +56276,108 @@ function renderWarehouseColorChangeQueue(){
     });
   });
 }
+/* ⭐ A WAREHOUSE NOTE ON A HOUSE NOBODY IS BUILDING FOR ([[WH-50]], 2026-10-23). Addie:
+   "On Warehouse how do we see the notes that were made for the warehouse I don't see that it
+   is printed with everything else" — and the day before, "Were do the notes show on
+   warehouse to be printed.", holding TK Plant's note (THIS BUILD ONLY: Test lights) on a
+   house with no build queued.
+
+   ⛔ THE NOTE WAS ONLY EVER SHOWN ON A BUILD ROW. [[WH-45]] drew it under the name on the
+   build list and [[WH-37]]/[[WH-38]] printed it on both build sheets — every one of those is
+   a ROW, and a row exists only while `needsLightBuild` is set. A note typed against a house
+   nobody is building for was saved, read by the find box if somebody typed the name, and
+   printed nowhere — which is indistinguishable from the field not working, the exact shape
+   [[WH-37]] was found in. LOOK AT WHAT THE SHEET CARRIES before concluding a field is broken.
+
+   ⭐ ITS OWN BLOCK ON THE TAB AND ITS OWN PAGE ON THE SHEET, NEVER A ROW IN A COLOUR GROUP.
+   A House row claims a bundle is owed, and nothing here is being built. The block carries
+   the same note box ([[WH-47]]) and the same Note editor ([[WH-45]]) as a build row, so a
+   note typed here lands on the record and the sheet exactly as one typed there would.
+
+   ⚠ IN THE SEASON, LIKE THE BUILD LIST. `isOutForSeason` is the gate, the same one
+   `whBuildQueueGroups` applies, so a Back Next Year house's note does not sit here all
+   season looking like work. ⚠ A HOUSE WITH A BUILD ROW IS LEFT TO ITS ROW: listing it here
+   as well is the same note twice on one tab. A timer-only or Remove Timer house has no row
+   that carries a note, so it IS listed here. ⚠ `whNoteText`, NEVER `whNotesCell`: the
+   GOES INTO THE BIN line is a building instruction and nothing on this page is being built
+   ([[WH-49]]'s own rule for the pull list).
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT, and it takes the list as an argument for the
+   same reason; the page defaults to `jobAddresses`. Suite 390. */
+function whNotedHousesOffTheList(list){
+  const src = Array.isArray(list) ? list : ((typeof jobAddresses !== 'undefined' && jobAddresses) || []);
+  return src.filter(function(item){
+    const d = (item && item.data) || {};
+    if(d.needsLightBuild) return false;
+    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return false;
+    return !!whNoteText(d);
+  }).sort(function(a, b){
+    return String((a.data || {}).name || '').localeCompare(String((b.data || {}).name || ''));
+  });
+}
+const WH_NOTED_COLUMNS = [
+  {key:'cu', label:'#CU', num:true},
+  {key:'what', label:'Customer'},
+  {key:'address', label:'Address'},
+  {key:'notes', label:'Warehouse notes'}
+];
+/* The printed page — one row per noted house, no bins, no bundles, no "what to do", because
+   there is nothing to do but read the note. The # and tick columns come from whSheetTable. */
+function whSheetRowsForNoted(list){
+  return whNotedHousesOffTheList(list).map(function(item){
+    const d = item.data || {};
+    return {group: 'notes', cu: String(d.customerNumber || '').trim(), what: d.name || '(no name)',
+            address: d.address || '', notes: whNoteText(d)};
+  });
+}
+function whNotedOffListHtml(noted){
+  if(!noted || !noted.length) return '';
+  return '<div class="row-item" style="display:block;">'+
+    '<div style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" data-whtoggle="whnotedoff">'+
+      '<div><strong style="font-size:15px;">Warehouse notes — houses not on the build list</strong>'+
+        '<div style="font-size:12.5px; color:var(--slate);">'+
+          noted.length+' house'+(noted.length===1?'':'s')+' with a note for the warehouse and nothing queued to build — printed as the last page of the Build Sheet</div></div>'+
+      whToggleBtn('whtoggle', 'whnotedoff', 'Show '+noted.length+' house'+(noted.length===1?'':'s'))+
+    '</div>'+
+    '<div id="whnotedoff" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">'+
+      noted.map(function(h){
+        return '<div data-whnotedrow="'+esc(h.id)+'" style="padding:8px 0; border-bottom:1px solid var(--line);">'+
+          '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
+            '<span style="font-size:13.5px;">'+esc(h.data.name||'(no name)')+' &mdash; '+esc(h.data.address||'')+propLabelChip(h.data)+
+              (h.data.customerNumber ? custNumChip(h.data) : '')+
+              whNoteBoxHtml(h.data)+
+            '</span>'+
+            '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
+              '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+esc(h.id)+'">Edit</button>'+
+              '<button type="button" class="btn btn-outline btn-sm" data-whnote="'+esc(h.id)+'">Notes</button>'+
+            '</span>'+
+          '</div>'+
+          whNoteEditorHtml(h)+
+        '</div>';
+      }).join('')+
+    '</div>'+
+  '</div>';
+}
 function renderWarehouseQueue(){
   const list = document.getElementById('warehouseQueueList');
   if(!list) return;
   const built = whBuildQueueGroups();
   const groups = built.groups, keys = built.keys, timerHouses = built.timerHouses;
   const timerRemovals = built.timerRemovals || [];
+  /* [[WH-50]] — houses with a warehouse note and no build row. Drawn LAST, after the
+     colour groups, so the list somebody builds from still leads. */
+  const noted = whNotedHousesOffTheList();
   /* ⚠ THE EMPTY NOTE HAS TO ASK ABOUT EVERY LIST BELOW IT, NOT JUST THE GROUPS. A book
      whose only outstanding warehouse job is a timer produced no groups, so the tab said
      nothing needed building while the Timers block underneath it was never reached — the
      same shape as the one [[WH-41]] closed, one list further down. */
-  if(!keys.length && !timerHouses.length && !timerRemovals.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
-  let html = '';
+  if(!keys.length && !timerHouses.length && !timerRemovals.length){
+    /* [[WH-50]] — nothing to build is not nothing to say. A note on a house nobody is
+       building for still has to be seen and printed, so when there are any the empty
+       note is drawn ABOVE the notes block rather than the function returning past it. */
+    if(!noted.length){ list.innerHTML = '<div class="empty-note">Nothing needs to be built right now.</div>'; return; }
+  }
+  let html = (!keys.length && !timerHouses.length && !timerRemovals.length)
+    ? '<div class="empty-note">Nothing needs to be built right now.</div>' : '';
   /* Timers, counted against the houses that asked for them. This is a roll-up of
      the same houses listed in the colour groups below, so it deliberately has no
      Mark Done of its own — marking the house done in its colour group is what
@@ -56515,6 +56605,9 @@ function renderWarehouseQueue(){
       '</div>')+
     '</div>';
   });
+  /* [[WH-50]] — after every group, so it never reads as part of one. Its Note and Edit
+     buttons are bound by the same querySelectorAll passes below as the build rows'. */
+  html += whNotedOffListHtml(noted);
   list.innerHTML = html;
   /* Both the row and the button carry data-whtoggle, so both get this listener.
      stopPropagation is what keeps a tap on the button from bubbling to the row
@@ -57847,13 +57940,21 @@ function whPrintBuildSheet(){
      whole-sheet totals that used to sit here have moved onto each page, because a page
      handed to somebody building one pile needs THEIR numbers, not the morning's. */
   const sheets = whPackBuildSheets(whBuildSheetPages());
-  whOpenPrintWindow('Warehouse \u2014 Build Sheet',
-    sheets.map(function(s){
-      return {sheetLabel: s.sheetLabel, parts: s.parts.map(function(p){
-        return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
-      })};
-    }),
-    'Nothing needs to be built right now.');
+  const pages = sheets.map(function(s){
+    return {sheetLabel: s.sheetLabel, parts: s.parts.map(function(p){
+      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    })};
+  });
+  /* [[WH-50]] — THE LAST PAGE IS THE NOTES ON HOUSES NOBODY IS BUILDING FOR. Its own page,
+     after every colour group, so it can never be read as a pile to build from; left off when
+     there are none, so the stack does not end in a blank sheet. */
+  const noted = whSheetRowsForNoted();
+  if(noted.length){
+    pages.push({title: 'Warehouse notes \u2014 houses not on the build list',
+      summary: noted.length + ' house' + (noted.length === 1 ? '' : 's') + ' with a note and nothing queued to build',
+      tableHtml: whSheetTable(noted, WH_NOTED_COLUMNS)});
+  }
+  whOpenPrintWindow('Warehouse \u2014 Build Sheet', pages, 'Nothing needs to be built right now.');
 }
 function whPrintRecycleSheet(){
   const sheet = whSheetRowsForRecycle();
