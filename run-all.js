@@ -67479,3 +67479,102 @@ suite('389. A write refusal names what this tab wrote');
     !/match: '[^']*(resource-exhausted|maximum bandwidth|maximum backoff)/i.test((admin.match(/const FIXED_ERRORS = \[[\s\S]*?\n\];/) || [''])[0]),
     'the cause is unproven; an entry would delete the evidence the census exists to collect');
 }
+
+suite('390. A warehouse note on a house nobody is building for is seen and printed');
+{
+  /* [[WH-50]] Addie, 2026-10-23: "On Warehouse how do we see the notes that were made for
+     the warehouse I don't see that it is printed with everything else". The note was only ever
+     drawn on a BUILD ROW, so a house with no build queued (TK Plant, THIS BUILD ONLY: Test
+     lights) had its note on no screen and no sheet. RUNS the list builder, the sheet rows and
+     the block renderer; the wiring into the tab and the print stack is asserted on the
+     comment-stripped source. */
+  const strippedA = stripComments(admin);
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const cols = (admin.match(/const WH_NOTED_COLUMNS = \[[\s\S]*?\r?\n\];/) || [''])[0];
+  const src = extractFn(admin, 'whNoteText') + '\n' + extractFn(admin, 'whNotedHousesOffTheList') + '\n' +
+    cols + '\n' + extractFn(admin, 'whSheetRowsForNoted') + '\n' + extractFn(admin, 'whNoteBoxHtml') + '\n' +
+    extractFn(admin, 'whNoteEditorHtml') + '\n' + extractFn(admin, 'whToggleBtn') + '\n' + extractFn(admin, 'whNotedOffListHtml');
+  check('S390', 'the list builder, the sheet rows and the block renderer all exist',
+    /function whNotedHousesOffTheList\(/.test(src) && /function whSheetRowsForNoted\(/.test(src) &&
+    /function whNotedOffListHtml\(/.test(src) && !!cols);
+  /* isOutForSeason is a STUB HERE ON PURPOSE: the claim is that the builder ASKS it, not what
+     it answers — S107 and season-state.test.js hold the real rule. A fixture flag says who
+     is out. */
+  const api = new Function('esc', 'isOutForSeason', 'propLabelChip', 'custNumChip',
+    src + '\nreturn {list: whNotedHousesOffTheList, rows: whSheetRowsForNoted, html: whNotedOffListHtml, text: whNoteText};')(
+    esc, d => !!d.__out, () => '', d => (d && d.customerNumber ? ' <span>#' + d.customerNumber + '</span>' : ''));
+  const book = [
+    { id: 'tk', data: { name: 'TK Plant', address: '1 Nursery Rd', customerNumber: '5100',
+        warehouseOneTimeNote: 'Test lights. Lots out last year' } },
+    { id: 'ab', data: { name: 'Abe Lund', address: '2 Elm St', customerNumber: '14',
+        warehouseNote: 'Bin on the top shelf' } },
+    { id: 'bld', data: { name: 'Building Now', address: '3 Oak Ave', needsLightBuild: true,
+        lightsDescription: 'Warm White', warehouseNote: 'Already on a build row' } },
+    { id: 'out', data: { name: 'Back Next Year', address: '4 Pine Ct', __out: true,
+        warehouseNote: 'Sitting the season out' } },
+    { id: 'none', data: { name: 'No Note', address: '5 Ash Ln', notes: 'Crew: gate code 4412' } },
+    { id: 'tmr', data: { name: 'Zed Timer', address: '6 Fir Way', needsTimerOnly: true,
+        warehouseNote: 'Timer is in the blue box' } },
+    { id: 'blank', data: { name: 'Blank Note', address: '7 Yew Pl', warehouseNote: '   ' } }
+  ];
+  const got = api.list(book).map(h => h.id);
+  check('S390', 'a house with a warehouse note and no build queued is listed', got.indexOf('tk') > -1, got.join(','));
+  check('S390', 'a house already on a build row is left to its row, never listed twice', got.indexOf('bld') === -1, got.join(','));
+  check('S390', 'a house sitting the season out is not listed — the build list\'s own gate', got.indexOf('out') === -1, got.join(','));
+  check('S390', 'the crew\'s Permanent Notes alone put nobody on it ([[WH-48]])', got.indexOf('none') === -1, got.join(','));
+  check('S390', 'a note that is only whitespace puts nobody on it', got.indexOf('blank') === -1, got.join(','));
+  check('S390', 'a timer-only house is listed — its Timers row carries no note', got.indexOf('tmr') > -1, got.join(','));
+  check('S390', 'the list is in name order', got.join(',') === 'ab,tk,tmr', got.join(','));
+  check('S390', 'and the order is by name, not by arrival — fed backwards it comes out the same',
+    api.list(book.slice().reverse()).map(h => h.id).join(',') === 'ab,tk,tmr');
+  check('S390', 'with no list passed it reads the page\'s own jobAddresses, and an empty page lists nobody',
+    (function(){ try { return api.list().length === 0; } catch (e) { return false; } })());
+
+  const rows = api.rows(book);
+  check('S390', 'the printed rows are the same people in the same order',
+    rows.map(r => r.what).join('|') === 'Abe Lund|TK Plant|Zed Timer', rows.map(r => r.what).join('|'));
+  const tk = rows.find(r => r.what === 'TK Plant') || {};
+  check('S390', 'a row carries the number, the address and the note',
+    tk.cu === '5100' && tk.address === '1 Nursery Rd' && tk.notes === 'THIS BUILD ONLY: Test lights. Lots out last year', JSON.stringify(tk));
+  check('S390', 'the notes cell is whNoteText word for word — never whNotesCell\'s GOES INTO THE BIN line',
+    rows.every(r => r.notes === api.text(book.find(b => b.data.name === r.what).data)) &&
+    !/whNotesCell/.test(stripComments(extractFn(admin, 'whSheetRowsForNoted'))));
+  const colKeys = (cols.match(/key:'([a-z]+)'/g) || []).map(x => x.slice(5, -1));
+  check('S390', 'the page\'s columns are #CU, Customer, Address, Warehouse notes and nothing to build',
+    colKeys.join(',') === 'cu,what,address,notes' && !/bins|bundles|todo/.test(cols), colKeys.join(','));
+
+  const html = api.html(api.list(book));
+  check('S390', 'the block names itself as houses NOT on the build list', /houses not on the build list/.test(html));
+  check('S390', 'it says it prints as the last page of the Build Sheet', /last page of the Build Sheet/.test(html));
+  check('S390', 'every listed house is drawn with the same note box the build rows use ([[WH-47]])',
+    (html.match(/wh-notebox/g) || []).length === 3 && /THIS BUILD ONLY: Test lights/.test(html));
+  check('S390', 'each house has the Note editor and an Edit button, so a note typed here lands on the record ([[WH-45]])',
+    (html.match(/data-whnote="/g) || []).length === 3 && (html.match(/data-whnotesave="/g) || []).length === 3 &&
+    (html.match(/data-wheditcust="/g) || []).length === 3);
+  check('S390', 'it folds away like the Timers blocks, through the same toggle',
+    /data-whtoggle="whnotedoff"/.test(html) && /id="whnotedoff" style="display:none/.test(html));
+  check('S390', 'no block at all when nobody has a note', api.html([]) === '' && api.html(api.list([book[4]])) === '');
+
+  /* THE WIRING, asserted separately from the mechanism — the block renderer passing in a
+     harness says nothing about whether the tab ever calls it. */
+  const render = stripComments(extractFn(admin, 'renderWarehouseQueue'));
+  check('S390', 'the tab asks for the noted houses', /const noted = whNotedHousesOffTheList\(\);/.test(render));
+  check('S390', 'and draws the block after every colour group, before the list is written',
+    render.indexOf('html += whNotedOffListHtml(noted);') > render.indexOf('keys.forEach(') &&
+    render.indexOf('html += whNotedOffListHtml(noted);') < render.indexOf('list.innerHTML = html;'));
+  check('S390', 'nothing-to-build only returns early when there are no notes either',
+    /if\(!keys\.length && !timerHouses\.length && !timerRemovals\.length\)\{\s*if\(!noted\.length\)\{ list\.innerHTML = '<div class="empty-note">Nothing needs to be built right now\.<\/div>'; return; \}/.test(render),
+    'a return past the block is a note nobody sees on a quiet day');
+  check('S390', 'and the empty note is still drawn above the block on that day',
+    /let html = \(!keys\.length && !timerHouses\.length && !timerRemovals\.length\)\s*\? '<div class="empty-note">Nothing needs to be built right now\.<\/div>' : '';/.test(render));
+  const print = stripComments(extractFn(admin, 'whPrintBuildSheet'));
+  check('S390', 'the Build Sheet print ends with the notes page, after the packed colour groups',
+    /const noted = whSheetRowsForNoted\(\);/.test(print) && /pages\.push\(\{title: 'Warehouse notes/.test(print) &&
+    print.indexOf('pages.push') > print.indexOf('whPackBuildSheets(whBuildSheetPages())') &&
+    /whOpenPrintWindow\('Warehouse \\u2014 Build Sheet', pages,/.test(print));
+  check('S390', 'the page is left off when there is nobody on it', /if\(noted\.length\)\{\s*pages\.push/.test(print));
+  check('S390', 'the page uses the notes columns, not the build columns',
+    /whSheetTable\(noted, WH_NOTED_COLUMNS\)/.test(print));
+  check('S390', 'nothing here touches whSheetRowsForBuild — a noted house is never a build row',
+    !/whSheetRowsForBuild/.test(src) && !/whNotedHousesOffTheList|whSheetRowsForNoted/.test(stripComments(extractFn(admin, 'whSheetRowsForBuild'))));
+}
