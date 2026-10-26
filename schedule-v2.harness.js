@@ -22,7 +22,7 @@ module.exports = function makeHarness(liftDeep){
     'renderOneMan renderWaitingRsvp renderOwesLastYear renderPrinting renderTakedownBar renderCrewBar renderLeftovers ' +
     'renderImportedAt paintForecastNote renderFixTray dayMapDraw dayMapPanes routePictureHTML dayMapPaneAt ' +
     'loadSeasonForecast loadSeasonNormals ensureForecastForPanel firebaseConfig app db PLAN_REF ' +
-    'stopHTML weekGuideHTML dayCrewLimitControlHTML dayForecastChips refreshTownGrids').split(/\s+/));
+    'stopHTML weekGuideHTML dayCrewLimitControlHTML dayForecastChips refreshTownGrids updateDoc doc schedOpenPrintPages').split(/\s+/));
   const L = liftDeep(['rebuildSeasonDays', 'sweepGoneDaysForward', 'pullBackPastDeadline', 'generateAllRoutes', 'crewHousesFor',
     'installDays', 'dayCrewHouses', 'crewIndexes', 'houseMayGoOn', 'houseDateWindow', 'houseInstallPriority',
     'nextInstallDayFor', 'placeConfirmedLeftOff', 'confirmedNotOnAnyDay', 'enforceInstallTiming',
@@ -36,7 +36,15 @@ module.exports = function makeHarness(liftDeep){
     'takeOffPrintedDay', 'unbuiltNewHangOnPrintedDay', 'PRINTED_UNBUILT_OFF',
     'hangDayOn', 'HANG_DAY', 'scheduleTodayStr', 'markDoneHousesHidden', 'houseIsHiddenDone', 'markDayPrinted', 'dayIsPrintedAhead', 'isInWarehouse', 'isWaitingOnTimer',
     /* the plan as it is WRITTEN and read back — what Firestore is actually handed */
-    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined'],
+    'serialize', 'hydrate', 'planSaveProblem', 'planDropUndefined', 'houseDeadline', 'isWorkingDay', 'dayHoldsWithHouse', 'fillOctoberWithAnyTime',
+    /* [[SCH-135]] a crew's list checked for tomorrow, and the hand moves it refuses */
+    'setCrewHeld', 'crewIsHeld', 'dayHasHeldCrew', 'tomorrowsInstallDay', 'houseOnHeldCrew', 'expireCrewHolds', 'heldFromSaved',
+    'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive', 'scheduleOnDate', 'scheduleOnDateTarget', 'scheduleOnDateMove', 'printCrewDayList', 'printWarehouseDayList', 'printNotDone', 'printOneStop',
+    /* [[SCH-138]] a page older than the plan never saves it */
+    'PLAN_SCHEMA', 'planSchemaOf', 'planIsNewerThanPage', 'planKey',
+    /* the office's own hand controls, for schedule-chaos.test.js */
+    'cascade', 'getDay', 'findHouse', 'setDayLimitOn', 'dayLimitOn', 'crewDaysOverTownLimit', 'unassignedHousesFor', 'oneManDays', 'houseOnWarehouseList',
+    'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -65,8 +73,12 @@ module.exports = function makeHarness(liftDeep){
     'function serverTimestamp(){ return null; }',
     /* declared mid-statement in the page (let fixOpen=true, FIXLIST=[], fixRouteSeq=0, …), which the lifter cannot see */
     'var FIXLIST = [], fixRouteSeq = 0;',
+    'var selSchedule = null, selFix = null, selTake = null;',
     gridSrc.replace(/^import[^;]+;/gm, ''),
     moneySrc,
+    /* [[SCH-144]] the schedule's own esc — admin.html defines esc twice, so the lifter cannot pick one; this is the
+       one-line copy inside the schedule widget, read from the page rather than typed here */
+    (fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8').match(/function esc\(s\)\{return\(''\+s\)[^\r\n]*/) || [''])[0],
     'var gridPlanBlocks = planBlocks;',
     stubs
   ].join('\n');
@@ -90,7 +102,7 @@ module.exports = function makeHarness(liftDeep){
     '    var yard = opts.home || {lat: 40.3866, lng: -111.8616};',
     '    custByAddrKey.set(custAddrKey(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY), {id: "__yard", data: {lat: yard.lat, lng: yard.lng}});',
     '    window.scheduleLockedDates = undefined; LOCKED_DATES = null; PRINTED_OVERRIDE = false; HANG_DAY = null;',
-    '    SEASON = opts.season || []; BASE_START = new __RealDate(2026, 9, 1); globalDelta = 0;',
+    '    SEASON = opts.season || []; BASE_START = opts.baseStart ? new __RealDate(opts.baseStart.getTime()) : new __RealDate(2026, 9, 1); globalDelta = opts.globalDelta || 0;',
     '    CREWS_PER_DAY = opts.crews || 2;',
     '    CREWS = []; for(var i = 0; i < CREWS_PER_DAY; i++) CREWS.push({name: "Crew " + (i + 1), city: ""});',
     '    SEASON_FORECAST = {at: 1, byTown: opts.forecast || {}, towns: 0, days: 0, error: "", pending: null};',
@@ -101,9 +113,9 @@ module.exports = function makeHarness(liftDeep){
     '  recalc: function(){ var lb = lockedDaySnapshot(); var r = rebuildSeasonDays(); computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); return {r: r, g: g}; },',
     '  sync: function(){ return enforceInstallTiming(); },',
     /* The REAL press, step for step as runRecalculateEverything runs it (customer sync first, takedowns before routes). */
-    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates(); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
+    '  press: function(all){ PRINTED_OVERRIDE = !!all; refreshLockedDates({releaseFrozen: true}); freezePrintedDays(); markDoneHousesHidden(mtnNowParts().date); var tm = applyTomorrowMarks(); if(tm.dates.length){ refreshLockedDates(); freezePrintedDays(); } var lb = lockedDaySnapshot(); var pulled = syncHousesFromCustomers(); var r = rebuildSeasonDays(); try{ rebuildTakedownDays(); }catch(e){} computeDates(); try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }catch(e){} var g = generateAllRoutes({lockedBefore: lb}); computeDates(); PRINTED_OVERRIDE = false; refreshLockedDates(); freezePrintedDays(); refreshLockedDates(); dropHousesWhoLeftSeason(); computeDates(); return {r: r, g: g, lb: lb}; },',
     /* The five-minute sync, step for step as window.scheduleSyncFromCustomers runs it. */
-    '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = enforceInstallTiming(); computeDates(); out.routes = generateAllRoutes(); computeDates(); return out; },',
+    '  tick: function(){ refreshLockedDates(); freezePrintedDays(); var moved = syncHousesFromCustomers(); var out = {}; out.left = dropHousesWhoLeftSeason(); out.goneDays = sweepGoneDaysForward(); out.rehome = rehomeMovedHouses(moved.filter(function(c){ return c.field==="town"; }).map(function(c){ return c.id; })); out.rejoin = placeUnscheduledOnNextDay(); out.joined = placeJoinedHouses(); out.prio = advancePriorityHouses(); out.timing = keepEveryHouseLegal(); computeDates(); out.routes = generateAllRoutes(); computeDates(); refreshLockedDates(); return out; },',
     '  season: function(){ return SEASON; },',
     '  unbuiltOff: function(){ return PRINTED_UNBUILT_OFF; },',
     '  setSeason: function(s){ SEASON = s; computeDates(); },',
@@ -124,7 +136,18 @@ module.exports = function makeHarness(liftDeep){
     '        setHangDay: function(h){ HANG_DAY = h; }, dayCrewHouses: dayCrewHouses, isInWarehouse: isInWarehouse,',
     '        refreshLockedDates: refreshLockedDates, markDoneHousesHidden: markDoneHousesHidden,',
     '        markDayPrinted: markDayPrinted, dayIsPrintedAhead: dayIsPrintedAhead,',
-    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses}',
+    '        serialize: serialize, hydrate: hydrate, planSaveProblem: planSaveProblem, planDropUndefined: planDropUndefined, frozenCrewSplit: frozenCrewSplit, routeAreaIds: routeAreaIds, routeAreaReturns: routeAreaReturns, dayHoldsWithHouses: dayHoldsWithHouses, houseDeadline: houseDeadline, isWorkingDay: isWorkingDay, dayHoldsWithHouse: dayHoldsWithHouse, fillOctoberWithAnyTime: fillOctoberWithAnyTime,',
+    '        setCrewHeld: setCrewHeld, crewIsHeld: crewIsHeld, dayHasHeldCrew: dayHasHeldCrew, tomorrowsInstallDay: tomorrowsInstallDay,',
+    '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
+    '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive, scheduleOnDate: scheduleOnDate, scheduleOnDateTarget: scheduleOnDateTarget, scheduleOnDateMove: scheduleOnDateMove, printCrewDayList: printCrewDayList, printWarehouseDayList: printWarehouseDayList, printNotDone: printNotDone, printOneStop: printOneStop,',
+    '        PLAN_SCHEMA: PLAN_SCHEMA, planSchemaOf: planSchemaOf, planIsNewerThanPage: planIsNewerThanPage, planKey: planKey,',
+    '        cascade: cascade, getDay: getDay, findHouse: findHouse, setDayLimitOn: setDayLimitOn, dayLimitOn: dayLimitOn,',
+    '        crewDaysOverTownLimit: crewDaysOverTownLimit, unassignedHousesFor: unassignedHousesFor, oneManDays: oneManDays,',
+    '        lockedDates: function(){ return LOCKED_DATES; }, setPrintedOverride: function(v){ PRINTED_OVERRIDE = !!v; },',
+    '        setGlobalDelta: function(n){ globalDelta = n; computeDates(); }, getGlobalDelta: function(){ return globalDelta; }, getBaseStart: function(){ return BASE_START; },',
+    '        houseOnWarehouseList: houseOnWarehouseList, isWorkingDay: isWorkingDay,',
+    '        forceDayDateByHand: forceDayDateByHand, setSeasonStartByHand: setSeasonStartByHand, setHangDayByHand: setHangDayByHand, settleAfterHandChange: settleAfterHandChange,',
+    '        freezePrintedDays: freezePrintedDays, installDayOnDate: installDayOnDate, foldShortCrewDays: foldShortCrewDays, keepEveryHouseLegal: keepEveryHouseLegal}',
     '};'
   ].join('\n');
 

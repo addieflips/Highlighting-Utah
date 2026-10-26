@@ -250,13 +250,53 @@ function nightlyInvoiceTemplateNameServer(settings, paidInFull) {
   return picked || (paidInFull ? NIGHTLY_PAID_TEMPLATE : NIGHTLY_UNPAID_TEMPLATE);
 }
 
+/* ⭐ THE ONE SHE EDITED LAST IS THE ONE THAT SENDS (2026-10-15, [[EM-35]]).
+ * Addie, told she had two templates under one name and should delete the spare:
+ * *"Why do I need to delete the old copy and make a new one. Can you make it so that
+ * it will register changes?"*
+ *
+ * ⛔ TWO TEMPLATES CAN SHARE A NAME AND EVERY SENDER LOOKS ONE UP BY NAME, so before
+ * this the winner was whichever Firestore handed back first — `where(…).limit(1)` here
+ * and `.find()` in admin.html, both arbitrary and neither stable. Editing "the"
+ * template could therefore leave the other copy, with the old wording, as the one that
+ * reaches customers; an edit that does not register reads as the editor being broken.
+ * ⚠ A BLANK ONE CAN NEVER BE THE RIGHT ANSWER and is ranked below any copy that has a
+ * body — the shipped-template filler patches an empty shell by itself, so a shell could
+ * otherwise be the most recently touched copy and win with nothing in it.
+ * ⚠ AND THE LAST TIEBREAK IS THE DOCUMENT ID, not arrival order: two undated copies
+ * must pick the same one on every run, or the wording changes between sends with
+ * nothing on the record to explain it.
+ * ⚠ The browser's copy is `pickNewestTemplate` in admin.html. Change one, change the
+ * other, in the same push — `template-pick.test.js` runs both over the same templates
+ * and fails if they disagree about the winner. */
+function tplEditedMillisServer(d) {
+  const v = (d && typeof d.data === 'function' ? (d.data() || {}) : (d || {}));
+  const stamp = v.updatedAt || v.createdAt;
+  if (!stamp) return 0;
+  if (typeof stamp.toMillis === 'function') return Number(stamp.toMillis()) || 0;
+  if (typeof stamp._seconds === 'number') return stamp._seconds * 1000;
+  if (typeof stamp.seconds === 'number') return stamp.seconds * 1000;
+  const ms = Date.parse(stamp);
+  return isNaN(ms) ? 0 : ms;
+}
+function pickNewestTemplateServer(docs) {
+  const rank = (d) => (String(((d.data && d.data()) || {}).body || '').trim() ? 1 : 0);
+  return (docs || []).slice().sort((a, b) =>
+    (rank(b) - rank(a)) ||
+    (tplEditedMillisServer(b) - tplEditedMillisServer(a)) ||
+    String(a.id).localeCompare(String(b.id))
+  )[0];
+}
+
 async function findTemplateSnapByName(name) {
-  const exact = await db.collection('emailTemplates').where('name', '==', name).limit(1).get();
-  if (!exact.empty) return exact;
+  /* ONE path, deliberately: the exact-name query that used to short-circuit here
+     returned an arbitrary one of the duplicates, so the picker below could never see
+     the copy she had just edited. `emailTemplates` is a couple of dozen documents. */
   const all = await db.collection('emailTemplates').get();
   const want = tplNameKey(name);
-  const hit = all.docs.find((d) => tplNameKey((d.data() || {}).name) === want);
-  return hit ? { empty: false, docs: [hit] } : { empty: true, docs: [] };
+  const hits = all.docs.filter((d) => tplNameKey((d.data() || {}).name) === want);
+  if (!hits.length) return { empty: true, docs: [] };
+  return { empty: false, docs: [pickNewestTemplateServer(hits)] };
 }
 
 /**

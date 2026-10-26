@@ -62,7 +62,9 @@ const NEEDED = ['whNoteText', 'whNotesCell', 'whSheetRowsForBuild', 'whBuildQueu
                 'whBuildSizeCells', 'whBuildTodo',
                 'whWhoLabel', 'isOutForSeason',
                 /* [[WH-49]] the third sheet — the day's pull list — and the renderer that draws it. */
-                'printWarehouseDayList', 'printWarehousePage', 'printTableHtml'];
+                'printWarehouseDayList', 'printWarehousePage', 'printTableHtml',
+                /* [[SCH-143]] a done house is never printed — the pull list asks it */
+                'printNotDone'];
 const src = {};
 const missing = [];
 NEEDED.forEach(n => { src[n] = lift(n); if (!src[n]) missing.push(n); });
@@ -266,7 +268,7 @@ if (whRow && prRow) {
 head('The day\'s pull list carries the note too');
 
 const pullList = new Function('printCustData',
-  src.whNoteText + src.whNotesCell + src.printWarehouseDayList + 'return printWarehouseDayList;')(
+  src.whNoteText + src.whNotesCell + src.printNotDone + src.printWarehouseDayList + 'return printWarehouseDayList;')(
   (h) => h._cust || {});
 const pullFor = (cust) => pullList({houses: [{id: 'cust-a1', cu: 894, name: 'Ashley Wray', _cust: cust}]})[0];
 const pullRow = src.printWarehouseDayList ? pullFor(CUST) : null;

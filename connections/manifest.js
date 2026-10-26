@@ -1180,7 +1180,9 @@ module.exports = [
           'Every caller places the call LAST, after every branch that can move the flag — including Maybe Next Year, which cancels a build. The first version sat inside the re-quote branch and missed every other way in. queue-date.test.js holds that census; a map of writers cannot see WHERE inside a handler a call sits.'] },
       { file: 'server', fn: 'stampBuildQueuedServer', where: 'Member Portal › My Lights', when: 'the flag goes from off to on',
         rules: ['The same rule, second copy. Change one and change the other in the same push.'] },
-      { file: 'admin', el: 'qBuildTestBtn', where: 'Quote Requests', when: 'a test quote is built' },
+      /* qBuildTestBtn was declared here until 2026-10-16: its Re-quotes branch built a test
+         CUSTOMER and stamped this. That branch went with the Re-quotes tab ([[QT-59]]); the
+         button writes quotes only now. */
       { file: 'admin', fn: 'buildTestPerson', where: 'Customers › All Customers', when: 'a test person is created' },
       { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is created' },
       { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' },

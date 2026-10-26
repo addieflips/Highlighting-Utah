@@ -225,6 +225,12 @@ jobs:
 
       - name: The invoice dry run cannot send or write
         run: npm run test:dryrun
+
+      # ⛔ WHICH OF TWO SAME-NAMED TEMPLATES SENDS. One rule, two copies (admin.html
+      # and functions/index.js), run side by side: if they disagree the office previews
+      # one wording and the customer receives another, and nothing else would notice.
+      - name: The template she edited last is the one that sends
+        run: npm run test:templatepick
       # ⛔ THE 7PM BILLING RUN, ACTUALLY EXECUTED. Named separately because nothing ran
       # runInvoiceBatch at all, and a one-word crash in it billed no new member at all
       # from 2026-09-18 to 2026-10-02: `nowMs` is not declared in that function,
@@ -402,6 +408,13 @@ jobs:
       # as "the schedule broke a rule" — see schedule-season.test.js. Fix the change, never the season.
       - name: The schedule keeps every rule over a whole season
         run: npm run test:season-sim
+
+      # ⭐⭐ [[SCH-140]] EVERY BUTTON THE OFFICE HAS, PRESSED AT RANDOM, FOR A WHOLE SEASON. Prints ahead, checks crews,
+      # marks for tomorrow, moves by hand, pushes, pulls, takes days off, forces dates, moves the season start, sets the crews
+      # behind, edits away dates and windows — and checks the rules after every single action. Its own named step so a red
+      # here reads as "an office action breaks a rule" — see schedule-chaos.test.js. Fix the change, never the simulation.
+      - name: No office action breaks a schedule rule
+        run: npm run test:chaos
 
       - name: Run the fast suite
         run: npm test

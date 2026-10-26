@@ -2057,6 +2057,9 @@ if (JSDOM) {
   global.quoteContactMatchCache = null; global.quoteContactMatchCacheFor = null;
   ['quoteContactMatchIndex', 'quotePossibleExistingCustomers', 'quoteContactMatchHtml'].forEach(n =>
     eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
+  /* 2026-10-20: the Google Maps side link beside the card's address — lifted, never stubbed (Suite 388 runs it). */
+  ['mapsLinkFor', 'mapOpenLinkHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -9574,7 +9577,10 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
-    const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
+    /* [[SCH-135]] the crew-check helpers these moves now ask — lifted, never stubbed (nothing here is held, so they answer no) */
+    const holdStart = admin.indexOf('const CREW_HOLD_UNTIL_HOUR');
+    const holdEnd = admin.indexOf('function refreshLockedDates(', holdStart);
+    const api = eval(admin.slice(holdStart, holdEnd) + '\n' + admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
       ' plan: planLeftoverMoves, move: moveLeftover})');
 
@@ -10387,8 +10393,18 @@ suite('17. A new customer lands on the next day in their city');
         'would be overruling the person who built the day');
 
       // a timing preference corrected from shorthand to something real
-      r = await stillOn([{id:'thx', data:{name:'Was THX', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(7)}}]);
+      /* ⚠ DATE-PROOF (2026-10-26). The day is a week from today, so from 25 October on it is itself in November and a
+         November preference is ALLOWED on it — the check went red on main with nothing changed. While that day is still
+         before November it tests November exactly as written; after that it uses a named later day ("M/D+"), which goes
+         through the same floor (houseAllowedFrom) and the same "cannot be installed until" eviction. Past the turn of a
+         year a named day would read in the wrong season, so it falls back to the office's not-before date there. */
+      const wk = new Date(); wk.setDate(wk.getDate() + 7);
+      const later = new Date(); later.setDate(later.getDate() + 21);
+      const latePref = wk.getMonth() < 10 ? {installPreference: 'November'}
+        : later.getFullYear() === wk.getFullYear() ? {installPreference: (later.getMonth() + 1) + '/' + later.getDate() + '+'}
+        : {earliestInstallDate: later};
+      r = await stillOn([{id:'thx', data:Object.assign({name:'Was THX', city:'Lehi', address:'1 St',
+        lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}, latePref)}]);
       check('reconcile', 'a preference corrected to November comes off an October day',
         r.dropped.some(w => /cannot be installed until/.test(w)),
         'the 1 customer reading THX and the 190 reading NOV will be tidied up by ' +
@@ -13373,7 +13389,8 @@ suite('Suite 25. A day is only SET if it is within two business days');
   // The wiring: both the layout and the badge must go through effectivePin.
   const layout = lift('layoutSequence') || '';
   check('S25', 'the date engine honours the horizon, not the raw pin',
-    /effectivePin\(day\)/.test(layout) && !/if\(day\.pin\)\{day\._date/.test(layout),
+    /* [[SCH-140]] the layout asks dayAnchor, and dayAnchor asks effectivePin — repointed, not weakened */
+    /dayAnchor\(d\)/.test(layout) && /effectivePin\(day\)/.test(lift('dayAnchor') || '') && !/day\.pin/.test(layout),
     'reading day.pin directly here is what pinned Oct 1 and Oct 2 in place');
   check('S25', 'the SET badge only shows when the pin is actually in force',
     /effectivePin\(day\)\?'<span class="pinbadge">SET</.test(admin) &&
@@ -17067,7 +17084,14 @@ suite('Suite 46. Nobody is hung before the month they asked for');
          and this sandbox has no customer book to find anybody in, so here it falls back to
          houseAllowedFrom exactly as it always did. The hold half is RUN, with real customers,
          by schedule-v2.test.js (suites 2.1 and 9.4). */
-      'houseEarliestDay', 'planCustomerFor'];
+      'houseEarliestDay', 'planCustomerFor',
+      /* ⚠ AND THE [[SCH-140]] HELPERS, DELIBERATELY NOT SUPPLIED for the same reason: every one is called behind a typeof
+         guard (dayHasHeldCrew, dayHoldsWithHouse, freeInstallDayFor, installDayOnDate, pastDeadlineSoonestDay,
+         scheduleTodayStr), so here the picker answers from the days that exist, as it always did; and crewCap is reached
+         only on a date the office has marked one crew, which no fixture here does. The making of a day, the five-mile hold
+         and the checked crew are RUN with real days by schedule-v2.test.js and schedule-chaos.test.js. */
+      'crewCap', 'dayHasHeldCrew', 'dayHoldsWithHouse', 'freeInstallDayFor', 'installDayOnDate',
+      'pastDeadlineSoonestDay', 'scheduleTodayStr'];
     /* ⭐ THEIR OWN CALENDAR ([[SCH-98]], 2026-09-28). LIFTED, NEVER STUBBED. This sweep is
        what moves a house off a day its family is away on, and it runs on the five-minute
        customer sync — long after Recalculate everything. A stubbed houseAwayOn answering
@@ -17369,8 +17393,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
      matches the START of the condition rather than the whole line — what it is
      asserting is that the sweep is NOT gated on a field having changed, not the
      exact list of things the sync stays quiet about. S44 owns that list. */
+  /* [[SCH-140]] the sync runs the sweep through keepEveryHouseLegal — repointed: that call, and the sweep inside it */
   check('S46', 'the sweep runs on every sync, not only when a field changed',
-    admin.indexOf('timing=enforceInstallTiming();') > 0 &&
+    admin.indexOf('timing=keepEveryHouseLegal();') > 0 &&
+    /const a = enforceInstallTiming\(\),/.test(extractFn(admin, 'keepEveryHouseLegal') || '') &&
     admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length') > 0,
     'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
@@ -17941,8 +17967,13 @@ suite('Suite 49. The Season start box decides the start');
     }
   }
 
+  /* [[SCH-140]] the box goes through setSeasonStartByHand (which also settles the plan afterwards) — repointed, not
+     weakened: the box must call it, and it must still set ONLY the shift */
+  const startByHand = extractFn(admin, 'setSeasonStartByHand') || '';
   check('S49', 'the box still only shifts, and the rebuild reads the shift',
-    /globalDelta=daysBetween\(new Date\(t\.value\+.T00:00:00.\),BASE_START\)/.test(admin) &&
+    /t\.id==='startDate'\)\{if\(t\.value\)\{const s=setSeasonStartByHand\(t\.value\)/.test(admin) &&
+    /globalDelta = daysBetween\(new Date\(value \+ 'T00:00:00'\), BASE_START\);/.test(startByHand) &&
+    !/BASE_START\s*=(?!=)/.test(startByHand) &&
     /const chosen = addDays\(BASE_START, globalDelta \|\| 0\);/.test(admin),
     'these two have to agree, or the number on screen is not the number that builds');
 }
@@ -22752,44 +22783,59 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
   const admin = read("admin.html");
 
   /* ---- the folder ---- */
-  check('S65', 'there is a Re-quotes tab',
-    /data-quotestage="requote"/.test(admin) && /id="quoteStageCountRequote"/.test(admin),
-    'the owner asked for a place separate from quotes; a filter nobody can see is not one');
-  check('S65', 'and its count is filled in like the others',
-    admin.indexOf("getElementById('quoteStageCountRequote').textContent") > 0,
-    'a folder with no number beside it is a folder nobody opens');
+  /* ⛔ THERE IS NO RE-QUOTES TAB ([[QT-59]], 2026-10-16). Addie: "can we put requtes with
+     regualr quotes and get rid of the requote tab?" These two checks used to hold the tab
+     in place ("the owner asked for a place separate from quotes") — the same owner asked
+     for it to go, so R-024 applies and they assert the reverse. The UPDATES half of this
+     suite, below, is untouched: converting a re-quote never depended on the tab. */
+  check('S65', 'there is no Re-quotes tab any more',
+    !/data-quotestage="requote"/.test(admin) && !/quoteStageCountRequote/.test(admin),
+    'she asked for re-quotes to sit with regular quotes and the tab to go');
+  check('S65', 'and the stage counts no longer carry it',
+    /const stageCounts = \{new:0, send:0, form:0, closed:0\};/.test(admin),
+    'a count for a tab that is not drawn is a key nothing reads');
 
   /* ⭐ WAITING FOR PICTURES ([[QT-57]], 2026-10-15). Addie: "in quotes can we make a
      section that says waiting for pictures with a place to push waiting for pictures or
      something shorter than that for new quotes. This is when we email for pictures of
      there house." A hand-set mark on the quote (waitingForPhotosAt), a tab of its own,
      and a way back. The folder rule is RUN below; these hold the tab and the two writers. */
-  check('S65', 'there is a Waiting for pictures tab',
-    /data-quotestage="pictures"/.test(admin) && /id="quoteStageCountPictures"/.test(admin),
-    'she asked for a section; a folder rule with no tab is a card that vanishes');
-  check('S65', 'and its count is filled in with the others',
-    admin.indexOf("getElementById('quoteStageCountPictures').textContent") > 0 &&
-    /const stageCounts = \{new:0, pictures:0,/.test(admin),
-    'a tab whose count is never written reads as empty whatever is in it');
+  /* ⭐ A SUB-SECTION OF QUOTES, NOT A TAB ([[QT-58]], 2026-10-16). Addie, the day after:
+     "can we make that a sub section somewere right here" — the strip under the stats,
+     where Awaiting Response keeps Send text. So the tab is gone and the rule moved into
+     quoteWaitingForPictures, which the strip, the list and the card all ask. */
+  check('S65', 'Waiting for pictures is a sub-tab under Quotes, not a tab of its own',
+    !/data-quotestage="pictures"/.test(admin) && !/quoteStageCountPictures/.test(admin) &&
+    /data-quotenewsub="all"/.test(admin) && /data-quotenewsub="pictures"/.test(admin),
+    'she asked for a sub-section where the Send text one sits');
+  check('S65', 'and the list is split by the one rule',
+    /if\(quoteStageFilter === 'new'\)\{\s*\r?\n\s*filtered = filtered\.filter\(item => \(quoteNewSub === 'pictures'\) === quoteWaitingForPictures\(item\.data\)\);/.test(admin),
+    'the strip and the list must ask the same function, or the count and the cards disagree');
+  check('S65', 'the strip counts with the same rule',
+    /quoteWaitingForPictures\(q\.data\); \}\)\.length;/.test(admin),
+    'a second way of counting is how a sub-tab says 3 and shows 2');
+  check('S65', 'Build Test Customer builds into the sub-section that is open',
+    /const stage = \(quoteStageFilter === 'new' && quoteNewSub === 'pictures'\) \? 'pictures' : quoteStageFilter;/.test(admin),
+    'on Quotes › Waiting for pictures the test card has to arrive marked, or the button lands it on the other half');
   check('S65', 'the card offers Waiting for pictures, and a way back',
     /data-waitphotos="'\+item\.id\+'"/.test(admin) && /data-gotphotos="'\+item\.id\+'"/.test(admin),
     'a folder nothing can file into is an empty tab');
   check('S65', 'and only where pressing it would move the card',
     /\(\(quoteStage\(d\) === 'new' && !isRequote\(d\)\)\s*\r?\n\s*\? \(d\.waitingForPhotosAt/.test(admin),
     'the button and the folder rule must read the same two conditions, or a press moves nothing');
-  check('S65', 'pressing it stamps the mark and follows the card to its tab',
+  check('S65', 'pressing it stamps the mark and follows the card to its sub-section',
     /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: serverTimestamp\(\)\}\)/.test(admin) &&
-    /followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
-    'a write with no local mirror leaves the office on a tab the card has left');
+    /quoteNewSub = 'pictures';\s*\r?\n\s*followQuoteToItsStage\(id, \{waitingForPhotosAt: new Date\(\)\}\)/.test(admin),
+    'a write with no local mirror leaves the office on a half of the tab the card has left');
   check('S65', 'and Pictures arrived clears it the same way',
     /* ⚠ THE WRITE ITSELF, NOT THE NAME. A red-check that emptied the updateDoc passed the
        first draft, because the local mirror on the next line spells the same object. */
     /updateDoc\(doc\(db,'quotes', id\), \{waitingForPhotosAt: null\}\)/.test(admin) &&
-    /followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
+    /quoteNewSub = 'all';\s*\r?\n\s*followQuoteToItsStage\(id, \{waitingForPhotosAt: null\}\)/.test(admin),
     'a mark with no way off leaves a quote waiting for pictures for ever');
-  check('S65', 'the empty tab says how a card gets there',
-    /pictures: 'Nobody is waiting on pictures\./.test(admin),
-    'an empty tab with no instruction reads as broken');
+  check('S65', 'the empty sub-section says how a card gets there',
+    /\? 'Nobody is waiting on pictures\. Press Waiting for pictures/.test(admin),
+    'an empty list with no instruction reads as broken');
 
   {
     const at = admin.indexOf('function quoteFolder(');
@@ -22801,8 +22847,21 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         else if (admin[i] === '}') { d--; if (!d) { src = admin.slice(at, i + 1); break; } }
       }
     }
+    /* The pictures rule is its own function now ([[QT-58]]); lifted the same way. */
+    let picSrc = '';
+    {
+      const at2 = admin.indexOf('function quoteWaitingForPictures(');
+      if (at2 >= 0) {
+        let d = 0;
+        for (let i = admin.indexOf('{', at2); i < admin.length; i++) {
+          if (admin[i] === '{') d++;
+          else if (admin[i] === '}') { d--; if (!d) { picSrc = admin.slice(at2, i + 1); break; } }
+        }
+      }
+    }
     check('S65', 'quoteFolder exists', !!src);
-    if (src) {
+    check('S65', 'quoteWaitingForPictures exists', !!picSrc);
+    if (src && picSrc) {
       const sb = {};
       new Function(
         'function quoteStage(d){' +
@@ -22812,28 +22871,29 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
         '  return "send";' +
         '}' +
         'function isRequote(d){ return !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0)); }' +
-        src + 'this.f = quoteFolder;'
+        src + picSrc + 'this.f = quoteFolder; this.w = quoteWaitingForPictures;'
       ).call(sb);
-      const f = sb.f;
+      const f = sb.f, w = sb.w;
 
       check('S65', 'an ordinary quote keeps the folder its stage says',
         f({}) === 'new' && f({quotedPrice: 400}) === 'send' &&
         f({quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'diverting re-quotes must not move anybody else');
 
-      /* ⭐ WAITING FOR PICTURES ([[QT-57]]) — the folder rule, run. */
-      check('S65', 'a new quote marked waiting for pictures is filed there',
-        f({waitingForPhotosAt: 1}) === 'pictures' && f({}) === 'new',
-        'the mark is the only thing that files a card there, and nothing else must');
+      /* ⭐ WAITING FOR PICTURES ([[QT-57]] → [[QT-58]]) — the rule, run. The mark never
+         changes the FOLDER now; it decides which half of Quotes the card is under. */
+      check('S65', 'a new quote marked waiting for pictures stays in the Quotes folder and is flagged',
+        f({waitingForPhotosAt: 1}) === 'new' && w({waitingForPhotosAt: 1}) === true && w({}) === false,
+        'the mark is the only thing that puts a card under the sub-section, and nothing else must');
       check('S65', 'and once priced and sent it waits with everybody else',
-        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' &&
+        f({waitingForPhotosAt: 1, quotedPrice: 400}) === 'send' && w({waitingForPhotosAt: 1, quotedPrice: 400}) === false &&
         f({waitingForPhotosAt: 1, quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
         'a sent quote is waiting on an answer, not on pictures');
-      check('S65', 'a re-quote keeps its own tab whatever the mark says',
-        f({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === 'requote',
+      check('S65', 'a re-quote is never under Waiting for pictures whatever the mark says',
+        w({waitingForPhotosAt: 1, existingCustomerId: 'c1'}) === false,
         'she asked for this for new quotes; a re-quoted house is one we already have pictures of');
       check('S65', 'and a closed one is still history',
-        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' &&
+        f({waitingForPhotosAt: 1, status: 'closed'}) === 'closed' && w({waitingForPhotosAt: 1, status: 'closed'}) === false &&
         f({waitingForPhotosAt: 1, approvalStatus: 'declined'}) === 'closed',
         'Closed is one folder');
 
@@ -22849,16 +22909,23 @@ suite('Suite 65. Re-quotes have their own folder and update the customer');
          Its reasoning was that a priced re-quote must not "fall back into the ordinary
          pipeline half way through", which is right about CONVERTING — that is why the
          'form' stage below still stays in Re-quotes — and was wrong about chasing. */
-      check('S65', 'an open re-quote stays in Re-quotes until it has gone out',
-        f({existingCustomerId: 'c1'}) === 'requote' &&
-        f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'requote',
-        'unsent, and ready-to-convert, are both jobs for us rather than waits on the customer');
+      /* ⛔ REPOINTED AGAIN 2026-10-16 ([[QT-59]]): there is no Re-quotes folder. The
+         sentence that mattered — exactly one folder, never two — still holds; a re-quote
+         now files by its stage like a first quote, and the card says which it is. */
+      /* ⚠ The unpriced case only: this sandbox's quoteStage MIRROR files any priced card as
+         sent, so priced-but-unsent is proved against the REAL function in S337 instead. */
+      check('S65', 'an open re-quote files under Quotes with every other unsent quote',
+        f({existingCustomerId: 'c1'}) === 'new',
+        'she asked for re-quotes to sit with regular quotes');
+      check('S65', 'an approved one reaches Ready to Convert like a first quote',
+        f({existingCustomerId: 'c1', quotedPrice: 400, approvalStatus: 'approved', formCompleted: true}) === 'form',
+        'the Apply step is on the card, not on the tab, so nothing is lost by filing it here');
       check('S65', 'and a sent one joins Awaiting Response',
-        f({existingCustomerId: 'c1', quotedPrice: 400}) === 'send',
-        'a re-quote waiting on a reply is chased from the same list as everybody else');
+        f({existingCustomerId: 'c1', quotedPrice: 400, quoteManuallySent: true}) === 'send',
+        'a re-quote waiting on a reply is chased from the same list as everybody else ([[QT-43]] stands)');
       check('S65', 'including one raised by hand off an existing quote',
-        f({requoteCount: 1, quotedPrice: 400}) === 'send' &&
-        f({requoteCount: 1}) === 'requote',
+        f({requoteCount: 1, quotedPrice: 400, quoteManuallySent: true}) === 'send' &&
+        f({requoteCount: 1}) === 'new',
         'both kinds of re-quote are the same job and must move together');
 
       /* ⚠ CLOSED IS STILL ONE FOLDER, deliberately. History is looked up in one
@@ -25103,7 +25170,12 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
     const out = run([
       {date: '2026-10-15', houses: [H('Early', 'Payson', '2026-10-27')]},
       {date: '2026-10-27', houses: full},
-      {date: '2026-10-28', houses: [H('E', 'Orem')]}
+      {date: '2026-10-28', houses: [H('E', 'Orem')]},
+      /* [[SCH-140]] an open day with nothing on it. The four-towns count this suite was written for is retired — days are
+         laid out by the five-mile map now, and a house with no crew near it gets a day of its own (an empty open day
+         first, else a new one; the making of a day is RUN by schedule-v2.test.js). This sandbox has no customer
+         coordinates, so the empty day is how that answer is reached here. */
+      {date: '2026-10-29', houses: []}
     ]);
 
     check('S98', 'the house still moves off the day it is not allowed on',
@@ -25113,8 +25185,13 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       townsOn(dayNamed(out, '2026-10-27')).length === 4,
       'got ' + townsOn(dayNamed(out, '2026-10-27')).join(', ') + ' — this is the ' +
       'exact day she reported: four legal towns plus strays the sweep dropped on it');
-    check('S98', 'it lands on a day that can afford a new town',
-      townsOn(dayNamed(out, '2026-10-28')).indexOf('Payson') !== -1);
+    /* ⛔ REPOINTED ([[SCH-140]]): this read "it lands on a day that can afford a new town" — 28 October, by the
+       four-towns count, which is retired. The guarantee that survives is that it goes to an open day of its own rather
+       than onto anybody's crew it is not near. */
+    check('S98', 'it lands on an open day of its own',
+      townsOn(dayNamed(out, '2026-10-29')).indexOf('Payson') !== -1 &&
+      townsOn(dayNamed(out, '2026-10-28')).indexOf('Payson') === -1,
+      'got 29th: ' + townsOn(dayNamed(out, '2026-10-29')).join(', ') + '; 28th: ' + townsOn(dayNamed(out, '2026-10-28')).join(', '));
     check('S98', 'and never earlier than it is allowed',
       out.report.moved.length === 1 && out.report.moved[0].toDate >= '2026-10-27',
       'moving somebody to honour a town rule, into a month they ruled out, would be ' +
@@ -26501,7 +26578,7 @@ suite('Suite 104. The Printing tab');
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
     extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-    extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
+    extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
     chargeNewMemberFee: true,
@@ -26585,7 +26662,7 @@ suite('Suite 104. The Printing tab');
          whole claim. printCrewColumns comes with it because the column only exists
          when a row fills it, so stubbing either half hides the other. */
       extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
-      extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
+      extractFn(admin, 'printNotDone') + extractFn(admin, 'printFixPhotos') + extractFn(admin, 'fixPhotosOf') +
       /* ⚠ [[FIX-07]], 2026-10-06 — printCrewRow fills a `lights` cell on EVERY row now,
          not only a flagged one, so this is lifted unconditionally rather than beside
          the fix-only helpers above. A stub would prove the column renders and nothing
@@ -26815,7 +26892,7 @@ suite('Suite 104. The Printing tab');
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
       extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
-      extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
+      extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
     return (out[0] || {}).body || '';
@@ -29544,7 +29621,7 @@ suite('Suite 113. Build Test Customer');
     'without a description it would be saved with needsLightBuild false and never ' +
     'reach the build queue, which is half of what she is testing');
   check('S113', 'and every priced stage carries the $250',
-    ['send', 'form', 'requote', 'closed'].every(function(st){
+    ['send', 'form', 'closed'].every(function(st){
       return fields(st, base).quotedPrice === 250;
     }));
 
@@ -29589,7 +29666,7 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'Quotes needs no second write, because that is where a new one lands',
       Object.keys(staged('new')).length === 0);
     check('S113', 'and every other section does move the card',
-      ['pictures', 'send', 'form', 'requote', 'closed'].every(function(st){
+      ['pictures', 'send', 'form', 'closed'].every(function(st){
         return Object.keys(staged(st)).length > 0;
       }),
       'a stage with no updates leaves the card sitting in Quotes');
@@ -29607,30 +29684,29 @@ suite('Suite 113. Build Test Customer');
       /if\(Object\.keys\(staged\)\.length\)/.test(blk),
       'an empty update is a write for nothing');
   }
-  /* ⚠ AND THE ROUND TRIP. */
-  const stages = ['new', 'pictures', 'send', 'form', 'requote', 'closed'];
+  /* ⚠ AND THE ROUND TRIP. ⛔ 'requote' LEFT THIS LIST 2026-10-16 ([[QT-59]]) with the tab
+     that chose it; 'pictures' is a sub-section of Quotes ([[QT-58]]), so its card files in
+     the Quotes FOLDER and is flagged by quoteWaitingForPictures. */
+  const waiting = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteWaitingForPictures') + 'return quoteWaitingForPictures(d);');
+  const stages = ['new', 'pictures', 'send', 'form', 'closed'];
   stages.forEach(function(st){
     const f = fields(st, base);
-    /* Re-quotes is the one that needs a customer behind it, which the button builds
-       first and links — a re-quote with nothing behind it is an ordinary quote. */
-    if(st === 'requote') f.existingCustomerId = 'c1';
+    const want = st === 'pictures' ? 'new' : st;
+    const got = folder(f, function(){ return false; }, function(){ return true; });
     check('S113', 'a test card built in ' + st + ' is filed in ' + st,
-      folder(f, function(){ return false; }, function(){ return true; }) === st,
-      'got ' + folder(f, function(){ return false; }, function(){ return true; }) +
-      ' \u2014 the point of the button is a card that arrives in the tab you are on');
+      got === want && (st === 'pictures') === waiting(f, function(){ return false; }, function(){ return true; }),
+      'got ' + got + (st === 'pictures' ? ' (waiting: ' + waiting(f, function(){ return false; }, function(){ return true; }) + ')' : '') +
+      ' \u2014 the point of the button is a card that arrives in the section you are on');
   });
 
-  /* ⚠ THE FOLDER IS NOT WHY THE CUSTOMER MATTERS. requoteCount alone files the card
-     under Re-quotes — isRequote takes either signal — so my first check here asserted
-     something untrue and went red, which is the check doing its job. What actually needs
-     the customer is CONVERTING: showConvertQuoteChoice only diverts to the update popup
-     when the quote still points at a live record, and without one the test card would
-     build a second customer instead of updating the first. That is the half of the
-     re-quote flow she would be testing. */
-  check('S113', 'the card is filed on the re-quote count alone',
-    folder(fields('requote', base), function(){ return false; }, function(){ return true; }) === 'requote',
-    'isRequote takes either the count or the customer link');
-  check('S113', 'but converting only updates when a live customer is behind it',
+  /* ⚠ CONVERTING is what needs a live customer behind a re-quote: showConvertQuoteChoice
+     only diverts to the update popup when the quote still points at a live record, and
+     without one a card would build a second customer instead of updating the first. The
+     test button no longer builds a re-quote ([[QT-59]]), but the rule it leaned on is
+     still the one that matters. */
+  check('S113', 'converting only updates when a live customer is behind it',
     /const stillACustomer = d\.existingCustomerId/.test(extractFn(admin, 'showConvertQuoteChoice')) &&
     /if\(stillACustomer\)\{ showApplyRequoteChoice/.test(admin),
     'without the link the test card builds a SECOND customer, which is the mistake ' +
@@ -29669,15 +29745,16 @@ suite('Suite 113. Build Test Customer');
     check('S113', 'and something is listening to it', !!blk && /addEventListener\('click'/.test(blk),
       'a button that does nothing looks exactly like one that works');
     check('S113', 'it builds for the section that is open',
-      /const stage = quoteStageFilter;/.test(blk),
-      'one button on five tabs is only useful if it knows which one it is on');
+      /const stage = \(quoteStageFilter === 'new' && quoteNewSub === 'pictures'\) \? 'pictures' : quoteStageFilter;/.test(blk),
+      'one button on four tabs and a sub-section is only useful if it knows which one it is on');
     check('S113', 'it asks first, naming the section',
       /confirm\(/.test(blk) && /Build a test customer in/.test(blk),
       'it writes a real record, so it says so before it does');
-    check('S113', 'and the Re-quotes one builds the customer it points at',
-      /if\(stage === 'requote'\)/.test(blk) && /jobAddresses/.test(blk) &&
-      /fields\.existingCustomerId = cust\.id;/.test(blk),
-      'a re-quote card with no customer behind it lands in the wrong tab');
+    /* ⛔ The Re-quotes branch (a test customer built first and linked) went with the tab
+       ([[QT-59]]); asserted gone so it does not come back as dead code. */
+    check('S113', 'and it no longer builds a test customer for a Re-quotes tab that is gone',
+      !/if\(stage === 'requote'\)/.test(blk) && !/fields\.existingCustomerId = cust\.id;/.test(blk),
+      'a branch nothing can reach is the copy that quietly falls behind');
     check('S113', 'and a failure says what failed',
       /console\.error\('Could not build the test customer:'/.test(blk),
       'the same silence that hid the Edit Customer save for two days');
@@ -32583,14 +32660,17 @@ pendingAsync.push((async () => {
     const blk = at < 0 ? "" : render.slice(at, render.indexOf("if(invoiceSearchTerm)", at));
     check('S79', 'the archived filter block was found to run', !!blk);
     if (blk) {
-      const run = new Function("allInvoicesCache", "document", blk + "return filtered;");
+      /* MON-85 put the this-season gate inside this slice. It is STUBBED OPEN here on purpose:
+         this block's claim is the archived toggle alone, and Suite 387 runs the real gate. */
+      const run = new Function("allInvoicesCache", "document", "invoiceSearchTerm", "invShowingEveryone", "invoiceCountsThisSeason",
+        blk + "return filtered;");
       const book = [{id: "a", data: {}}, {id: "b", data: {archived: true}}];
       const docStub = (checked) => ({ getElementById: () => ({ checked: checked }) });
       check('S79', 'an archived invoice is off the working list by default',
-        run(book, docStub(false)).map(x => x.id).join() === "a",
+        run(book, docStub(false), "", () => false, () => true).map(x => x.id).join() === "a",
         'archiving that leaves them on screen has achieved nothing at all');
       check('S79', 'and ticking the box brings them back',
-        run(book, docStub(true)).map(x => x.id).join() === "a,b",
+        run(book, docStub(true), "", () => false, () => true).map(x => x.id).join() === "a,b",
         'the money is still theirs to look up; it is only out of the way');
     }
   }
@@ -34871,8 +34951,11 @@ suite('77. Schedule route generator');
   check('S77', 'but only when a house actually moved day or town',
     /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged(?: \|\| [\w.]+\.length)*\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
+  /* [[SCH-140]] the lock is refreshed between the ordering and the draw now, so the draw is its own line — repointed,
+     and asserted present as well as after, since indexOf -1 would pass the old comparison vacuously */
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
-    sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
+    sync.indexOf('generateAllRoutes()') !== -1 && sync.indexOf('renderAll(); scheduleSave();') !== -1 &&
+    sync.indexOf('generateAllRoutes()') < sync.indexOf('renderAll(); scheduleSave();'),
     'ordering after the draw shows the office one order and saves another');
   check('S77', 'a failure ordering routes cannot take the sync down',
     /catch\(err\)\{ console\.error\('Route generation failed:'/.test(sync),
@@ -35872,7 +35955,7 @@ suite('122. Out of the yard and back, and a picture of it');
      a drawing — but what the office sees normally is a live map. */
   check('S122', 'the drawing is only reached when Google Maps is not',
     /if\(typeof google === 'undefined' \|\| !google\.maps \|\| !google\.maps\.Map\)/
-      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'))),
+      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day, opts)'))),
     'offline, or a key problem, must still show something');
   check('S122', 'and the maps are mounted after the panel is written',
     panel.indexOf('renderDayMaps(') > panel.indexOf('el.innerHTML=h'),
@@ -35882,7 +35965,7 @@ suite('122. Out of the yard and back, and a picture of it');
     'the stops matter more than the drawing of them');
   /* ---- the live maps ---- */
   {
-    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'));
+    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day, opts)'));
     const pane = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
     const doc = sectionFrom(admin, admin.indexOf('function dayMapDraw(pane, route, home)'));
     const routes = sectionFrom(admin, admin.indexOf('function dayMapRoutes(day)'));
@@ -36316,14 +36399,17 @@ suite('125. The schedule keeps off Thanksgiving, not just off weekends');
 {
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
-  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays',
+  /* [[SCH-140]] layoutSequence lays out anchored days first (dayAnchor: a printed, checked, forced or fixed date) and
+     reads isoOf — both lifted, never stubbed; the fixtures here carry no anchors, so the layout is the one this suite
+     was written for */
+  const parts = ['isWeekend', 'isThanksgiving', 'isDayOff', 'dayOffName', 'addDays', 'isoOf', 'dayAnchor', 'startFor',
                  'layoutSequence', 'nextWeekday', 'thanksgivingDate', 'isThanksgivingDay']
     .map(pick).filter(Boolean).join(LF_);
   if (!pick('layoutSequence') || !pick('isDayOff')) {
     check('S125', 'the schedule’s date layout is findable', false,
       'renamed or removed — update this test rather than deleting it');
   } else {
-    const prelude = 'let BASE_START=new Date(2026,10,16), globalDelta=0, SEASON=[];' + LF_ +
+    const prelude = 'let BASE_START=new Date(2026,10,16), TAKE_BASE_START=new Date(2027,0,4), globalDelta=0, SEASON=[];' + LF_ +
       'function daysBetween(a,b){return Math.round((a-b)/86400000);}' + LF_ +
       'function deltaFor(){return globalDelta;}' + LF_ +
       'function effectivePin(d){return d && d.pin ? d.pin : null;}' + LF_ +
@@ -47160,9 +47246,11 @@ suite('263. Priced is not sent - the card stays in Quotes');
      that is exactly what Addie changed: "Everything on requotes that is awaiting response
      should go under awaiting response." Sent is now the whole of what decides it, so the
      two halves are asserted apart rather than the check being dropped. */
-  check('S263', 'an unsent re-quote is still filed under Re-quotes',
-    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote',
-    'nothing has gone out, so nobody is being waited on — that is a job for us');
+  /* ⛔ REPOINTED AGAIN 2026-10-16 ([[QT-59]]): "put requtes with regualr quotes and get rid
+     of the requote tab". Unsent still means a job for us — it is simply under Quotes now. */
+  check('S263', 'an unsent re-quote is filed under Quotes with every other unsent quote',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'new',
+    'nothing has gone out, so nobody is being waited on — that is a job for us, on the Quotes tab');
   check('S263', 'and a sent one is filed under Awaiting Response',
     folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'send',
     'one list of everyone the office is chasing, which is the whole of the ruling');
@@ -52615,6 +52703,10 @@ suite('291. An RSVP link to text, for everyone with no email');
       'let rsvpTextTemplateName = "";' + NL287 +
       'let etTemplatesLoaded = true;' + NL287 +
       'let emailTemplates = [];' + NL287 +
+      /* ⚠ LIFTED, NEVER STUBBED ([[EM-35]]): getEmailTemplateByName now asks which of two
+         same-named templates is the newest, and a stub here would answer that for it. */
+      extractFn(admin, 'tplEditedMillis') + NL287 +
+      extractFn(admin, 'pickNewestTemplate') + NL287 +
       extractFn(admin, 'getEmailTemplateByName') + NL287 +
       extractFn(admin, 'htmlEmailToPlainText') + NL287 +
       extractFn(admin, 'properName') + NL287 +
@@ -54329,6 +54421,10 @@ suite('Suite 295. Nothing is hung before the season starts');
         'const PIN_HONOURED_BUSINESS_DAYS=2;' +
         'function pinHorizon(){const d=new Date(2099,0,1);return d;}' +
         fn('desired') + fn('effectivePin') + fn('seasonStartDate') +
+        /* [[SCH-140]] the layout lays out anchored days first and re-measures a day it steps aside — both lifted,
+           never stubbed; no fixture here carries an anchor */
+        'const DAYMS=' + ((admin.match(/const DAYMS=(\d+)/) || [])[1] || 86400000) + ';' +
+        fn('daysBetween') + fn('dayAnchor') +
         fn('layoutSequence') + fn('computeDates') +
         'this.run=function(season,delta){SEASON=season;globalDelta=delta||0;computeDates();' +
         'return {box:isoOf(addDays(BASE_START,globalDelta)),' +
@@ -63068,8 +63164,10 @@ suite('Suite 334. Somebody who leaves the season comes off the plan on its own')
     /leftSeason=dropHousesWhoLeftSeason\(\)/.test(sync),
     'every behavioural check above passes with the call deleted from the page');
   check('S334', 'and before the three sweeps that move or place anybody',
+    /* [[SCH-140]] the timing sweep runs through keepEveryHouseLegal now — repointed, and both calls asserted present */
+    sync.indexOf('placeUnscheduledOnNextDay()') !== -1 && sync.indexOf('keepEveryHouseLegal()') !== -1 &&
     sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('placeUnscheduledOnNextDay()') &&
-    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('enforceInstallTiming()'),
+    sync.indexOf('dropHousesWhoLeftSeason()') < sync.indexOf('keepEveryHouseLegal()'),
     're-homing and re-timing a house that is about to come off is work thrown away');
   /* ⚠ THE ONE THAT DECIDES WHETHER ANY OF THIS REACHES FIRESTORE. A tick whose only
      finding is a drop returns before renderAll and scheduleSave, so the house comes off
@@ -63271,13 +63369,15 @@ suite('Suite 337. A re-quote waiting on a reply waits with everybody else');
     F(sentFirst) === 'send',
     'if this changed, the tab it is being moved INTO is what broke');
 
-  /* ⚠ RE-QUOTES WITH SOMETHING LEFT TO DO STAY WHERE THEY ARE — that is what the tab is
-     for now, and moving them would empty it. */
-  check('S337', 'a re-quote that has not gone out yet stays in Re-quotes',
-    F(unsentRequote) === 'requote',
+  /* ⛔ RE-QUOTES WITH SOMETHING LEFT TO DO ARE UNDER QUOTES ([[QT-59]], 2026-10-16). This
+     read "stay in Re-quotes — that is what the tab is for now"; the tab is gone. What is
+     kept is the distinction the two checks drew: unsent is OUR job, so it is never under
+     Awaiting Response. */
+  check('S337', 'a re-quote that has not gone out yet is under Quotes, not Awaiting Response',
+    F(unsentRequote) === 'new',
     'priced but unsent is not waiting on the customer, it is waiting on us');
-  check('S337', 'and so does one nobody has priced',
-    F(newRequote) === 'requote',
+  check('S337', 'and so is one nobody has priced',
+    F(newRequote) === 'new',
     'quoteStage calls that "new" — there is nothing for the customer to answer');
 
   /* ⚠ CLOSED IS STILL ONE FOLDER. History is looked up in one place; splitting it means
@@ -66130,7 +66230,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
   const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
-                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml']
+                  'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml', 'printNotDone']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
   const make = (opts) => new Function('o',
@@ -66242,7 +66342,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
  * --------------------------------------------------------------------------- */
 suite('368. A new hang\'s photos and its row carry the same letter and colour');
 {
-  const names = ['printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
+  const names = ['printNotDone', 'printNewHangKeys', 'printCrewDayList', 'printCrewPhotos', 'printNewHangPhotoList', 'printPhotosHtml', 'printTableHtml', 'printCustData', 'printIsNewHang'];
   const src = names.map(n => extractFn(admin, n));
   const pal = (admin.match(/const PRINT_PHOTO_KEY_COLOURS = \[[^\]]*\];/) || [''])[0];
   check('S368', 'the key functions and palette are findable', src.every(Boolean) && !!pal);
@@ -66872,7 +66972,9 @@ suite('381. A new hang\'s photo comes off the live record, and prints on the bac
     Src('https://example.com/x.png') === 'https://example.com/x.png' && Src('') === '');
   check('S381', 'and the printed photo block uses it', /esc\(\(typeof printPhotoSrc === 'function'\) \? printPhotoSrc\(p\.url\) : p\.url\)/.test(stripped));
   check('S381', 'the photo block, the letters and the "no photo" line all ask the same rule',
-    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 3 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
+    /* 3 → 4 on 2026-10-19: printOneStop ([[SCH-144]], one stop on its own page) asks the same rule — a census, so a
+       reader arriving is written down here rather than the check being loosened */
+    (stripped.match(/\? printNewHangPhotoList\(d, h\)/g) || []).length === 4 && !/const photos = \(\(typeof customerPhotoList/.test(stripped));
 }
 
 /* =====================================================================
@@ -67087,4 +67189,465 @@ suite('384. No batches on Text the RSVP: one list, tick where you stopped, Submi
         'RS-69 stands there');
     })());
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 385. A FIX CAN BE ADDED FROM ALL CUSTOMERS ([[FIX-11]]). Addie, 2026-10-07: "We also need to be able to add fix
+ * to the costumers list with notes and picture there as well." The row opens the SAME showAddFixPopup every other door
+ * opens. The cell is RUN, not matched: every claim here is about what the row shows.
+ * --------------------------------------------------------------------------- */
+suite('385. Add a fix from All Customers');
+{
+  const cellSrc = extractFn(admin, 'allCustFixCell');
+  check('S385', 'the row helper is findable', !!cellSrc);
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const photosSrc = extractFn(admin, 'fixPhotosOf');
+  const cell = cellSrc ? new Function('esc', 'cloudThumb', (photosSrc || '') + cellSrc + 'return allCustFixCell;')(esc, (u, w) => u + '?w=' + w) : () => '';
+  const none = cell('abc', {name: 'Kim'});
+  check('S385', 'a house with no fix offers Add fix, wired to its own id', /data-addfix="abc"/.test(none) && /Add fix/.test(none) && !/Needs fix/.test(none));
+  const open = cell('xyz', {needsFix: true, fixNote: 'two strands out <front>', fixPhotoUrls: ['https://img/x.jpg', 'https://img/y.jpg']});
+  check('S385', 'an open fix says Needs fix and offers Edit fix', /Needs fix/.test(open) && /Edit fix/.test(open) && /data-addfix="xyz"/.test(open));
+  check('S385', 'the note the crew will read is on the row, escaped', open.indexOf('two strands out &lt;front&gt;') !== -1 && open.indexOf('<front>') === -1);
+  check('S385', 'every photo is on the row, as a thumbnail linking to the full picture',
+    (open.match(/<img /g) || []).length === 2 && open.indexOf('href="https://img/y.jpg"') !== -1 && open.indexOf('src="https://img/x.jpg?w=160"') !== -1);
+  check('S385', 'an old single-photo fix still shows its photo', /<img /.test(cell('o', {needsFix: true, fixPhotoUrl: 'https://img/old1.jpg'})));
+  check('S385', 'an open fix with no note says so rather than showing nothing', /no note yet/.test(cell('q', {needsFix: true})));
+  check('S385', 'a closed fix leaves no stale note or photo on the row', !/strands|<img/.test(cell('q', {needsFix: false, fixNote: 'old strands', fixPhotoUrl: 'https://img/old.jpg'})));
+  const render = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
+  check('S385', 'every row carries the fix cell', /allCustFixCell\(r\.item\.id, r\.d\)/.test(render));
+  check('S385', 'the button opens the shared fix popup', /\[data-addfix\][^]*?showAddFixPopup\(btn\.dataset\.addfix/.test(render));
+  check('S385', 'the empty-state row still spans the same eight columns', /colspan="8"/.test(render));
+  check('S385', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')));
+}
+
+/* ---------------------------------------------------------------------------
+ * 386. WHAT THIS SEASON IS SHAPING UP TO BRING IN ([[MON-84]]). Addie, 2026-10-20: "on finance
+ * dashboard can we make it show how much we are approximating this year based on whos RSVP'd and
+ * who is a new quote that is converted to costumer." fovSeasonProjection is RUN against a book,
+ * with the REAL effectiveRsvpStatus and audienceNeverAsked lifted in — a stub of either would let
+ * this card disagree with the RSVP cards beside it with every check green. The renderer is run
+ * too, against a fake document, because a rule that is right and a tile that never reads it is
+ * the shape this repo has shipped before.
+ * --------------------------------------------------------------------------- */
+suite('386. The Financial Overview says what this season is shaping up to bring in');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const projSrc = extractFn(admin, 'fovSeasonProjection');
+  check('S386', 'the rule is findable', !!projSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandboxSrc = (quotes) =>
+    'let quotesCache = ' + JSON.stringify(quotes || []) + '; const NEW_MEMBER_FEE = 30;' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + (projSrc || '');
+  assertSandbox('S386', 'the projection sandbox supplies everything it calls', sandboxSrc([]), admin, ['quotesCache', 'NEW_MEMBER_FEE']);
+  const run = (book, quotes) => new Function(sandboxSrc(quotes) + ';return fovSeasonProjection;')()(book);
+  const c = (id, d) => ({id, data: d});
+  const q = (over) => ({id: 'q1', data: Object.assign({
+    status: 'closed', convertedToCustomerAt: ts(yr), phone: '8015550001', address: '1 Elm St'}, over || {})});
+
+  /* Who counts. */
+  let p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a returning customer who RSVP\'d yes counts, at the price on their record',
+    p.rsvp.count === 1 && p.rsvp.total === 400 && p.fresh.count === 0 && p.total === 400);
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes'})]);
+  check('S386', 'a bare yes with no reply behind it counts for nothing',
+    p.rsvp.count === 0 && p.total === 0,
+    'that is what an imported record looks like — effectiveRsvpStatus\'s own first rule');
+  ['no', 'backnextyear', 'unanswered', ''].forEach(function(said){
+    p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: said, rsvpRespondedAt: ts(yr)})]);
+    check('S386', 'an answer of "' + (said || 'nothing') + '" is not money this season', p.total === 0 && p.rsvp.count === 0);
+  });
+  p = run([c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]);
+  check('S386', 'the office\'s Maybe Next Year badge wins over a yes', p.total === 0,
+    'the badge is the office recording what they were told');
+
+  /* New this year — both doors, and the fee only where the box is ticked. */
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true})]);
+  check('S386', 'the $30 box alone makes somebody new this year, counted with their set-up fee',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.feeCount === 1 && p.fresh.fees === 30 &&
+    p.rsvp.count === 0 && p.total === 380);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', chargeNewMemberFee: false})], [q()]);
+  check('S386', 'a quote converted this year makes them new, with NO fee when the box is unticked',
+    p.fresh.count === 1 && p.fresh.total === 350 && p.fresh.fees === 0 && p.fresh.feeCount === 0 && p.total === 350,
+    'a waived fee is money the nightly run never collects');
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})],
+    [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'a quote from LAST year does not make them new — they are a returning yes',
+    p.fresh.count === 0 && p.rsvp.count === 1 && p.rsvp.total === 350, 'MON-07: a ' + (yr - 1) + ' quote is not new in ' + yr);
+  p = run([c('a', {name: 'Bea', housePrice: 350, phone: '8015550001', address: '1 Elm St'})], [q({convertedToCustomerAt: ts(yr - 1)})]);
+  check('S386', 'and with no reply of their own they count for nothing', p.total === 0);
+  p = run([c('a', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a new member who then said no is out', p.total === 0 && p.fresh.count === 0);
+
+  /* The things that would quietly move the number. */
+  p = run([c('a', {name: 'Cal', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}), c('b', {name: 'Dee', housePrice: 500, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'a house with no price still counts as a house, at $0, and is NAMED',
+    p.rsvp.count === 2 && p.rsvp.total === 500 && p.noPrice.length === 1 && p.noPrice[0] === 'Cal',
+    'silently rounding the season down is the one thing this card must not do');
+  p = run([c('t', {name: 'Test', housePrice: 250, chargeNewMemberFee: true, isTestRecord: true})]);
+  check('S386', 'a test record is left out', p.total === 0 && p.fresh.count === 0);
+  p = run([
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: '350', chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', housePrice: 'n/a', chargeNewMemberFee: true}),
+    c('d', {name: 'Dee', housePrice: 200, rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]);
+  check('S386', 'the total is the two groups plus the fees, and a price typed as text still adds',
+    p.rsvp.total === 400 && p.fresh.total === 350 && p.fresh.fees === 60 && p.total === 810 && p.noPrice.join() === 'Cal');
+  check('S386', 'the fee is the shared constant, never a typed 30',
+    /NEW_MEMBER_FEE/.test(projSrc || '') && !/\b30\b/.test(stripComments(projSrc || '')));
+  check('S386', 'the rule reads the record\'s price, never an invoice',
+    /housePrice/.test(projSrc || '') && !/allInvoicesCache|invoiceById|\.install\b/.test(stripComments(projSrc || '')),
+    'the invoice is what has been billed; this counts people the run has not reached yet');
+
+  /* The renderer, run against a fake document. */
+  const rendSrc = extractFn(admin, 'fovRenderProjection');
+  check('S386', 'the renderer is findable', !!rendSrc);
+  const nodes = {};
+  const doc = {getElementById: (id) => (nodes[id] = nodes[id] || {textContent: ''})};
+  const book = [
+    c('a', {name: 'Ann', housePrice: 400, rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}),
+    c('b', {name: 'Bea', housePrice: 350, chargeNewMemberFee: true}),
+    c('c', {name: 'Cal', chargeNewMemberFee: true})];
+  const fmt = n => '$' + Number(n).toFixed(2);
+  let threw = null;
+  try{
+    new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, book, fmt);
+  }catch(e){ threw = e; }
+  check('S386', 'the renderer runs', !threw, threw && threw.message);
+  check('S386', 'the tiles carry the rule\'s numbers',
+    nodes.fovProjTotal && nodes.fovProjTotal.textContent === '$810.00' &&
+    nodes.fovProjRsvp && nodes.fovProjRsvp.textContent === '$400.00' &&
+    nodes.fovProjNew && nodes.fovProjNew.textContent === '$350.00' &&
+    nodes.fovProjFees && nodes.fovProjFees.textContent === '$60.00',
+    JSON.stringify(nodes));
+  check('S386', 'and the counts under them',
+    /^3 houses$/.test(nodes.fovProjTotalSub.textContent) && /^1 returning customer$/.test(nodes.fovProjRsvpSub.textContent) &&
+    /^2 new customers$/.test(nodes.fovProjNewSub.textContent) && /^2 new members charged$/.test(nodes.fovProjFeesSub.textContent));
+  check('S386', 'the note names the house with no price', /Cal/.test(nodes.fovProjNote.textContent) && /\$0/.test(nodes.fovProjNote.textContent));
+  nodes.fovProjNote.textContent = '';
+  new Function('document', 'jobAddresses', 'fmtMoney', sandboxSrc([]) + (rendSrc || '') + ';fovRenderProjection();')(doc, [], fmt);
+  check('S386', 'an empty season says so rather than showing a row of noughts', /nothing to add up/.test(nodes.fovProjNote.textContent) && nodes.fovProjTotal.textContent === '$0.00');
+
+  /* Wiring — the renderer has to be reached from every door that moves the figure. */
+  ['fovProjTotal', 'fovProjTotalSub', 'fovProjRsvp', 'fovProjRsvpSub', 'fovProjNew', 'fovProjNewSub', 'fovProjFees', 'fovProjFeesSub', 'fovProjNote'].forEach(function(id){
+    check('S386', 'the markup carries #' + id, admin.indexOf('id="' + id + '"') !== -1 && admin.split('id="' + id + '"').length === 2);
+  });
+  const fovAll = stripComments(extractFn(admin, 'fovRenderAll') || '');
+  check('S386', 'fovRenderAll draws the card', /fovRenderProjection\(\);/.test(fovAll),
+    'the invoices listener is the first thing to draw the dashboard after login');
+  const rjap = stripComments(extractFn(admin, 'renderJobAddressPanels') || '');
+  check('S386', 'a customer change redraws it (an RSVP answer touches no invoice)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(rjap));
+  const qListener = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('badgeQuotes').textContent = newCount;")));
+  check('S386', 'a quote change redraws it (new-this-year is read off the quotes)',
+    /safeRender\('fovProjection', [^)]*fovRenderProjection/.test(qListener.slice(0, 600)));
+  check('S386', 'the render is deferred to the Dashboard like the rest of that panel',
+    /fovProjection: 'dashboard'/.test((admin.match(/const RENDER_PANEL = \{[\s\S]*?\n\};/) || [''])[0]));
+}
+
+/* ---------------------------------------------------------------------------
+ * 387. THE INVOICE LIST COUNTS ONLY PEOPLE WHO HAVE RSVP'D ([[MON-85]]). Addie, 2026-10-20: "look
+ * at invoice I'm pretty sure its showing how much we get if everyone RSVP but I only want to see
+ * for people who did RSVP." An invoice outlives the season, so every customer carries an Unpaid
+ * bill from 1 October and the Not Paid card summed the whole book. invoiceCountsThisSeason is RUN
+ * with the real effectiveRsvpStatus and housePaidThisSeason lifted in; billedHousesFor is stubbed
+ * ON PURPOSE — the claim is about this function's own composition, not about grouping.
+ * --------------------------------------------------------------------------- */
+suite('387. The Invoice List counts only people who have RSVP\'d or paid this season');
+{
+  const yr = new Date().getFullYear();
+  const ts = (y) => ({seconds: Math.floor(Date.UTC(y, 6, 1) / 1000)});
+  const gateSrc = extractFn(admin, 'invoiceCountsThisSeason');
+  check('S387', 'the rule is findable', !!gateSrc, 'a gate that cannot find its target must FAIL, never skip');
+  const sandbox = (houses, invoices) =>
+    'let quotesCache = [];' +
+    'const billedHousesFor = function(){ return ' + JSON.stringify(houses || []) + '; };' +
+    'const invoiceById = new Map(' + JSON.stringify(Object.keys(invoices || {}).map(k => [k, {data: invoices[k]}])) + ');' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') + custInvoiceKeySrc +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    extractFn(admin, 'effectiveRsvpStatus') + extractFn(admin, 'toJsDate') +
+    extractFn(admin, 'paymentSeasonYear') + extractFn(admin, 'housePaidThisSeason') + (gateSrc || '');
+  assertSandbox('S387', 'the invoice-gate sandbox', sandbox([], {}), admin,
+    ['quotesCache', 'billedHousesFor', 'invoiceById', 'custInvoiceKey']);
+  const counts = (houses, invoices) => new Function(sandbox(houses, invoices) + ';return invoiceCountsThisSeason;')()({id: '8015550100', data: {}});
+  const h = (d) => ({id: 'h1', data: Object.assign({phone: '8015550100'}, d)});
+
+  check('S387', 'a bill whose customer RSVP\'d yes counts', counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)})]) === true);
+  check('S387', 'a bill whose customer has not answered does NOT',
+    counts([h({})]) === false && counts([h({rsvpStatus: 'unanswered'})]) === false,
+    'that is the whole book on 1 October — "how much we get if everyone RSVP"');
+  check('S387', 'a bare yes with no reply behind it does not', counts([h({rsvpStatus: 'yes'})]) === false);
+  check('S387', 'a no does not, nor Back Next Year, nor the office\'s badge',
+    counts([h({rsvpStatus: 'no', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'backnextyear', rsvpRespondedAt: ts(yr)})]) === false &&
+    counts([h({rsvpStatus: 'yes', rsvpRespondedAt: ts(yr), maybeNextYear: true})]) === false);
+  check('S387', 'a new member (the $30 box) counts without a reply', counts([h({chargeNewMemberFee: true})]) === true,
+    'effectiveRsvpStatus reads a first-year customer as yes — same rule as every other screen');
+  const paidThisYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr)}};
+  const paidLastYear = {'8015550100': {deposit: 200, lastPaymentAt: ts(yr - 1)}};
+  check('S387', 'money paid THIS season counts whatever they answered', counts([h({})], paidThisYear) === true,
+    'SCH-82: paid for this year confirms them, and the Paid in Full card must not lose them');
+  check('S387', 'money paid LAST season does not', counts([h({})], paidLastYear) === false);
+  check('S387', 'any house on the bill saying yes is enough — a parent paying for a child',
+    counts([h({}), {id: 'h2', data: {phone: '8015550100', rsvpStatus: 'yes', rsvpRespondedAt: ts(yr)}}]) === true);
+  check('S387', 'a bill with nobody on it does not count', counts([]) === false,
+    'an archived bill is the Show archived box\'s business');
+  check('S387', 'the rule reads the shared status rule, not rsvpStatus for itself',
+    /effectiveRsvpStatus\(/.test(gateSrc || '') && !/rsvpStatus/.test(stripComments(gateSrc || '').replace(/effectiveRsvpStatus/g, '')));
+  check('S387', 'and asks every house on the bill through billedHousesFor', /billedHousesFor\(/.test(gateSrc || '') && /\.some\(/.test(gateSrc || ''));
+
+  /* Wiring — the cards, the list, the box. */
+  const strip = stripComments(extractFn(admin, 'renderInvStatusStrip') || '');
+  check('S387', 'the status cards skip a bill that does not count, unless Everyone is ticked',
+    /const everyone = invShowingEveryone\(\);/.test(strip) && /if\(!everyone && !invoiceCountsThisSeason\(item\)\) return;/.test(strip));
+  check('S387', 'and that skip sits before the tally, not after it',
+    strip.indexOf('invoiceCountsThisSeason(item)') < strip.indexOf("tally['Not sent'].n++"));
+  const list = stripComments(sectionFrom(admin, admin.indexOf('function renderInvoicesList()')));
+  check('S387', 'the list hides the same bills, unless Everyone is ticked or a name is searched',
+    /if\(!invShowingEveryone\(\) && !invoiceSearchTerm\)\{\s*filtered = filtered\.filter\(function\(item\)\{ return \(item\.data \|\| \{\}\)\.archived \|\| invoiceCountsThisSeason\(item\); \}\);/.test(list));
+  check('S387', 'and the list gate runs after the archived filter and before the status filters',
+    list.indexOf('invoiceCountsThisSeason(item)') > list.indexOf('invShowArchived') &&
+    list.indexOf('invoiceCountsThisSeason(item)') < list.indexOf('activeInvFilters.paid'));
+  check('S387', 'the Everyone box exists once', admin.split('id="invShowEveryone"').length === 2);
+  check('S387', 'and redraws the list when toggled',
+    /getElementById\('invShowEveryone'\);\s*if\(se\) se\.addEventListener\('change', function\(\)\{ try\{ renderInvoicesList\(\);/.test(admin));
+  const showSrc = extractFn(admin, 'invShowingEveryone') || '';
+  check('S387', 'the box reads as unticked when the markup is missing', /!!\(box && box\.checked\)/.test(showSrc),
+    'the safe direction: a missing box must narrow, never widen');
+  check('S387', 'the note under the cards says who is counted', /Only people who have RSVP'd yes for this season, or paid this season, are counted and listed/.test(admin));
+  check('S387', 'nothing in the gate writes', !/updateDoc|setDoc|deleteDoc|addDoc/.test(stripComments(gateSrc || '') + showSrc));
+}
+
+/* ---------------------------------------------------------------------------
+ * 388. AN ADDRESS ALWAYS OPENS A MAP. Addie, 2026-10-20: "the maps will not open when I click on
+ * address." showMapPreview returned in silence when Google's library was not on the page, the
+ * preview box sits below ~960 rows on a narrow screen, and the All Customers address was plain
+ * text. The fallback is RUN against a fake window with no google on it; the rows are matched.
+ * --------------------------------------------------------------------------- */
+suite('388. An address always opens a map');
+{
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const src = extractFn(admin, 'mapsLinkFor') + extractFn(admin, 'mapOpenLinkHtml') + extractFn(admin, 'mapsLibraryLoaded') + extractFn(admin, 'showMapPreview');
+  check('S388', 'the four pieces are findable', /function mapsLinkFor/.test(src) && /function mapOpenLinkHtml/.test(src) && /function mapsLibraryLoaded/.test(src) && /function showMapPreview\(/.test(src));
+  const mk = (win) => {
+    const box = {innerHTML: '<div class="map-preview-placeholder">Click an address to preview it here</div>', scrolled: 0,
+      querySelector: function(){ return null; }, scrollIntoView: function(){ this.scrolled++; }};
+    const doc = {getElementById: (id) => id === 'routeListMap' ? box : null};
+    /* In the browser google is a bare global as well as window.google; the sandbox hands both in. */
+    const fns = new Function('window', 'document', 'esc', 'mapPreviewInstances', 'google', src + ';return {mapsLinkFor, mapOpenLinkHtml, showMapPreview};')(win, doc, esc, {}, win.google);
+    return {fns, box};
+  };
+  check('S388', 'the link is Google Maps with the whole address in it',
+    mk({}).fns.mapsLinkFor('1 Elm St, Lehi, UT 84043') === 'https://maps.google.com/?q=1%20Elm%20St%2C%20Lehi%2C%20UT%2084043');
+  check('S388', 'the side link opens in a new tab and carries the address, escaped',
+    /target="_blank"/.test(mk({}).fns.mapOpenLinkHtml('1 Elm <St>')) && /rel="noopener"/.test(mk({}).fns.mapOpenLinkHtml('1 Elm')) &&
+    mk({}).fns.mapOpenLinkHtml('1 Elm <St>').indexOf('1%20Elm%20%3CSt%3E') !== -1 && mk({}).fns.mapOpenLinkHtml('') === '');
+
+  /* No google on the page: the click still opens the address, from the click. */
+  const opened = [];
+  const noLib = mk({open: function(u, t){ opened.push([u, t]); }});
+  noLib.fns.showMapPreview('routeListMap', 40.39, -111.85, '1 Elm St, Lehi');
+  check('S388', 'with no Google library the address opens in a new tab instead of nothing happening',
+    opened.length === 1 && opened[0][0] === 'https://maps.google.com/?q=1%20Elm%20St%2C%20Lehi' && opened[0][1] === '_blank',
+    'this is the silent return she was clicking into');
+  check('S388', 'and the box says why', /did not load/.test(noLib.box.innerHTML) && /new tab/.test(noLib.box.innerHTML));
+  const noLib2 = mk({open: function(u){ opened.push([u]); }});
+  noLib2.fns.showMapPreview('routeListMap', 40.39, -111.85, '');
+  check('S388', 'but nothing is opened for a blank address', opened.length === 1);
+
+  /* The library IS here: the preview draws and the box is brought into view. */
+  const drawn = [];
+  const google = {maps: {
+    Map: function(el, o){ drawn.push(o); this.setCenter = function(){}; this.setZoom = function(){}; },
+    Marker: function(o){ this.setMap = function(){}; },
+    SymbolPath: {CIRCLE: 0}
+  }};
+  const withLib = mk({google: google, open: function(){ opened.push(['SHOULD NOT']); }});
+  withLib.fns.showMapPreview('routeListMap', 40.39, -111.85, '1 Elm St');
+  check('S388', 'with the library the preview is drawn and no tab is opened', drawn.length === 1 && opened.length === 1);
+  check('S388', 'and the box is scrolled into view, so a map below a long list is seen', withLib.box.scrolled === 1,
+    'on a narrow screen the preview box is under ~960 rows; a map drawn there is a map nobody sees');
+  const noPin = mk({google: google, open: function(){ opened.push(['SHOULD NOT']); }});
+  noPin.fns.showMapPreview('routeListMap', null, undefined, '1 Elm St');
+  check('S388', 'a house with no pin is told so and still offered Google Maps',
+    /locate this address/.test(noPin.box.innerHTML) && /maps\.google\.com/.test(noPin.box.innerHTML) && opened.length === 1);
+
+  /* The by-address door decides before its await, or the new tab is a blocked popup. */
+  const byAddr = extractFn(admin, 'showMapPreviewByAddress') || '';
+  check('S388', 'the quote-card door checks for the library BEFORE it awaits the geocoder',
+    byAddr.indexOf('mapsLibraryLoaded()') !== -1 && byAddr.indexOf('mapsLibraryLoaded()') < byAddr.indexOf('await geocodeAddress'));
+  check('S388', 'and a failed geocode still offers Google Maps', /Open it in Google Maps/.test(byAddr));
+
+  /* The three rows. */
+  const routesRow = stripComments(extractFn(admin, 'buildAddressRowHtml') || '');
+  check('S388', 'the Routes customer row keeps the inline preview and gains the Google Maps link',
+    /data-previewaddr="'\+item\.id\+'"/.test(routesRow) && /mapOpenLinkHtml\(d\.address\)/.test(routesRow));
+  const quoteCard = stripComments(sectionFrom(admin, admin.indexOf('data-previewquoteaddr="')));
+  check('S388', 'the quote card keeps its preview and gains the Google Maps link',
+    /data-previewquoteaddr="'\+esc\(d\.address\)\+'"/.test(quoteCard.slice(0, 400)) && /mapOpenLinkHtml\(d\.address\)/.test(quoteCard.slice(0, 400)));
+  const allCust = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
+  check('S388', 'the All Customers address is a Google Maps link in a new tab, no longer plain text',
+    /href="'\+esc\(mapsLinkFor\(r\.d\.address\)\)\+'" target="_blank" rel="noopener"[^>]*>'\+esc\(r\.d\.address\)\+'<\/a>/.test(allCust));
+  check('S388', 'the schedule stop link still opens Google Maps the same way', /https:\/\/maps\.google\.com\/\?q='\+encodeURIComponent\(\(h\.address/.test(admin));
+}
+
+/* ---------------------------------------------------------------------------
+ * 389. WHAT THIS TAB WROTE, ON A WRITE REFUSAL. Firestore refused the project's writes twice
+ * (14 and 19 October, Routes open) and the SDK's own line names no writer. The three bulk writers
+ * on that tab note what they wrote, and a report of the refusal carries the census. RUN over a
+ * fixture log; the call sites and the reporter line are matched. No FIXED_ERRORS entry: nothing is
+ * fixed, this is the instrument.
+ * --------------------------------------------------------------------------- */
+suite('389. A write refusal names what this tab wrote');
+{
+  const src = extractFn(admin, 'huWriteCensusTextFrom') + extractFn(admin, 'adminErrorIsWriteRefusal');
+  const kindsSrc = (admin.match(/const HU_WRITE_KINDS = \{[\s\S]*?\n\};/) || [''])[0];
+  const msSrc = (admin.match(/const HU_WRITE_CENSUS_MS = [^;]+;/) || [''])[0];
+  check('S389', 'the census and its constants are findable', !!kindsSrc && !!msSrc && /function huWriteCensusTextFrom/.test(src));
+  const api = new Function(msSrc + kindsSrc + src + ';return {huWriteCensusTextFrom, adminErrorIsWriteRefusal, HU_WRITE_CENSUS_MS};')();
+  const now = 1000000000;
+  const log = [
+    {t: now - 1000, kind: 'plan', docs: 1, bytes: 640 * 1024},
+    {t: now - 2000, kind: 'plan', docs: 1, bytes: 640 * 1024},
+    {t: now - 3000, kind: 'stamps', docs: 400, bytes: 0},
+    {t: now - 4000, kind: 'stamps', docs: 550, bytes: 0},
+    {t: now - 5000, kind: 'recalc', docs: 0, bytes: 0},
+    {t: now - api.HU_WRITE_CENSUS_MS - 1, kind: 'stale', docs: 900, bytes: 0},
+    {t: now + 5, kind: 'plan', docs: 1, bytes: 1}
+  ];
+  const text = api.huWriteCensusTextFrom(log, now);
+  check('S389', 'the census counts each writer inside the window, with records and size',
+    /the schedule plan saved 2\u00d7, 2 records, ~1280 KB/.test(text) && /customer day stamps mirrored 2\u00d7, 950 records/.test(text) && /Recalculate pressed 1\u00d7/.test(text),
+    text);
+  check('S389', 'a write older than five minutes is left out, and so is one from the future', !/stale/.test(text) && !/3\u00d7/.test(text));
+  check('S389', 'an empty window says so rather than saying nothing', api.huWriteCensusTextFrom([], now) === 'none from this tab',
+    'an empty census on a refusal is itself the finding: the writes came from another computer');
+  check('S389', 'the refusal is recognised by its three spellings',
+    api.adminErrorIsWriteRefusal('FirebaseError: [code=resource-exhausted]: This database has exceeded their maximum bandwidth for writes') &&
+    api.adminErrorIsWriteRefusal('Firestore (10.12.2): Using maximum backoff delay to prevent overloading the backend.') &&
+    !api.adminErrorIsWriteRefusal('Missing or insufficient permissions'));
+
+  /* The reporter carries it, on the body only. */
+  const rep = stripComments(extractFn(admin, 'reportAdminError') || '');
+  check('S389', 'the report body carries the census when the text is a write refusal',
+    /adminErrorIsWriteRefusal\(text\) \? 'Writes from this tab in the last 5 min: ' \+ huWriteCensusText\(Date\.now\(\)\)/.test(rep));
+  check('S389', 'and the error key is still built from the text alone, so dedupe and FIXED_ERRORS are untouched',
+    /const key = errorKeyFor\(ADMIN_ERROR_TOPIC, text\);/.test(rep) && !/errorKeyFor\([^)]*huWriteCensus/.test(rep));
+
+  /* The three writers, and the press. */
+  const save = stripComments(extractFn(admin, 'saveNow') || '');
+  check('S389', 'the plan save notes itself after the write lands, with its size',
+    /await setDoc\(PLAN_REF\(\),data\);[\s\S]*?window\.huNoteWrite\('plan',1,planBytes\(data\)\)/.test(save) && /function planBytes\(data\)\{try\{return JSON\.stringify\(data\)\.length;\}/.test(stripComments(admin)));
+  const mirror = stripComments(extractFn(admin, 'syncInstallStampsFromSchedule') || '');
+  check('S389', 'the day mirror notes every batch it commits',
+    /await batch\.commit\(\);\s*if\(typeof huNoteWrite === 'function'\) huNoteWrite\('stamps', chunk\.length, 0\);/.test(mirror));
+  const stale = stripComments(extractFn(admin, 'clearStaleInstallBookingsRun') || '');
+  check('S389', 'the stale-booking clear notes every batch it commits', /huNoteWrite\('stale', chunk\.length, 0\)/.test(stale));
+  check('S389', 'and the Recalculate press is noted', /t\.id==='recalcBtn'\)\{\s*if\(typeof window\.huNoteWrite==='function'\) window\.huNoteWrite\('recalc',0,0\);/.test(stripComments(admin)));
+  check('S389', 'the schedule widget reaches the census through window, never a bare name', /window\.huNoteWrite = huNoteWrite;/.test(admin));
+  check('S389', 'no FIXED_ERRORS entry claims the write refusal is fixed',
+    !/match: '[^']*(resource-exhausted|maximum bandwidth|maximum backoff)/i.test((admin.match(/const FIXED_ERRORS = \[[\s\S]*?\n\];/) || [''])[0]),
+    'the cause is unproven; an entry would delete the evidence the census exists to collect');
+}
+
+suite('390. A warehouse note on a house nobody is building for is seen and printed');
+{
+  /* [[WH-50]] Addie, 2026-10-23: "On Warehouse how do we see the notes that were made for
+     the warehouse I don't see that it is printed with everything else". The note was only ever
+     drawn on a BUILD ROW, so a house with no build queued (TK Plant, THIS BUILD ONLY: Test
+     lights) had its note on no screen and no sheet. RUNS the list builder, the sheet rows and
+     the block renderer; the wiring into the tab and the print stack is asserted on the
+     comment-stripped source. */
+  const strippedA = stripComments(admin);
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const cols = (admin.match(/const WH_NOTED_COLUMNS = \[[\s\S]*?\r?\n\];/) || [''])[0];
+  const src = extractFn(admin, 'whNoteText') + '\n' + extractFn(admin, 'whNotedHousesOffTheList') + '\n' +
+    cols + '\n' + extractFn(admin, 'whSheetRowsForNoted') + '\n' + extractFn(admin, 'whNoteBoxHtml') + '\n' +
+    extractFn(admin, 'whNoteEditorHtml') + '\n' + extractFn(admin, 'whToggleBtn') + '\n' + extractFn(admin, 'whNotedOffListHtml');
+  check('S390', 'the list builder, the sheet rows and the block renderer all exist',
+    /function whNotedHousesOffTheList\(/.test(src) && /function whSheetRowsForNoted\(/.test(src) &&
+    /function whNotedOffListHtml\(/.test(src) && !!cols);
+  /* isOutForSeason is a STUB HERE ON PURPOSE: the claim is that the builder ASKS it, not what
+     it answers — S107 and season-state.test.js hold the real rule. A fixture flag says who
+     is out. */
+  const api = new Function('esc', 'isOutForSeason', 'propLabelChip', 'custNumChip',
+    src + '\nreturn {list: whNotedHousesOffTheList, rows: whSheetRowsForNoted, html: whNotedOffListHtml, text: whNoteText};')(
+    esc, d => !!d.__out, () => '', d => (d && d.customerNumber ? ' <span>#' + d.customerNumber + '</span>' : ''));
+  const book = [
+    { id: 'tk', data: { name: 'TK Plant', address: '1 Nursery Rd', customerNumber: '5100',
+        warehouseOneTimeNote: 'Test lights. Lots out last year' } },
+    { id: 'ab', data: { name: 'Abe Lund', address: '2 Elm St', customerNumber: '14',
+        warehouseNote: 'Bin on the top shelf' } },
+    { id: 'bld', data: { name: 'Building Now', address: '3 Oak Ave', needsLightBuild: true,
+        lightsDescription: 'Warm White', warehouseNote: 'Already on a build row' } },
+    { id: 'out', data: { name: 'Back Next Year', address: '4 Pine Ct', __out: true,
+        warehouseNote: 'Sitting the season out' } },
+    { id: 'none', data: { name: 'No Note', address: '5 Ash Ln', notes: 'Crew: gate code 4412' } },
+    { id: 'tmr', data: { name: 'Zed Timer', address: '6 Fir Way', needsTimerOnly: true,
+        warehouseNote: 'Timer is in the blue box' } },
+    { id: 'blank', data: { name: 'Blank Note', address: '7 Yew Pl', warehouseNote: '   ' } }
+  ];
+  const got = api.list(book).map(h => h.id);
+  check('S390', 'a house with a warehouse note and no build queued is listed', got.indexOf('tk') > -1, got.join(','));
+  check('S390', 'a house already on a build row is left to its row, never listed twice', got.indexOf('bld') === -1, got.join(','));
+  check('S390', 'a house sitting the season out is not listed — the build list\'s own gate', got.indexOf('out') === -1, got.join(','));
+  check('S390', 'the crew\'s Permanent Notes alone put nobody on it ([[WH-48]])', got.indexOf('none') === -1, got.join(','));
+  check('S390', 'a note that is only whitespace puts nobody on it', got.indexOf('blank') === -1, got.join(','));
+  check('S390', 'a timer-only house is listed — its Timers row carries no note', got.indexOf('tmr') > -1, got.join(','));
+  check('S390', 'the list is in name order', got.join(',') === 'ab,tk,tmr', got.join(','));
+  check('S390', 'and the order is by name, not by arrival — fed backwards it comes out the same',
+    api.list(book.slice().reverse()).map(h => h.id).join(',') === 'ab,tk,tmr');
+  check('S390', 'with no list passed it reads the page\'s own jobAddresses, and an empty page lists nobody',
+    (function(){ try { return api.list().length === 0; } catch (e) { return false; } })());
+
+  const rows = api.rows(book);
+  check('S390', 'the printed rows are the same people in the same order',
+    rows.map(r => r.what).join('|') === 'Abe Lund|TK Plant|Zed Timer', rows.map(r => r.what).join('|'));
+  const tk = rows.find(r => r.what === 'TK Plant') || {};
+  check('S390', 'a row carries the number, the address and the note',
+    tk.cu === '5100' && tk.address === '1 Nursery Rd' && tk.notes === 'THIS BUILD ONLY: Test lights. Lots out last year', JSON.stringify(tk));
+  check('S390', 'the notes cell is whNoteText word for word — never whNotesCell\'s GOES INTO THE BIN line',
+    rows.every(r => r.notes === api.text(book.find(b => b.data.name === r.what).data)) &&
+    !/whNotesCell/.test(stripComments(extractFn(admin, 'whSheetRowsForNoted'))));
+  const colKeys = (cols.match(/key:'([a-z]+)'/g) || []).map(x => x.slice(5, -1));
+  check('S390', 'the page\'s columns are #CU, Customer, Address, Warehouse notes and nothing to build',
+    colKeys.join(',') === 'cu,what,address,notes' && !/bins|bundles|todo/.test(cols), colKeys.join(','));
+
+  const html = api.html(api.list(book));
+  check('S390', 'the block names itself as houses NOT on the build list', /houses not on the build list/.test(html));
+  check('S390', 'it says it prints as the last page of the Build Sheet', /last page of the Build Sheet/.test(html));
+  check('S390', 'every listed house is drawn with the same note box the build rows use ([[WH-47]])',
+    (html.match(/wh-notebox/g) || []).length === 3 && /THIS BUILD ONLY: Test lights/.test(html));
+  check('S390', 'each house has the Note editor and an Edit button, so a note typed here lands on the record ([[WH-45]])',
+    (html.match(/data-whnote="/g) || []).length === 3 && (html.match(/data-whnotesave="/g) || []).length === 3 &&
+    (html.match(/data-wheditcust="/g) || []).length === 3);
+  check('S390', 'it folds away like the Timers blocks, through the same toggle',
+    /data-whtoggle="whnotedoff"/.test(html) && /id="whnotedoff" style="display:none/.test(html));
+  check('S390', 'no block at all when nobody has a note', api.html([]) === '' && api.html(api.list([book[4]])) === '');
+
+  /* THE WIRING, asserted separately from the mechanism — the block renderer passing in a
+     harness says nothing about whether the tab ever calls it. */
+  const render = stripComments(extractFn(admin, 'renderWarehouseQueue'));
+  check('S390', 'the tab asks for the noted houses', /const noted = whNotedHousesOffTheList\(\);/.test(render));
+  check('S390', 'and draws the block after every colour group, before the list is written',
+    render.indexOf('html += whNotedOffListHtml(noted);') > render.indexOf('keys.forEach(') &&
+    render.indexOf('html += whNotedOffListHtml(noted);') < render.indexOf('list.innerHTML = html;'));
+  check('S390', 'nothing-to-build only returns early when there are no notes either',
+    /if\(!keys\.length && !timerHouses\.length && !timerRemovals\.length\)\{\s*if\(!noted\.length\)\{ list\.innerHTML = '<div class="empty-note">Nothing needs to be built right now\.<\/div>'; return; \}/.test(render),
+    'a return past the block is a note nobody sees on a quiet day');
+  check('S390', 'and the empty note is still drawn above the block on that day',
+    /let html = \(!keys\.length && !timerHouses\.length && !timerRemovals\.length\)\s*\? '<div class="empty-note">Nothing needs to be built right now\.<\/div>' : '';/.test(render));
+  const print = stripComments(extractFn(admin, 'whPrintBuildSheet'));
+  check('S390', 'the Build Sheet print ends with the notes page, after the packed colour groups',
+    /const noted = whSheetRowsForNoted\(\);/.test(print) && /pages\.push\(\{title: 'Warehouse notes/.test(print) &&
+    print.indexOf('pages.push') > print.indexOf('whPackBuildSheets(whBuildSheetPages())') &&
+    /whOpenPrintWindow\('Warehouse \\u2014 Build Sheet', pages,/.test(print));
+  check('S390', 'the page is left off when there is nobody on it', /if\(noted\.length\)\{\s*pages\.push/.test(print));
+  check('S390', 'the page uses the notes columns, not the build columns',
+    /whSheetTable\(noted, WH_NOTED_COLUMNS\)/.test(print));
+  check('S390', 'nothing here touches whSheetRowsForBuild — a noted house is never a build row',
+    !/whSheetRowsForBuild/.test(src) && !/whNotedHousesOffTheList|whSheetRowsForNoted/.test(stripComments(extractFn(admin, 'whSheetRowsForBuild'))));
 }

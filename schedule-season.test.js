@@ -96,7 +96,7 @@ function season(cfg){
   const rAhead = rng(cfg.seed * 97 + 3);   /* [[SCH-130]] its own stream, so the rest of the season plays out as before */
   const book = makeBook(cfg.seed, cfg.n);
   const byId = {}; book.forEach(function(b){ byId['cust-' + b.id] = b; });
-  const flagged = {}, released = {};
+  const flagged = {}, released = {}, lastReleased = {};
   const ds = function(d){ return H.api.isoOf(H.api.dayDate(d)); };
   const days = function(){ return H.api.installDays(); };
   const live = function(h){ return !h.done && !h.hiddenDone; };
@@ -173,7 +173,8 @@ function season(cfg){
       if(assigned !== n) add('every house on a day is on exactly one crew (SCH-67)', label + ' ' + x + ': ' + assigned + ' of ' + n);
       if(!locked && sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) > 3) add('two crews are never more than three apart (SCH-97)', label + ' ' + x + ': ' + sizes.join('/'));
       if(!locked && x < lastDs && x < TAIL0 && sizes.some(function(k){ return k < 10; })){
-        const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }) && H.api.dayHoldsWithHouses(o, mine); });
+        /* [[SCH-134]] (2026-10-15): an October day is never a fault for not folding into a November one — October room goes to the any-time houses first */
+        const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(x.slice(5) <= '10-31' && ds(o).slice(5) > '10-31') return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }) && H.api.dayHoldsWithHouses(o, mine); });
         /* [[SCH-131]] (2026-10-13): "could join" also means the crews on that day stay within five miles with them — the planner's own
            test (dayHoldsWithHouses). A join that breaks a crew's five miles is not one the planner may make. */
         if(could && label === 'press') add('no crew goes out under ten when its houses could join another day (SCH-128)', label + ' ' + x + ': ' + sizes.join('/'));
@@ -211,7 +212,7 @@ function season(cfg){
     const hs = holders();
     const ids = Object.keys(hs).filter(function(id){ return byId[id] && !flagged[id] && !byId[id].gone && hs[id].some(function(o){ return live(o.h) && o.ds > today; }); });
     for(let i = 0; i < cfg.warehouse && ids.length; i++){ const id = ids.splice(Math.floor(r() * ids.length), 1)[0]; const k = WAREHOUSE[Math.floor(r() * 4)]; k.set(byId[id].data, new Date(day.getFullYear(), day.getMonth(), day.getDate(), 6, 30).getTime()); flagged[id] = k.k; stats.warehoused++; }
-    Object.keys(flagged).forEach(function(id){ if(r() < 0.3){ WAREHOUSE.filter(function(k){ return k.k === flagged[id]; })[0].clear(byId[id].data); delete flagged[id]; released[id] = today; } });
+    Object.keys(flagged).forEach(function(id){ if(r() < 0.3){ WAREHOUSE.filter(function(k){ return k.k === flagged[id]; })[0].clear(byId[id].data); delete flagged[id]; released[id] = today; lastReleased[id] = today; } });
     /* new customers keep arriving until three weeks before Thanksgiving, so the season can actually end */
     if(today < '2026-11-06' && r() < cfg.joins){
       const nb = makeBook(cfg.seed * 1000 + nextId, 1, 'n' + nextId)[0]; nextId++;
@@ -255,7 +256,22 @@ function season(cfg){
     if(!days().some(function(d){ return ds(d) > today && d.houses.some(live); })){ stats.finished = today; break; }
   }
   const leftOver = []; days().forEach(function(d){ d.houses.filter(live).forEach(function(h){ const c = H.api.planCustomerFor(h); leftOver.push(h.id + '@' + ds(d) + '(' + (h.pref || '') + (h.fiveMileTail ? ',tail' : '') + ')'); }); });
-  let leftAllTail = true; days().forEach(function(d){ d.houses.filter(live).forEach(function(h){ if(!h.fiveMileTail) leftAllTail = false; }); });
+  /* [[SCH-140]] A house the SIMULATION kept on a Warehouse list until no legal day was left before the last simulated day
+     (23 December) cannot be hung by then whatever the schedule does — the hold after a release is the rule, not a fault.
+     Measured 2026-10-19: in the perfect season cust-c10 was put on the build, recycle and colour lists in turn from 3 Nov
+     and last released ON 23 December, so 25 December was its first legal day. Main passed only because its random draw
+     never flagged a house that late. Excused ONLY when every working day after its last release up to 23 December
+     refuses it (houseMayGoOn, the planner's own test); any other leftover still fails. */
+  const LAST_SIM = '2026-12-23';
+  const heldPastTheEnd = function(h){
+    const from = lastReleased[h.id];
+    if(!from) return false;
+    for(let dt = new Date(from.slice(0, 4) * 1, from.slice(5, 7) * 1 - 1, from.slice(8, 10) * 1 + 1); H.api.isoOf(dt) <= LAST_SIM; dt.setDate(dt.getDate() + 1)){
+      if(dt.getDay() !== 0 && dt.getDay() !== 6 && mayOn(h, H.api.isoOf(dt))) return false;
+    }
+    return true;
+  };
+  let leftAllTail = true; days().forEach(function(d){ d.houses.filter(live).forEach(function(h){ if(!h.fiveMileTail && !heldPastTheEnd(h)) leftAllTail = false; }); });
   return {found: found, stats: stats, leftAllTail: leftAllTail, left: leftOver.slice(0, 12).join(' ') + (leftOver.length > 12 ? ' … ' + leftOver.length : '')};
 }
 

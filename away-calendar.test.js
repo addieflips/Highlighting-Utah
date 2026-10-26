@@ -707,8 +707,13 @@ suite('⭐⭐ NO RECALCULATE NEEDED, AND NOTHING ELSE MOVES ([[SCH-101]])');
        either in `if(false)` left the text exactly where it was: the sweep would silently
        stop running and every setting here would quietly start needing a Recalculate, with
        this suite green. The if(false) trap CLAUDE.md names by hand. */
+    /* [[SCH-140]] the sync calls keepEveryHouseLegal, which runs this sweep with the deadline pull and the gone-day
+       sweep until nothing moves — so the call is asserted there, and the sweep is asserted inside it. Repointed, not
+       weakened: both halves are whole statements at the start of a line. */
+    const keeper = bare(lift(admin, 'keepEveryHouseLegal') || '');
     check('the sweep is on the path that runs without anybody pressing anything',
-      /^ *try\{ timing=enforceInstallTiming\(\); \}catch/m.test(src) &&
+      /^ *try\{ timing=keepEveryHouseLegal\(\); \}catch/m.test(src) &&
+      /^ *const a = enforceInstallTiming\(\),/m.test(keeper) &&
       /window\.scheduleSyncFromCustomers=function/.test(src),
       'if this call goes, or is wrapped in a dead guard, every setting here silently ' +
       'starts needing a Recalculate');
