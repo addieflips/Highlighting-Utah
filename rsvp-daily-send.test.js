@@ -50,6 +50,8 @@ const fns = fs.readFileSync(path.join(__dirname, 'functions/index.js'), 'utf8');
 
 let pass = 0, fail = 0;
 const failures = [];
+/* Async checks (§6b and §7) push here; the summary awaits the list (CLAUDE.md §3). */
+const pending = [];
 function check(label, ok, detail) {
   if (ok) { pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); }
 }
@@ -485,6 +487,136 @@ if (queueState) {
 }
 
 /* ==================================================================
+   6b. WHICH OF HER TEMPLATES — PICKED, NOT ONLY GUESSED ([[EM-36]], 2026-10-26).
+   ==================================================================
+   Asked on the Daily send card: "can we choose the template we use for RSVP?" Until then
+   the convention (RSVP folder, {{rsvp_*}} tokens, the exact name Not Paid RSVP) was the
+   only way in, so a second wording could be sent only by renaming it into place.
+
+   ⭐ THE CHECK THAT EARNS THE SECTION IS THE HANDLER'S WRITE. The 9 AM run reads
+   standardTemplateId / arrearsTemplateId off the plan and nothing else (§6), so a pick
+   that only saved a preference would leave an armed plan sending the OLD template every
+   morning while the card named the new one. The pick has to rewrite the plan's ids in the
+   same merge — RUN here against a fake setDoc, because a regex cannot see what a write
+   carries. */
+{
+  const tplSrc = ['etTemplateIsRsvp', 'etRsvpTemplateIsArrears', 'rsvpTemplatePicks',
+    'rsvpDripTemplatePickable', 'rsvpWholeTemplates'].map(function (n) { return liftFrom(admin, n); });
+  check('lifted the template resolver and its three helpers and they parse',
+    tplSrc.every(function (s) { return liftOk(s); }),
+    'a truncated lift answers confidently and wrongly');
+  const T = {
+    std:  { id: 'tStd',  data: { name: 'RSVP Email', folderName: 'RSVP', body: 'x {{rsvp_yes_button}}{{rsvp_no_button}}' } },
+    arr:  { id: 'tArr',  data: { name: 'Not Paid RSVP', folderName: 'RSVP', body: 'x {{rsvp_yes_button}}' } },
+    warm: { id: 'tWarm', data: { name: 'Warm RSVP', folderName: 'RSVP', body: 'a friendlier one {{rsvp_yes_button}}' } },
+    link: { id: 'tLink', data: { name: 'One-link RSVP', folderName: 'Misc', body: 'answer here {{rsvp_button}}' } },
+    news: { id: 'tNews', data: { name: 'Newsletter', folderName: 'Misc', body: 'nothing to answer' } }
+  };
+  const all = [T.std, T.arr, T.warm, T.link, T.news];
+  /* `rsvpDripCache` is declared INSIDE the sandbox only when a value is given, so the
+     no-cache case exercises the typeof guard the run-all sandboxes depend on. */
+  const resolve = function (cache) {
+    const decl = (cache === undefined) ? '' : 'let rsvpDripCache = ' + JSON.stringify(cache) + ';\n';
+    return new Function('emailTemplates', 'canonicalEmailCodes',
+      decl + tplSrc.join('\n') + '\nreturn rsvpWholeTemplates();')(all, function (s) { return s; });
+  };
+  const noPick = resolve(null);
+  check('with nothing picked the convention decides exactly as before',
+    noPick.standard && noPick.standard.id === 'tStd' && noPick.arrears && noPick.arrears.id === 'tArr'
+      && !noPick.picked.standard && !noPick.picked.arrears,
+    'the old behaviour is the floor: a book that never picks must not change');
+  let threw = null;
+  try { resolve(undefined); } catch (e) { threw = e; }
+  check('and it does not throw when rsvpDripCache is not declared at all',
+    !threw, threw && threw.message);
+  const picked = resolve({ pickedStandardTemplateId: 'tWarm', pickedArrearsTemplateId: 'tLink' });
+  check('a picked ordinary template wins over the one the convention would choose',
+    picked.standard && picked.standard.id === 'tWarm' && picked.picked.standard === true,
+    'the pick is the whole feature');
+  check('a template carrying only the one-link {{rsvp_button}} token can be picked (RS-66)',
+    picked.arrears && picked.arrears.id === 'tLink' && picked.picked.arrears === true,
+    'the convention never found that shape, and it is a real RSVP somebody can answer');
+  const bad = resolve({ pickedStandardTemplateId: 'tNews', pickedArrearsTemplateId: 'gone' });
+  check('a pick naming a template nobody can answer from is ignored and falls back',
+    bad.standard && bad.standard.id === 'tStd' && bad.missing.standard === true,
+    'an RSVP with no way to reply is the one send this must never offer');
+  check('a pick naming a deleted template falls back to the convention and says so',
+    bad.arrears && bad.arrears.id === 'tArr' && bad.missing.arrears === true && bad.picked.arrears === false,
+    'refusing would cost her the send over a rename; silently falling back would hide it');
+  check('rsvpDripTemplatePickable refuses a plain email and accepts the three RSVP shapes',
+    (function () {
+      const fn = new Function('canonicalEmailCodes', tplSrc[0] + '\n' + tplSrc[3] + '\nreturn rsvpDripTemplatePickable;')(function (s) { return s; });
+      return !fn(T.news) && fn(T.std) && fn(T.link) && fn({ id: 'f', data: { name: 'x', folderName: 'rsvp', body: '' } });
+    })(),
+    'the dropdown and the resolver must agree about what may be picked');
+
+  /* The markup: two static selects, outside the innerHTML that rsvpDripRender rebuilds. */
+  const cardAt = admin.indexOf('id="rsvpDripCard"');
+  const stdAt = admin.indexOf('id="rsvpDripTplStandard"');
+  const arrAt = admin.indexOf('id="rsvpDripTplArrears"');
+  const cardEnd = admin.indexOf('id="rsvpDripStatus"');
+  const renderSrc = stripComments(liftFrom(admin, 'rsvpDripRender'));
+  check('both pickers are static markup on the Daily send card, not drawn inside rsvpDripBody',
+    stdAt > cardAt && arrAt > stdAt && cardEnd > arrAt
+      && renderSrc.indexOf('rsvpDripTplStandard"') === -1 && renderSrc.indexOf('<select') === -1,
+    'a select rebuilt under an open dropdown is one nobody can use');
+  check('rsvpDripRender fills the pickers on every draw',
+    /renderRsvpDripTemplatePickers\(\)/.test(renderSrc),
+    'a picker drawn once at login never learns about a template made afterwards');
+  const pickRender = stripComments(liftFrom(admin, 'renderRsvpDripTemplatePickers'));
+  check('and never redraws a picker that has the focus',
+    /active !== stdSel/.test(pickRender) && /active !== arrSel/.test(pickRender),
+    'rsvpDripRender runs on every customer change');
+  check('each picker is wired to the save handler for its own half',
+    /getElementById\('rsvpDripTplStandard'\)\?\.addEventListener\('change'[\s\S]{0,80}rsvpDripSaveTemplatePick\('standard'/.test(admin)
+      && /getElementById\('rsvpDripTplArrears'\)\?\.addEventListener\('change'[\s\S]{0,80}rsvpDripSaveTemplatePick\('arrears'/.test(admin),
+    'the recycle "bin says" box rendered an input whose listener had silently not applied');
+
+  /* The handler, RUN. */
+  const saveSrc = liftFrom(admin, 'rsvpDripSaveTemplatePick');
+  check('lifted rsvpDripSaveTemplatePick and it parses', liftOk(saveSrc));
+  const runSave = function (cache, kind, id, failWrite) {
+    const writes = [];
+    const fakeDoc = { getElementById: function () { return null; }, activeElement: null };
+    const fn = new Function('emailTemplates', 'canonicalEmailCodes', 'document', 'setDoc', 'doc', 'db',
+      'rsvpDripRender', 'renderRsvpDripTemplatePickers', 'setTimeout', 'console',
+      'let rsvpDripCache = ' + JSON.stringify(cache) + ';\n' + tplSrc.join('\n') + '\n' + saveSrc
+        + '\nreturn function(k, i){ return rsvpDripSaveTemplatePick(k, i).then(function(){ return rsvpDripCache; }); };')(
+      all, function (s) { return s; }, fakeDoc,
+      async function (ref, data, opts) { if (failWrite) throw new Error('refused'); writes.push({ ref: ref, data: data, opts: opts }); },
+      function (d, c, i) { return c + '/' + i; }, {}, function () {}, function () {}, function () {}, { error: function () {} });
+    return fn(kind, id).then(function (cacheAfter) { return { writes: writes, cache: cacheAfter }; });
+  };
+  const plan = { enabled: true, perDay: 200, queue: [{ id: 'c1', kind: 'standard' }], standardTemplateId: 'tStd', arrearsTemplateId: 'tArr' };
+  pending.push(runSave(plan, 'standard', 'tWarm').then(function (r) {
+    const w = r.writes[0] || {};
+    check('picking the ordinary template writes the pick AND moves the plan\'s own standard id to it',
+      r.writes.length === 1 && w.ref === 'settings/rsvpSendPlan' && w.data.pickedStandardTemplateId === 'tWarm'
+        && w.data.standardTemplateId === 'tWarm' && w.data.standardTemplateName === 'Warm RSVP',
+      'a pick that only saved a preference leaves an armed plan sending the old template every morning');
+    check('with merge, and without touching enabled or the queue',
+      w.opts && w.opts.merge === true && !('enabled' in w.data) && !('queue' in w.data),
+      'a dropdown must never switch the drip off or empty its list');
+    check('the other half keeps the id the plan already held',
+      w.data.arrearsTemplateId === 'tArr',
+      'a plan half emptied by a dropdown is the both-or-neither rule broken');
+    check('and the cache carries the new ids afterwards, so the card names them without a reload',
+      r.cache.standardTemplateId === 'tWarm' && r.cache.pickedStandardTemplateId === 'tWarm');
+  }));
+  pending.push(runSave(plan, 'arrears', 'tNews').then(function (r) {
+    const w = r.writes[0] || {};
+    check('picking something unanswerable records the pick but leaves the plan on the convention\'s template',
+      w.data.pickedArrearsTemplateId === 'tNews' && w.data.arrearsTemplateId === 'tArr',
+      'the resolver ignores it, so the plan must not be pointed at it either');
+  }));
+  pending.push(runSave(plan, 'standard', 'tWarm', true).then(function (r) {
+    check('a refused write puts the cache back, so the card does not claim a choice the database never took',
+      r.writes.length === 0 && r.cache.standardTemplateId === 'tStd' && !r.cache.pickedStandardTemplateId,
+      '"nothing should fail quietly" — and nothing should succeed quietly either');
+  }));
+}
+
+/* ==================================================================
    7. THE DRIP ITSELF — the cap, the stamp, and stopping.
    ==================================================================
    RUN against a fake Firestore and a fake mail service. Every claim here is about how
@@ -603,7 +735,7 @@ const runBatch = (function () {
 check('the drip could be lifted and run', !!runBatch,
   'every claim below is about emails leaving and stamps landing');
 
-const pending = [];
+/* `pending` is declared at the top of the file, because §6b pushes to it too. */
 if (runBatch) {
   const person = function (id, extra) {
     return Object.assign({ id: id, name: 'Cust ' + id, email: id + '@x.com' }, extra || {});

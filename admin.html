@@ -2981,6 +2981,21 @@
                  combined one could not express either alone — a house whose old set is
                  already back needs only a build, and a customer sitting out this season
                  needs only a recycle. Neither had a button. -->
+            <!-- ⭐ [[SCH-147]] THE INSTALL CAN BE MARKED NOT COMPLETE FROM HERE (2026-10-26). Asked:
+                 "Can we make a way to edit that in costumers" — a house ticked done by mistake, invoice
+                 already gone, needing to be hung after all. The control existed on the All Customers
+                 row (Show Details → Status ▾ → a box labelled only "Done" → Apply), three clicks deep
+                 under a word that did not match the row's own "Install Complete". This is the same
+                 write through the same shared rule (hlxMarkJobDone), one button, on the form she
+                 opens dozens of times a day. It writes at once, like the three buttons under it — it
+                 is NOT part of Save, so the dirty dot and the baseline never see it. -->
+            <div id="editCustJobs" style="text-align:left; font-size:13px; margin-bottom:14px; padding:10px 12px; background:var(--paper); border:1px solid var(--line); border-radius:8px;">
+              <div id="editCustJobsLine" style="margin-bottom:8px;"></div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn btn-outline btn-sm" id="editCustInstallToggleBtn">Mark install not complete</button>
+                <span id="editCustJobsNote" style="font-size:12px; color:var(--slate);"></span>
+              </div>
+            </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
               <button type="button" class="btn btn-outline" id="editCustRecycleStayBtn">Recycle Their Old Set</button>
               <button type="button" class="btn btn-outline" id="editCustBuildStayBtn">Build Them A New Set</button>
@@ -4249,7 +4264,23 @@
       <div class="card" id="rsvpDripCard" style="margin-bottom:22px;">
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128197; Send the RSVP a few hundred a day</h3>
         <p class="form-note" style="margin:0 0 12px;">Gmail stops a big send partway through, which is how half a send ends up needing to be tracked by hand. This lays the RSVP out over several mornings instead: <b>Build the plan</b> works out who gets which email and in what order, then the server sends the next batch at <b>9:00 AM</b> every day until the list is done &mdash; whether or not this page is open. Nobody is ever sent twice, and anybody who answers in the meantime is dropped from the rest of the plan automatically.</p>
-        <p class="form-note" style="margin:0 0 12px;">It sends <b>your own two RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets <b>Not Paid RSVP</b>, and nobody gets both. The two it will use are named below &mdash; if either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
+        <p class="form-note" style="margin:0 0 12px;">It sends <b>two of your RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets the unpaid one, and nobody gets both. <b>Pick which two below</b>, or leave either on <i>Automatic</i> and it uses the template in your RSVP folder (the one named <b>Not Paid RSVP</b> for the unpaid half). If either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
+        <!-- ⭐ [[EM-36]] WHICH TWO EMAILS, PICKED RATHER THAN GUESSED (2026-10-26). Asked on this
+             card: "can we choose the template we use for RSVP?" The resolver always decided
+             by convention — RSVP folder, the {{rsvp_*}} tokens, the exact name Not Paid RSVP —
+             so a second wording she wrote could only be sent by renaming it into place. These
+             two pickers are STATIC markup, never rebuilt inside rsvpDripBody's innerHTML: that
+             box is redrawn on every customer change, and a select rebuilt under an open
+             dropdown is one nobody can use ([[MSG-15]]'s editor lesson). Options are filled by
+             renderRsvpDripTemplatePickers; the choice is saved on settings/rsvpSendPlan and
+             honoured by rsvpWholeTemplates, so Send the whole RSVP and Check first follow it too. -->
+        <div id="rsvpDripTplPick" style="display:grid; grid-template-columns:auto minmax(180px, 360px); gap:6px 10px; align-items:center; font-size:13px; margin-bottom:10px;">
+          <label for="rsvpDripTplStandard" style="margin:0;">Already paid up &mdash; send</label>
+          <select id="rsvpDripTplStandard" style="margin:0;"></select>
+          <label for="rsvpDripTplArrears" style="margin:0;">Owes from last season &mdash; send</label>
+          <select id="rsvpDripTplArrears" style="margin:0;"></select>
+          <div id="rsvpDripTplNote" style="grid-column:1 / -1; color:var(--slate);"></div>
+        </div>
         <p class="form-note" style="margin:0 0 12px;">The <b>Send the whole RSVP</b> button on the <b>Templates</b> tab is still there and still sends everybody at once. This is the same send, paced.</p>
         <div id="rsvpDripKeyWarn" hidden style="font-size:13px; background:var(--paper); border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:10px;"></div>
         <div id="rsvpDripBody" style="font-size:13px; margin-bottom:10px;"></div>
@@ -24820,17 +24851,57 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
    ordinary "will you be getting lights again" email to every customer carrying a balance
    and tell them nothing about it. An empty answer here is a wrong send to ~950 people,
    so audienceHasLastSeason gates the whole thing. */
+/* ⭐ [[EM-36]] A PICKED TEMPLATE WINS; THE CONVENTION IS THE FALLBACK (2026-10-26). Asked on
+   the Daily send card: "can we choose the template we use for RSVP?" Until now the only way
+   to send a different wording was to rename it into the convention below. The two picks live
+   on settings/rsvpSendPlan (`pickedStandardTemplateId`, `pickedArrearsTemplateId`), which
+   is already loaded, cached in rsvpDripCache and followed live on every computer.
+   ⚠ A PICK THAT NAMES A TEMPLATE NO LONGER IN THE LIST FALLS BACK TO THE CONVENTION AND
+   SAYS SO (`missing`), rather than refusing: there is a correct email sitting right there
+   ([[QT-42]], [[EM-23]]), and the card prints which one is going out. ⚠ AND IT READS
+   rsvpDripCache THROUGH typeof, because run-all's sandboxes lift this function without it.
+   ⚠ A PICK MAY BE ANY TEMPLATE THAT CAN BE ANSWERED — rsvpDripTemplatePickable — not only
+   one the convention would find; that is the whole point of picking. */
+function rsvpTemplatePicks(){
+  const c = (typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? rsvpDripCache : {};
+  return {
+    standard: String(c.pickedStandardTemplateId || '').trim(),
+    arrears: String(c.pickedArrearsTemplateId || '').trim()
+  };
+}
+/* An RSVP the customer can ANSWER: the three-button tokens, the one-link token ([[RS-66]]),
+   or a template filed in the RSVP folder. A wording with none of those is an email asking
+   a question with no way to reply, which is exactly the send this must never offer. */
+function rsvpDripTemplatePickable(t){
+  if(etTemplateIsRsvp(t)) return true;
+  const d = (t && t.data) ? t.data : t;
+  const body = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(String((d && d.body) || '')) : String((d && d.body) || '');
+  return /\{\{rsvp_(link|button)\}\}/.test(body);
+}
 function rsvpWholeTemplates(){
   const all = Array.isArray(emailTemplates) ? emailTemplates : [];
   const rsvps = all.filter(function(t){ return etTemplateIsRsvp(t); });
-  const arrears = rsvps.find(function(t){ return etRsvpTemplateIsArrears(t); }) || null;
+  const autoArrears = rsvps.find(function(t){ return etRsvpTemplateIsArrears(t); }) || null;
   /* The ordinary one is the RSVP template that is not the arrears one. Named first so a
      book with several RSVP templates picks the built-in rather than whichever sorted
      first, and falls back to "any RSVP that is not the Not Paid one" if she renamed it. */
-  const standard = rsvps.find(function(t){
+  const autoStandard = rsvps.find(function(t){
       return String((t.data && t.data.name) || '').trim().toLowerCase() === 'rsvp email';
     }) || rsvps.find(function(t){ return !etRsvpTemplateIsArrears(t); }) || null;
-  return { standard: standard, arrears: arrears };
+  const picks = rsvpTemplatePicks();
+  const byId = function(id){
+    if(!id) return null;
+    return all.find(function(t){ return t && t.id === id && rsvpDripTemplatePickable(t); }) || null;
+  };
+  const pickedStandard = byId(picks.standard);
+  const pickedArrears = byId(picks.arrears);
+  return {
+    standard: pickedStandard || autoStandard,
+    arrears: pickedArrears || autoArrears,
+    picked: { standard: !!pickedStandard, arrears: !!pickedArrears },
+    missing: { standard: !!(picks.standard && !pickedStandard), arrears: !!(picks.arrears && !pickedArrears) },
+    auto: { standard: autoStandard, arrears: autoArrears }
+  };
 }
 /* ============================================================================
    THE RSVP, A FEW HUNDRED A DAY (added 2026-09-10, EM-16)
@@ -25012,6 +25083,8 @@ function rsvpDripRender(){
   const per = Math.max(1, Number(saved && saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
   if(perDayEl && document.activeElement !== perDayEl) perDayEl.value = per;
   if(onEl) onEl.checked = !!(saved && saved.enabled);
+  /* [[EM-36]] The two pickers follow the template list and the saved choice. */
+  if(typeof renderRsvpDripTemplatePickers === 'function') renderRsvpDripTemplatePickers();
 
   /* ⭐ THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF THIS SILENTLY DO NOTHING,
      so it is checked before anything else is drawn. The browser sends with the PUBLIC key
@@ -25307,6 +25380,107 @@ document.getElementById('rsvpDripEnabled')?.addEventListener('change', async fun
     if(st){ st.textContent = '✗ Couldn’t save that — try again'; st.style.color = 'var(--ember)'; }
   }
 });
+
+/* ⭐ [[EM-36]] THE TWO PICKERS (2026-10-26). Drawn from the SAME list the resolver reads, so a
+   template the dropdown offers is one rsvpWholeTemplates will honour, and vice versa.
+   ⚠ "Automatic" NAMES THE EMAIL IT STANDS FOR — an option reading only "Automatic" is a claim
+   with no proof, and the whole card exists because she could not see which of her emails was
+   going out. A pick naming a template that has gone is KEPT as a selected "(not found)"
+   option, renderRsvpTextTemplatePicker's rule: dropping it would make the card read as though
+   she never picked anything, which is the one state she cannot tell from a template that has
+   been deleted. ⚠ NEVER REDRAWN UNDER AN OPEN DROPDOWN: rsvpDripRender runs on every customer
+   change, and rebuilding the options while one has the focus closes it under her hand. */
+function rsvpDripTemplateOptionsHtml(kind, tpl){
+  const picks = rsvpTemplatePicks();
+  const chosen = picks[kind];
+  const auto = tpl.auto[kind];
+  const autoName = (auto && auto.data && String(auto.data.name || '').trim()) || '';
+  let html = '<option value="">' + esc('— Automatic: ' + (autoName || 'no template found') + ' —') + '</option>';
+  (emailTemplates || []).forEach(function(t){
+    if(!rsvpDripTemplatePickable(t)) return;
+    const n = (t.data && t.data.name) || '(unnamed)';
+    html += '<option value="' + esc(t.id) + '"' + (t.id === chosen ? ' selected' : '') + '>' + esc(n) + '</option>';
+  });
+  if(chosen && tpl.missing[kind]){
+    html += '<option value="' + esc(chosen) + '" selected>' + esc('(not found) — the template you picked has been deleted') + '</option>';
+  }
+  return html;
+}
+function renderRsvpDripTemplatePickers(){
+  const stdSel = document.getElementById('rsvpDripTplStandard');
+  const arrSel = document.getElementById('rsvpDripTplArrears');
+  const note = document.getElementById('rsvpDripTplNote');
+  if(!stdSel || !arrSel) return;
+  const tpl = (typeof rsvpWholeTemplates === 'function') ? rsvpWholeTemplates() : null;
+  if(!tpl) return;
+  const active = (typeof document !== 'undefined') ? document.activeElement : null;
+  if(active !== stdSel) stdSel.innerHTML = rsvpDripTemplateOptionsHtml('standard', tpl);
+  if(active !== arrSel) arrSel.innerHTML = rsvpDripTemplateOptionsHtml('arrears', tpl);
+  if(note && !note.dataset.hold){
+    const words = [];
+    if(tpl.missing.standard) words.push('The ordinary one you picked is no longer in your templates, so the automatic choice is being used until you pick again.');
+    if(tpl.missing.arrears) words.push('The unpaid one you picked is no longer in your templates, so the automatic choice is being used until you pick again.');
+    if(!tpl.standard) words.push('No ordinary RSVP email can be found at all — make or pick one before building a plan.');
+    if(!tpl.arrears) words.push('No unpaid RSVP email can be found at all — make or pick one before building a plan.');
+    if(tpl.standard && tpl.arrears && tpl.standard.id === tpl.arrears.id){
+      words.push('Both halves are set to the same email, so everybody gets that one wording — fine if that is what you want.');
+    }
+    note.style.color = words.length ? 'var(--ember)' : 'var(--slate)';
+    note.textContent = words.join(' ') || 'This choice also decides what Send the whole RSVP and Check first send.';
+  }
+}
+/* ⚠ SAVED ON CHANGE, ONTO THE PLAN DOCUMENT — AND THE PLAN'S OWN IDS MOVE WITH IT. The 9 AM run
+   reads `standardTemplateId` / `arrearsTemplateId` off the plan and nothing else ([[EM-16]]:
+   one decision, by id). A pick that only changed the preference would leave an armed plan
+   sending the OLD template every morning while the card named the new one — the exact
+   card-says-one-thing-send-does-another failure EM-16 closed. So the resolved ids and names
+   are rewritten in the same merge, queue untouched. ⚠ ONLY THE HALVES THAT RESOLVE: a half
+   with no template at all keeps whatever the plan already held, so a plan is never half
+   emptied by a dropdown. ⚠ merge:true, and `enabled` is never written here. */
+async function rsvpDripSaveTemplatePick(kind, id){
+  const note = document.getElementById('rsvpDripTplNote');
+  const field = kind === 'arrears' ? 'pickedArrearsTemplateId' : 'pickedStandardTemplateId';
+  const before = rsvpDripCache;
+  rsvpDripCache = Object.assign({}, rsvpDripCache || {}, (function(){ const o = {}; o[field] = String(id || ''); return o; })());
+  const tpl = rsvpWholeTemplates();
+  const write = {};
+  write[field] = String(id || '');
+  if(tpl.standard){
+    write.standardTemplateId = tpl.standard.id;
+    write.standardTemplateName = (tpl.standard.data && tpl.standard.data.name) || '';
+  }
+  if(tpl.arrears){
+    write.arrearsTemplateId = tpl.arrears.id;
+    write.arrearsTemplateName = (tpl.arrears.data && tpl.arrears.data.name) || '';
+  }
+  try{
+    await setDoc(doc(db,'settings','rsvpSendPlan'), write, {merge: true});
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, write);
+    if(note){
+      note.dataset.hold = '';
+      delete note.dataset.hold;
+    }
+    rsvpDripRender();
+    if(note){
+      const name = function(t){ return (t && t.data && t.data.name) || 'no template found'; };
+      note.style.color = 'var(--emerald)';
+      note.textContent = '✓ Saved. Already paid up get “' + name(tpl.standard) + '”, owes from last season get “' + name(tpl.arrears) + '”'
+        + ((rsvpDripCache && Array.isArray(rsvpDripCache.queue) && rsvpDripCache.queue.length) ? ' — the plan now sends these, no rebuild needed.' : '.');
+      note.dataset.hold = '1';
+      setTimeout(function(){ if(note.dataset.hold){ delete note.dataset.hold; renderRsvpDripTemplatePickers(); } }, 6000);
+    }
+  }catch(err){
+    console.error('[HU] could not save the RSVP template pick:', err);
+    rsvpDripCache = before;
+    renderRsvpDripTemplatePickers();
+    if(note){
+      note.style.color = 'var(--ember)';
+      note.textContent = '✗ Could not save that choice — it has gone back to what it was. Try again.';
+    }
+  }
+}
+document.getElementById('rsvpDripTplStandard')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('standard', this.value); });
+document.getElementById('rsvpDripTplArrears')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('arrears', this.value); });
 
 document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async function(){
   const st = document.getElementById('rsvpDripStatus');
@@ -51518,7 +51692,9 @@ function buildAddressRowHtml(item){
             '<div class="filter-dropdown" id="statusdrop-'+item.id+'">'+
               '<div class="filter-dropdown-group">'+
                 '<label><input type="checkbox" class="status-check" data-field="needsFix" data-rowid="'+item.id+'"'+(needsFix?' checked':'')+'> Needs Fix</label>'+
-                '<label><input type="checkbox" class="status-check" data-field="completed" data-rowid="'+item.id+'"'+(completed?' checked':'')+'> Done</label>'+
+                /* [[SCH-147]] Named as the row's own status word names it. "Done" alone did not
+                   read as the thing to untick when the row above it said "Install Complete". */
+                '<label><input type="checkbox" class="status-check" data-field="completed" data-rowid="'+item.id+'"'+(completed?' checked':'')+'> Install Complete</label>'+
                 /* ⚠ NOT disabled when the install is unticked. A takedown is its own
                    job — see the handler below and hlxMarkJobDone. Greying this out
                    was the visible half of the same nesting that silently cleared
@@ -60878,10 +61054,12 @@ function openEditCustomerModal(id){
      queueing a build for one customer left Build Them A New Set greyed out for every
      customer opened afterwards, until the page was reloaded. Found while adding the
      third button, which would have inherited the same bug. */
-  ['editCustRecycleStayBtn','editCustBuildStayBtn','editCustColorChangeBtn'].forEach(function(bid){
+  ['editCustRecycleStayBtn','editCustBuildStayBtn','editCustColorChangeBtn','editCustInstallToggleBtn'].forEach(function(bid){
     const b = document.getElementById(bid);
     if(b) b.disabled = false;
   });
+  /* [[SCH-147]] The jobs line and the install toggle follow the record being opened. */
+  if(typeof editCustRenderJobs === 'function') editCustRenderJobs(d);
   /* ⚠ ORDER MATTERS, AND ONLY IN ONE DIRECTION: the dirty baseline is taken LAST,
      after every field above has been filled. Taken any earlier it records a
      half-filled form, and the tab would open already showing unsaved changes and
@@ -61635,6 +61813,99 @@ async function hlxRemoveCustomerToRecycle(item, opts){
    ⚠ NOR THE INVOICE, THE ROUTE OR THE RSVP. This says something about their LIGHTS
    and nothing about their season. They are still coming; recycleKeepingCustomer is what
    tells isOutForSeason so. */
+/* ⭐ [[SCH-147]] INSTALL COMPLETE, EDITABLE FROM EDIT CUSTOMER (2026-10-26). Asked: "Can we make
+   a way to edit that in costumers", after a house was ticked done by mistake with the invoice
+   already out. The Schedule tick, the Routes stop and the All Customers row could already undo it;
+   this is the fourth door for the install kind, and it goes through hlxMarkJobDone like the rest —
+   a private copy of what "done" means is the copy that stops matching the others (Job 2).
+   ⚠ THE SAME WARNING THE SCHEDULE GIVES, for the same reason: unticking cannot un-send an invoice.
+   invoiceEmailSent is cleared by nothing but Start New Season, and the 7 PM run reads it as "this
+   bill is finished", so nobody is invoiced twice by undoing here — but the customer still holds
+   the invoice they were sent, and the office has to know that before pressing.
+   ⚠ INSTALL ONLY. Removal and fix stay where they are; this button touches one field pair and the
+   line above it only REPORTS the other two. Three independent jobs, as everywhere else.
+   ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS — the same optimistic mirror every other
+   Edit Customer button uses, because the panel repaints from the cache, not from Firestore. */
+function editCustJobsLineHtml(d){
+  d = d || {};
+  const when = function(ts){
+    try{ const dt = toJsDate(ts); return dt ? ' on ' + fmtDate(dt) : ''; }catch(e){ return ''; }
+  };
+  const bits = [];
+  bits.push(d.completed
+    ? '<span class="status-pill status-paid">&#10003; Install complete' + esc(when(d.completedAt)) + '</span>'
+    : '<span class="status-pill">Install not done yet</span>');
+  bits.push(d.removalDone
+    ? '<span class="status-pill status-paid">&#10003; Lights taken down</span>'
+    : '<span class="status-pill">Takedown not done</span>');
+  if(d.needsFix) bits.push('<span class="status-pill diff-Fix">Needs a fix</span>');
+  if(d.completed && d.invoiceEmailSent) bits.push('<span class="status-pill" style="background:#FFF8E9; color:#8A6D1F;">Invoice already sent</span>');
+  return bits.join(' ');
+}
+function editCustRenderJobs(d){
+  const line = document.getElementById('editCustJobsLine');
+  const btn = document.getElementById('editCustInstallToggleBtn');
+  const note = document.getElementById('editCustJobsNote');
+  if(!line || !btn) return;
+  d = d || {};
+  line.innerHTML = editCustJobsLineHtml(d);
+  btn.textContent = d.completed ? 'Mark install not complete' : 'Mark install complete';
+  if(note){
+    note.textContent = d.completed
+      ? 'Puts the house back on the schedule to be hung. It cannot take back an invoice already sent.'
+      : 'Marks the lights as hung. The 7 PM run bills them that night.';
+  }
+}
+/* Its own function so a test can RUN it: `ask` is the confirm, `mark` is hlxMarkJobDone. */
+async function editCustToggleInstall(item, ask, mark){
+  const d = (item && item.data) || {};
+  const undo = !!d.completed;
+  const who = d.name || 'this customer';
+  const words = undo
+    ? ('Mark the install NOT complete for ' + who + '?\n\nThey go back on the schedule to be hung.'
+      + (d.invoiceEmailSent
+          ? '\n\nThey have already been invoiced for this. Unticking cannot un-send that invoice, '
+            + 'and they will not be sent a second one when the house is marked done again.'
+          : ''))
+    : ('Mark the install complete for ' + who + '?\n\nThe 7 PM run bills them tonight.');
+  if(!ask(words)) return {ok: false, cancelled: true};
+  const res = await mark(item, 'install', !undo, {name: d.name, source: 'Edit Customer'});
+  if(res && res.ok && item && item.data){
+    item.data.completed = !undo;
+    item.data.completedAt = undo ? null : new Date();
+    if(!undo) item.data.oneTimeNote = '';
+  }
+  return res;
+}
+document.getElementById('editCustInstallToggleBtn')?.addEventListener('click', async function(){
+  if(!editCustomerId) return;
+  const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
+  if(!item) return;
+  const btn = this;
+  const statusEl = document.getElementById('editCustStatus');
+  btn.disabled = true;
+  try{
+    const res = await editCustToggleInstall(item, function(w){ return confirm(w); }, hlxMarkJobDone);
+    if(res && res.cancelled){ btn.disabled = false; return; }
+    if(!res || !res.ok){
+      if(statusEl) statusEl.textContent = 'Could not change that: ' + ((res && res.why) || 'try again');
+      btn.disabled = false;
+      return;
+    }
+    editCustRenderJobs(item.data);
+    const nowDone = !!item.data.completed;
+    if(statusEl) statusEl.textContent = nowDone
+      ? 'Marked complete.'
+      : 'Marked not complete — they are back on the schedule. If their day has already passed, press ⚙ Recalculate everything on the Schedule tab.';
+    toast((item.data.name || 'Customer') + (nowDone ? ' — install marked complete' : ' — install marked not complete'));
+    logActivity((nowDone ? 'Marked the install complete for ' : 'Marked the install NOT complete for ')
+      + (item.data.name || editCustomerId), 'customers', editCustomerId);
+    if(typeof safeRender === 'function') safeRender('allCustomersTable', renderAllCustomersTable);
+  }catch(err){
+    if(statusEl) statusEl.textContent = 'Could not change that: ' + (err && err.message ? err.message : err);
+  }
+  btn.disabled = false;
+});
 document.getElementById('editCustRecycleStayBtn').addEventListener('click', async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
