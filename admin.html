@@ -2981,7 +2981,7 @@
                  combined one could not express either alone — a house whose old set is
                  already back needs only a build, and a customer sitting out this season
                  needs only a recycle. Neither had a button. -->
-            <!-- ⭐ [[SCH-134]] THE INSTALL CAN BE MARKED NOT COMPLETE FROM HERE (2026-10-26). Asked:
+            <!-- ⭐ [[SCH-147]] THE INSTALL CAN BE MARKED NOT COMPLETE FROM HERE (2026-10-26). Asked:
                  "Can we make a way to edit that in costumers" — a house ticked done by mistake, invoice
                  already gone, needing to be hung after all. The control existed on the All Customers
                  row (Show Details → Status ▾ → a box labelled only "Done" → Apply), three clicks deep
@@ -51692,7 +51692,7 @@ function buildAddressRowHtml(item){
             '<div class="filter-dropdown" id="statusdrop-'+item.id+'">'+
               '<div class="filter-dropdown-group">'+
                 '<label><input type="checkbox" class="status-check" data-field="needsFix" data-rowid="'+item.id+'"'+(needsFix?' checked':'')+'> Needs Fix</label>'+
-                /* [[SCH-134]] Named as the row's own status word names it. "Done" alone did not
+                /* [[SCH-147]] Named as the row's own status word names it. "Done" alone did not
                    read as the thing to untick when the row above it said "Install Complete". */
                 '<label><input type="checkbox" class="status-check" data-field="completed" data-rowid="'+item.id+'"'+(completed?' checked':'')+'> Install Complete</label>'+
                 /* ⚠ NOT disabled when the install is unticked. A takedown is its own
@@ -61058,7 +61058,7 @@ function openEditCustomerModal(id){
     const b = document.getElementById(bid);
     if(b) b.disabled = false;
   });
-  /* [[SCH-134]] The jobs line and the install toggle follow the record being opened. */
+  /* [[SCH-147]] The jobs line and the install toggle follow the record being opened. */
   if(typeof editCustRenderJobs === 'function') editCustRenderJobs(d);
   /* ⚠ ORDER MATTERS, AND ONLY IN ONE DIRECTION: the dirty baseline is taken LAST,
      after every field above has been filled. Taken any earlier it records a
@@ -61813,7 +61813,7 @@ async function hlxRemoveCustomerToRecycle(item, opts){
    ⚠ NOR THE INVOICE, THE ROUTE OR THE RSVP. This says something about their LIGHTS
    and nothing about their season. They are still coming; recycleKeepingCustomer is what
    tells isOutForSeason so. */
-/* ⭐ [[SCH-134]] INSTALL COMPLETE, EDITABLE FROM EDIT CUSTOMER (2026-10-26). Asked: "Can we make
+/* ⭐ [[SCH-147]] INSTALL COMPLETE, EDITABLE FROM EDIT CUSTOMER (2026-10-26). Asked: "Can we make
    a way to edit that in costumers", after a house was ticked done by mistake with the invoice
    already out. The Schedule tick, the Routes stop and the All Customers row could already undo it;
    this is the fourth door for the install kind, and it goes through hlxMarkJobDone like the rest —

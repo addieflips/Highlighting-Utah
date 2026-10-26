@@ -36682,7 +36682,7 @@ suite('Suite 126. One place a job is marked done');
       ['the leftover flow', extractFn(admin, 'applyLeftoverPicks'), 'planTickCustomer'],
       ['the Routes stop', doorFor("listEl.querySelectorAll('[data-togglecomplete]')", 'renderTextOutSection'), 'hlxMarkJobDone'],
       ['the customer row', doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails'), 'HLX_DONE_KINDS'],
-      /* [[SCH-134]] The sixth door: the install toggle on Edit Customer. The handler hands
+      /* [[SCH-147]] The sixth door: the install toggle on Edit Customer. The handler hands
          the real hlxMarkJobDone in as `mark`, so the slice that must name it is the
          listener, not the helper. */
       ['the Edit Customer install toggle', doorFor("getElementById('editCustInstallToggleBtn')?.addEventListener", "getElementById('editCustRecycleStayBtn')"), 'hlxMarkJobDone']
@@ -36693,7 +36693,7 @@ suite('Suite 126. One place a job is marked done');
         'a private copy of what "done" means is the copy that stops matching the others');
     });
 
-    /* ⭐ [[SCH-134]] THE EDIT CUSTOMER TOGGLE, RUN (2026-10-26). Asked: "Can we make a way to
+    /* ⭐ [[SCH-147]] THE EDIT CUSTOMER TOGGLE, RUN (2026-10-26). Asked: "Can we make a way to
        edit that in costumers". Every claim is about what the press DOES — whether the dialog
        is asked, whether a refused dialog writes, which direction the write goes — so the
        helper is executed with a fake confirm and a fake marker rather than matched. */
