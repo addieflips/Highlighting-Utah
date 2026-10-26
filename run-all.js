@@ -36595,13 +36595,76 @@ suite('Suite 126. One place a job is marked done');
       ['Schedule All done', doorFor('if(t.dataset.allbtn)', 'return;}'), 'planTickCustomer'],
       ['the leftover flow', extractFn(admin, 'applyLeftoverPicks'), 'planTickCustomer'],
       ['the Routes stop', doorFor("listEl.querySelectorAll('[data-togglecomplete]')", 'renderTextOutSection'), 'hlxMarkJobDone'],
-      ['the customer row', doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails'), 'HLX_DONE_KINDS']
+      ['the customer row', doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails'), 'HLX_DONE_KINDS'],
+      /* [[SCH-134]] The sixth door: the install toggle on Edit Customer. The handler hands
+         the real hlxMarkJobDone in as `mark`, so the slice that must name it is the
+         listener, not the helper. */
+      ['the Edit Customer install toggle', doorFor("getElementById('editCustInstallToggleBtn')?.addEventListener", "getElementById('editCustRecycleStayBtn')"), 'hlxMarkJobDone']
     ];
     doors.forEach(([name, src, needs]) => {
       check('S126', name + ' goes through the shared rule',
         !!src && src.indexOf(needs) !== -1,
         'a private copy of what "done" means is the copy that stops matching the others');
     });
+
+    /* ⭐ [[SCH-134]] THE EDIT CUSTOMER TOGGLE, RUN (2026-10-26). Asked: "Can we make a way to
+       edit that in costumers". Every claim is about what the press DOES — whether the dialog
+       is asked, whether a refused dialog writes, which direction the write goes — so the
+       helper is executed with a fake confirm and a fake marker rather than matched. */
+    {
+      /* ⚠ LIFTED WITH ITS `async`. extractFn anchors on `function NAME(` and so cuts the
+         keyword off, handing back a body full of bare `await` — a SyntaxError that took
+         this whole suite down as "crashed partway through" on the first run (CLAUDE.md §5,
+         for the fourth time). indexOf, not a regex. */
+      const togSrc = (function () {
+        const at = admin.indexOf('async function editCustToggleInstall(');
+        if (at === -1) return '';
+        const end = admin.indexOf('\n}', at);
+        return end === -1 ? '' : admin.slice(at, end + 2);
+      })();
+      check('S126', 'editCustToggleInstall could be lifted, async keyword included', !!togSrc && /^async function/.test(togSrc));
+      if (togSrc) {
+        const run = async function (data, answer) {
+          const calls = [];
+          const asked = [];
+          const item = { id: 'c9', data: Object.assign({}, data) };
+          const fn = new Function(togSrc + '\nreturn editCustToggleInstall;')();
+          const res = await fn(item, function (w) { asked.push(w); return answer; },
+            async function (t, kind, done, opts) { calls.push({ id: t && t.id, kind: kind, done: done, src: opts && opts.source }); return { ok: true }; });
+          return { res: res, calls: calls, asked: asked, item: item };
+        };
+        pendingAsync.push((async function () {
+          const undo = await run({ name: 'Pat', completed: true, invoiceEmailSent: true }, true);
+          check('S126', 'undoing a billed install warns that the invoice cannot be un-sent',
+            undo.asked.length === 1 && /already been invoiced/.test(undo.asked[0]) && /cannot un-send/.test(undo.asked[0]),
+            'the Schedule tick gives this warning and the form must not be the quiet door');
+          check('S126', 'and writes NOT complete through the shared rule, install kind only',
+            undo.calls.length === 1 && undo.calls[0].kind === 'install' && undo.calls[0].done === false && undo.calls[0].id === 'c9',
+            'a second copy of what done means is the copy that stops matching the others');
+          check('S126', 'and mirrors the record so the form and the row repaint without a reload',
+            undo.item.data.completed === false && undo.item.data.completedAt === null);
+          const unbilled = await run({ name: 'Pat', completed: true }, true);
+          check('S126', 'undoing an unbilled install does not mention an invoice',
+            unbilled.asked.length === 1 && !/invoiced/.test(unbilled.asked[0]),
+            'a warning about an invoice nobody was sent is the cries-wolf failure');
+          const refused = await run({ name: 'Pat', completed: true, invoiceEmailSent: true }, false);
+          check('S126', 'a refused dialog writes nothing and leaves the record alone',
+            refused.calls.length === 0 && refused.res && refused.res.cancelled === true && refused.item.data.completed === true,
+            'the confirm is the whole protection; a write after a No is no confirm at all');
+          const doIt = await run({ name: 'Pat', completed: false }, true);
+          check('S126', 'marking complete goes the other way through the same rule',
+            doIt.calls.length === 1 && doIt.calls[0].done === true && doIt.item.data.completed === true,
+            'one button, both directions, one rule');
+        })());
+      }
+      const modalOpen = extractFn(admin, 'openEditCustomerModal') || '';
+      check('S126', 'the opener redraws the jobs line for the record being opened',
+        /editCustRenderJobs\(d\)/.test(stripComments(modalOpen)),
+        'a line drawn once would describe the first customer opened on every one after');
+      check('S126', 'the row dropdown names the box after the status word it changes',
+        /data-field="completed"[^\n]*> Install Complete<\/label>/.test(admin),
+        '"Done" under a row reading "Install Complete" was the control nobody found');
+    }
 
     /* ⭐ THE TWO CONFIRMS, RUN RATHER THAN READ (2026-08-21). The first version of
        these matched `confirm(` and the word "invoiced" in the source — and a

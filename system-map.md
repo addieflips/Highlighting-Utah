@@ -8861,7 +8861,13 @@ waited.
 ⚠ **Raised in the one door, not at the four callers.** That is the lesson of the section
 above stated forwards: anything bolted onto a caller reaches some of them and reads as
 working. Both halves sit in `hlxMarkJobDone`, so a fifth door added later announces itself
-without anybody remembering to wire it.
+without anybody remembering to wire it. ⭐ **And a sixth door arrived that way on 2026-10-26
+([[SCH-134]])**: Edit Customer has a **Jobs** line (install, takedown, fix, and *Invoice already
+sent* when it is) with one button, *Mark install not complete* / *Mark install complete*. It
+writes at once through `hlxMarkJobDone`, carries the Schedule's own warning when undoing a billed
+install (the invoice cannot be un-sent, and no second one follows), and touches the install only.
+The All Customers row always had this under Show Details → Status ▾, in a box that said only
+"Done"; that box reads **Install Complete** now.
 
 ⚠ **The notice's document id is derived from the customer** (`fix-<id>`) rather than
 auto-generated. That buys both halves of the ruling at once: raising twice writes the same
