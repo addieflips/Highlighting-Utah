@@ -43,10 +43,10 @@ function mk(id, lat, lng, raised) { return {id: id, data: {name: id, needsFix: t
 
 function build(book) {
   const src = [fn('houseGeoPoint'), fn('haversine'), fn('tourMiles'), fn('reorderFlatStops'), fn('twoOptImprove'), fn('orOptImprove'), fn('openFixItems'),
-    fn('fixPointOf'), fn('fixRouteItems'), fn('fixRouteMiles')].join('\n');
+    fn('fixPointOf'), fn('fixRouteItems'), fn('fixRouteMiles'), fn('fixMapRoutes')].join('\n');
   const saves = {n: 0};
   const api = new Function('jobAddresses', 'routeHomePoint', 'scheduleSave', 'loaded', 'toJsDate', 'saidNoOrBackNextYear',
-    'var FIX_ORDER = [];\n' + src + '\nreturn {fixRouteItems: fixRouteItems, fixRouteMiles: fixRouteMiles, ' +
+    'var FIX_ORDER = [];\n' + src + '\nreturn {fixRouteItems: fixRouteItems, fixRouteMiles: fixRouteMiles, fixMapRoutes: fixMapRoutes, ' +
     'get order(){ return FIX_ORDER; }, set order(v){ FIX_ORDER = v; }};')(
     book, function () { return HOME; }, function () { saves.n++; }, true, function (t) { return t instanceof Date ? t : null; },
     function (d) { return d.rsvpStatus === 'no'; });
@@ -128,6 +128,52 @@ suite('6. The tray');
   check('the tray offers Re-plan the whole route', /data-fixreplan/.test(tray));
   check('and the button is wired to a re-plan', /t\.dataset\.fixreplan\)\{fixRouteItems\(\{replan:true\}\)/.test(admin));
   check('printing prints what the tray shows, in that order', /printFixList\(fixTrayShown\)/.test(admin) && /fixTrayShown = items/.test(tray));
+}
+
+suite('7. The map under the Fixes tab is the fix route ([[FIX-10]])');
+{
+  /* Dax, 2026-10-26: "the fix list router shows the map at the bottom like always but it says there are 40 houses when
+     theres only 6". The tab never drew a map, so the one under it was the last Scheduling day's. */
+  const book = [mk('A', 40.45, -111.80, 1), mk('B', 40.45, -111.70, 2), mk('C', 40.33, -111.70, 3),
+    {id: 'N', data: {name: 'N', needsFix: true, fixRaisedAt: new Date(2026, 9, 4)}}];
+  const t = build(book);
+  const items = t.api.fixRouteItems();
+  const routes = t.api.fixMapRoutes(items);
+  check('one route, with a pin per pinned fix', routes.length === 1 && routes[0].stops.length === 3, JSON.stringify(routes.map(r => r.stops.length)));
+  check('the fix with no pin is counted, not drawn', routes[0].missing === 1);
+  check('the pins carry the stop numbers the list shows, in route order',
+    routes[0].stops.map(s => s.n + s.title.split('. ')[1]).join(',') === items.slice(0, 3).map((a, i) => (i + 1) + a.id).join(','),
+    routes[0].stops.map(s => s.title).join(' | '));
+  check('no open fixes, no route', t.api.fixMapRoutes([]).length === 0);
+
+  /* renderDayMaps RUN with handed-in routes: it draws exactly them and never asks for a day's */
+  const head = {innerHTML: ''}, grid = {style: {}};
+  const wrap = {style: {}, querySelector: s => (s === '.daymapgrid' ? grid : head)};
+  const drawn = [];
+  let dayAsked = 0, forecastAsked = 0;
+  const panes = [];
+  const render = new Function('dayMapWrap', 'dayMapRoutes', 'esc', 'dayMapPaneAt', 'dayMapDraw', 'routeHomePoint', 'google',
+    'dayForecastChips', 'ensureForecastForPanel', 'routePictureHTML', 'dayMapPanes',
+    'var lastMappedDay = null, lastMappedOpts = null;\n' + fn('renderDayMaps') + '\nreturn renderDayMaps;')(
+    () => wrap, () => { dayAsked++; return []; }, x => String(x),
+    (w, i) => (panes[i] = panes[i] || {box: {style: {}}, hd: {innerHTML: ''}}), (pane, r) => drawn.push(r), () => HOME,
+    {maps: {Map: function () {}}}, () => '', () => { forecastAsked++; }, () => '', []);
+  render(null, {routes: routes, title: 'The fix route — 4 open fixes'});
+  check('the map draws the fix route it was handed', drawn.length === 1 && drawn[0] === routes[0]);
+  check('and never a day’s route or forecast', dayAsked === 0 && forecastAsked === 0);
+  check('the heading says it is the fix route', /fix route/.test(head.innerHTML) && wrap.style.display === '', head.innerHTML);
+  const hd = panes[0] ? panes[0].hd.innerHTML : '(no pane drawn)';
+  check('the pane says how many stops — not a day’s 40', /3 stops/.test(hd) && /1 not on the map/.test(hd), hd);
+  render(null, null);
+  check('with no fixes the map is taken down, not left showing a day', wrap.style.display === 'none');
+
+  const tray = fn('renderFixTray');
+  /* anchored on the start of its own line, so a guard put in front of it (if(0)…) fails rather than reading as present */
+  check('the tray draws the fix route on the map every time it draws',
+    /\n[ \t]*try\{ renderDayMaps\(null, all\.length \? \{routes: fixMapRoutes\(all\)/.test(tray));
+  check('and before the no-fixes return, so an empty list also takes the old map down',
+    tray.indexOf('renderDayMaps(') !== -1 && tray.indexOf('renderDayMaps(') < tray.indexOf('if(!all.length)'));
+  check('a map-key swap redraws the fix route too', /renderDayMaps\(lastMappedDay, lastMappedOpts\)/.test(admin));
 }
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

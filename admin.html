@@ -78579,6 +78579,20 @@ function fixRouteMiles(items){
   const ps = (items || []).map(fixPointOf).filter(Boolean);
   return (typeof tourMiles === 'function') ? tourMiles(ps, home, home) : 0;
 }
+/* [[FIX-10]] the fix route as the map under the tab draws it — the open fixes, numbered as the list numbers them.
+   Before this the Fixes tab never drew a map, so the one left under it was the last Scheduling day's (40 houses). */
+function fixMapRoutes(items){
+  const stops = [];
+  let missing = 0;
+  (items || []).forEach(function(a, k){
+    const p = fixPointOf(a);
+    if(!p){ missing++; return; }
+    const d = (a && a.data) || {};
+    stops.push({lat: p.lat, lng: p.lng, n: k + 1, est: false,
+      title: (k + 1) + '. ' + (d.name || '') + ((d.street || d.address) ? ' — ' + (d.street || d.address) : '')});
+  });
+  return stops.length ? [{label: 'Fix route', spare: true, stops: stops, missing: missing, colour: '#b02a37'}] : [];
+}
 function fixListPrintRow(item){
   const d = (item && item.data) || {};
   return {number: d.customerNumber || '', name: d.name || '', address: d.street || d.address || '',
@@ -78622,6 +78636,9 @@ function renderFixTray(){
     return [d.name, d.address, d.street, d.city, d.phone].join(' ').toLowerCase().indexOf(q) !== -1;
   }) : all;
   fixTrayShown = items;
+  /* [[FIX-10]] the map under the tab is the fix route — never a day the Scheduling tab left behind */
+  try{ renderDayMaps(null, all.length ? {routes: fixMapRoutes(all), title: 'The fix route — ' + all.length + ' open fix' + (all.length === 1 ? '' : 'es') + ', out of the yard and back'} : null); }
+  catch(err){ console.error('[HU] could not draw the fix route map', err); }
   if(!all.length){
     el.innerHTML = '<h3 class="fix">🔧 Fixes</h3><div class="traynote">No open fixes. Raise one from a customer row or a route stop and it shows here — fixes are done daily, so they are not put on a day.</div>';
     return;
@@ -78960,7 +78977,7 @@ function dayMapWrap(){
 if(typeof window !== 'undefined') window.scheduleMapsRebuild = function(){
   dayMapPanes.forEach(function(p){ if(p && p.box && p.box.parentNode) p.box.parentNode.removeChild(p.box); });
   dayMapPanes.length = 0;
-  try{ if(lastMappedDay) renderDayMaps(lastMappedDay); }
+  try{ if(lastMappedDay || lastMappedOpts) renderDayMaps(lastMappedDay, lastMappedOpts); }
   catch(err){ console.error('[HU] could not redraw the route maps on the new key', err); }
 };
 function dayMapPaneAt(wrap, i){
@@ -79044,6 +79061,8 @@ let forecastAskedForPanel=false;
 /* The day the maps were last drawn for, so the repaint below redraws THAT rather
    than guessing — the panel is handed its day, it does not read one from state. */
 let lastMappedDay=null;
+/* [[FIX-10]] or the ready-made routes it was handed instead of a day (the Fixes tab's route) */
+let lastMappedOpts=null;
 function ensureForecastForPanel(){
   if(forecastAskedForPanel) return;
   if(typeof loadSeasonForecast!=='function') return;
@@ -79066,8 +79085,10 @@ function ensureForecastForPanel(){
     catch(err){ /* the panel has moved on; the chips arrive on the next draw */ }
   });
 }
-function renderDayMaps(day){
+/* [[FIX-10]] opts {routes, title} draws routes that are not a day's — the Fixes tab's run — with no forecast chips */
+function renderDayMaps(day, opts){
   lastMappedDay=day;
+  lastMappedOpts=opts||null;
   const wrap = dayMapWrap();
   if(!wrap) return;
   if(!wrap.querySelector('.daymapgrid')){
@@ -79081,22 +79102,28 @@ function renderDayMaps(day){
   }
   const head = wrap.querySelector('.daymapshead');
   const grid = wrap.querySelector('.daymapgrid');
-  const routes = day ? dayMapRoutes(day) : [];
+  const routes = (opts && opts.routes) ? opts.routes : (day ? dayMapRoutes(day) : []);
   if(!routes.length){ wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   /* ⚠ innerHTML, NOT textContent, because the forecast chips are markup — every
      town name in them goes through esc() on the way in (see dayForecastChips). */
-  head.innerHTML = esc(routes.length > 1
-    ? 'The ' + routes.length + ' routes for this day — drag or zoom either one'
-    : 'The route for this day — drag or zoom it') +
-    ((typeof dayForecastChips === 'function') ? dayForecastChips(day) : '');
-  if(typeof ensureForecastForPanel === 'function') ensureForecastForPanel();
+  if(opts){
+    head.innerHTML = esc(opts.title || 'The route — drag or zoom it');
+  } else {
+    head.innerHTML = esc(routes.length > 1
+      ? 'The ' + routes.length + ' routes for this day — drag or zoom either one'
+      : 'The route for this day — drag or zoom it') +
+      ((typeof dayForecastChips === 'function') ? dayForecastChips(day) : '');
+    if(typeof ensureForecastForPanel === 'function') ensureForecastForPanel();
+  }
   grid.style.cssText = 'display:grid;gap:12px;grid-template-columns:' +
     (routes.length > 1 ? 'repeat(auto-fit,minmax(320px,1fr))' : '1fr');
   /* ⚠ NO GOOGLE, NO BLANK BOX. If the Maps script did not load, the drawing is
      still better than an empty rectangle — and it is already built and tested. */
   if(typeof google === 'undefined' || !google.maps || !google.maps.Map){
     dayMapPanes.length = 0;
+    /* the drawing is of a day; with no day (the fix route) there is nothing to draw, so no box at all */
+    if(opts){ grid.innerHTML = ''; wrap.style.display = 'none'; return; }
     grid.innerHTML = (typeof routePictureHTML === 'function') ? routePictureHTML(day) : '';
     return;
   }
