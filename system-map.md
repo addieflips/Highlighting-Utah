@@ -6995,7 +6995,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             on the screen and not on the server: the card would show a plan of several hundred and
             the 9 AM run would refuse every morning, in silence. The ids are resolved on the screen
             that can NAME the two it picked, and the card names them with a count each.
-          - ⭐ **AND SHE CAN PICK THEM ([[EM-35]], 2026-10-26).** Two dropdowns on the Daily send card —
+          - ⭐ **AND SHE CAN PICK THEM ([[EM-36]], 2026-10-26).** Two dropdowns on the Daily send card —
             *Already paid up — send* and *Owes from last season — send* — each offering every template a
             customer can answer from (the three-button tokens, the one-link `{{rsvp_button}}`, or the
             RSVP folder), with *Automatic: <name>* as the first option. The picks are saved on

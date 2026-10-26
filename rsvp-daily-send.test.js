@@ -487,7 +487,7 @@ if (queueState) {
 }
 
 /* ==================================================================
-   6b. WHICH OF HER TEMPLATES — PICKED, NOT ONLY GUESSED ([[EM-35]], 2026-10-26).
+   6b. WHICH OF HER TEMPLATES — PICKED, NOT ONLY GUESSED ([[EM-36]], 2026-10-26).
    ==================================================================
    Asked on the Daily send card: "can we choose the template we use for RSVP?" Until then
    the convention (RSVP folder, {{rsvp_*}} tokens, the exact name Not Paid RSVP) was the

@@ -4229,7 +4229,7 @@
         <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128197; Send the RSVP a few hundred a day</h3>
         <p class="form-note" style="margin:0 0 12px;">Gmail stops a big send partway through, which is how half a send ends up needing to be tracked by hand. This lays the RSVP out over several mornings instead: <b>Build the plan</b> works out who gets which email and in what order, then the server sends the next batch at <b>9:00 AM</b> every day until the list is done &mdash; whether or not this page is open. Nobody is ever sent twice, and anybody who answers in the meantime is dropped from the rest of the plan automatically.</p>
         <p class="form-note" style="margin:0 0 12px;">It sends <b>two of your RSVP emails</b>, and it picks between them per person exactly as <b>Send the whole RSVP</b> does: everybody straight gets the ordinary one, everybody who owes from last season gets the unpaid one, and nobody gets both. <b>Pick which two below</b>, or leave either on <i>Automatic</i> and it uses the template in your RSVP folder (the one named <b>Not Paid RSVP</b> for the unpaid half). If either says <i>no template found</i>, fix that under Templates &rarr; RSVP first.</p>
-        <!-- ⭐ [[EM-35]] WHICH TWO EMAILS, PICKED RATHER THAN GUESSED (2026-10-26). Asked on this
+        <!-- ⭐ [[EM-36]] WHICH TWO EMAILS, PICKED RATHER THAN GUESSED (2026-10-26). Asked on this
              card: "can we choose the template we use for RSVP?" The resolver always decided
              by convention — RSVP folder, the {{rsvp_*}} tokens, the exact name Not Paid RSVP —
              so a second wording she wrote could only be sent by renaming it into place. These
@@ -24747,7 +24747,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
    ordinary "will you be getting lights again" email to every customer carrying a balance
    and tell them nothing about it. An empty answer here is a wrong send to ~950 people,
    so audienceHasLastSeason gates the whole thing. */
-/* ⭐ [[EM-35]] A PICKED TEMPLATE WINS; THE CONVENTION IS THE FALLBACK (2026-10-26). Asked on
+/* ⭐ [[EM-36]] A PICKED TEMPLATE WINS; THE CONVENTION IS THE FALLBACK (2026-10-26). Asked on
    the Daily send card: "can we choose the template we use for RSVP?" Until now the only way
    to send a different wording was to rename it into the convention below. The two picks live
    on settings/rsvpSendPlan (`pickedStandardTemplateId`, `pickedArrearsTemplateId`), which
@@ -24979,7 +24979,7 @@ function rsvpDripRender(){
   const per = Math.max(1, Number(saved && saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
   if(perDayEl && document.activeElement !== perDayEl) perDayEl.value = per;
   if(onEl) onEl.checked = !!(saved && saved.enabled);
-  /* [[EM-35]] The two pickers follow the template list and the saved choice. */
+  /* [[EM-36]] The two pickers follow the template list and the saved choice. */
   if(typeof renderRsvpDripTemplatePickers === 'function') renderRsvpDripTemplatePickers();
 
   /* ⭐ THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF THIS SILENTLY DO NOTHING,
@@ -25277,7 +25277,7 @@ document.getElementById('rsvpDripEnabled')?.addEventListener('change', async fun
   }
 });
 
-/* ⭐ [[EM-35]] THE TWO PICKERS (2026-10-26). Drawn from the SAME list the resolver reads, so a
+/* ⭐ [[EM-36]] THE TWO PICKERS (2026-10-26). Drawn from the SAME list the resolver reads, so a
    template the dropdown offers is one rsvpWholeTemplates will honour, and vice versa.
    ⚠ "Automatic" NAMES THE EMAIL IT STANDS FOR — an option reading only "Automatic" is a claim
    with no proof, and the whole card exists because she could not see which of her emails was
