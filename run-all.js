@@ -10393,8 +10393,18 @@ suite('17. A new customer lands on the next day in their city');
         'would be overruling the person who built the day');
 
       // a timing preference corrected from shorthand to something real
-      r = await stillOn([{id:'thx', data:{name:'Was THX', city:'Lehi', address:'1 St',
-        lat:40.4, lng:-111.8, installPreference:'November', scheduled:true, scheduledDate:dstr(7)}}]);
+      /* ⚠ DATE-PROOF (2026-10-26). The day is a week from today, so from 25 October on it is itself in November and a
+         November preference is ALLOWED on it — the check went red on main with nothing changed. While that day is still
+         before November it tests November exactly as written; after that it uses a named later day ("M/D+"), which goes
+         through the same floor (houseAllowedFrom) and the same "cannot be installed until" eviction. Past the turn of a
+         year a named day would read in the wrong season, so it falls back to the office's not-before date there. */
+      const wk = new Date(); wk.setDate(wk.getDate() + 7);
+      const later = new Date(); later.setDate(later.getDate() + 21);
+      const latePref = wk.getMonth() < 10 ? {installPreference: 'November'}
+        : later.getFullYear() === wk.getFullYear() ? {installPreference: (later.getMonth() + 1) + '/' + later.getDate() + '+'}
+        : {earliestInstallDate: later};
+      r = await stillOn([{id:'thx', data:Object.assign({name:'Was THX', city:'Lehi', address:'1 St',
+        lat:40.4, lng:-111.8, scheduled:true, scheduledDate:dstr(7)}, latePref)}]);
       check('reconcile', 'a preference corrected to November comes off an October day',
         r.dropped.some(w => /cannot be installed until/.test(w)),
         'the 1 customer reading THX and the 190 reading NOV will be tidied up by ' +
@@ -35945,7 +35955,7 @@ suite('122. Out of the yard and back, and a picture of it');
      a drawing — but what the office sees normally is a live map. */
   check('S122', 'the drawing is only reached when Google Maps is not',
     /if\(typeof google === 'undefined' \|\| !google\.maps \|\| !google\.maps\.Map\)/
-      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'))),
+      .test(sectionFrom(admin, admin.indexOf('function renderDayMaps(day, opts)'))),
     'offline, or a key problem, must still show something');
   check('S122', 'and the maps are mounted after the panel is written',
     panel.indexOf('renderDayMaps(') > panel.indexOf('el.innerHTML=h'),
@@ -35955,7 +35965,7 @@ suite('122. Out of the yard and back, and a picture of it');
     'the stops matter more than the drawing of them');
   /* ---- the live maps ---- */
   {
-    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day)'));
+    const maps = sectionFrom(admin, admin.indexOf('function renderDayMaps(day, opts)'));
     const pane = sectionFrom(admin, admin.indexOf('function dayMapPaneAt(wrap, i)'));
     const doc = sectionFrom(admin, admin.indexOf('function dayMapDraw(pane, route, home)'));
     const routes = sectionFrom(admin, admin.indexOf('function dayMapRoutes(day)'));
