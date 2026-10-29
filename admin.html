@@ -27130,6 +27130,21 @@ function msgContactCustomer(d){
   const found = (typeof msgErrorWhoIs === 'function') ? msgErrorWhoIs(d) : null;
   return (found && found.cust) ? found.cust : null;
 }
+/* ⭐ WHICH CUSTOMER A COLOUR-CHANGE MESSAGE IS ABOUT, for Send to Warehouse (2026-10-29,
+   break-test). An id the message carries wins outright; otherwise the same refusing match
+   the contact line uses — one phone owner, else one email owner, else the portal token —
+   and NOBODY when it is shared or blank. Linking a light change to the wrong house builds
+   the wrong bundle; an empty box only costs somebody picking the house. */
+function msgSendToWhCustomer(d){
+  d = d || {};
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  const id = String(d.customerId || d.jobAddressId || '').trim();
+  if(id){
+    const byId = list.find(function(a){ return a.id === id; });
+    if(byId) return byId;
+  }
+  return msgContactCustomer(d);
+}
 /* What the sender gave us wins; the record only ever fills a GAP. Their own answer is
    the one to reply to — somebody who wrote in from a new address wants the reply
    there, not at the old one still on file. */
@@ -29514,8 +29529,11 @@ function renderMessagesList(){
       const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
       if(!msg) return;
       const d = msg.data;
-      const phoneDigits = (d.phone||'').replace(/\D/g,'');
-      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      /* ⛔ NEVER A FIRST-MATCH ON THE PHONE (2026-10-29, break-test). A shared household
+         phone linked the change to whichever sibling came first, and a blank phone matched
+         the first customer with no phone ('' === ''). `msgSendToWhCustomer` refuses an
+         ambiguous match and leaves the house box for a person to pick. */
+      const cust = msgSendToWhCustomer(d);
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
       // This is a NEW entry, so drop out of edit mode first — otherwise it
@@ -29536,7 +29554,8 @@ function renderMessagesList(){
         labelEl.value = d.name || '';
       }
       labelEl.dispatchEvent(new Event('input'));
-      document.getElementById('whAddExtraStatus').textContent = 'Filled in from the Inbox \u2014 check it over, then Add to Queue.';
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from the Inbox \u2014 check it over, then Add to Queue.' +
+        (cust ? '' : ' Could not tell for certain which customer sent it (no single match on their phone or email) \u2014 pick the house before adding.');
     });
   });
   attachDeleteHandlers(list);
@@ -72039,8 +72058,11 @@ function systemNoticeWireRows(list){
       const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
       if(!msg) return;
       const d = msg.data;
-      const phoneDigits = (d.phone||'').replace(/\D/g,'');
-      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      /* ⛔ NEVER A FIRST-MATCH ON THE PHONE (2026-10-29, break-test). A shared household
+         phone linked the change to whichever sibling came first, and a blank phone matched
+         the first customer with no phone ('' === ''). `msgSendToWhCustomer` refuses an
+         ambiguous match and leaves the house box for a person to pick. */
+      const cust = msgSendToWhCustomer(d);
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
       // Same hand-off as the Inbox copy above — the form fills itself from the
@@ -72058,7 +72080,8 @@ function systemNoticeWireRows(list){
         labelEl.value = d.name || '';
       }
       labelEl.dispatchEvent(new Event('input'));
-      document.getElementById('whAddExtraStatus').textContent = 'Filled in from System Messages \u2014 check it over, then Add to Queue.';
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from System Messages \u2014 check it over, then Add to Queue.' +
+        (cust ? '' : ' Could not tell for certain which customer sent it (no single match on their phone or email) \u2014 pick the house before adding.');
     });
   });
   attachDeleteHandlers(list);

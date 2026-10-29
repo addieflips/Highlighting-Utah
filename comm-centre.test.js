@@ -1716,6 +1716,37 @@ console.log('--- nothing here hides until you hover ---');
 }
 
 
+/* ⛔ BREAK-TEST 2026-10-29: SEND TO WAREHOUSE LINKED THE WRONG CUSTOMER. Both copies (Inbox
+   and System Messages) took the FIRST customer whose phone digits matched — a shared
+   household picked a sibling, and a message with no phone matched the first customer with
+   none ('' === ''). RUN, not matched. */
+console.log('');
+console.log('--- send to warehouse finds the right customer or nobody ---');
+{
+  const book = [
+    {id:'a', data:{name:'Ashley', phone:'801-555-0001', email:'a@x.test'}},
+    {id:'b', data:{name:'Catherine', phone:'(801) 555-0001', email:'c@x.test'}},
+    {id:'n', data:{name:'No Phone', phone:'', email:''}},
+    {id:'s', data:{name:'Solo', phone:'8015550002', email:'solo@x.test'}}
+  ];
+  const w = {};
+  new Function('jobAddresses', liftFn('msgContactCustomer') + liftFn('msgSendToWhCustomer') +
+    'this.who = msgSendToWhCustomer;').call(w, book);
+  check('a shared household phone links nobody', w.who({phone:'8015550001', email:''}) === null,
+    'the first sibling on file is a coin toss on whose lights get rebuilt');
+  check('a blank phone and blank email links nobody', w.who({phone:'', email:''}) === null,
+    "'' === '' matched the first customer with no phone");
+  check('a phone held by one customer links them', (w.who({phone:'801.555.0002'}) || {}).id === 's');
+  check('an email-only message resolves by a unique email', (w.who({phone:'', email:'Solo@x.test'}) || {}).id === 's');
+  check('an id on the message wins outright', (w.who({customerId:'a', phone:'8015550002'}) || {}).id === 'a');
+  const handlers = admin.split("querySelectorAll('[data-sendtowh]')").slice(1)
+    .map(function(t){ return t.slice(0, t.indexOf('labelEl.dispatchEvent')); });
+  check('both Send to Warehouse handlers ask the refusing rule and nothing else',
+    handlers.length === 2 && handlers.every(function(h){
+      return /msgSendToWhCustomer\(d\)/.test(h) && !/jobAddresses\.find/.test(h); }),
+    'a second copy left on the first-match lookup is the same bug on the other screen');
+}
+
 Promise.all(pendingChecks).then(function(){
   console.log('');
   console.log('=== The communication centre ===');
