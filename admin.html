@@ -81449,7 +81449,15 @@ function rebuildSeasonDays(){
     catch(err){ console.error('Could not fold the short November days after October was filled:', err); }
   }
   /* [[SCH-148]] and whatever October room is still open is filled with them anyway, up to a full day — nearest first */
-  try{ if(typeof fillOctoberToCapacity === 'function'){ const o3 = fillOctoberToCapacity(); if(o3 && o3.moved.length) octFill.moved = octFill.moved.concat(o3.moved); } }
+  /* the November days it took houses from can leave a crew short of its five miles — those are put right (never an October
+     day), and October is offered the room again; bounded at three rounds, ending on a fill */
+  try{ if(typeof fillOctoberToCapacity === 'function'){ const octEndS = isoOf(seasonStartDate()).slice(0, 4) + '-10-31';
+      for(let round = 0; round < 3; round++){
+        const o3 = fillOctoberToCapacity(); if(o3 && o3.moved.length) octFill.moved = octFill.moved.concat(o3.moved);
+        if(!o3 || !o3.moved.length || typeof enforceFiveMileCrews !== 'function') break;
+        const f4 = enforceFiveMileCrews({after: octEndS}); fiveMile.moved = fiveMile.moved.concat(f4.moved); fiveMile.tail = fiveMile.tail.concat(f4.tail); fiveMile.keptOutlier = f4.keptOutlier;
+        if(!f4.moved.length && !f4.tail.length) break;
+      } } }
   catch(err){ console.error('Could not fill the October days up to a full day:', err); }
   /* a house brought back from the end of November is not one sent there — the press only names the ones still waiting */
   if(octFill.moved.length){
@@ -82440,18 +82448,20 @@ function dayHoldsWithHouses(day, list){
   day.houses.length = before;
   return ok;
 }
-function enforceFiveMileCrews(){
+function enforceFiveMileCrews(opts){
   /* repeated: a house moved onto another day re-splits that day's crews and can strand somebody else */
   const all = {moved: [], tail: [], keptOutlier: []};
   for(let round = 0; round < 4; round++){
-    const r = enforceFiveMileOnce();
+    const r = enforceFiveMileOnce(opts);
     all.moved = all.moved.concat(r.moved); all.tail = all.tail.concat(r.tail);
     all.keptOutlier = r.keptOutlier;
     if(!r.moved.length && !r.tail.length) break;
   }
   return all;
 }
-function enforceFiveMileOnce(){
+function enforceFiveMileOnce(opts){
+  /* opts.after: only take strays off days dated after it ([[SCH-148]] — October days are filled past five miles on purpose) */
+  const strayAfter = (opts && opts.after) || '';
   const res = {moved: [], tail: [], keptOutlier: []};
   if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
   const startStr = isoOf(seasonStartDate());
@@ -82493,7 +82503,7 @@ function enforceFiveMileOnce(){
   /* 1. take the strays off every open day (the end-of-November tail is the overflow and is left alone) */
   const strays = [];
   SEASON.forEach(function(d){
-    if(!isOpen(d) || tailSet.has(dsOf(d))) return;
+    if(!isOpen(d) || tailSet.has(dsOf(d)) || (strayAfter && dsOf(d) <= strayAfter)) return;
     crewsOf(d).forEach(function(crew){
       const keep = keepOf(crew);
       crew.forEach(function(h){ if(!keep.has(h) && movable(h)) strays.push({h: h, from: d}); });
@@ -82709,8 +82719,9 @@ function mergeShortOpenDays(opts){
    to 40 or put all normal schedules into october whichever comes first", then "novenmber shouldnt have any normal schedules
    until these are full". Asked which wins when the only houses left are more than five miles from the October crews, he chose
    October first. So after [[SCH-134]]'s five-mile fill has done what it can, every open October day still short of a full day
-   (capFor — 40 on a normal day) takes the dateless houses waiting after October, nearest to the houses already on that day
-   first, one at a time, until it is full or nobody legal is left. Earliest October day first.
+   (capFor — 40 on a normal day) takes the houses waiting after October that may go in October — the most urgent first
+   (houseInstallPriority: an October house left on a November day before a Normal Schedule one), then the nearest to the
+   houses already on that day — one at a time, until it is full or nobody legal is left. Earliest October day first.
    ⛔ This REVERSES [[SCH-131]]'s "push them back to the end of November" for October room (R-024) — a longer drive on an
    October day is the price he accepted. Everything else stands: never a November, named-day, After Thanksgiving or
    office-dated house (houseDeadline / houseMayGoOn), never onto a locked, printed or held day, never today. */
@@ -82737,8 +82748,10 @@ function fillOctoberToCapacity(){
     if(!isOpen(d) || dsOf(d) <= octEnd) return;
     (d.houses || []).forEach(function(h){
       if(!live(h) || ('' + (h.stuck || '')).trim() || !ptOf(h)) return;
-      if((typeof houseDeadline === 'function') && houseDeadline(h)) return;
-      cands.push({h: h, from: d});
+      /* an October house left on a November day comes first ([[SCH-148]], Dax: "make sure we prioritze geting october houses done"); a
+         November, named-day or Thanksgiving house is refused below by houseMayGoOn, so none of them is ever brought into October */
+      const pr = houseInstallPriority(h, custOf(h), {today: today});
+      cands.push({h: h, from: d, pr: (typeof pr === 'number') ? pr : 99});
     });
   });
   if(!cands.length) return res;
@@ -82754,7 +82767,7 @@ function fillOctoberToCapacity(){
         const p = ptOf(c.h);
         let m = here.length ? Infinity : 0;
         here.forEach(function(x){ const q = ptOf(x); const z = haversine(p.lat, p.lng, q.lat, q.lng); if(z < m) m = z; });
-        if(m < bm){ bm = m; best = c; }
+        if(!best || c.pr < best.pr || (c.pr === best.pr && m < bm)){ bm = m; best = c; }
       });
       if(!best) break;
       const i = best.from.houses.indexOf(best.h); if(i !== -1) best.from.houses.splice(i, 1);
