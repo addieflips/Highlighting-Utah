@@ -81448,6 +81448,9 @@ function rebuildSeasonDays(){
       } }
     catch(err){ console.error('Could not fold the short November days after October was filled:', err); }
   }
+  /* [[SCH-148]] and whatever October room is still open is filled with them anyway, up to a full day — nearest first */
+  try{ if(typeof fillOctoberToCapacity === 'function'){ const o3 = fillOctoberToCapacity(); if(o3 && o3.moved.length) octFill.moved = octFill.moved.concat(o3.moved); } }
+  catch(err){ console.error('Could not fill the October days up to a full day:', err); }
   /* a house brought back from the end of November is not one sent there — the press only names the ones still waiting */
   if(octFill.moved.length){
     const back = new Set(octFill.moved.map(function(x){ return x.name; }));
@@ -82702,6 +82705,71 @@ function mergeShortOpenDays(opts){
    opened for the group — outside the lock, and only if no other day moves for it, exactly as [[SCH-133]] opens one.
    ⛔ The five-mile rule is never broken for this: a house that fits nowhere in October stays where it was.
    ⛔ Locked, printed, pinned, done, fix and takedown houses never move, and nothing lands on a locked or printed day. */
+/* ⭐⭐ [[SCH-148]] NO NORMAL SCHEDULE IN NOVEMBER UNTIL OCTOBER IS FULL (2026-10-29). Dax: "fill the rest of the october days up
+   to 40 or put all normal schedules into october whichever comes first", then "novenmber shouldnt have any normal schedules
+   until these are full". Asked which wins when the only houses left are more than five miles from the October crews, he chose
+   October first. So after [[SCH-134]]'s five-mile fill has done what it can, every open October day still short of a full day
+   (capFor — 40 on a normal day) takes the dateless houses waiting after October, nearest to the houses already on that day
+   first, one at a time, until it is full or nobody legal is left. Earliest October day first.
+   ⛔ This REVERSES [[SCH-131]]'s "push them back to the end of November" for October room (R-024) — a longer drive on an
+   October day is the price he accepted. Everything else stands: never a November, named-day, After Thanksgiving or
+   office-dated house (houseDeadline / houseMayGoOn), never onto a locked, printed or held day, never today. */
+function fillOctoberToCapacity(){
+  const res = {moved: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const octEnd = seasonStartDate().getFullYear() + '-10-31';
+  if(today >= octEnd) return res;
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  const crewsN = Math.max(1, (typeof crewCount === 'function' && crewCount()) || 2);
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : ''; if(lim === 'man') return (typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8; if(lim === 'crew') return cap; return cap * crewsN; };
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(h){ return h && !h.done && !h.hiddenDone && !h.isFix && !h.isTakedown; };
+  const isOpen = function(d){ const ds = dsOf(d); return ds && ds > today && !d.isFixRoute && !d.isTakedown && !d.printedAt && !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)); };
+  const custMemo = new Map(), ptMemo = new Map();
+  const custOf = function(h){ if(!custMemo.has(h)){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(h) : null; custMemo.set(h, (c && c.data) || {}); } return custMemo.get(h); };
+  const ptOf = function(h){ if(!ptMemo.has(h)){ const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(h, custOf(h)) : null; ptMemo.set(h, (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null); } return ptMemo.get(h); };
+  const octDays = SEASON.filter(function(d){ return isOpen(d) && dsOf(d) <= octEnd; }).sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : 1; });
+  if(!octDays.length) return res;
+  const cands = [];
+  SEASON.forEach(function(d){
+    if(!isOpen(d) || dsOf(d) <= octEnd) return;
+    (d.houses || []).forEach(function(h){
+      if(!live(h) || ('' + (h.stuck || '')).trim() || !ptOf(h)) return;
+      if((typeof houseDeadline === 'function') && houseDeadline(h)) return;
+      cands.push({h: h, from: d});
+    });
+  });
+  if(!cands.length) return res;
+  const done = new Set();
+  octDays.forEach(function(D){
+    const ds = dsOf(D);
+    let room = capFor(ds) - (D.houses || []).filter(live).length;
+    while(room > 0){
+      const here = D.houses.filter(function(x){ return live(x) && ptOf(x); });
+      let best = null, bm = Infinity;
+      cands.forEach(function(c){
+        if(done.has(c.h) || !houseMayGoOn(c.h, custOf(c.h), ds, startStr).ok) return;
+        const p = ptOf(c.h);
+        let m = here.length ? Infinity : 0;
+        here.forEach(function(x){ const q = ptOf(x); const z = haversine(p.lat, p.lng, q.lat, q.lng); if(z < m) m = z; });
+        if(m < bm){ bm = m; best = c; }
+      });
+      if(!best) break;
+      const i = best.from.houses.indexOf(best.h); if(i !== -1) best.from.houses.splice(i, 1);
+      if(best.h.fiveMileTail) delete best.h.fiveMileTail;
+      D.houses.push(best.h); done.add(best.h); room--;
+      res.moved.push({name: best.h.name || '(no name)', from: dsOf(best.from), to: ds});
+    }
+  });
+  if(res.moved.length){
+    SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || d.printedAt || (d.houses || []).length; });
+    if(typeof GEO_SPLIT_CACHE !== 'undefined' && GEO_SPLIT_CACHE.clear) GEO_SPLIT_CACHE.clear();
+    computeDates();
+  }
+  return res;
+}
 function fillOctoberWithAnyTime(){
   const res = {moved: []};
   if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;

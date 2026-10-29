@@ -2239,6 +2239,19 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     }
     check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
       emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
+    /* [[SCH-148]] Dax, 2026-10-29: "novenmber shouldnt have any normal schedules until these are full" — and October first even
+       when the only ones left are more than five miles away. So none of them may wait in November while an open October day
+       is short of a full day and could legally take them. */
+    const stillWaiting = [];
+    days.filter(function(x){ return open(x) && x.ds > '2026-10-31'; }).forEach(function(x){
+      (x.day.houses || []).forEach(function(h){
+        if(h.done || h.isFix || h.isTakedown || String(h.stuck || '').trim() || H.api.houseDeadline(h)) return;
+        const room = octOpen.filter(function(o){ return (o.day.houses || []).filter(function(y){ return !y.done; }).length < 40 && H.api.houseMayGoOn(h, custOf(h), o.ds, startStr).ok; });
+        if(room.length) stillWaiting.push((h.name || h.id) + ' ' + x.ds + ' -> ' + room[0].ds);
+      });
+    });
+    check('29.' + k + 'f book ' + spec[1] + ': no Normal Schedule house waits in November while an October day is short of 40 (SCH-148)',
+      stillWaiting.length === 0, stillWaiting.slice(0, 5).join(' | '));
     const v = H.api.validateSeasonPlan({});
     check('29.' + k + 'c book ' + spec[1] + ': every placement rule still holds (month, deadline, away, nobody lost)', v.length === 0, JSON.stringify(v.slice(0, 2)));
     const lateOct = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
