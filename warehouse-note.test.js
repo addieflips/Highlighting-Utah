@@ -548,6 +548,33 @@ head('break-test 2026-10-29: Mark Done, Mark Completed, Mark Recycled, bin says'
     finish();
   })().catch(e => { check('the removal ran in its sandbox', false, e && e.stack); finish(); });
 
+  /* #14 — Add to Queue for somebody out for the season said "queued to build" and the house
+     never showed. The note asks the same status rule the "is a house on this list" box asks. */
+  const note = new Function(lift('whBuildStatusText') + lift('whQueuedButHiddenNote') +
+    'return whQueuedButHiddenNote;')();
+  check('a house that will not show on the build list is said to, after "queued to build"',
+    /not said yes/.test(note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false)) &&
+    /Back Next Year/.test(note('Kelvin', {state: 'nextyear', why: 'Back Next Year'}, false)),
+    note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false));
+  check('and an unanswered RSVP is not called a recycle',
+    !/recycled/.test(note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false)));
+  check('and a house that IS on the list gets no warning',
+    note('A', {state: 'building', where: 'Red'}, false) === '' &&
+    note('A', {state: 'timeronly'}, true) === '');
+  const statusSrc = lift('whHouseBuildStatus');
+  check('the status rule tells an unanswered customer from one being recycled',
+    /needsLightRecycle \? '' : 'unconfirmed'/.test(statusSrc));
+  const addQ = admin.slice(admin.indexOf("getElementById('whAddExtraBtn').addEventListener('click'"));
+  const addQBody = addQ.slice(0, addQ.indexOf("}, function(){ return document.getElementById('whAddExtraBtn'); }));"));
+  check('Add to Queue warns through that note after a linked add',
+    /whQueuedButHiddenNote\(linked\.data\.name, whHouseBuildStatus\(linked\)/.test(addQBody),
+    'a note nothing calls leaves "queued to build" standing alone');
+  /* #7 — two quick presses on buffer stock wrote two rows. */
+  check('Add to Queue is one press at a time',
+    /^getElementById\('whAddExtraBtn'\)\.addEventListener\('click', onceAtATime\(async function\(\)\{/.test(addQ) &&
+    addQBody.length < addQ.length,
+    'the top-up check reads a cache the first write has not reached yet');
+
   /* LOW — the "bin says" box refused "abc" and went on showing it. */
   const binBox = admin.slice(admin.indexOf("querySelectorAll('[data-whbinlabel]')"));
   const refusal = binBox.slice(0, binBox.indexOf('return;'));

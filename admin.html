@@ -56460,7 +56460,11 @@ function whHouseBuildStatus(item){
      Build Them A New Set — which queues one, and the queue then refuses it. */
   if(typeof isOutForSeason === 'function' && isOutForSeason(d)){
     const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
-    return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
+    /* ⚠ 'unconfirmed' (2026-10-29, break-test): somebody out only because they have not said
+       yes was told their lights were "queued to be recycled", which is false and sends the
+       office looking for a recycle that does not exist. */
+    return {state: 'nextyear', why: bny ? 'Back Next Year'
+      : (d.needsLightRecycle ? '' : 'unconfirmed')};
   }
   /* ⭐ [[WH-27]] — queued for a timer and nothing else. Answered BEFORE 'notqueued', which
      would otherwise send the office to press Build Them A New Set on a house that is on this
@@ -56480,6 +56484,17 @@ function whHouseBuildStatus(item){
   if(d.needsColorChange === true) return {state: 'colorchange'};
   return {state: 'unknown'};
 }
+/* ⛔ "QUEUED TO BUILD" ONLY WHEN IT WILL SHOW (2026-10-29, break-test). Add to Queue for a
+   customer out for the season (unanswered RSVP, Back Next Year) set the flag and said
+   "queued to build" while the build list, which asks isOutForSeason, never showed them.
+   After the write it asks the SAME rule the "is a house on this list" box asks, and says
+   whBuildStatusText's own sentence when the house is not going to appear. '' when it is. */
+function whQueuedButHiddenNote(name, st, timerOnly){
+  const state = st && st.state;
+  if(state === 'building' || state === 'extra' || state === 'colorchange') return '';
+  if(timerOnly && (state === 'timeronly' || state === 'timerremoval')) return '';
+  return ' But: ' + whBuildStatusText(name, st);
+}
 /* One sentence per state, and each one says what to do about it. */
 function whBuildStatusText(name, st){
   const who = name || 'That customer';
@@ -56487,6 +56502,8 @@ function whBuildStatusText(name, st){
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'timerremoval') return who + ' is having their TIMER TAKEN OUT \u2014 they are on the Remove Timer list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
+  if(st.state === 'nextyear' && st.why === 'unconfirmed') return who +
+    ' has not said yes to this season yet, so they are not on the build list — they appear there once their RSVP is a yes.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -58480,7 +58497,10 @@ async function whAddRequestToCustomer(linked, kind, pattern, wireColor, qty){
   return {ok: true, charged: !!(change && change.feeAmount > 0 && !waived), waived: waived,
           timer: kind === 'timer', bundles: updates.buildBundleOverride || 0};
 }
-document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
+/* ⛔ onceAtATime (2026-10-29, break-test): two quick presses on buffer stock wrote two rows —
+   the 'already has a request' top-up check reads a cache the first write has not reached yet.
+   The button stays dead until the first press has finished. */
+document.getElementById('whAddExtraBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
   /* Chosen, not typed — this reads the hidden input the colour picker writes,
@@ -58567,8 +58587,11 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
       }
       statusEl.textContent = (linked.data.name || 'They') + ' — ' +
         (out.timer ? 'timer added to their record' : 'lights updated and queued to build') +
-        (out.charged ? ', $30 light-change fee added' : (out.waived ? ', fee waived' : '')) + '.';
-      setTimeout(function(){ statusEl.textContent = ''; }, 6000);
+        (out.charged ? ', $30 light-change fee added' : (out.waived ? ', fee waived' : '')) + '.' +
+        whQueuedButHiddenNote(linked.data.name, whHouseBuildStatus(linked), !!out.timer);
+      /* A warning stays up longer than a plain confirmation — it is the one worth reading. */
+      const statusNow = statusEl.textContent;
+      setTimeout(function(){ if(statusEl.textContent === statusNow) statusEl.textContent = ''; }, /NOT on|nothing is being built|not showing/.test(statusNow) ? 20000 : 6000);
     } catch(err){
       console.error('Warehouse request could not be saved', err);
       statusEl.textContent = 'Something went wrong — ' + ((err && err.message) || 'try again') + '.';
@@ -58657,7 +58680,7 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
-});
+}, function(){ return document.getElementById('whAddExtraBtn'); }));
 /* A customer only reaches the build queue when they have light colours AND the
    build flag. This finds the ones that fell through either gap. */
 document.getElementById('whFindNotQueuedBtn').addEventListener('click', function(){
