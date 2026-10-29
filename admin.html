@@ -51257,6 +51257,45 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
 const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
 const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
+/* ⭐ WHAT ONE INVOICE BULK UPDATE ROW MAY WRITE (2026-10-29, break-test). Pure, so a test can
+   RUN it. The tool was written for brand-new customers and wrote every column it was given
+   over an existing invoice, blanks included:
+     - a blank or unreadable Amount set install to 0 — on a paid-in-full invoice that is a
+       NEGATIVE balance, money owed back to the customer that nobody owes;
+     - "-300" was read as 300;
+     - a blank Name or Email wiped the one on the invoice;
+     - a 500 typed against a payer billed for twelve houses replaced the SUM of all twelve,
+       which syncPayerInvoice then rebuilt behind the office's back or, worse, did not.
+   On an EXISTING invoice: install is written only from a readable figure of 0 or more, and
+   name / email only when the cell has something in it. A row whose amount cell holds
+   something that is not a dollar figure is REFUSED whole (new invoice or not) and named in
+   the report. A phone that pays for more than one house is REFUSED: the total belongs to the
+   houses, and is changed by changing their prices.
+   Returns {skip: reason} or {data, isNew}. */
+function invoiceBulkRowPlan(row, existing, housesOnBill){
+  const amt = parseTypedMoney(row.amountRaw);
+  if(!amt.blank && !amt.ok){
+    return {skip: amt.negative ? 'amount "' + String(row.amountRaw).trim() + '" is negative'
+                               : 'amount "' + String(row.amountRaw).trim() + '" is not a dollar figure'};
+  }
+  const ex = existing || null;
+  const billed = ex && Array.isArray(ex.billedHouseIds) ? ex.billedHouseIds.length : 0;
+  const houses = Math.max(billed, Number(housesOnBill) || 0);
+  if(houses > 1){
+    return {skip: 'pays for ' + houses + ' houses — change the price on each house instead'};
+  }
+  const keepRemoval = ex ? (Number(ex.removal) || 0) : 0;
+  const keepDeposit = ex ? (Number(ex.deposit) || 0) : 0;
+  const keepCredits = ex ? (Number(ex.credits) || 0) : 0;
+  const keepFees = ex ? (Number(ex.changeFees) || 0) : 0;
+  const install = amt.ok ? amt.value : (ex ? (Number(ex.install) || 0) : 0);
+  const data = {phone: row.phone, removal: keepRemoval, deposit: keepDeposit};
+  if(!ex || amt.ok){ data.install = install; data.priceReviewed = true; }
+  if(!ex || row.name) data.name = row.name || '';
+  if(!ex || row.email) data.email = row.email || '';
+  data.status = computeInvoiceStatus(install, keepRemoval, keepDeposit, keepCredits, keepFees);
+  return {data: data, isNew: !ex};
+}
 /* Same reasoning as the Routes import above — one redraw at the end. */
 document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('ibImportStatus');
@@ -51281,12 +51320,12 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   let added = 0, updated = 0, customersCreated = 0, skipped = 0;
+  const refusedRows = [];
   for(let i = 0; i < phones.length; i++){
     await bulkBreathe(i);
     const phone = phones[i].replace(/\D/g,'');
     const name = names[i] || '';
     const email = emails[i] || '';
-    const amount = Number((amounts[i]||'').replace(/[^0-9.]/g,'')) || 0;
     if(!phone){ skipped++; continue; }
     statusEl.textContent = 'Processing ' + (i+1) + ' of ' + phones.length + '…';
     try{
@@ -51296,17 +51335,14 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
       // invoice — but guard it anyway rather than trust that stays true
       // forever. A blind removal:0, deposit:0 here would erase a removal
       // charge or a payment already on file the moment it ever is re-run.
-      const existingData = existingInv.exists() ? existingInv.data() : {};
-      const keepRemoval = Number(existingData.removal) || 0;
-      const keepDeposit = Number(existingData.deposit) || 0;
-      const keepCredits = Number(existingData.credits) || 0;
-      const keepFees = Number(existingData.changeFees) || 0;
-      await setDoc(doc(db,'invoices',phone), {
-        name: name, phone: phone, email: email,
-        install: amount, removal: keepRemoval, deposit: keepDeposit,
-        status: computeInvoiceStatus(amount, keepRemoval, keepDeposit, keepCredits, keepFees),
-        priceReviewed: true, updatedAt: serverTimestamp()
-      }, {merge:true});
+      // ⭐ AND NOW BLANKS TOO (2026-10-29) — see invoiceBulkRowPlan above.
+      const rowPlan = invoiceBulkRowPlan({phone: phone, name: name, email: email, amountRaw: amounts[i] || ''},
+        existingInv.exists() ? existingInv.data() : null, billedHousesFor(phone).length);
+      if(rowPlan.skip){
+        refusedRows.push('row ' + (i+1) + ' (' + (name || phone) + '): ' + rowPlan.skip);
+        continue;
+      }
+      await setDoc(doc(db,'invoices',phone), Object.assign({}, rowPlan.data, {updatedAt: serverTimestamp()}), {merge:true});
       existingInv.exists() ? updated++ : added++;
       /* Add Customer / jobAddresses is the source of truth — make sure this
          customer has a record.
@@ -51358,7 +51394,9 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
       skipped++;
     }
   }
-  statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
+  statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.' +
+    (refusedRows.length ? ' ⚠ ' + refusedRows.length + ' row(s) LEFT ALONE: ' + refusedRows.slice(0, 8).join('; ') +
+      (refusedRows.length > 8 ? '; and ' + (refusedRows.length - 8) + ' more' : '') + '.' : '');
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
 }); }, function(){ return document.getElementById('ibImportBtn'); }));

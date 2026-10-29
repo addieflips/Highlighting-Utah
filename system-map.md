@@ -2929,6 +2929,12 @@ and anything over $1,000,000 — which is how a phone number in an amount box ar
   built from the **row's own contents** (`paymentImportRowKey`), so the same export saved as
   "venmo (1).csv" is recognised; two identical rows in one file are still two payments. Tags
   saved before this change are still recognised. Suite 391.
+- **Invoice Bulk Update** (Customers › Bulk Updates) no longer overwrites an EXISTING invoice
+  with blanks (`invoiceBulkRowPlan`): a blank Amount leaves `install` alone, a blank Name or
+  Email leaves the invoice's, and an Amount that is not a dollar figure or is negative LEAVES
+  THE ROW ALONE and names it in the status line. A phone that pays for more than one house
+  is left alone too — change the price on each house instead. A brand-new invoice is still
+  created as before. Suite 392.
 
 ---
 

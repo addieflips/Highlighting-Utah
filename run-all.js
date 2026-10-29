@@ -4380,8 +4380,11 @@ check('flow', 'price sync recomputes invoice status',
 // invoice would otherwise erase real money already on file.
 const ibStart = admin.indexOf("ibImportBtn').addEventListener");
 const ibSection = ibStart > -1 ? sectionFrom(admin, ibStart) : '';
+/* ⚠ REPOINTED 2026-10-29: the write moved into invoiceBulkRowPlan (Suite 392 RUNS it), and the
+   handler writes that plan's data. Same guarantee, asserted where it now lives. */
+const ibPlanSrc = extractFn(admin, 'invoiceBulkRowPlan') || '';
 check('flow', 'Invoice Bulk Update preserves an existing removal charge and payments already on file',
-  /removal:\s*keepRemoval/.test(ibSection) && /deposit:\s*keepDeposit/.test(ibSection),
+  /removal:\s*keepRemoval/.test(ibPlanSrc) && /deposit:\s*keepDeposit/.test(ibPlanSrc) && /invoiceBulkRowPlan\(/.test(ibSection),
   'a blind removal:0, deposit:0 on every row would erase both if this tool is ever re-run\n          ' +
   'against a customer who already has an invoice');
 check('flow', 'route resync only touches upcoming routes',
@@ -67816,4 +67819,50 @@ suite('391. A typed dollar figure is read or refused, and the payment import can
   check('S391', 'and both boxes carry an unchosen option to fall back on', /pick\.value = '';/.test(load));
   check('S391', 'the import no longer strips characters to make a number',
     !/replace\(\/\[\^0-9\.\\-\]\/g/.test(stripComments(handlerSrc)) && /parseTypedMoney\(cell\)/.test(handlerSrc));
+}
+suite('392. Invoice Bulk Update never overwrites an existing invoice with blanks, and leaves a multi-house payer alone');
+{
+  /* Break-test, 2026-10-29: a blank Amount set install 0 (a NEGATIVE balance on a paid
+     invoice), "-300" became 300, a blank Name or Email wiped the invoice's, and a 500 replaced
+     a twelve-house payer's whole total. RUNS invoiceBulkRowPlan; the handler's use of it is
+     asserted on the comment-stripped source. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + extractFn(moneySrc, 'computeInvoiceStatus') + '\n' +
+    (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' + extractFn(admin, 'parseTypedMoney') + '\n' +
+    extractFn(admin, 'invoiceBulkRowPlan');
+  check('S392', 'invoiceBulkRowPlan was found', /function invoiceBulkRowPlan\(/.test(src));
+  assertSandbox('S392', 'invoiceBulkRowPlan', src, admin, []);
+  const plan = new Function(src + '\nreturn invoiceBulkRowPlan;')();
+  const paid = { name: 'Mark Greco', email: 'mark@x.test', phone: '8015551007', install: 703, deposit: 703, removal: 0 };
+  const row = (o) => Object.assign({ phone: '8015551007', name: '', email: '', amountRaw: '' }, o);
+  let r = plan(row({}), paid, 1);
+  check('S392', 'a blank Amount on an existing invoice leaves install alone',
+    !r.skip && !('install' in r.data) && r.data.status === 'Paid in Full', JSON.stringify(r));
+  check('S392', 'a blank Name and Email do not wipe the invoice\'s', !('name' in r.data) && !('email' in r.data));
+  check('S392', 'and the payment on file is kept', r.data.deposit === 703);
+  r = plan(row({ amountRaw: 'abc' }), paid, 1);
+  check('S392', 'an unreadable Amount refuses the row instead of writing 0', !!r.skip && /not a dollar figure/.test(r.skip));
+  r = plan(row({ amountRaw: '-300' }), paid, 1);
+  check('S392', '"-300" is refused, never read as 300', !!r.skip && /negative/.test(r.skip));
+  r = plan(row({ amountRaw: '$1,250.00', name: 'Mark G', email: 'new@x.test' }), paid, 1);
+  check('S392', 'a readable Amount, Name and Email are written', r.data.install === 1250 && r.data.name === 'Mark G' &&
+    r.data.email === 'new@x.test' && r.data.status === 'Partial Payment', JSON.stringify(r.data));
+  r = plan(row({ amountRaw: '500' }), Object.assign({}, paid, { billedHouseIds: ['a', 'b', 'c'] }), 1);
+  check('S392', 'a payer billed for several houses is refused (billedHouseIds)', !!r.skip && /3 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '500' }), paid, 12);
+  check('S392', 'and refused when the live group says so', !!r.skip && /12 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '', name: 'New Person' }), null, 0);
+  check('S392', 'a brand-new invoice is still created from a blank amount, as before',
+    !r.skip && r.isNew && r.data.install === 0 && r.data.name === 'New Person' && r.data.email === '' && r.data.deposit === 0);
+  r = plan(row({ amountRaw: '400' }), null, 0);
+  check('S392', 'and from a typed one', r.data.install === 400 && r.data.status === 'Unpaid');
+
+  const hs = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('ibImportBtn').addEventListener")));
+  check('S392', 'the handler writes only what the plan says',
+    /const rowPlan = invoiceBulkRowPlan\(\{phone: phone, name: name, email: email, amountRaw: amounts\[i\] \|\| ''\},\s*existingInv\.exists\(\) \? existingInv\.data\(\) : null, billedHousesFor\(phone\)\.length\);/.test(hs) &&
+    /Object\.assign\(\{\}, rowPlan\.data, \{updatedAt: serverTimestamp\(\)\}\)/.test(hs));
+  check('S392', 'a refused row is skipped before anything is written for it',
+    /if\(rowPlan\.skip\)\{[\s\S]*?continue;\s*\}/.test(hs) && hs.indexOf('if(rowPlan.skip)') < hs.indexOf('await setDoc(doc(db,\'invoices\',phone)'));
+  check('S392', 'and named in the report', /refusedRows\.length \? ' (?:\\u26A0|⚠) ' \+ refusedRows\.length \+ ' row\(s\) LEFT ALONE: '/.test(hs));
+  check('S392', 'the old strip-and-zero read is gone', !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(hs));
 }
