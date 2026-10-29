@@ -2911,6 +2911,25 @@ the bill line still shows, because *what do they owe* is asked of them just as o
 
 **Credits** (`credits`/`creditNotes`) never push the balance below $0 — anything left over becomes `carryoverCredit` on the customer, applied to their *next* invoice, not refunded.
 
+### A dollar figure somebody typed is read or refused, never guessed (break-test fixes, 2026-10-29)
+
+Every money box used to keep the digits and dots and call what was left a number, so "abc"
+wiped a deposit, "-100" became 100 and "(50.00)" became +$50. `parseTypedMoney` is the one
+reader now: it strips only `$`, spaces and thousands commas, rounds to whole cents through
+`centsOf`, reports a negative as a negative, and refuses everything else (including "2,50"
+and anything over $1,000,000 — which is how a phone number in an amount box arrives).
+
+- **Import Payments** (Invoices › Import / Export): the Phone and Amount boxes are chosen by
+  their **headings** (`paymentImportGuessColumns`), never column 0; an unrecognised heading
+  leaves the box on "choose" and Import refuses until it is chosen, and refuses outright
+  when both boxes name the same column. Every row is checked before anything is written: a
+  refund ("(50.00)", "-25") or an unreadable amount is **listed by sheet row and not
+  imported**, and a payment far above that customer's balance (more than double it and over
+  $100 past it) is asked about first — Cancel imports nothing. The "already imported" tag is
+  built from the **row's own contents** (`paymentImportRowKey`), so the same export saved as
+  "venmo (1).csv" is recognised; two identical rows in one file are still two payments. Tags
+  saved before this change are still recognised. Suite 391.
+
 ---
 
 ### What this season is shaping up to bring in (Financial Overview, added 2026-10-20, [[MON-84]])
