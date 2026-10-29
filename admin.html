@@ -27045,9 +27045,12 @@ function populateMoveToSelect(){
      the separate Inbox option that used to be written out here is gone rather than
      doubled. The nesting dashes went with `flatFolderList`: her own folders are a flat
      list by construction, and drawing a tree that cannot have branches is a lie. */
+  /* A redraw while she is mid-pick keeps her pick if that folder still exists. */
+  const was = sel.value;
+  const names = msgFileableFolders();
   sel.innerHTML = '<option value="">Move to&hellip;</option>' +
-    msgFileableFolders().map(f => '<option value="'+esc(f)+'">'+esc(f)+'</option>').join('');
-  sel.value = '';
+    names.map(f => '<option value="'+esc(f)+'">'+esc(f)+'</option>').join('');
+  sel.value = (was && names.indexOf(was) !== -1) ? was : '';
 }
 /* ⭐ ADD FOLDER ANSWERS, WHATEVER HAPPENS (2026-08-25). Owner: "the add folder is
    not working." The mechanism was fine — a folder really was written — but every
@@ -28160,6 +28163,18 @@ function commRowMatches(d, section, tab){
   const hersOnBuiltIn = (commBuiltInExtras(section).tabs || [])
     .find(function(t){ return t && t.key === tab; });
   if(hersOnBuiltIn){
+    /* ⛔ BUT NOT A FOLDER SHE FILLS BY HAND (2026-10-29, break-test). Filing a message
+       there is what takes it OUT of the Inbox (`msgIsFiledAway`), so "must also pass the
+       Inbox" could never be true of anything in it: the folder read 0 for ever, and since
+       `commHandFolders` claims the name the "Your folders" line skipped it too — the
+       message was findable by search alone. So a hand folder asks the section about the
+       message AS IF IT WERE NOT FILED — the one fact the folder itself changed — and every
+       other half of the section rule still applies: a system notice filed into a folder
+       under the Inbox is still not shown there, which is what [[MSG-19]]'s rule protects. */
+    if(hersOnBuiltIn.filter && hersOnBuiltIn.filter.fill === 'hand'){
+      if(!commRowMatches(Object.assign({}, d, {filedByHand: false}), section, 'all')) return false;
+      return commFilterMatches(d, hersOnBuiltIn.filter);
+    }
     if(!commRowMatches(d, section, 'all')) return false;
     return commFilterMatches(d, hersOnBuiltIn.filter);
   }
@@ -28475,6 +28490,110 @@ function renderCommNav(){
         'moved to \u201C' + folder + '\u201D');
     });
   });
+  /* ⛔ THE MOVE TO… LIST IS REBUILT WITH THE NAV (2026-10-29, break-test). Its only call
+     went out with the old folder sidebar in 02068e2, so the select sat on its bare
+     "Move to…" placeholder for ever and named no folder at all — the three-routes,
+     one-dead shape [[MSG-20]] fixed once already. The nav is redrawn whenever a section
+     or a filed message changes, which is exactly when the list of folders can. */
+  populateMoveToSelect();
+}
+/* ⭐ WHICH FOLDER EACH VIEW OF A SECTION IS (2026-10-29, break-test). `''` is the section
+   itself, otherwise the subtab's key. Takes a stored section, a draft in the editor, or a
+   row of `commAllSections()` (whose tabs are [key, label, record]) — one reader, so the
+   save check, the delete and the rename cannot disagree about what a section holds. */
+function commSectionFolderMap(sec){
+  const out = {};
+  const f = sec && sec.filter;
+  if(f && f.fill === 'hand' && String(f.folder || '').trim()) out[''] = String(f.folder).trim();
+  ((sec && sec.tabs) || []).forEach(function(t){
+    const rec = Array.isArray(t) ? t[2] : t;
+    if(rec && rec.key && rec.filter && rec.filter.fill === 'hand' && String(rec.filter.folder || '').trim()){
+      out[rec.key] = String(rec.filter.folder).trim();
+    }
+  });
+  return out;
+}
+/* Every folder a section claims, including a HIDDEN built-in's — hiding a section does not
+   empty its folders, so they are still somebody's. */
+function commAllFolderClaims(){
+  const out = [];
+  const push = function(key, label, map){
+    Object.keys(map).forEach(function(v){ out.push({section: key, label: label, view: v, folder: map[v]}); });
+  };
+  COMM_SECTIONS.forEach(function(s){
+    const extra = commBuiltInExtras(s.key);
+    push(s.key, extra.label || s.label, commSectionFolderMap({tabs: extra.tabs || []}));
+  });
+  ((commSections && commSections.custom) || []).forEach(function(sec){
+    push(sec.key, sec.label || 'Untitled', commSectionFolderMap(sec));
+  });
+  return out;
+}
+/* ⛔ WHY A SECTION'S FOLDER NAME CAN BE REFUSED (2026-10-29, break-test). Returns '' when the
+   names are fine, otherwise the sentence to show. Two sections naming one folder looked like
+   two places and were one: deleting either put the other's messages back in the Inbox. And a
+   folder called Inbox is the unfiled pile itself — `msgIsFiledAway` treats it as not filed, so
+   a "folder" by that name could never hold anything. Compared without case, because Done and
+   done are two folders to the code and one to anybody reading the sidebar. */
+function commFolderNameProblem(sectionKey, names, claims){
+  const seen = {};
+  for(const raw of names){
+    const n = String(raw || '').trim();
+    const k = n.toLowerCase();
+    if(!k) continue;
+    if(k === 'inbox') return '“Inbox” is where unfiled messages already live, so a folder cannot be called that — pick another name.';
+    if(seen[k]) return 'Two folders in this section are both called “' + n + '” — give each its own name.';
+    seen[k] = true;
+    const other = (claims || []).find(function(c){ return c.section !== sectionKey && String(c.folder).toLowerCase() === k; });
+    if(other) return 'A folder called “' + n + '” already belongs to the section “' + other.label + '”. ' +
+      'Two sections sharing one folder means deleting one empties the other — pick a different name.';
+  }
+  return '';
+}
+/* ⛔ A RENAMED FOLDER TAKES ITS MESSAGES WITH IT (2026-10-29, break-test). The view asks each
+   message which folder it is in, so renaming the view's folder left every message filed under
+   the OLD name — the section read 0 and they surfaced under "Your folders". Pure, so a test
+   can run it: which old name moves to which new one, per view key, skipping a name another
+   view still claims (those messages are still where somebody looks for them). */
+function commFolderRenames(before, after, stillClaimed){
+  const moves = [];
+  Object.keys(before || {}).forEach(function(v){
+    const from = before[v], to = (after || {})[v];
+    if(!from || !to || from === to) return;
+    if((stillClaimed || []).indexOf(from) !== -1) return;
+    if(moves.some(function(m){ return m.from === from; })) return;
+    moves.push({from: from, to: to});
+  });
+  return moves;
+}
+/* The write half of a rename, batched (a busy folder can hold hundreds). A failed batch is
+   counted and said, never swallowed: those messages are still reachable under "Your folders"
+   by their old name, so nothing is lost, but the office has to be told why the count is short. */
+async function commMoveFolderMessages(moves){
+  let moved = 0, failed = 0;
+  for(const mv of (moves || [])){
+    const ids = (allMessages || []).filter(function(m){
+      return m.data && m.data.filedByHand && messageFolderOf(m.data) === mv.from;
+    }).map(function(m){ return m.id; });
+    for(let i = 0; i < ids.length; i += 400){
+      const chunk = ids.slice(i, i + 400);
+      try{
+        const batch = writeBatch(db);
+        chunk.forEach(function(id){ batch.update(doc(db, 'messages', id), {folder: mv.to, filedByHand: true}); });
+        await batch.commit();
+        moved += chunk.length;
+      }catch(err){
+        failed += chunk.length;
+        console.error('Could not move messages from ' + mv.from + ' to ' + mv.to + ':', err);
+      }
+    }
+  }
+  return {moved: moved, failed: failed};
+}
+function commMoveReport(r){
+  if(!r || (!r.moved && !r.failed)) return '';
+  return (r.moved ? ' — ' + r.moved + ' message' + (r.moved === 1 ? '' : 's') + ' moved with the folder' : '') +
+    (r.failed ? ' — ' + r.failed + ' could not be moved and are under “Your folders” by the old name' : '');
 }
 /* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
    belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
@@ -28523,6 +28642,9 @@ function commEditSection(existing){
        filter: {fill: 'hand', folder: '', types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''},
        tabs: []};
   draft.tabs = draft.tabs || [];
+  /* The folder each view held when the editor opened, so Save can carry messages across a
+     rename (`commFolderRenames`). */
+  const foldersBefore = commSectionFolderMap(existing || {});
 
   const overlay = document.createElement('div');
   overlay.className = 'needsfix-popup-overlay';
@@ -28728,8 +28850,16 @@ function commEditSection(existing){
         if(t.filter && t.filter.fill === 'hand' && String(t.filter.folder||'').trim() &&
            folders.indexOf(t.filter.folder.trim()) === -1) folders.push(t.filter.folder.trim());
       });
+      /* ⛔ A FOLDER ANOTHER SECTION STILL SHOWS IS NOT THIS SECTION'S TO EMPTY (2026-10-29,
+         break-test). Two sections could name one folder; deleting either used to put the
+         other's messages back in the Inbox, emptying a section nobody touched. Save now
+         refuses a shared name, but sections saved before that can still share one. */
+      const stillShown = commAllFolderClaims()
+        .filter(function(c){ return c.section !== draft.key; })
+        .map(function(c){ return c.folder; });
+      const ours = folders.filter(function(f){ return stillShown.indexOf(f) === -1; });
       const held = (allMessages || []).filter(function(m){
-        return msgIsFiledAway(m.data) && folders.indexOf(messageFolderOf(m.data)) !== -1;
+        return msgIsFiledAway(m.data) && ours.indexOf(messageFolderOf(m.data)) !== -1;
       });
       if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
         (held.length
@@ -28773,6 +28903,13 @@ function commEditSection(existing){
           needFolder.push(t.filter.folder);
         }
       });
+      const claims = commAllFolderClaims();
+      const nameProblem = commFolderNameProblem(draft.key, needFolder, claims);
+      if(nameProblem){ alert(nameProblem); return; }
+      const foldersAfter = commSectionFolderMap(draft);
+      const renames = commFolderRenames(foldersBefore, foldersAfter,
+        claims.filter(function(c){ return c.section !== draft.key; }).map(function(c){ return c.folder; })
+          .concat(Object.keys(foldersAfter).map(function(v){ return foldersAfter[v]; })));
       save.disabled = true;
       try{
         /* ⭐ ONE VOCABULARY ([[MSG-19]]). The folder she names in the sidebar is created as a
@@ -28795,9 +28932,10 @@ function commEditSection(existing){
           nextBuiltIn[builtInKey] = {label: draft.label, icon: draft.icon, tabs: draft.tabs};
           await saveCommSections({custom: commSections.custom || [],
                                   hidden: commSections.hidden || [], builtIn: nextBuiltIn});
+          const movedB = await commMoveFolderMessages(renames);
           overlay.remove();
           commView = {section: builtInKey, tab: 'all'};
-          toast('Saved "' + draft.label + '".');
+          toast('Saved "' + draft.label + '"' + commMoveReport(movedB) + '.');
           return;
         }
         const list = (commSections.custom || []).slice();
@@ -28805,9 +28943,10 @@ function commEditSection(existing){
         if(at === -1) list.push(draft); else list[at] = draft;
         await saveCommSections({custom: list, hidden: commSections.hidden || [],
                                 builtIn: commSections.builtIn || {}});
+        const movedC = await commMoveFolderMessages(renames);
         overlay.remove();
         commView = {section: draft.key, tab: 'all'};
-        toast('Saved "' + draft.label + '".');
+        toast('Saved "' + draft.label + '"' + commMoveReport(movedC) + '.');
       }catch(err){
         save.disabled = false;
         console.error('Could not save the section:', err);
