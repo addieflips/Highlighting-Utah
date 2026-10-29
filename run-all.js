@@ -9441,7 +9441,7 @@ suite('15. The printed schedule sheet');
        rule working rather than the test failing. */
     const NEARBY_TOWN_LIST = {Lehi: ['Alpine', 'Draper'], Alpine: ['Lehi', 'Draper'],
                               Draper: ['Lehi', 'Alpine']};
-    const crew = eval(admin.slice(crewStart, crewEnd) + '\n' +
+    const crew = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + admin.slice(crewStart, crewEnd) + '\n' +
       admin.slice(sheetStart2, sheetEnd2) + '\n' +
       admin.slice(crewRowsStart, crewRowsEnd) + '\n' +
       ';({norm: normalizeCrews, name: crewName, city: crewCityFor, houses: crewHousesFor,' +
@@ -34729,7 +34729,7 @@ suite('77. Schedule route generator');
        nearby-towns list is what makes the pairing legal, exactly as it does live — and
        Lehi is deliberately left out of it, so Draper can only join Alpine. */
     const NEARBY_TOWN_LIST = {Alpine: ['Draper'], Draper: ['Alpine']};
-    const gen = eval(admin.slice(havStart, havEnd) + '\n' +
+    const gen = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + admin.slice(havStart, havEnd) + '\n' +
       admin.slice(geoStart, geoEnd) + '\n' +
       admin.slice(lockStart, lockEnd) + '\n' +
       admin.slice(crewStart, crewEnd) + '\n' +
@@ -34996,7 +34996,7 @@ suite('77. Schedule route generator');
        The fixture day is in 2026 and long past, so it reads as locked; the control
        still draws, which is all this suite asks of it. */
     const panel = eval(
-      (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
+      (admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
       extractFn(admin, 'mtnNowParts') + '\n' +
       extractFn(admin, 'hoursUntilDayStarts') + '\n' +
       (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] + '\n' +
@@ -36121,7 +36121,7 @@ suite('123. The two crew maps, actually rendered');
       global.cityOf = real('cityOf');
       global.dayAreas = real('dayAreas');
 
-      const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
+      const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
         ';({maps: renderDayMaps, routes: dayMapRoutes, panes: dayMapPanes,' +
         '  setCrews(l){ CREWS = normalizeCrews(l); }})');
@@ -36264,7 +36264,7 @@ suite('124. The house out on its own goes to an end of the day, on the way there
     global.esc = real('esc');
     global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
 
-    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+    const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
       '  split: outlyingStops, point: houseStopPoint, centre: stopsCentre,' +
@@ -61713,7 +61713,7 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
     global.esc = real('esc');
     global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
 
-    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+    const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: ON_THE_WAY_MARGIN_MILES})');
 
@@ -67651,3 +67651,43 @@ suite('390. A warehouse note on a house nobody is building for is seen and print
   check('S390', 'nothing here touches whSheetRowsForBuild — a noted house is never a build row',
     !/whSheetRowsForBuild/.test(src) && !/whNotedHousesOffTheList|whSheetRowsForNoted/.test(stripComments(extractFn(admin, 'whSheetRowsForBuild'))));
 }
+// =====================================================================
+// 397. The crew count and the nearby-towns list survive a reload (2026-10-29)
+// =====================================================================
+suite('397. The crew count and the nearby-towns list survive a reload — MAX_CREWS lives at module scope');
+/* A break-test found `const MAX_CREWS = 6` declared INSIDE the Schedule widget's IIFE while
+   loadSchedulingSettings, out in the main module, reads it. The read threw a ReferenceError
+   into the loader's own catch, which reset CREWS_PER_DAY to 2 and NEARBY_TOWN_LIST to the
+   defaults on EVERY load — so a third crew vanished on reload and "+ Add a crew" logged an
+   error. This RUNS the real loader in a sandbox that is given only the MAX_CREWS declarations
+   that sit OUTSIDE the widget: put the constant back inside and the loader answers two again. */
+(function(){
+  const wStart = admin.indexOf('(function(){ try{\r\n  const host=document.getElementById("scheduleHost")') >= 0
+    ? admin.indexOf('(function(){ try{\r\n  const host=document.getElementById("scheduleHost")')
+    : admin.indexOf('(function(){ try{\n  const host=document.getElementById("scheduleHost")');
+  const wEnd = admin.indexOf('}catch(err){ console.error("Schedule tab init failed:", err); } })();');
+  check('S397', 'the Schedule widget\'s bounds were found', wStart > 0 && wEnd > wStart);
+  const decls = [];
+  const re = /^const MAX_CREWS = (\d+);/gm;
+  let m;
+  while((m = re.exec(admin))) decls.push({at: m.index, text: m[0]});
+  const outside = decls.filter(function(d){ return d.at < wStart || d.at > wEnd; });
+  check('S397', 'MAX_CREWS is declared exactly once, and not inside the Schedule widget',
+    decls.length === 1 && outside.length === 1, decls.length + ' declaration(s), ' + outside.length + ' outside the widget');
+  const loader = extractFn(admin, 'loadSchedulingSettings');
+  check('S397', 'loadSchedulingSettings is there to run', !!loader);
+  if(!loader || wStart < 0) return;
+  const pre = outside.map(function(d){ return d.text; }).join('\n');
+  const run = new Function('getDoc', 'doc', 'db', 'document', 'DEFAULT_NEARBY_TOWNS', 'nearbyTownsToText', 'crewsPerDayStatusText',
+    pre + '\nlet CREWS_PER_DAY = 2; let NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS;\nasync ' + loader +
+    '\nreturn loadSchedulingSettings().then(function(){ return {crews: CREWS_PER_DAY, nearby: NEARBY_TOWN_LIST}; });');
+  const typed = {Lehi: ['Highland']};
+  const p = run(function(){ return Promise.resolve({exists: function(){ return true; }, data: function(){ return {crewsPerDay: 3, nearbyTowns: typed}; }}); },
+    function(){ return {}; }, {}, {getElementById: function(){ return null; }, activeElement: null}, {Default: ['Town']},
+    function(){ return ''; }, function(){ return ''; })
+    .then(function(r){
+      check('S397', 'a saved third crew is read back as three, not reset to two', r.crews === 3, 'read ' + r.crews);
+      check('S397', 'the office\'s typed nearby-towns list is kept, not replaced by the built-in one', r.nearby === typed);
+    }, function(e){ check('S397', 'the loader runs without throwing', false, String(e && e.message)); });
+  pendingAsync.push(p);
+})();

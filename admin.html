@@ -64654,6 +64654,11 @@ const PRE_THANKSGIVING_DAYS = 7;
    longer, which is what "the schedule needs to be reorganized" means — the
    sweep re-spreads everybody over the crew-days that remain. */
 let CREWS_PER_DAY = 2;
+/* The most crews a day can have. ⚠ HERE, AT MODULE SCOPE, NOT INSIDE THE SCHEDULE WIDGET:
+   loadSchedulingSettings reads it too, and when it was declared inside the widget's closure
+   that read threw a ReferenceError into its own catch, which reset CREWS_PER_DAY to two and
+   the nearby-towns list to the defaults on every load — a third crew vanished on reload. */
+const MAX_CREWS = 6;
 /* Only ever used for talking to the office about a whole working day. Every
    CAP in the code is per route — see the correction above. */
 function maxStopsPerWorkingDay(){ return MAX_STOPS_PER_ROUTE * CREWS_PER_DAY; }
@@ -76550,8 +76555,10 @@ function dayForecastChips(day){
    ⚠ AND THE FALLBACK IS max(2, what was stored), NEVER a bare 2. A sandbox or a
    settings read that failed leaves CREWS_PER_DAY unset, and rebuilding a saved
    three-crew list as two would silently delete the third crew's name — from a path
-   nobody was looking at, on a plan that is then saved back over the good one. */
-const MAX_CREWS = 6;
+   nobody was looking at, on a plan that is then saved back over the good one.
+   ⚠ MAX_CREWS itself lives beside CREWS_PER_DAY at module scope (moved 2026-10-29):
+   declared here, inside the widget, loadSchedulingSettings could not see it, threw a
+   ReferenceError into its own catch and reset every load to two crews. */
 const CREW_FALLBACK_NAMES=['Crew 1','Crew 2'];
 function crewFallbackName(i){ return CREW_FALLBACK_NAMES[i] || ('Crew ' + (i+1)); }
 /* How many crews there are. Clamped, because this sizes every array below and a
