@@ -81501,6 +81501,11 @@ function rebuildSeasonDays(){
   try{ if(typeof keepEveryHouseLegal === 'function'){ const g = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g.moved);
     const f = foldShortCrewDays(); if(f.moved.length){ shortMerged.merged = shortMerged.merged.concat(f.moved); const g2 = keepEveryHouseLegal(); pulled.moved = pulled.moved.concat(g2.moved); } } }
   catch(err){ console.error('Could not make the last check of every window:', err); }
+  /* [[SCH-131]] and the movers above (the safety net, the pins, the window check, the short-day fold) never ask about five
+     miles — a crew they leave with a stray is put right once more here, after everything (never an October day: SCH-148) */
+  try{ if(typeof enforceFiveMileCrews === 'function'){ const f6 = enforceFiveMileCrews({after: isoOf(seasonStartDate()).slice(0, 4) + '-10-31'});
+    fiveMile.moved = fiveMile.moved.concat(f6.moved); fiveMile.tail = fiveMile.tail.concat(f6.tail); if(f6.keptOutlier) fiveMile.keptOutlier = f6.keptOutlier; } }
+  catch(err){ console.error('Could not make the last five-mile check:', err); }
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, heldToLater:heldToLater,
           safetyNet:net.placed.length, safetyNetNames:net.placed.slice(0,5),
           /* ⚠ SAID OUT LOUD ([[SCH-100]]). A pin that could not be honoured because its day is
@@ -82415,8 +82420,11 @@ function crewTailDates(year){
 }
 /* [[SCH-131]] the houses of one crew that may stay together: the biggest group joined by hops of at most
    MAX_CREW_HOP_MILES, trimmed to MAX_CREW_RADIUS_MILES around its middle house. ptOf(h) gives {lat,lng} or null. */
-function crewFiveMileKeep(crew, ptOf){
+function crewFiveMileKeep(crew, ptOf, stays){
   const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : 0; };
+  /* [[SCH-131]] two groups the same size: keep the one holding the houses with a last day (stays), which have nowhere else to
+     go — the other group is the one that can move. Without it the pick fell to the day's order, which routing reshuffles. */
+  const weight = function(comp){ return typeof stays === 'function' ? comp.filter(stays).length : 0; };
   let pool = crew.filter(function(h){ return ptOf(h); });
   for(let guard = 0; guard < 6; guard++){
     const seen = new Set(); let best = [];
@@ -82424,7 +82432,7 @@ function crewFiveMileKeep(crew, ptOf){
       if(seen.has(h)) return;
       const comp = [h]; seen.add(h);
       for(let i = 0; i < comp.length; i++) pool.forEach(function(x){ if(!seen.has(x) && mi(comp[i], x) <= MAX_CREW_HOP_MILES){ seen.add(x); comp.push(x); } });
-      if(comp.length > best.length) best = comp;
+      if(comp.length > best.length || (comp.length === best.length && weight(comp) > weight(best))) best = comp;
     });
     let mid = null, midSum = Infinity;
     best.forEach(function(h){ const t = best.reduce(function(a, x){ return a + mi(h, x); }, 0); if(t < midSum){ midSum = t; mid = h; } });
@@ -82480,7 +82488,8 @@ function enforceFiveMileOnce(opts){
   const mi = function(a, b){ const p = ptOf(a), q = ptOf(b); return (p && q) ? haversine(p.lat, p.lng, q.lat, q.lng) : 0; };
   const movable = function(h){ return live(h) && !('' + (h.stuck || '')).trim() && ptOf(h); };
   /* the houses of one crew that may stay: the biggest 5-mile-hop group, trimmed to the radius around its middle house */
-  const keepOf = function(crew){ return crewFiveMileKeep(crew, ptOf); };
+  const hasLastDay = function(h){ try{ return !!houseDateWindow(h, custOf(h), startStr).until; }catch(e){ return false; /* no window known: treated as free to move, as before */ } };
+  const keepOf = function(crew){ return crewFiveMileKeep(crew, ptOf, hasLastDay); };
   const crewMemo = new Map();
   const crewsOf = function(d){ if(!crewMemo.has(d)){ let cs; try{ cs = (dayCrewHouses(d) || []).map(function(c){ return (c || []).filter(live); }); }catch(e){ cs = [d.houses.filter(live)]; } crewMemo.set(d, cs); } return crewMemo.get(d); };
   /* [[SCH-140]] the shared maker, which measures the day against the season start the office has set (this copy left the
