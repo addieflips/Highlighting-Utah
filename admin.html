@@ -52922,6 +52922,8 @@ function renderWarehouseRecycleQueue(){
       const typed = String(input.value || '').trim();
       if(typed && !/^[0-9]+$/.test(typed)){
         toast('A bin number is digits only \u2014 leave it blank if you do not know it.');
+        /* Put back what is saved: left showing "abc", the box reads as if it had been kept. */
+        input.value = input.defaultValue;
         return;
       }
       const archived = (whArchivedPending || []).some(function(a){ return a.id === id; });
@@ -52949,7 +52951,10 @@ function renderWarehouseRecycleQueue(){
     });
   });
   list.querySelectorAll('[data-whrecycledone]').forEach(function(btn){
-    btn.addEventListener('click', async function(e){
+    /* ⚠ onceAtATime: a second press while the first is still writing is ignored, and the
+       button stays dead until it finishes (2026-10-29, break-test — see the guard in
+       hlxRemoveCustomerToRecycle for what a double press used to cost). */
+    btn.addEventListener('click', onceAtATime(async function(e){
       e.stopPropagation();
       const custId = btn.dataset.whrecycledone;
       /* ⭐ THE ROW MAY BE AN ARCHIVED ONE. The queue lists people already removed
@@ -53014,11 +53019,13 @@ function renderWarehouseRecycleQueue(){
         if(out.removed){
           toast((d.name || 'They') + ' recycled and removed' +
             (out.number ? ', number #' + out.number + ' back in the pool' : '') + '.');
+        } else if(out.reason === 'already removed' || out.reason === 'already being removed'){
+          toast((d.name || 'They') + ' ' + (out.reason === 'already removed' ? 'were already recycled' : 'are already being recycled') + ' \u2014 nothing more to do.');
         }
       } catch(err){
         toast('Could not finish that one \u2014 try again.');
       }
-    });
+    }, btn));
   });
 }
 /* Every panel redraws off this one listener. Without isolation a single
@@ -56591,7 +56598,7 @@ function renderWarehouseColorChangeQueue(){
            one and somebody makes a second set. Only when it was flagged: stamping lightsMarkedBuiltAt
            on a house nobody queued would claim a build that never happened. */
         const builtToo = !!(item && item.data && item.data.needsLightBuild);
-        const built = builtToo ? whBuiltUpdates() : {};
+        const built = builtToo ? whBuiltUpdates(item.data) : {};
         await updateDoc(doc(db,'jobAddresses', custId),
           Object.assign({needsColorChange: false, colorChangeDoneAt: serverTimestamp()}, built));
         if(item && item.data){
@@ -56983,7 +56990,8 @@ function renderWarehouseQueue(){
          ⚠ THE CREW PORTAL DOES NOT STAMP IT. whToggleLightsNew in employee.html clears
          the same flag and is deliberately left alone — owner, 2026-08-27: not using the
          crew portal this year. A house ticked there reads "no build recorded". */
-      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), whBuiltUpdates())
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
+        whBuiltUpdates(((jobAddresses || []).find(function(a){ return a.id === btn.dataset.whdonehouse; }) || {}).data))
         /* ⚠ THE ROW STAYING PUT IS NOT A MESSAGE. Somebody who has just built a
            bundle presses this and watches the house stay on the list, which reads
            as the button doing nothing — so they press it again, and then work
@@ -57188,8 +57196,9 @@ function renderWarehouseQueue(){
       const pattern = btn.dataset.whcompletebtn;
       const row = btn.closest('.row-item');
       const input = row.querySelector('.whcompleteinput');
-      let remaining = Number(input.value);
-      if(!remaining || remaining <= 0) return;
+      const asked = whCompleteCount(input.value);
+      if(asked.error){ if(asked.error !== 'blank') toast(asked.error); return; }
+      let remaining = asked.n;
       const g = groups[pattern];
       if(!g) return;
       /* Clamp, then say exactly who this clears, in the order it will clear
@@ -57223,7 +57232,7 @@ function renderWarehouseQueue(){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
         try{
-          await updateDoc(doc(db,'jobAddresses', h.id), whBuiltUpdates());
+          await updateDoc(doc(db,'jobAddresses', h.id), whBuiltUpdates(h.data));
         } catch(err){
           missedHouses.push((h.data && h.data.name) || h.id);
           console.error('[HU] could not mark that build done', h.id, err);
@@ -58035,16 +58044,37 @@ function whNoteEditorHtml(h){
    the other is an instruction that outlives the build it belonged to, and the warehouse
    goes on obeying it. ⚠ The crew portal's whToggleLightsNew is still deliberately outside
    this — it clears the flag and stamps nothing, and that is recorded where it lives. */
-function whBuiltUpdates(){
+/* ⛔ HOW MANY HOUSES "Mark Completed" MAY CLEAR (2026-10-29, break-test). It took
+   Number(value), so "1.5" named one house in the confirm (slice(0, 1.5) is one) while the
+   loop, counting down by one while above nought, cleared TWO. A count of houses is a whole
+   number; anything else is refused with a reason rather than rounded, because rounding is
+   a guess about which of two numbers somebody meant. */
+function whCompleteCount(raw){
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t) return {n: 0, error: 'blank'};
+  if(!/^\d+$/.test(t)) return {n: 0, error: 'Type a whole number of houses — "' + t + '" is not one.'};
+  const n = parseInt(t, 10);
+  if(n <= 0) return {n: 0, error: 'Type how many houses are finished — 1 or more.'};
+  return {n: n, error: ''};
+}
+function whBuiltUpdates(d){
   /* ⚠ `buildBundleOverride` IS CLEARED HERE FOR THE SAME REASON `buildTopUpFromFeet` IS
      ([[WH-44]]). It is a count somebody typed for THIS build. Left set, it silently governs
      the next one too — so a house re-quoted to twice the roofline next season would still
      be built to the four bundles somebody typed in a warehouse a year earlier, and nothing
      on any screen would say why. The footage answer takes back over the moment the bundle
      is made, which is the same shape as the one-time note clearing on the line below. */
-  return {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
+  const out = {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
           buildBundleOverride: null,
           lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
+  /* ⛔ BUT NOT THE BIN LABEL WHILE THE OLD SET IS STILL OUT (2026-10-29, break-test). A mover
+     has a build AND a recycle queued; `binLabelNumber` is the number painted on the OLD bin
+     that the recycle crew has to find (`whBinNumberFor`). Marking the new set built cleared
+     it, so the recycle row fell back to their NEW number and the old bin could not be found.
+     Mark Recycled clears it once that bin is back. Pass the record; no record keeps the old
+     behaviour. */
+  if(d && d.needsLightRecycle) delete out.binLabelNumber;
+  return out;
 }
 /* ⭐ FEET BACK ON THE PAPER (2026-10-05). Dax: "in the warehouse on builds it says what to
    build but not how many feet ... we need to make sure the feet are printed as well", and
@@ -61878,7 +61908,24 @@ async function archiveCustomerSnapshot(id, d, opts){
   await setDoc(doc(db, 'archivedCustomers', id), row);
   return row;
 }
+/* Customer ids with a removal in flight — see the guard at the top of the function below. */
+const hlxRemovingIds = new Set();
 async function hlxRemoveCustomerToRecycle(item, opts){
+  /* ⛔ ONE REMOVAL PER CUSTOMER AT A TIME, AND NEVER ONE THAT ALREADY HAPPENED (2026-10-29,
+     break-test). Mark Recycled pressed again while the first press was still writing ran the
+     whole removal twice: the deposit was added to settings/financeArchive.archivedRevenue
+     twice (an `increment`, so the second one counts) and the removal was logged twice. The
+     second call now stops here, and a record that is already gone is not removed again. */
+  const removingId = item && item.id;
+  if(removingId && hlxRemovingIds.has(removingId)) return {removed: false, reason: 'already being removed'};
+  if(removingId) hlxRemovingIds.add(removingId);
+  try{
+  if(removingId){
+    let gone = false;
+    try{ gone = !(await getDoc(doc(db, 'jobAddresses', removingId))).exists(); }
+    catch(err){ /* a failed read is not proof of anything — carry on as before */ console.warn('Could not re-read the customer before removing:', err); }
+    if(gone) return {removed: false, reason: 'already removed'};
+  }
   const o = opts || {};
   const d = (item && item.data) || {};
   const num = String(d.customerNumber || "");
@@ -61954,6 +62001,9 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   await deleteDoc(doc(db,'jobAddresses', item.id));
   logActivity('Removed ' + (d.name || item.id) + ' to Recycle' + (num ? ', number #' + num + ' back in the pool' : ''), 'customers', item.id);
   return {removed: true, wroteSheet: wroteSheet, number: num};
+  } finally {
+    if(removingId) hlxRemovingIds.delete(removingId);
+  }
 }
 /* ⭐ RECYCLE WITHOUT DELETING (added 2026-08-20). Owner: "I need a way to recycle
    ashley wray without deleting her because she just moved and I already requoted her so
