@@ -25982,15 +25982,23 @@ suite('Suite 103. A named day is read everywhere, not just by the season');
   if (earlySrc && floorSrc) {
     const aliases = admin.slice(admin.indexOf('const INSTALL_PREF_ALIASES'),
                                 admin.indexOf('function normInstallPref'));
-    const early = (pref) => new Function('pref',
+    /* ⚠ ON A FIXED CLOCK, 1 OCTOBER OF THIS YEAR. These checks used the real date, so
+       "10/28+ is held to the twenty-eighth" went red on 29 October 2026 — on every branch
+       at once, for a correct file — because a named day already gone by rightly floors
+       at today. Every named day below falls after 1 October, so each check means what
+       it says whatever day the suite runs. */
+    const clockYear = new Date().getFullYear();
+    const FixedDate = class extends Date {
+      constructor(...a){ if (a.length) super(...a); else super(clockYear, 9, 1, 9, 0, 0); }
+      static now(){ return new FixedDate().getTime(); }
+    };
+    const early = (pref) => new Function('pref', 'Date',
       aliases + extractFn(admin, 'normInstallPref') + extractFn(admin, 'prefSpecificDate') +
       floorSrc + extractFn(admin, 'thanksgivingDate') + earlySrc +
       'const d = earliestAllowedInstallDate({installPreference: pref});' +
       'return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ' +
-      '("0" + d.getDate()).slice(-2);')(pref);
-    const todayIso = (function(){ const n = new Date();
-      return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' +
-        ('0' + n.getDate()).slice(-2); })();
+      '("0" + d.getDate()).slice(-2);')(pref, FixedDate);
+    const todayIso = clockYear + '-10-01';
 
     /* ⭐ THIS IS THE BUG, STATED. Before the fix every one of these came back as
        today, and the fill was free to hang them straight away. */

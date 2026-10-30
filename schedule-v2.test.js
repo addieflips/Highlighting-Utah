@@ -1126,7 +1126,17 @@ suite('13 Individual customer priority');
     const moved = r.moved.filter(function(m){ return m.name === c.data.name; })[0];
     check('13.4: a priority customer is moved EARLIER', now < was, was + ' → ' + now);
     check('13.5: onto a day with work within ' + 3 + ' miles of them', moved && moved.miles <= 3, JSON.stringify(moved && moved.miles));
-    check('13.7: nobody else changed day', book.filter(function(b){ return b !== c; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    /* [[SCH-149]], 2026-10-29: October is packed to 40 ([[SCH-148]]), so the earlier day is usually full and the priority
+       customer TRADES PLACES with one less urgent house. That house — and only that house — goes to the priority customer's
+       old day; everybody else stays put. */
+    const swapped = moved && moved.swappedWith ? book.filter(function(b){ return b.data.name === moved.swappedWith; })[0] : null;
+    check('13.7: nobody else changed day, except the one house it traded places with',
+      book.filter(function(b){ return b !== c && b !== swapped; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    check('13.7: with October full to 40, the earlier day was full and the move is a trade', !!swapped, JSON.stringify(moved));
+    if(swapped){
+      check('13.7: …which goes to the priority customer\'s old day', dayOfCust(swapped.id) === was, dayIndex['cust-' + swapped.id] + ' → ' + dayOfCust(swapped.id));
+      check('13.7: …and is a less urgent, unflagged house', swapped.data.rushInstall !== true && swapped.data.chargeNewMemberFee !== true);
+    }
     check('13.4: and no hard rule broke', H.api.validateSeasonPlan({}).length === 0, JSON.stringify(H.api.validateSeasonPlan({}).slice(0, 2)));
     const p = H.api.houseSchedulingProfile({id: 'cust-' + c.id, pref: 'Normal Schedule'}, c.data);
     check('13.2: the customer record is otherwise untouched (profile reads the same place and window)', p.location && p.earliest && p.priority === true);
@@ -2239,6 +2249,19 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     }
     check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
       emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
+    /* [[SCH-148]] Dax, 2026-10-29: "novenmber shouldnt have any normal schedules until these are full" — and October first even
+       when the only ones left are more than five miles away. So none of them may wait in November while an open October day
+       is short of a full day and could legally take them. */
+    const stillWaiting = [];
+    days.filter(function(x){ return open(x) && x.ds > '2026-10-31'; }).forEach(function(x){
+      (x.day.houses || []).forEach(function(h){
+        if(h.done || h.isFix || h.isTakedown || String(h.stuck || '').trim() || H.api.houseDeadline(h)) return;
+        const room = octOpen.filter(function(o){ return (o.day.houses || []).filter(function(y){ return !y.done; }).length < 40 && H.api.houseMayGoOn(h, custOf(h), o.ds, startStr).ok; });
+        if(room.length) stillWaiting.push((h.name || h.id) + ' ' + x.ds + ' -> ' + room[0].ds);
+      });
+    });
+    check('29.' + k + 'f book ' + spec[1] + ': no Normal Schedule house waits in November while an October day is short of 40 (SCH-148)',
+      stillWaiting.length === 0, stillWaiting.slice(0, 5).join(' | '));
     const v = H.api.validateSeasonPlan({});
     check('29.' + k + 'c book ' + spec[1] + ': every placement rule still holds (month, deadline, away, nobody lost)', v.length === 0, JSON.stringify(v.slice(0, 2)));
     const lateOct = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
