@@ -4380,8 +4380,11 @@ check('flow', 'price sync recomputes invoice status',
 // invoice would otherwise erase real money already on file.
 const ibStart = admin.indexOf("ibImportBtn').addEventListener");
 const ibSection = ibStart > -1 ? sectionFrom(admin, ibStart) : '';
+/* ⚠ REPOINTED 2026-10-29: the write moved into invoiceBulkRowPlan (Suite 392 RUNS it), and the
+   handler writes that plan's data. Same guarantee, asserted where it now lives. */
+const ibPlanSrc = extractFn(admin, 'invoiceBulkRowPlan') || '';
 check('flow', 'Invoice Bulk Update preserves an existing removal charge and payments already on file',
-  /removal:\s*keepRemoval/.test(ibSection) && /deposit:\s*keepDeposit/.test(ibSection),
+  /removal:\s*keepRemoval/.test(ibPlanSrc) && /deposit:\s*keepDeposit/.test(ibPlanSrc) && /invoiceBulkRowPlan\(/.test(ibSection),
   'a blind removal:0, deposit:0 on every row would erase both if this tool is ever re-run\n          ' +
   'against a customer who already has an invoice');
 check('flow', 'route resync only touches upcoming routes',
@@ -6097,8 +6100,12 @@ suite('10c. Tips, the payment importer, and the ledger backfill');
   check('importer', 'a CSV is parsed properly, not split on commas',
     /XLSX\.read\(text, \{type: 'string'\}\)/.test(importSec),
     '"1,234.56" is ONE quoted field — splitting on commas imported a $1,234.56 payment as $1');
+  /* ⚠ REPOINTED 2026-10-29, NOT WEAKENED. This matched the literal strip
+     `replace(/[^0-9.\-]/g, '')`, which was itself the next bug: it also read "(50.00)" as
+     +$50 and "abc" as nothing. The importer reads through parseTypedMoney now, and Suite 391
+     RUNS it over "$1,234.56" — the guarantee this check exists for. */
   check('importer', 'an amount survives currency punctuation',
-    /replace\(\/\[\^0-9\.\\-\]\/g, ''\)/.test(admin),
+    /parseTypedMoney\(cell\)/.test(admin) && /function parseTypedMoney\(/.test(admin),
     '"$1,234.56" must read as 1234.56, not as 1');
   check('importer', 'the duplicate guard is per ROW, not per file',
     /const rowTag = function\(idx, phoneDigits, amount\)/.test(admin) && /thisRowTag/.test(admin),
@@ -63520,7 +63527,9 @@ suite('Suite 339. The office payment boxes record WHEN the money came in');
      from its own paidNow variable — that name is the only thing that tells them apart, and
      a file-wide search would pass with one of the two deleted. */
   const cut = (v) => {
-    const i = admin.indexOf('const ' + v + ' = deposit - was');
+    /* repointed 2026-10-29, not weakened: the delta is worked out in whole cents now
+       (centsOf(deposit - wasPaid) / 100, Suite 393), so the anchor names that form */
+    const i = admin.indexOf('const ' + v + ' = centsOf(deposit - was');
     if(i === -1) return '';
     const j = admin.indexOf('});', i);
     return j === -1 ? '' : admin.slice(i, j);
@@ -67716,3 +67725,251 @@ suite('397. The crew count and the nearby-towns list survive a reload — MAX_CR
     }, function(e){ check('S397', 'the loader runs without throwing', false, String(e && e.message)); });
   pendingAsync.push(p);
 })();
+suite('391. A typed dollar figure is read or refused, and the payment import cannot turn a phone number into money');
+{
+  /* Break-test, 2026-10-29. Every money box read its number with replace(/[^0-9.]/g,'') || 0,
+     so "abc" wiped a deposit, "-100" became 100 and "(50.00)" became +$50; and the payment
+     import opened both column boxes on column 0, so a Phone/Name/Amount file credited every
+     customer their phone number in dollars. A renamed file ("venmo (1).csv") was counted again
+     because the duplicate tag was the file name. RUNS parseTypedMoney and the whole Import
+     Payments handler against a fake Firestore. */
+  const moneySrc = read('js/money.js');
+  const centsSrc = extractFn(moneySrc, 'centsOf');
+  const maxLine = (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0];
+  const parseSrc = centsSrc + '\n' + maxLine + '\n' + extractFn(admin, 'parseTypedMoney') + '\n' +
+    extractFn(admin, 'typedMoneyProblem');
+  check('S391', 'parseTypedMoney, its limit and centsOf were all found',
+    !!centsSrc && !!maxLine && /function parseTypedMoney\(/.test(parseSrc) && /function typedMoneyProblem\(/.test(parseSrc));
+  const M = new Function(parseSrc + '\nreturn {parse: parseTypedMoney, problem: typedMoneyProblem};')();
+  const P = M.parse;
+  check('S391', '"$1,234.56" reads as 1234.56', P('$1,234.56').ok && P('$1,234.56').value === 1234.56);
+  check('S391', 'a figure a spreadsheet wrapped in quote marks still reads', P('"1,234.56"').value === 1234.56);
+  check('S391', '"abc" is refused, never read as 0', !P('abc').ok && P('abc').value === null && !P('abc').blank);
+  check('S391', '"-100" is a negative, never read as 100', !P('-100').ok && P('-100').negative && P('-100').value === -100);
+  check('S391', '"(50.00)" — an accounting refund — is a negative, never +50', !P('(50.00)').ok && P('(50.00)').negative);
+  check('S391', '"$1,200.50." with a stray dot is refused rather than wiping the figure', !P('$1,200.50.').ok);
+  check('S391', '"300.00 + 50" is refused', !P('300.00 + 50').ok);
+  check('S391', '"2,50" (a European decimal) is refused, never read as 250', !P('2,50').ok);
+  check('S391', 'a blank box is blank, not 0', P('').blank && P('   ').blank && !P('').ok);
+  check('S391', '"0" is a real answer', P('0').ok && P('0').value === 0);
+  check('S391', 'a phone number in the amount box is unreadable, not eight billion dollars', !P('8015551007').ok);
+  check('S391', '"1e25" is refused', !P('1e25').ok);
+  const frac = P('100.005');
+  check('S391', 'a fraction of a cent is rounded to whole cents on the way in',
+    frac.ok && Math.round(frac.value * 100) === frac.value * 100, String(frac.value));
+  check('S391', 'the refusal says which box and why',
+    /cannot be negative/.test(M.problem('Amount Paid', '-50')) && /not a dollar figure/.test(M.problem('Amount', 'abc')) &&
+    /is blank/.test(M.problem('Amount', '')) && M.problem('Amount', '12') === '');
+
+  const guessSrc = extractFn(admin, 'paymentImportGuessColumns') + '\n' + extractFn(admin, 'paymentImportAmountLooksWrong') +
+    '\n' + extractFn(admin, 'paymentImportRowKey');
+  const G = new Function(guessSrc + '\nreturn {guess: paymentImportGuessColumns, big: paymentImportAmountLooksWrong, key: paymentImportRowKey};')();
+  const g1 = G.guess(['Phone', 'Name', 'Amount']);
+  check('S391', 'Phone / Name / Amount picks column 0 and column 2 — never 0 and 0', g1.phone === 0 && g1.amount === 2, JSON.stringify(g1));
+  const g2 = G.guess(['Date', 'Amount Paid', 'Mobile']);
+  check('S391', 'the headings are read wherever they sit', g2.phone === 2 && g2.amount === 1, JSON.stringify(g2));
+  const g3 = G.guess(['Who', 'What']);
+  check('S391', 'headings nobody recognises leave both boxes unchosen', g3.phone === -1 && g3.amount === -1, JSON.stringify(g3));
+  const g4 = G.guess(['Phone Payment']);
+  check('S391', 'the amount is never guessed onto the phone column', g4.phone === 0 && g4.amount === -1, JSON.stringify(g4));
+  check('S391', 'an amount far above the balance is flagged', G.big(5000, 785) && G.big(8015551003, 0));
+  check('S391', 'an ordinary payment, a small overpayment and a payment on a settled bill are not',
+    !G.big(785, 785) && !G.big(800, 785) && !G.big(50, 0) && !G.big(100, 0));
+  check('S391', 'the row key is the same for the same row and different for a second identical row',
+    G.key(['8015551003', '100'], 1) === G.key([' 8015551003 ', '100'], 1) && G.key(['8015551003', '100'], 1) !== G.key(['8015551003', '100'], 2));
+  check('S391', 'and different for a different amount or date', G.key(['8015551003', '100'], 1) !== G.key(['8015551003', '101'], 1) &&
+    G.key(['1/2', '8015551003', '100'], 1) !== G.key(['1/3', '8015551003', '100'], 1));
+
+  /* THE HANDLER ITSELF, run against a fake Firestore. */
+  const hStart = admin.indexOf("document.getElementById('paymentImportBtn').addEventListener('click', onceAtATime(");
+  const hEndMark = "return document.getElementById('paymentImportBtn'); }));";
+  const hEnd = admin.indexOf(hEndMark, hStart);
+  const handlerSrc = (hStart !== -1 && hEnd !== -1) ? admin.slice(hStart, hEnd + hEndMark.length) : '';
+  check('S391', 'the Import Payments handler was found', handlerSrc.length > 2000);
+  const libSrc = parseSrc + '\n' + guessSrc + '\n' + extractFn(admin, 'onceAtATime') + '\n' +
+    extractFn(admin, 'findInvoiceForImportRow') + '\n' + extractFn(admin, 'balanceDueAmount');
+  function runImport(opts) {
+    const db = opts.db;
+    const writes = [];
+    const dialogs = [];
+    const els = {};
+    const el = id => els[id] || (els[id] = { value: '', style: {}, disabled: false,
+      addEventListener: function (ev, fn) { this._h = fn; } });
+    el('paymentImportPhoneCol').value = opts.phoneCol;
+    el('paymentImportAmountCol').value = opts.amountCol;
+    const document = { getElementById: el };
+    const window = { paymentImportFileName: opts.fileName, paymentImportFolderName: '' };
+    const cache = Object.keys(db).map(id => ({ id: id, data: JSON.parse(JSON.stringify(db[id])) }));
+    const updateDoc = async (ref, data) => {
+      writes.push({ path: ref, data: data });
+      const d = db[ref.id] || (db[ref.id] = {});
+      Object.keys(data).forEach(k => {
+        const v = data[k];
+        if (v && v.__inc !== undefined) d[k] = (Number(d[k]) || 0) + v.__inc;
+        else if (v && v.__union) d[k] = (d[k] || []).concat(v.__union.filter(x => (d[k] || []).indexOf(x) === -1));
+        else if (v && v.__ts) d[k] = 'ts';
+        else d[k] = v;
+      });
+    };
+    const fake = {
+      document: document, window: window, allInvoicesCache: cache,
+      confirm: m => { dialogs.push('confirm: ' + m); return /far more than/.test(m) ? !!opts.bigAnswer : false; },
+      alert: m => { dialogs.push('alert: ' + m); },
+      toast: () => {}, renderInvoicesList: () => {}, loadPaymentImportHistory: () => {},
+      fmtMoney: n => '$' + Number(n).toFixed(2),
+      doc: (db0, col, id) => ({ col: col, id: id }), db: {},
+      updateDoc: updateDoc, increment: n => ({ __inc: n }), arrayUnion: x => ({ __union: [x] }),
+      serverTimestamp: () => ({ __ts: true }),
+      logPayment: async e => { writes.push({ path: 'payments', data: e }); },
+      addDoc: async () => {}, collection: () => ({}),
+      sendPaymentReceipt: async () => ({ sent: false, quiet: true }), reportReceiptOutcome: () => {}
+    };
+    const names = Object.keys(fake);
+    const code = libSrc + '\nlet paymentImportData = __rows;\n' + handlerSrc +
+      "\nreturn document.getElementById('paymentImportBtn')._h;";
+    const h = new Function(...names, '__rows', code)(...names.map(n => fake[n]), opts.rows);
+    return h({ preventDefault() {} }).then(() => ({ writes: writes, dialogs: dialogs, db: db }));
+  }
+  if (handlerSrc) {
+    const sbNames = ['document', 'window', 'allInvoicesCache', 'confirm', 'alert', 'toast', 'renderInvoicesList',
+      'loadPaymentImportHistory', 'fmtMoney', 'doc', 'db', 'updateDoc', 'increment', 'arrayUnion', 'serverTimestamp',
+      'logPayment', 'addDoc', 'collection', 'sendPaymentReceipt', 'reportReceiptOutcome', '__rows'];
+    assertSandbox('S391', 'Import Payments', libSrc + '\n' + handlerSrc, admin, sbNames);
+    const book = () => ({
+      '8015551003': { name: 'Brian', phone: '8015551003', install: 785, deposit: 0 },
+      '8015551011': { name: 'Rita', phone: '8015551011', install: 383, deposit: 383 },
+      '8015551019': { name: 'Sam', phone: '8015551019', install: 313, deposit: 0 }
+    });
+    const pnrRows = [['801-555-1003', 'Brian', '100.00'], ['8015551019', 'Sam', '$50']];
+    pendingAsync.push((async function () {
+      let r = await runImport({ db: book(), rows: pnrRows, phoneCol: '', amountCol: '2', fileName: 'p.csv' });
+      check('S391', 'no phone column chosen: refused out loud, nothing written',
+        r.writes.length === 0 && r.dialogs.some(d => /Choose which column/.test(d)));
+      r = await runImport({ db: book(), rows: pnrRows, phoneCol: '0', amountCol: '0', fileName: 'p.csv' });
+      check('S391', 'phone and amount on the same column: refused, nothing written',
+        r.writes.length === 0 && r.dialogs.some(d => /SAME column/.test(d)));
+      const rows = [['8015551003', 'Brian', '100.00'], ['8015551003', 'Brian', '100.00'], ['8015551011', 'Rita', '(50.00)'],
+        ['8015551003', 'Brian', '-25'], ['8015551019', 'Sam', 'abc']];
+      const db1 = book();
+      r = await runImport({ db: db1, rows: rows, phoneCol: '0', amountCol: '2', fileName: 'venmo.csv' });
+      check('S391', 'two identical $100 rows are two payments', db1['8015551003'].deposit === 200 &&
+        (db1['8015551003'].importedPayments || []).length === 2, JSON.stringify(db1['8015551003']));
+      check('S391', 'a "(50.00)" refund row is not added to the invoice', db1['8015551011'].deposit === 383);
+      check('S391', '"abc" writes nothing to that invoice', db1['8015551019'].deposit === 0);
+      const refusedAlert = r.dialogs.find(d => /were NOT imported/.test(d)) || '';
+      check('S391', 'every refused row is named, by sheet row', /row 4 \(8015551011\)/.test(refusedAlert) &&
+        /refund/.test(refusedAlert) && /row 5/.test(refusedAlert) && /row 6 \(8015551019\)/.test(refusedAlert), refusedAlert.slice(0, 300));
+      check('S391', 'the ledger got exactly the two real payments', r.writes.filter(w => w.path === 'payments').length === 2);
+      const before = JSON.stringify(db1);
+      r = await runImport({ db: db1, rows: rows, phoneCol: '0', amountCol: '2', fileName: 'venmo (1).csv' });
+      check('S391', 'the same rows saved as "venmo (1).csv" are recognised and not counted again',
+        r.writes.filter(w => w.path && w.path.col === 'invoices').length === 0 && JSON.stringify(db1) === before);
+      const db2 = book();
+      db2['8015551003'].importedPayments = ['import:old.csv:0:8015551003:100.00'];
+      db2['8015551003'].deposit = 100;
+      r = await runImport({ db: db2, rows: [['8015551003', 'x', '100']], phoneCol: '0', amountCol: '2', fileName: 'old.csv' });
+      check('S391', 'a file imported before today is still recognised by the tag it was saved under',
+        db2['8015551003'].deposit === 100 && r.writes.length === 0);
+      const db3 = book();
+      r = await runImport({ db: db3, rows: [['8015551003', 'x', '5000']], phoneCol: '0', amountCol: '2', fileName: 'big.csv', bigAnswer: false });
+      check('S391', 'a payment far above the balance is asked about, and Cancel imports nothing',
+        r.dialogs.some(d => /far more than/.test(d)) && db3['8015551003'].deposit === 0 && r.writes.length === 0);
+      r = await runImport({ db: db3, rows: [['8015551003', 'x', '5000']], phoneCol: '0', amountCol: '2', fileName: 'big.csv', bigAnswer: true });
+      check('S391', 'and OK imports it as typed', db3['8015551003'].deposit === 5000);
+    })());
+  }
+  const load = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('paymentImportLoadBtn').addEventListener")));
+  check('S391', 'loading a file picks the columns by heading',
+    /const guessed = paymentImportGuessColumns\(header\);/.test(load) &&
+    /phoneSelect\.value = guessed\.phone >= 0 \? String\(guessed\.phone\) : '';/.test(load) &&
+    /amountSelect\.value = guessed\.amount >= 0 \? String\(guessed\.amount\) : '';/.test(load));
+  check('S391', 'and both boxes carry an unchosen option to fall back on', /pick\.value = '';/.test(load));
+  check('S391', 'the import no longer strips characters to make a number',
+    !/replace\(\/\[\^0-9\.\\-\]\/g/.test(stripComments(handlerSrc)) && /parseTypedMoney\(cell\)/.test(handlerSrc));
+}
+suite('392. Invoice Bulk Update never overwrites an existing invoice with blanks, and leaves a multi-house payer alone');
+{
+  /* Break-test, 2026-10-29: a blank Amount set install 0 (a NEGATIVE balance on a paid
+     invoice), "-300" became 300, a blank Name or Email wiped the invoice's, and a 500 replaced
+     a twelve-house payer's whole total. RUNS invoiceBulkRowPlan; the handler's use of it is
+     asserted on the comment-stripped source. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + extractFn(moneySrc, 'computeInvoiceStatus') + '\n' +
+    (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' + extractFn(admin, 'parseTypedMoney') + '\n' +
+    extractFn(admin, 'invoiceBulkRowPlan');
+  check('S392', 'invoiceBulkRowPlan was found', /function invoiceBulkRowPlan\(/.test(src));
+  assertSandbox('S392', 'invoiceBulkRowPlan', src, admin, []);
+  const plan = new Function(src + '\nreturn invoiceBulkRowPlan;')();
+  const paid = { name: 'Mark Greco', email: 'mark@x.test', phone: '8015551007', install: 703, deposit: 703, removal: 0 };
+  const row = (o) => Object.assign({ phone: '8015551007', name: '', email: '', amountRaw: '' }, o);
+  let r = plan(row({}), paid, 1);
+  check('S392', 'a blank Amount on an existing invoice leaves install alone',
+    !r.skip && !('install' in r.data) && r.data.status === 'Paid in Full', JSON.stringify(r));
+  check('S392', 'a blank Name and Email do not wipe the invoice\'s', !('name' in r.data) && !('email' in r.data));
+  check('S392', 'and the payment on file is kept', r.data.deposit === 703);
+  r = plan(row({ amountRaw: 'abc' }), paid, 1);
+  check('S392', 'an unreadable Amount refuses the row instead of writing 0', !!r.skip && /not a dollar figure/.test(r.skip));
+  r = plan(row({ amountRaw: '-300' }), paid, 1);
+  check('S392', '"-300" is refused, never read as 300', !!r.skip && /negative/.test(r.skip));
+  r = plan(row({ amountRaw: '$1,250.00', name: 'Mark G', email: 'new@x.test' }), paid, 1);
+  check('S392', 'a readable Amount, Name and Email are written', r.data.install === 1250 && r.data.name === 'Mark G' &&
+    r.data.email === 'new@x.test' && r.data.status === 'Partial Payment', JSON.stringify(r.data));
+  r = plan(row({ amountRaw: '500' }), Object.assign({}, paid, { billedHouseIds: ['a', 'b', 'c'] }), 1);
+  check('S392', 'a payer billed for several houses is refused (billedHouseIds)', !!r.skip && /3 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '500' }), paid, 12);
+  check('S392', 'and refused when the live group says so', !!r.skip && /12 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '', name: 'New Person' }), null, 0);
+  check('S392', 'a brand-new invoice is still created from a blank amount, as before',
+    !r.skip && r.isNew && r.data.install === 0 && r.data.name === 'New Person' && r.data.email === '' && r.data.deposit === 0);
+  r = plan(row({ amountRaw: '400' }), null, 0);
+  check('S392', 'and from a typed one', r.data.install === 400 && r.data.status === 'Unpaid');
+
+  const hs = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('ibImportBtn').addEventListener")));
+  check('S392', 'the handler writes only what the plan says',
+    /const rowPlan = invoiceBulkRowPlan\(\{phone: phone, name: name, email: email, amountRaw: amounts\[i\] \|\| ''\},\s*existingInv\.exists\(\) \? existingInv\.data\(\) : null, billedHousesFor\(phone\)\.length\);/.test(hs) &&
+    /Object\.assign\(\{\}, rowPlan\.data, \{updatedAt: serverTimestamp\(\)\}\)/.test(hs));
+  check('S392', 'a refused row is skipped before anything is written for it',
+    /if\(rowPlan\.skip\)\{[\s\S]*?continue;\s*\}/.test(hs) && hs.indexOf('if(rowPlan.skip)') < hs.indexOf('await setDoc(doc(db,\'invoices\',phone)'));
+  check('S392', 'and named in the report', /refusedRows\.length \? ' (?:\\u26A0|⚠) ' \+ refusedRows\.length \+ ' row\(s\) LEFT ALONE: '/.test(hs));
+  check('S392', 'the old strip-and-zero read is gone', !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(hs));
+}
+suite('393. The status dropdown reads the Partial amount strictly, and Cancel puts the dropdown back');
+{
+  /* Break-test, 2026-10-29: "abc", "-100", "$1,200.50." and "300.00 + 50" typed into the
+     Partial Payment prompt all wiped or mangled the deposit; Cancel read a data-currentvalue
+     nothing ever set, so a paid-in-full invoice's dropdown went on showing Unpaid; and the row
+     balance was raw floats, so 100.005 against 100.004 read Partial with a $0.00 balance.
+     RUNS statusDropdownDeposit; both dropdown handlers are asserted to use it. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' +
+    extractFn(admin, 'parseTypedMoney') + '\n' + extractFn(admin, 'typedMoneyProblem') + '\n' + extractFn(admin, 'statusDropdownDeposit');
+  check('S393', 'statusDropdownDeposit was found', /function statusDropdownDeposit\(/.test(src));
+  assertSandbox('S393', 'statusDropdownDeposit', src, admin, []);
+  const f = new Function(src + '\nreturn statusDropdownDeposit;')();
+  ['abc', '-100', '$1,200.50.', '300.00 + 50', '(20)'].forEach(function (typed) {
+    const r = f('Partial Payment', 703, typed);
+    check('S393', 'Partial typed "' + typed + '" is refused with a message, never written', !!r.refuse && r.deposit === undefined, JSON.stringify(r));
+  });
+  check('S393', 'Partial typed "$1,200.50" is read as 1200.5', f('Partial Payment', 2000, '$1,200.50').deposit === 1200.5);
+  check('S393', 'Partial typed "0" is a real answer', f('Partial Payment', 2000, '0').deposit === 0);
+  check('S393', 'Cancel is its own answer', f('Partial Payment', 2000, null).cancel === true);
+  check('S393', 'a figure that covers the bill says so', f('Partial Payment', 300, '300').coversAll === true);
+  check('S393', 'Paid in Full writes the total in whole cents', f('Paid in Full', 100.004, null).deposit === 100, JSON.stringify(f('Paid in Full', 100.004, null)));
+  check('S393', 'Paid in Full never writes a negative deposit', f('Paid in Full', -40, null).deposit === 0);
+  check('S393', 'Unpaid writes 0', f('Unpaid', 500, null).deposit === 0);
+
+  const listSrc = stripComments(extractFn(admin, 'renderInvoicesList'));
+  check('S393', 'the Invoice List dropdown reads the amount through statusDropdownDeposit',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(listSrc));
+  check('S393', 'and its Cancel puts back the option the row was drawn with',
+    /const previous = sel\.querySelector\('option\[selected\]'\);/.test(listSrc) && !/dataset\.currentvalue/.test(listSrc));
+  check('S393', 'a refused figure puts the dropdown back and writes nothing',
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(listSrc));
+  check('S393', 'the old strip-and-zero read is gone from the Invoice List', !/Number\(String\(typed\)\.replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(listSrc));
+  check('S393', 'the row balance is the one balance rule', /const balance = centsOf\(balanceDueAmount\(d\)\) \/ 100;/.test(listSrc));
+  const routeSrc = stripComments(sectionFrom(admin, admin.indexOf("container.querySelectorAll('[data-setpaystatus]').forEach(function(sel){")));
+  check('S393', 'the route-list copy of the dropdown reads it the same way',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(routeSrc) &&
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(routeSrc) &&
+    !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(routeSrc));
+}

@@ -6973,6 +6973,9 @@
 <script type="module">
 import {
   CN_DOUBLE_BIN_FEET, cnBinsForFeet, fmtMoney,
+  /* Whole cents — the rounding computeInvoiceStatus compares in. parseTypedMoney rounds every
+     typed figure through it so a stored amount never carries a fraction of a cent. */
+  centsOf,
   computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey,
   /* The colour-change rule. The SAME rule the portal runs — functions/index.js
      carries applyLightChangeServer and money-parity.test.js fails the build if
@@ -9793,6 +9796,65 @@ function balanceDueAmount(d){
   // Credits (referrals, service adjustments) come off the balance, never below $0.
   // Light-change fees ($30 each) add on, the same way they do server-side.
   return Math.max((Number(d.install)||0)+(Number(d.removal)||0)+(Number(d.changeFees)||0)-(Number(d.credits)||0)-(Number(d.deposit)||0), 0);
+}
+/* ⭐ ONE READER FOR A DOLLAR FIGURE SOMEBODY TYPED OR PASTED (2026-10-29, break-test).
+   Every money box used to read its number with `replace(/[^0-9.]/g,'')` and `|| 0`, which
+   throws away anything it does not understand and calls what is left a figure:
+     "abc"          -> 0      (wiped a recorded deposit)
+     "-100"         -> 100    (a refund read as a payment)
+     "(50.00)"      -> 50     (an accounting refund read as money IN)
+     "300.00 + 50"  -> 0      ("300.0050" is not a number, so || 0)
+     "$1,200.50."   -> 0      (one stray dot wiped the deposit)
+     "100.005"      -> 100.005, a fraction of a cent the status maths then argued with.
+   This strips ONLY a dollar sign, spaces and thousands commas, and refuses everything else.
+   ⚠ A COMMA MUST BE A THOUSANDS COMMA: "2,50" is a European decimal and reading it as 250 is
+   a 100x price. ⚠ PARENTHESES AND A LEADING MINUS ARE A NEGATIVE, reported as such rather
+   than flipped, so each caller decides what a negative means (a refund, a correction) instead
+   of this function deciding for all of them. ⚠ ROUNDED TO WHOLE CENTS through centsOf — the
+   one rounding the status maths uses — so a stored figure never carries a fraction of a cent.
+   ⚠ A FIGURE OVER MONEY_TYPED_MAX IS UNREADABLE, not huge: nobody pays a million dollars for
+   Christmas lights, and the one way that number arrives is a phone number in the amount box.
+   Returns {ok, blank, negative, value}: ok means a readable figure of 0 or more. */
+const MONEY_TYPED_MAX = 1000000;
+function parseTypedMoney(raw){
+  const s = String(raw == null ? '' : raw).trim();
+  if(!s) return {ok: false, blank: true, negative: false, value: null};
+  /* A spreadsheet export can wrap a figure in its own quote marks ("1,234.56"). */
+  let t = s.replace(/^"(.*)"$/, '$1').replace(/[\s$]/g, '');
+  let negative = false;
+  if(/^\(.*\)$/.test(t)){ negative = true; t = t.slice(1, -1).replace(/\$/g, ''); }
+  if(t.charAt(0) === '-'){ negative = !negative; t = t.slice(1).replace(/\$/g, ''); }
+  if(t.indexOf(',') !== -1){
+    if(!/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return {ok: false, blank: false, negative: negative, value: null};
+    t = t.replace(/,/g, '');
+  }
+  if(!/^(\d+(\.\d+)?|\.\d+)$/.test(t)) return {ok: false, blank: false, negative: negative, value: null};
+  const v = centsOf(Number(t)) / 100;
+  if(!isFinite(v) || v > MONEY_TYPED_MAX) return {ok: false, blank: false, negative: negative, value: null};
+  if(negative && v > 0) return {ok: false, blank: false, negative: true, value: -v};
+  return {ok: true, blank: false, negative: false, value: v};
+}
+/* What to say about a figure parseTypedMoney refused, in the words of the box it came from. */
+function typedMoneyProblem(label, raw, parsed){
+  const p = parsed || parseTypedMoney(raw);
+  if(p.ok) return '';
+  if(p.blank) return label + ' is blank. Type a number (0 is fine).';
+  if(p.negative) return label + ' cannot be negative ("' + String(raw).trim() + '"). To take money back off, type the new, smaller total.';
+  return label + ' "' + String(raw).trim() + '" is not a dollar figure. Type just the number, like 250 or 1,250.50.';
+}
+/* What the payment-status dropdown writes as the deposit (both copies of it — the Invoice List
+   and the route list). `typed` is what the Partial Payment prompt returned (null = Cancel).
+   Returns {deposit[, coversAll]}, {cancel:true} or {refuse: message}. A refused figure writes
+   nothing; the caller puts the dropdown back. Paid in Full is the bill total in whole cents,
+   never below 0. */
+function statusDropdownDeposit(choice, total, typed){
+  const t = centsOf(total) / 100;
+  if(choice === 'Paid in Full') return {deposit: Math.max(t, 0)};
+  if(choice === 'Unpaid') return {deposit: 0};
+  if(typed === null || typed === undefined) return {cancel: true};
+  const p = parseTypedMoney(typed);
+  if(!p.ok) return {refuse: typedMoneyProblem('The amount paid so far', typed, p) + ' Nothing was changed.'};
+  return {deposit: p.value, coversAll: p.value >= t && t > 0};
 }
 /* Template names are typed by hand, and an em dash, en dash and hyphen all
    look near enough identical in a text box. Matching on the exact characters
@@ -30705,7 +30767,9 @@ function renderInvoicesList(){
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
-    const balance = (d.install||0) + (d.removal||0) + (d.changeFees||0) - (d.credits||0) - (d.deposit||0);
+    /* The one balance rule, in whole cents — raw floats here printed "Partial Payment,
+       Balance: $0.00" beside a status computeInvoiceStatus worked out in cents. */
+    const balance = centsOf(balanceDueAmount(d)) / 100;
     const liveStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
     const overdue = isInvoiceOverdue(d);
     const needsReview = d.priceReviewed === false;
@@ -30778,25 +30842,26 @@ function renderInvoicesList(){
     sel.addEventListener('change', function(){
       const invId = sel.dataset.setpaystatus;
       const total = Number(sel.dataset.total) || 0;
-      let deposit;
-      if(sel.value === 'Paid in Full'){
-        deposit = total;
-      } else if(sel.value === 'Unpaid'){
-        deposit = 0;
-      } else {
-        const typed = prompt('How much have they paid so far?', '');
-        if(typed === null){ sel.value = sel.dataset.currentvalue || 'Unpaid'; return; }
-        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
-        if(deposit >= total && total > 0){
-          alert('That covers the full balance, so this will be marked Paid in Full.');
-        }
+      /* ⭐ READ STRICTLY, AND CANCEL PUTS IT BACK (2026-10-29, break-test). "abc", "-100",
+         "$1,200.50." and "300.00 + 50" used to wipe or mangle the deposit, because the figure
+         was whatever digits were left. And Cancel read `data-currentvalue`, which nothing
+         ever set, so a paid-in-full row went on showing Unpaid. The option drawn `selected`
+         is what the row really says — the route-list copy below always read it. */
+      const previous = sel.querySelector('option[selected]');
+      const typed = sel.value === 'Partial Payment' ? prompt('How much have they paid so far?', '') : null;
+      const plan = statusDropdownDeposit(sel.value, total, typed);
+      if(plan.cancel){ sel.value = previous ? previous.value : 'Unpaid'; return; }
+      if(plan.refuse){ alert(plan.refuse); sel.value = previous ? previous.value : 'Unpaid'; return; }
+      const deposit = plan.deposit;
+      if(plan.coversAll){
+        alert('That covers the full balance, so this will be marked Paid in Full.');
       }
       /* How much this payment actually was, so a correction (the figure going
          down, or not moving) can be told apart from a real payment and stays
          silent. */
       const invRec = allInvoicesCache.find(i => i.id === invId);
       const wasPaid = invRec ? (Number(invRec.data.deposit) || 0) : 0;
-      const paidNow = deposit - wasPaid;
+      const paidNow = centsOf(deposit - wasPaid) / 100;
       updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
         /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
            year's payment from last year's, and this box was the one payment path that
@@ -45079,6 +45144,18 @@ document.getElementById('paymentImportLoadBtn').addEventListener('click', async 
   const amountSelect = document.getElementById('paymentImportAmountCol');
   phoneSelect.innerHTML = '';
   amountSelect.innerHTML = '';
+  /* ⭐ THE COLUMNS ARE PICKED BY THEIR HEADINGS, NEVER BY POSITION (2026-10-29, break-test).
+     Both dropdowns used to open on column 0, so a Phone / Name / Amount file imported the
+     PHONE NUMBER as the payment — 801-555-1003 credited as $801, 8015551007 as eight billion
+     dollars — with nothing on screen but a preview that looked like it matched. A heading
+     nobody recognises leaves the box on "choose", and Import refuses until it is chosen. */
+  const guessed = paymentImportGuessColumns(header);
+  [phoneSelect, amountSelect].forEach(function(sel){
+    const pick = document.createElement('option');
+    pick.value = '';
+    pick.textContent = '— choose a column —';
+    sel.appendChild(pick);
+  });
   header.forEach((col, idx) => {
     const opt1 = document.createElement('option');
     opt1.value = idx;
@@ -45089,9 +45166,45 @@ document.getElementById('paymentImportLoadBtn').addEventListener('click', async 
     opt2.textContent = col || 'Column ' + (idx + 1);
     amountSelect.appendChild(opt2);
   });
+  phoneSelect.value = guessed.phone >= 0 ? String(guessed.phone) : '';
+  amountSelect.value = guessed.amount >= 0 ? String(guessed.amount) : '';
   document.getElementById('paymentImportPanel').style.display = 'block';
   updatePaymentImportPreview();
 });
+/* Which column holds the phone and which the amount, read off the heading row. -1 when no
+   heading says so — the caller leaves that box on "choose" rather than guessing column 0.
+   ⚠ THE AMOUNT MAY NEVER BE THE PHONE COLUMN: a heading like "Phone Payment" matches both,
+   and the amount search skips whatever the phone search took. */
+function paymentImportGuessColumns(header){
+  const h = (header || []).map(function(c){ return String(c == null ? '' : c).trim().toLowerCase(); });
+  const phone = h.findIndex(function(c){ return /phone|mobile|cell|\btel\b/.test(c); });
+  const amount = h.findIndex(function(c, i){ return i !== phone && /amount|paid|total|payment/.test(c); });
+  return {phone: phone, amount: amount};
+}
+/* A payment far above what that customer owes is far likelier to be the wrong column, or a
+   typo, than a real overpayment — so the import asks before writing any of it. "Far" is more
+   than double the balance AND over $100 past it, so a small tip or a payment-ahead on a
+   settled bill does not trip it, while a phone number read as dollars always does. */
+function paymentImportAmountLooksWrong(amount, balance){
+  const a = Number(amount) || 0;
+  const b = Math.max(Number(balance) || 0, 0);
+  return a > b * 2 && (a - b) > 100;
+}
+/* ⭐ THE "ALREADY IMPORTED" TAG COMES FROM THE ROW, NOT THE FILE NAME (2026-10-29, break-test).
+   The old tag was file name + row position, so the same Venmo export saved again as
+   "venmo (1).csv" — which is what a browser calls a second download — produced all-new tags
+   and every payment in it was counted twice. This one is built from every cell in the row
+   (date, phone, amount, reference — whatever columns the export carries), so renaming the
+   file changes nothing.
+   ⚠ `occurrence` IS WHAT KEEPS TWO REAL PAYMENTS APART. A file with two identical $100 rows
+   for one customer and no date column is two payments, and they must be two tags — the bug
+   the per-row tag was first written to fix. The second identical row in a file is #2. */
+function paymentImportRowKey(row, occurrence){
+  const text = (row || []).map(function(c){ return String(c == null ? '' : c).trim().toLowerCase(); }).join('␟');
+  let h = 0x811c9dc5;
+  for(let i = 0; i < text.length; i++){ h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return ('00000000' + h.toString(16)).slice(-8) + '#' + (occurrence || 1);
+}
 function updatePaymentImportPreview(){
   const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
   const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
@@ -45134,16 +45247,69 @@ function findInvoiceForImportRow(rawPhone){
   return allInvoicesCache.find(i => i.id === asEmail || String(i.data.email||'').toLowerCase() === asEmail) || null;
 }
 document.getElementById('paymentImportBtn').addEventListener('click', onceAtATime(async function(){
-  const phoneIdx = parseInt(document.getElementById('paymentImportPhoneCol').value);
-  const amountIdx = parseInt(document.getElementById('paymentImportAmountCol').value);
+  const phoneColRaw = document.getElementById('paymentImportPhoneCol').value;
+  const amountColRaw = document.getElementById('paymentImportAmountCol').value;
+  /* ⚠ REFUSED, NOT GUESSED (2026-10-29). See paymentImportGuessColumns: an unchosen column
+     and a phone column doubling as the amount are the two ways a phone number became money. */
+  if(phoneColRaw === '' || amountColRaw === ''){
+    alert('Choose which column holds the phone number and which holds the amount paid, then press Import again. Nothing was imported.');
+    return;
+  }
+  const phoneIdx = parseInt(phoneColRaw);
+  const amountIdx = parseInt(amountColRaw);
+  if(phoneIdx === amountIdx){
+    alert('The phone number and the amount paid are set to the SAME column, so every phone number would be read as a payment. Pick the amount column, then press Import again. Nothing was imported.');
+    return;
+  }
   let updated = 0, skipped = 0, alreadyDone = 0;
+  /* ⭐ EVERY ROW IS READ AND CHECKED BEFORE ANYTHING IS WRITTEN, so a refusal or a Cancel on
+     the big-amount question leaves the book exactly as it was rather than half imported. */
+  const refusedRows = [];
+  const plan = [];
+  const rowOccurrence = {};
+  for(let rowIdx = 0; rowIdx < paymentImportData.length; rowIdx++){
+    const row = paymentImportData[rowIdx] || [];
+    const phone = row[phoneIdx];
+    const cell = row[amountIdx];
+    const sheetRow = rowIdx + 2;   // the heading is row 1 of the sheet
+    if(!phone && (cell == null || String(cell).trim() === '')) continue;   // an empty line
+    const parsed = parseTypedMoney(cell);
+    if(!phone){ refusedRows.push('row ' + sheetRow + ': no phone number'); continue; }
+    if(!parsed.ok){
+      /* ⚠ "(50.00)" IS A REFUND IN ACCOUNTING NOTATION and used to be added as +$50. A refund
+         row is reported and left for a person: taking money off an invoice is a correction,
+         and an import should never make one on its own. */
+      refusedRows.push('row ' + sheetRow + ' (' + phone + '): ' +
+        (parsed.blank ? 'no amount' : parsed.negative ? '"' + String(cell).trim() + '" is a refund or a negative amount' : '"' + String(cell).trim() + '" is not a dollar figure'));
+      continue;
+    }
+    if(parsed.value <= 0) continue;
+    const inv = findInvoiceForImportRow(phone);
+    if(!inv){ skipped++; continue; }
+    const hash = paymentImportRowKey(row, 1).split('#')[0];
+    rowOccurrence[hash] = (rowOccurrence[hash] || 0) + 1;
+    plan.push({rowIdx: rowIdx, phone: phone, amount: parsed.value, inv: inv,
+      rowKey: paymentImportRowKey(row, rowOccurrence[hash])});
+  }
+  const tooBig = plan.filter(function(p){ return paymentImportAmountLooksWrong(p.amount, balanceDueAmount(p.inv.data)); });
+  if(tooBig.length){
+    const lines = tooBig.slice(0, 12).map(function(p){
+      return 'row ' + (p.rowIdx + 2) + ' — ' + (p.inv.data.name || p.inv.id) + ': ' + fmtMoney(p.amount) +
+        ' against a balance of ' + fmtMoney(balanceDueAmount(p.inv.data));
+    });
+    if(!confirm(tooBig.length + ' payment(s) in this file are far more than that customer owes:\n\n' + lines.join('\n') +
+      (tooBig.length > 12 ? '\n...and ' + (tooBig.length - 12) + ' more.' : '') +
+      '\n\nThat is usually the wrong column picked for the amount. OK = import them anyway.\nCancel = import nothing.')){
+      return;
+    }
+  }
   /* Receipts go out one per updated invoice, so a big file means a big burst of
      email. The connected mail account is an ordinary Gmail (~500 recipients a
      day), so ask first rather than quietly firing hundreds. */
   let sendReceipts = false;
-  if(paymentImportData.length){
+  if(plan.length){
     sendReceipts = confirm('Email a payment receipt to each customer this import updates?\n\n'+
-      'This file has '+paymentImportData.length+' row(s), so up to that many emails could go out at once.\n\n'+
+      'This file has '+plan.length+' payment row(s) to import, so up to that many emails could go out at once.\n\n'+
       'OK = import and email receipts.\nCancel = import without sending anything.');
   }
   const receiptQueue = [];
@@ -45163,17 +45329,14 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
   const rowTag = function(idx, phoneDigits, amount){
     return 'import:' + importFileName + ':' + idx + ':' + phoneDigits + ':' + amount.toFixed(2);
   };
-  for(let rowIdx = 0; rowIdx < paymentImportData.length; rowIdx++){
-    const row = paymentImportData[rowIdx];
-    const phone = row[phoneIdx];
-    /* Strip anything that is not a digit or a decimal point BEFORE parsing, so
-       "$1,234.56" and "1,234.56" both read as 1234.56 rather than as 1. The
-       CSV parser above keeps the field whole; this makes the number itself
-       survive. */
-    const amount = parseFloat(String(row[amountIdx] == null ? '' : row[amountIdx]).replace(/[^0-9.\-]/g, '')) || 0;
-    if(!phone || amount <= 0) continue;
-    const inv = findInvoiceForImportRow(phone);
-    if(!inv){ skipped++; continue; }
+  for(const item of plan){
+    const rowIdx = item.rowIdx;
+    const phone = item.phone;
+    /* The amount was read by parseTypedMoney in the pass above: "$1,234.56" and "1,234.56"
+       are 1234.56, "(50.00)" and "-25" are refunds and never reach here, and the figure is
+       already whole cents. */
+    const amount = item.amount;
+    const inv = item.inv;
     const d = inv.data;
     /* The old code only wrote when the invoice was already at Partial Payment,
        which silently skipped every Unpaid customer who had paid in full - the
@@ -45187,9 +45350,14 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
        already went in would no longer be recognised and its payments would be ADDED AGAIN.
        A tag only has to be stable, and this one is. Change it only together with a check that
        accepts both spellings of the tag. */
-    const thisRowTag = rowTag(rowIdx, String(phone).replace(/D/g,''), amount);
+    /* ⭐ AND THAT CHECK NOW EXISTS (2026-10-29): the tag WRITTEN is the row-content tag
+       (paymentImportRowKey), which no file name or position can change, and the tag above is
+       still built so a file imported before today is recognised by the spelling it was saved
+       under. Both are looked for; only the new one is written. */
+    const fileRowTag = rowTag(rowIdx, String(phone).replace(/D/g,''), amount);
+    const thisRowTag = 'import:row:' + item.rowKey + ':' + String(phone).replace(/\D/g,'') + ':' + amount.toFixed(2);
     const seen = Array.isArray(d.importedPayments) ? d.importedPayments : [];
-    if(seen.indexOf(thisRowTag) !== -1){ alreadyDone++; continue; }
+    if(seen.indexOf(thisRowTag) !== -1 || seen.indexOf(fileRowTag) !== -1){ alreadyDone++; continue; }
     await updateDoc(doc(db,'invoices',inv.id), {
       deposit: increment(amount),
       importedPayments: arrayUnion(thisRowTag),
@@ -45243,7 +45411,15 @@ document.getElementById('paymentImportBtn').addEventListener('click', onceAtATim
       receiptProblems.slice(0, 12).join('\n') +
       (receiptProblems.length > 12 ? '\n\n...and ' + (receiptProblems.length - 12) + ' more.' : ''));
   }
-  toast('Updated '+updated+' invoices'+(skipped?' ('+skipped+' not found)':'')+(alreadyDone?' ('+alreadyDone+' already imported from this file)':'')+(sendReceipts?' \u2014 '+receiptsSent+' receipts emailed':''));
+  if(refusedRows.length){
+    /* Said out loud and by row, because a refund or an unreadable amount is something a
+       person has to deal with by hand \u2014 a count in a toast is a number nobody acts on. */
+    alert(refusedRows.length + ' row(s) were NOT imported and need a look by hand:\n\n' +
+      refusedRows.slice(0, 15).join('\n') +
+      (refusedRows.length > 15 ? '\n\n...and ' + (refusedRows.length - 15) + ' more.' : '') +
+      '\n\nA refund is not taken off an invoice by an import \u2014 enter it on that invoice yourself.');
+  }
+  toast('Updated '+updated+' invoices'+(skipped?' ('+skipped+' not found)':'')+(alreadyDone?' ('+alreadyDone+' already imported)':'')+(refusedRows.length?' ('+refusedRows.length+' not read \u2014 see the list)':'')+(sendReceipts?' \u2014 '+receiptsSent+' receipts emailed':''));
   document.getElementById('paymentImportPanel').style.display = 'none';
   document.getElementById('paymentImportFile').value = '';
   document.getElementById('paymentImportNewFolder').value = '';
@@ -51098,6 +51274,45 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
 const ibAreaIds = ['ibNamesArea','ibPhonesArea','ibEmailsArea','ibAmountsArea'];
 const ibCountIds = { ibNamesArea:'ibCountNames', ibPhonesArea:'ibCountPhones', ibEmailsArea:'ibCountEmails', ibAmountsArea:'ibCountAmounts' };
 wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds);
+/* ⭐ WHAT ONE INVOICE BULK UPDATE ROW MAY WRITE (2026-10-29, break-test). Pure, so a test can
+   RUN it. The tool was written for brand-new customers and wrote every column it was given
+   over an existing invoice, blanks included:
+     - a blank or unreadable Amount set install to 0 — on a paid-in-full invoice that is a
+       NEGATIVE balance, money owed back to the customer that nobody owes;
+     - "-300" was read as 300;
+     - a blank Name or Email wiped the one on the invoice;
+     - a 500 typed against a payer billed for twelve houses replaced the SUM of all twelve,
+       which syncPayerInvoice then rebuilt behind the office's back or, worse, did not.
+   On an EXISTING invoice: install is written only from a readable figure of 0 or more, and
+   name / email only when the cell has something in it. A row whose amount cell holds
+   something that is not a dollar figure is REFUSED whole (new invoice or not) and named in
+   the report. A phone that pays for more than one house is REFUSED: the total belongs to the
+   houses, and is changed by changing their prices.
+   Returns {skip: reason} or {data, isNew}. */
+function invoiceBulkRowPlan(row, existing, housesOnBill){
+  const amt = parseTypedMoney(row.amountRaw);
+  if(!amt.blank && !amt.ok){
+    return {skip: amt.negative ? 'amount "' + String(row.amountRaw).trim() + '" is negative'
+                               : 'amount "' + String(row.amountRaw).trim() + '" is not a dollar figure'};
+  }
+  const ex = existing || null;
+  const billed = ex && Array.isArray(ex.billedHouseIds) ? ex.billedHouseIds.length : 0;
+  const houses = Math.max(billed, Number(housesOnBill) || 0);
+  if(houses > 1){
+    return {skip: 'pays for ' + houses + ' houses — change the price on each house instead'};
+  }
+  const keepRemoval = ex ? (Number(ex.removal) || 0) : 0;
+  const keepDeposit = ex ? (Number(ex.deposit) || 0) : 0;
+  const keepCredits = ex ? (Number(ex.credits) || 0) : 0;
+  const keepFees = ex ? (Number(ex.changeFees) || 0) : 0;
+  const install = amt.ok ? amt.value : (ex ? (Number(ex.install) || 0) : 0);
+  const data = {phone: row.phone, removal: keepRemoval, deposit: keepDeposit};
+  if(!ex || amt.ok){ data.install = install; data.priceReviewed = true; }
+  if(!ex || row.name) data.name = row.name || '';
+  if(!ex || row.email) data.email = row.email || '';
+  data.status = computeInvoiceStatus(install, keepRemoval, keepDeposit, keepCredits, keepFees);
+  return {data: data, isNew: !ex};
+}
 /* Same reasoning as the Routes import above — one redraw at the end. */
 document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(async function(){ return withBulkWrites(async function(){
   const statusEl = document.getElementById('ibImportStatus');
@@ -51122,12 +51337,12 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
     }
   }
   let added = 0, updated = 0, customersCreated = 0, skipped = 0;
+  const refusedRows = [];
   for(let i = 0; i < phones.length; i++){
     await bulkBreathe(i);
     const phone = phones[i].replace(/\D/g,'');
     const name = names[i] || '';
     const email = emails[i] || '';
-    const amount = Number((amounts[i]||'').replace(/[^0-9.]/g,'')) || 0;
     if(!phone){ skipped++; continue; }
     statusEl.textContent = 'Processing ' + (i+1) + ' of ' + phones.length + '…';
     try{
@@ -51137,17 +51352,14 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
       // invoice — but guard it anyway rather than trust that stays true
       // forever. A blind removal:0, deposit:0 here would erase a removal
       // charge or a payment already on file the moment it ever is re-run.
-      const existingData = existingInv.exists() ? existingInv.data() : {};
-      const keepRemoval = Number(existingData.removal) || 0;
-      const keepDeposit = Number(existingData.deposit) || 0;
-      const keepCredits = Number(existingData.credits) || 0;
-      const keepFees = Number(existingData.changeFees) || 0;
-      await setDoc(doc(db,'invoices',phone), {
-        name: name, phone: phone, email: email,
-        install: amount, removal: keepRemoval, deposit: keepDeposit,
-        status: computeInvoiceStatus(amount, keepRemoval, keepDeposit, keepCredits, keepFees),
-        priceReviewed: true, updatedAt: serverTimestamp()
-      }, {merge:true});
+      // ⭐ AND NOW BLANKS TOO (2026-10-29) — see invoiceBulkRowPlan above.
+      const rowPlan = invoiceBulkRowPlan({phone: phone, name: name, email: email, amountRaw: amounts[i] || ''},
+        existingInv.exists() ? existingInv.data() : null, billedHousesFor(phone).length);
+      if(rowPlan.skip){
+        refusedRows.push('row ' + (i+1) + ' (' + (name || phone) + '): ' + rowPlan.skip);
+        continue;
+      }
+      await setDoc(doc(db,'invoices',phone), Object.assign({}, rowPlan.data, {updatedAt: serverTimestamp()}), {merge:true});
       existingInv.exists() ? updated++ : added++;
       /* Add Customer / jobAddresses is the source of truth — make sure this
          customer has a record.
@@ -51199,7 +51411,9 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
       skipped++;
     }
   }
-  statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.';
+  statusEl.textContent = added + ' invoice(s) added, ' + updated + ' updated' + (customersCreated ? ', ' + customersCreated + ' new customer record(s) created' : '') + (skipped ? ', ' + skipped + ' skipped' : '') + '.' +
+    (refusedRows.length ? ' ⚠ ' + refusedRows.length + ' row(s) LEFT ALONE: ' + refusedRows.slice(0, 8).join('; ') +
+      (refusedRows.length > 8 ? '; and ' + (refusedRows.length - 8) + ' more' : '') + '.' : '');
   ibAreaIds.forEach(function(id){ document.getElementById(id).value = ''; });
   wireBulkCounts(ibAreaIds, 'ibPhonesArea', ibCountIds)();
 }); }, function(){ return document.getElementById('ibImportBtn'); }));
@@ -51747,25 +51961,22 @@ function attachAddressRowHandlers(container){
     sel.addEventListener('change', function(){
       const invId = sel.dataset.setpaystatus;
       const total = Number(sel.dataset.total) || 0;
-      let deposit;
-      if(sel.value === 'Paid in Full'){
-        deposit = total;
-      } else if(sel.value === 'Unpaid'){
-        deposit = 0;
-      } else {
-        const previous = sel.querySelector('option[selected]');
-        const typed = prompt('How much have they paid so far?', '');
-        if(typed === null){ sel.value = previous ? previous.value : 'Unpaid'; return; }
-        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
-        if(deposit >= total && total > 0){
-          alert('That covers the full balance, so this will be marked Paid in Full.');
-        }
+      /* Read through the same rule as the Invoice List copy (statusDropdownDeposit): a figure
+         that is not a dollar amount, or is negative, is refused and the dropdown put back. */
+      const previous = sel.querySelector('option[selected]');
+      const typed = sel.value === 'Partial Payment' ? prompt('How much have they paid so far?', '') : null;
+      const plan = statusDropdownDeposit(sel.value, total, typed);
+      if(plan.cancel){ sel.value = previous ? previous.value : 'Unpaid'; return; }
+      if(plan.refuse){ alert(plan.refuse); sel.value = previous ? previous.value : 'Unpaid'; return; }
+      const deposit = plan.deposit;
+      if(plan.coversAll){
+        alert('That covers the full balance, so this will be marked Paid in Full.');
       }
       /* updatedAt was missing here, so recording a payment on this screen never
          reset the Overdue clock. Added alongside the receipt. */
       const invRec2 = allInvoicesCache.find(i => i.id === invId);
       const wasPaid2 = invRec2 ? (Number(invRec2.data.deposit)||0) : 0;
-      const paidNow2 = deposit - wasPaid2;
+      const paidNow2 = centsOf(deposit - wasPaid2) / 100;
       updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
         /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
            year's payment from last year's, and this box was the one payment path that
