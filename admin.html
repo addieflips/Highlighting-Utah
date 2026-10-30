@@ -5472,6 +5472,7 @@
           </div>
         </div>
         <button type="button" class="btn btn-outline btn-sm" id="cnManualAddBtn">Add to Available Pool</button>
+        <span id="cnManualStatus" class="form-note" style="margin-left:8px;"></span>
       </div>
       </div>
       <div id="cnPrintArea" style="display:none;"></div>
@@ -52952,8 +52953,8 @@ function renderWarehouseRecycleQueue(){
   });
   list.querySelectorAll('[data-whrecycledone]').forEach(function(btn){
     /* ⚠ onceAtATime: a second press while the first is still writing is ignored, and the
-       button stays dead until it finishes (2026-10-29, break-test — see the guard in
-       hlxRemoveCustomerToRecycle for what a double press used to cost). */
+       button stays dead until it finishes (2026-10-29, break-test — a double press used to
+       run the whole removal twice; the removal itself refuses a second run as well). */
     btn.addEventListener('click', onceAtATime(async function(e){
       e.stopPropagation();
       const custId = btn.dataset.whrecycledone;
@@ -53757,7 +53758,9 @@ function renderCustomerNumbersPanel(){
   const el = document.getElementById('cnFullSearch');
   if(el) el.addEventListener('input', debounced(renderCustomerNumbersPanel));
 })();
-document.getElementById('cnAssignBtn').addEventListener('click', async function(){
+/* ⛔ onceAtATime (2026-10-29, break-test): two quick presses handed two customers #1001 —
+   cnNextAvailable reads the cache, and the first write had not reached it. */
+document.getElementById('cnAssignBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('cnAssignStatus');
   const custId = document.getElementById('cnAssignCustomerSelect').value;
   const type = document.getElementById('cnAssignBinType').value;
@@ -53771,7 +53774,7 @@ document.getElementById('cnAssignBtn').addEventListener('click', async function(
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
-});
+}, function(){ return document.getElementById('cnAssignBtn'); }));
 /* ---------------- BULK ASSIGN CUSTOMER NUMBERS ---------------- */
 /* One-time tool for stamping the master sheet's numbers onto customers who are
    already in the system. Deliberately does NOT touch anything but customerNumber
@@ -54017,14 +54020,46 @@ document.getElementById('cnFindGapsBtn').addEventListener('click', function(){
     document.getElementById('cnFindGapsBtn').click();
   });
 });
-document.getElementById('cnManualAddBtn').addEventListener('click', async function(){
+/* ⛔ WHAT MAY GO INTO THE POOL BY HAND (2026-10-29, break-tests). It accepted anything parseInt
+   could start on: "7abc", "1e3" and " 0099 " became pool documents with those very ids, and
+   the next assign handed a customer #1e3. "-5" went in, and so did 5600 typed as Regular —
+   a 5000-series number is a two-bin label, so filing it as regular hands it to a one-bin
+   house. A whole positive number only, leading zeros dropped, and the type picked must match
+   the series — the same `parseInt(num,10) >= 5000 ? 'double' : 'regular'` every other pool
+   write uses. A number a customer already holds is refused too. Returns the number to
+   store, or a sentence saying why not. */
+function cnPoolNumberCheck(raw, type, heldBy){
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t) return {num: '', error: 'Type a number first.'};
+  if(!/^\d+$/.test(t)) return {num: '', error: '\u201C' + t + '\u201D is not a customer number \u2014 digits only, like 1017 or 5012.'};
+  const num = String(parseInt(t, 10));
+  if(num === '0') return {num: '', error: 'Customer numbers start at 1.'};
+  const series = parseInt(num, 10) >= 5000 ? 'double' : 'regular';
+  if(type && type !== series){
+    return {num: '', error: '#' + num + (series === 'double'
+      ? ' is a 5000-series number, which means two bins \u2014 pick Double Bin.'
+      : ' is a regular number, under 5000 \u2014 pick Regular.')};
+  }
+  if(heldBy) return {num: '', error: '#' + num + ' belongs to ' + heldBy + ' \u2014 it is not free.'};
+  return {num: num, type: series, error: ''};
+}
+document.getElementById('cnManualAddBtn').addEventListener('click', onceAtATime(async function(){
   const numInput = document.getElementById('cnManualNumber');
-  const num = numInput.value.trim();
+  const statusEl = document.getElementById('cnManualStatus');
   const type = document.getElementById('cnManualType').value;
-  if(!num || isNaN(parseInt(num,10))) return;
-  await setDoc(doc(db,'availableCustomerNumbers', num), {type: type, releasedAt: serverTimestamp()});
-  numInput.value = '';
-});
+  const wanted = String(parseInt(String(numInput.value || '').trim(), 10));
+  const holder = (jobAddresses || []).find(function(a){ return String((a.data || {}).customerNumber || '') === wanted; });
+  const out = cnPoolNumberCheck(numInput.value, type, holder ? (holder.data.name || 'a customer') : '');
+  if(out.error){ if(statusEl) statusEl.textContent = out.error; return; }
+  try{
+    await setDoc(doc(db,'availableCustomerNumbers', out.num), {type: out.type, releasedAt: serverTimestamp()});
+    numInput.value = '';
+    if(statusEl) statusEl.textContent = '#' + out.num + ' added to the pool.';
+  }catch(err){
+    console.error('Could not add that number to the pool:', err);
+    if(statusEl) statusEl.textContent = 'Could not save that \u2014 check your connection and try again.';
+  }
+}, function(){ return document.getElementById('cnManualAddBtn'); }));
 function cnBuildPrintTable(sortedItems, title){
   let rows = sortedItems.map(function(item){
     const d = item.data;
