@@ -2911,6 +2911,64 @@ the bill line still shows, because *what do they owe* is asked of them just as o
 
 **Credits** (`credits`/`creditNotes`) never push the balance below $0 — anything left over becomes `carryoverCredit` on the customer, applied to their *next* invoice, not refunded.
 
+### A dollar figure somebody typed is read or refused, never guessed (break-test fixes, 2026-10-29)
+
+Every money box used to keep the digits and dots and call what was left a number, so "abc"
+wiped a deposit, "-100" became 100 and "(50.00)" became +$50. `parseTypedMoney` is the one
+reader now: it strips only `$`, spaces and thousands commas, rounds to whole cents through
+`centsOf`, reports a negative as a negative, and refuses everything else (including "2,50"
+and anything over $1,000,000 — which is how a phone number in an amount box arrives).
+
+- **Import Payments** (Invoices › Import / Export): the Phone and Amount boxes are chosen by
+  their **headings** (`paymentImportGuessColumns`), never column 0; an unrecognised heading
+  leaves the box on "choose" and Import refuses until it is chosen, and refuses outright
+  when both boxes name the same column. Every row is checked before anything is written: a
+  refund ("(50.00)", "-25") or an unreadable amount is **listed by sheet row and not
+  imported**, and a payment far above that customer's balance (more than double it and over
+  $100 past it) is asked about first — Cancel imports nothing. The "already imported" tag is
+  built from the **row's own contents** (`paymentImportRowKey`), so the same export saved as
+  "venmo (1).csv" is recognised; two identical rows in one file are still two payments. Tags
+  saved before this change are still recognised. Suite 391.
+- **Invoice Bulk Update** (Customers › Bulk Updates) no longer overwrites an EXISTING invoice
+  with blanks (`invoiceBulkRowPlan`): a blank Amount leaves `install` alone, a blank Name or
+  Email leaves the invoice's, and an Amount that is not a dollar figure or is negative LEAVES
+  THE ROW ALONE and names it in the status line. A phone that pays for more than one house
+  is left alone too — change the price on each house instead. A brand-new invoice is still
+  created as before. Suite 392.
+
+### The rest of the break-test fixes (2026-10-29)
+
+The admin portal was driven with ordinary mistakes (double presses, half-typed numbers, the
+wrong customer open) and every hole that let a mistake corrupt data was closed. None of these
+changes a rule; each makes an existing rule hold when somebody slips.
+
+- **Customers** (Add / Edit Customer): a changed phone must be ten digits (or eleven with a
+  leading 1). A Bill To of the customer's own phone is saved as none; a Bill To that loops back
+  to the customer is refused; an unknown payer number is asked about first. Deleting or merging
+  a customer rebuilds every bill the house was on (`syncPayerInvoice` with `removedIds`), and the
+  fee rebuild on Edit Customer only rebuilds lines belonging to the house being saved. Suites 431, 432.
+- **Quotes**: converting a second quote while the first is saving closes the right one; nothing
+  left on the hidden Add a Customer form rides onto a conversion; a refused automatic conversion
+  says why; a new house on a phone that already has an invoice is added to it, never written
+  over it; a re-quote put down on one customer is never applied to the next; a quote is marked
+  sent only when the email went; two presses on Convert open one popup; the Feet box and the
+  Measure tool refuse nonsense feet. Suites 421–430.
+- **Customer Numbers**: the pool refuses "7abc", "1e3", "-5", a number in the wrong series and a
+  number somebody holds; Assign Next Available is one press at a time. Suite 394.
+- **Warehouse**: Add to Queue is one press at a time and says when the house will not appear;
+  Mark Completed takes whole numbers only; Mark Done keeps the bin number while the old set is
+  still to be recycled (`whBuiltUpdates(record)`); Mark Recycled runs once
+  (`hlxRemoveCustomerToRecycle` refuses a second removal in flight).
+- **Inbox**: Move to lists folders again; folders under a built-in section show their mail; a
+  section folder name used elsewhere is refused; Send to Warehouse links the right customer or
+  nobody (`msgSendToWhCustomer`).
+- **Schedule**: the leftover flow refuses a day the crew has not reached (so "Nobody was missed"
+  can no longer mark a future day complete and bill it), and a missed house moved by hand stays
+  inside its customer's dates (`houseMayGoOn`). `MAX_CREWS` lives at module scope, so a third
+  crew and the typed nearby-towns list survive a reload. Suite 397.
+- **Payment-status dropdowns** read a partial amount strictly (`statusDropdownDeposit`) and Cancel
+  puts the row's real status back. Suite 393.
+
 ---
 
 ### What this season is shaping up to bring in (Financial Overview, added 2026-10-20, [[MON-84]])

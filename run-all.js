@@ -2593,11 +2593,18 @@ check('flow', 'Convert to Customer asks automatic or manual',
 check('flow', 'the convert popup can be dismissed without converting',
   /convertQuoteCancelBtn/.test(convChoice),
   'a popup with no way out traps whoever opened it by mistake');
+/* ⚠ REPOINTED 2026-10-29, NOT WEAKENED: these two read a fixed 900-character window after the
+   card's selector (§7's slow fuse) and failed on correct code the moment the double-click
+   guard (Suite 428) went in above the getDoc. They read the card handler itself now. */
+const convertCardHandler = (function () {
+  const i = admin.indexOf("list.querySelectorAll('[data-converttocust]')");
+  return i < 0 ? '' : admin.slice(i, admin.indexOf("list.querySelectorAll('.quoteStatusSelect')", i));
+})();
 check('flow', 'the convert button opens the popup rather than filling the form itself',
-  /\[data-converttocust\][\s\S]{0,900}showConvertQuoteChoice/.test(admin),
+  /showConvertQuoteChoice\(quoteId, d\)/.test(convertCardHandler) && !/fillAddCustFromQuote/.test(convertCardHandler),
   'the button went back to filling the form directly, so the automatic option is unreachable');
 check('flow', 'the convert button will not convert the same quote twice',
-  /\[data-converttocust\][\s\S]{0,900}convertedToCustomerAt/.test(admin),
+  /if\(d\.convertedToCustomerAt\)\{[\s\S]*?return;[\s\S]*?showConvertQuoteChoice\(quoteId, d\)/.test(convertCardHandler),
   'a stale card could start a second conversion — a duplicate customer, number, ' +
   'invoice and warehouse entry for one quote');
 
@@ -3345,19 +3352,19 @@ check('flow', 'nothing closes a quote except converting it',
 }
 
 check('flow', 'converting a quote marks them in for the season',
-  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin),
+  /rsvpStatus: fromQuoteId \? 'yes' : ''/.test(admin),
   'owner: "if i convert or apply requote than it should be yes" — converting is ' +
   'already the act that creates their invoice, number and build');
 /* ⚠ AND WITH A REPLY DATE. effectiveRsvpStatus reads a bare yes with no date as
    "nobody heard from them", so writing the status alone sets a field every reader then
    ignores — which looks exactly like the change not working. */
 check('flow', 'and stamps when, or every reader ignores it',
-  /rsvpRespondedAt: addCustFromQuoteId \? serverTimestamp\(\) : null/.test(admin),
+  /rsvpRespondedAt: fromQuoteId \? serverTimestamp\(\) : null/.test(admin),
   'a bare yes with no date is Pending everywhere — the status alone does nothing');
 /* ⚠ THE HALF OF THE OLD RULE THAT WAS ALWAYS RIGHT. Nobody approved anything when a
    customer is typed straight in, so they stay Pending until somebody asks them. */
 check('flow', 'but a customer typed in by hand still assumes nothing',
-  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin) &&
+  /rsvpStatus: fromQuoteId \? 'yes' : ''/.test(admin) &&
   !/rsvpStatus: 'yes',\r?\n\s*rsvpRespondedAt: serverTimestamp\(\),\r?\n\s*needsDayAssignedAt/.test(admin),
   'no quote, no approval, nobody pressed anything — that is Pending, and it is true');
 /* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
@@ -4380,8 +4387,11 @@ check('flow', 'price sync recomputes invoice status',
 // invoice would otherwise erase real money already on file.
 const ibStart = admin.indexOf("ibImportBtn').addEventListener");
 const ibSection = ibStart > -1 ? sectionFrom(admin, ibStart) : '';
+/* ⚠ REPOINTED 2026-10-29: the write moved into invoiceBulkRowPlan (Suite 392 RUNS it), and the
+   handler writes that plan's data. Same guarantee, asserted where it now lives. */
+const ibPlanSrc = extractFn(admin, 'invoiceBulkRowPlan') || '';
 check('flow', 'Invoice Bulk Update preserves an existing removal charge and payments already on file',
-  /removal:\s*keepRemoval/.test(ibSection) && /deposit:\s*keepDeposit/.test(ibSection),
+  /removal:\s*keepRemoval/.test(ibPlanSrc) && /deposit:\s*keepDeposit/.test(ibPlanSrc) && /invoiceBulkRowPlan\(/.test(ibSection),
   'a blind removal:0, deposit:0 on every row would erase both if this tool is ever re-run\n          ' +
   'against a customer who already has an invoice');
 check('flow', 'route resync only touches upcoming routes',
@@ -6097,8 +6107,12 @@ suite('10c. Tips, the payment importer, and the ledger backfill');
   check('importer', 'a CSV is parsed properly, not split on commas',
     /XLSX\.read\(text, \{type: 'string'\}\)/.test(importSec),
     '"1,234.56" is ONE quoted field — splitting on commas imported a $1,234.56 payment as $1');
+  /* ⚠ REPOINTED 2026-10-29, NOT WEAKENED. This matched the literal strip
+     `replace(/[^0-9.\-]/g, '')`, which was itself the next bug: it also read "(50.00)" as
+     +$50 and "abc" as nothing. The importer reads through parseTypedMoney now, and Suite 391
+     RUNS it over "$1,234.56" — the guarantee this check exists for. */
   check('importer', 'an amount survives currency punctuation',
-    /replace\(\/\[\^0-9\.\\-\]\/g, ''\)/.test(admin),
+    /parseTypedMoney\(cell\)/.test(admin) && /function parseTypedMoney\(/.test(admin),
     '"$1,234.56" must read as 1234.56, not as 1');
   check('importer', 'the duplicate guard is per ROW, not per file',
     /const rowTag = function\(idx, phoneDigits, amount\)/.test(admin) && /thisRowTag/.test(admin),
@@ -6621,7 +6635,7 @@ suite('11. Reliability pass');
      invisible to the Warehouse: the build queue is keyed off the light
      description, so they never reach Dad and no screen says so. */
   check('reliability', 'light colours cannot be waved through on Add Customer',
-    /if\(!lightsDescription\)\{[\s\S]{0,700}return;/.test(addForm) &&
+    /if\(!lightsDescription\)\{[\s\S]{0,700}return( 'refused')?;/.test(addForm) &&
     !/No light colours are selected/.test(addForm),
     'the old "add them anyway?" prompt is back — clicking through it is what put ' +
     'colourless customers on the books in the first place');
@@ -6674,7 +6688,7 @@ suite('11. Reliability pass');
     /add them without these/.test(addForm),
     'a house genuinely can be added before the photo is taken or the price agreed');
   check('reliability', 'the red missing box is cleared once the customer saves',
-    /showAddCustMissing\(\[\]\)/.test(addForm),
+    /resetAddCustForm\(\);/.test(addForm) && /showAddCustMissing\(\[\]\)/.test(extractFn(admin, 'resetAddCustForm') || ''),
     'a stale red box on a successful save reads as a failure');
 
   // ---- 2.2c A house Google cannot place is still added --------------------
@@ -8059,7 +8073,9 @@ if (!JSDOM) {
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
-      '\n' + extractFn(admin, 'whBinNumberMoved'));
+      '\n' + extractFn(admin, 'whBinNumberMoved') +
+      /* Mark Recycled is wrapped in onceAtATime now (break-test 2026-10-29) — lifted, not stubbed. */
+      '\n' + extractFn(admin, 'onceAtATime'));
     /* ⭐ THE COLOUR TABLES (2026-08-24). whColorsFromWords reads them now, and it lives
        inside the slice eval'd below while the tables live hundreds of lines earlier,
        outside it. Read out of the real file, never restated — a local copy of the colour
@@ -8949,7 +8965,7 @@ if (!JSDOM) {
   check('convert-dup', 'Add Customer guard found in admin.html', guardStart > -1,
     'renamed or removed — update this test rather than deleting it');
   check('convert-dup', 'submitting Add Customer re-checks the quote for a prior conversion before writing',
-    /if\(addCustFromQuoteId\)\{[\s\S]{0,150}dupCheckSnap[\s\S]{0,150}convertedToCustomerAt[\s\S]{0,150}return;/.test(guardSrc),
+    /if\(fromQuoteId\)\{[\s\S]{0,150}dupCheckSnap[\s\S]{0,150}convertedToCustomerAt[\s\S]{0,150}return;/.test(guardSrc),
     'clicking Add Customer twice on the same pre-filled form (or two staff converting the same quote at once) ' +
     'created a second jobAddresses record, invoice, warehouse entry and customer number for one person');
 })();
@@ -9441,7 +9457,7 @@ suite('15. The printed schedule sheet');
        rule working rather than the test failing. */
     const NEARBY_TOWN_LIST = {Lehi: ['Alpine', 'Draper'], Alpine: ['Lehi', 'Draper'],
                               Draper: ['Lehi', 'Alpine']};
-    const crew = eval(admin.slice(crewStart, crewEnd) + '\n' +
+    const crew = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + admin.slice(crewStart, crewEnd) + '\n' +
       admin.slice(sheetStart2, sheetEnd2) + '\n' +
       admin.slice(crewRowsStart, crewRowsEnd) + '\n' +
       ';({norm: normalizeCrews, name: crewName, city: crewCityFor, houses: crewHousesFor,' +
@@ -9577,6 +9593,12 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
+    /* "today" is an input from outside the scheduler, pinned the way schedule-v2.harness.js pins it: the day before the
+       fixture's first day, so every fixture day has been reached or is still ahead exactly as the checks below assume.
+       The customer-window half of the leftover moves (houseWindowWhy) is RUN in schedule-v2.test.js against the real
+       houseMayGoOn; here houseMayGoOn is absent, so that half answers '' and these checks keep their old meaning. */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-02' }), window: undefined });
+    global.isoOf = eval('(' + extractFn(admin, 'isoOf') + ')');
     /* [[SCH-135]] the crew-check helpers these moves now ask — lifted, never stubbed (nothing here is held, so they answer no) */
     const holdStart = admin.indexOf('const CREW_HOLD_UNTIL_HOUR');
     const holdEnd = admin.indexOf('function refreshLockedDates(', holdStart);
@@ -9704,6 +9726,8 @@ check('leftovers', 'the panel closes itself once nothing is left',
        actually did rather than trusting that it called something. */
     global._ticks = [];
     global.planTickCustomer = (h, done) => { global._ticks.push({ id: h.id, done: done }); };
+    /* the fixture day (3 Nov) is the day being worked — the leftover flow refuses a day the crew has not reached yet */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-03' }), window: undefined });
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' +
       admin.slice(stateStart, stateEnd) +
       '\n;({open: openLeftovers, apply: applyLeftoverPicks,' +
@@ -9782,6 +9806,23 @@ check('leftovers', 'the panel closes itself once nothing is left',
     api.apply('d1');
     check('leftovers', 'a house wrongly marked done comes back off done when ticked as a miss',
       SEASON[0].houses.map(h => h.done).join() === 'true,true,false');
+    /* ⛔ (break-test, 2026-10-29) A DAY STILL AHEAD IS REFUSED. "Nobody was missed — mark the whole day done" on a day weeks
+       away ticked every customer on it complete, and the nightly run bills on that. Nobody can have been missed on a day the
+       crew has not reached, so the panel will not open and Continue writes nothing. */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-02' }), window: undefined });
+    const ahead = fresh();
+    SEASON = [ day(ahead) ];
+    global._ticks = []; global._toast = '';
+    api.open('d1');
+    check('leftovers', 'a day the crew has not reached yet does not open the missed-houses panel',
+      /has not been worked yet/.test(global._toast), global._toast);
+    global._toast = '';
+    api.apply('d1');
+    check('leftovers', 'and Continue on it marks nobody done and writes nothing to a customer',
+      ahead.every(h => !h.done) && global._ticks.length === 0, JSON.stringify(global._ticks));
+    check('leftovers', 'and the office is told why, in words',
+      /has not been worked yet/.test(global._toast), global._toast);
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-03' }), window: undefined });
   }
 }
 
@@ -27467,7 +27508,9 @@ suite('Suite 107. Pricing a re-quote from the popup');
     }
     let lastHtml = '';
     const overlay = {
-      className: '', _h: {},
+      className: '', _h: {}, dataset: {},
+      /* The popup finds its own controls INSIDE itself since 2026-10-29 (Suite 428). */
+      querySelector: function(sel){ return String(sel).charAt(0) === '#' ? el(String(sel).slice(1)) : null; },
       addEventListener: function(t, f){ (this._h[t] = this._h[t] || []).push(f); },
       remove: function(){},
       set innerHTML(v){
@@ -27535,6 +27578,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
       doc: (a, b, c) => ({path: b + '/' + c}),
       db: {},
       requoteBeingConverted: null,
+      requoteCustomerId: null,
       requoteBuildChoice: null,
       requoteLightsPattern: '',
       requoteColorsSnapshot: null,
@@ -28102,8 +28146,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
        reach neither button; this repo has shipped exactly that shape before. */
     const wh = admin.slice(admin.indexOf("btn.dataset.whdonehouse"),
                            admin.indexOf("const WH_BUILD_COLUMNS = ["));
+    /* repointed 2026-10-29, not weakened: the calls now pass the house record (so a pending
+       recycle keeps its bin label), so a call is counted with or without an argument —
+       the declaration `whBuiltUpdates(d){` is excluded. */
     check('S107', 'and so does marking a whole group done',
-      (wh.match(/whBuiltUpdates\(\)/g) || []).length >= 2,
+      (wh.match(/whBuiltUpdates\((?!d\)\{)/g) || []).length >= 2,
       'both Mark Done paths — one house and a whole colour group — must go through the ' +
       'one rule, or a field cleared on one is left behind on the other');
   }
@@ -28348,8 +28395,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
       /still open/.test(blk) && /Save Changes to finish/.test(blk),
       'pressing the gold button reads as having converted them; closing the form after ' +
       'that looked like finishing rather than abandoning');
+    /* ⚠ REPOINTED 2026-10-29: the clearing moved into requoteClearInHand, shared with Delete
+       and the opener — Suite 425 RUNS it. Here: Cancel calls it, and it clears the choice. */
     check('S107', 'and it clears what the warehouse was told to do',
-      /requoteBuildChoice = null;/.test(blk),
+      /requoteClearInHand\(\);/.test(blk) && /requoteBuildChoice = null;/.test(extractFn(admin, 'requoteClearInHand') || ''),
       'left set, this customer’s recycle and build flags get written onto the next ' +
       'person whose record anybody saves');
     check('S107', 'and it only says it when a re-quote really was in hand',
@@ -30092,6 +30141,24 @@ suite('Suite 112. The number on the bin');
   }
 }
 
+/* ⭐ THE BILL TO / PHONE / LEDGER HELPERS THE EDIT CUSTOMER SAVE CALLS (2026-10-29), lifted
+   out of admin.html into whichever sandbox is about to run it. One factory, so every harness
+   that runs the save gets the REAL rules over ITS OWN Firestore stubs — a stub here would
+   decide for itself who pays, which is the one thing Suite 431 exists to measure.
+   ⚠ `async` IS PUT BACK BY HAND: extractFn matches "function NAME(" and drops the keyword,
+   and a body full of bare `await` without it is a parse error that kills the whole run. */
+const CUSTOMER_MONEY_PURE = ['phoneLooksReal', 'billToIsOwnPhone', 'billToLoopPath', 'billToHolderName',
+  'housesStillBilledTo', 'splitHouseLedgerLines', 'ledgerLinesTotal', 'mergedInvoiceMoney',
+  'phoneAndBillToProblem'];
+const CUSTOMER_MONEY_ASYNC = ['addLedgerLinesToInvoice', 'moveHouseLedgerLines'];
+function liftCustomerMoney(c) {
+  const src = CUSTOMER_MONEY_PURE.map(n => extractFn(admin, n)).join('\n') + '\n' +
+    CUSTOMER_MONEY_ASYNC.map(n => 'async ' + extractFn(admin, n)).join('\n');
+  return new Function('custInvoiceKey', 'getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp',
+    'computeInvoiceStatus',
+    src + '\nreturn {' + CUSTOMER_MONEY_PURE.concat(CUSTOMER_MONEY_ASYNC).join(', ') + '};')(
+    c.custInvoiceKey, c.getDoc, c.doc, c.setDoc, c.db, c.serverTimestamp, c.computeInvoiceStatus);
+}
 suite('Suite 108. The Edit Customer save, actually run');
 
 {
@@ -30163,6 +30230,8 @@ suite('Suite 108. The Edit Customer save, actually run');
          have gone on passing while proving the opposite. */
       editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
       editCustRsvp: o.rsvp || 'yes'};
+    /* Suite 431 types its own phone / Bill To / price into the form. */
+    Object.assign(FIELDS, o.fields || {});
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
       value: FIELDS[id] !== undefined ? FIELDS[id] : '', textContent: '', innerHTML: '',
@@ -30198,6 +30267,8 @@ suite('Suite 108. The Edit Customer save, actually run');
         ? {value: String((o.sides || []).length)} : null),
       createElement: () => elm('_t')
     };
+    /* Suite 431 reads the Save button's state while a question is open. */
+    if (typeof o.seeDocument === 'function') o.seeDocument(fakeDoc);
     const ctx = {
       document: fakeDoc,
       /* ⚠ THE ASSUMED SEASON, LIFTED RATHER THAN TYPED (2026-08-31). The save handler
@@ -30498,6 +30569,14 @@ suite('Suite 108. The Edit Customer save, actually run');
         'return ' + feeSrc + ';addLightChangeFeeToInvoice'
       )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
     }
+    /* ⭐ SUITE 420's FIXTURES BRING THEIR OWN FIRESTORE AND HOUSES (2026-10-29), and the
+       Bill To / phone / ledger helpers the save calls are LIFTED, never stubbed, AFTER
+       those are merged — so the lifted async writers write into the fixture's store, not
+       into the default one. Every existing run passes no extras and gets the same lifts
+       over the default stubs: the extraction-list trap CLAUDE.md names, closed in the
+       same commit that made the save call them. */
+    Object.assign(ctx, o.ctxExtra || {});
+    Object.assign(ctx, liftCustomerMoney(ctx));
     const names = Object.keys(ctx);
     /* ⭐ `editCustomerId` IS MOVED UNDERNEATH THE SAVE THROUGH A `with` PROXY, NOT A
        GLOBAL (2026-09-12). The claim under test is that a save started on one customer
@@ -31097,6 +31176,488 @@ suite('Suite 108. The Edit Customer save, actually run');
       '      null, and it can only do that THROUGH the proxy — which is the same trap object\n' +
       '      that serves every read');
   })());
+
+/* ⭐ SUITE 420. THE CUSTOMERS BREAK-TEST, RUN RATHER THAN READ (2026-10-29). A break-test of
+   the Customers area found the money going wrong in eleven ways, every one of them through code
+   that had checks around it — because the checks read the code, or ran it against a Firestore
+   that answered "no such document" to every read. A Bill To switched away and back left the
+   house billed $0; a Bill To set to their own phone counted their payment twice; a loop doubled
+   two bills; a phone changed onto another customer's number overwrote that customer's paid
+   invoice; deleting a payer deleted thirteen houses' bill; a deleted cabin took the main
+   house's payment with it.
+
+   ⚠ SO THIS ONE RUNS THE REAL EDIT CUSTOMER SAVE (Suite 108's harness) AND THE REAL
+   syncPayerInvoice AGAINST A FIRESTORE THAT REMEMBERS — a store each write lands in and each
+   read comes back out of — and asserts on the BILLS AFTERWARDS, never on which calls were
+   made. Owed = install + removal + fees − credits − deposit, floored at 0.
+   ⚠ AND THE CACHE IS A SEPARATE LIST FROM THE STORE, refreshed only when a fixture says so,
+   because a stale cache summing a house back onto a bill it had left was half of what broke. */
+suite('Suite 431. Customers break-test: the money follows the house, run through the real save');
+
+{
+  const clone420 = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const owed420 = (i) => i ? Math.max(0, (Number(i.install) || 0) + (Number(i.removal) || 0) +
+    (Number(i.changeFees) || 0) - (Number(i.credits) || 0) - (Number(i.deposit) || 0)) : null;
+
+  /* ---- the pure rules, run directly ---- */
+  const H = liftCustomerMoney({ custInvoiceKey: custInvoiceKey, computeInvoiceStatus: computeInvoiceStatus });
+  check('S431', 'a phone is ten digits, or eleven with a leading 1',
+    H.phoneLooksReal('8015551234') && H.phoneLooksReal('18015551234') &&
+    !H.phoneLooksReal('801') && !H.phoneLooksReal('28015551234') && !H.phoneLooksReal(''),
+    '"801-CALL-NOW" was stored as "801" and became an invoice key (A3)');
+  check('S431', 'a Bill To that is their own phone counts as no Bill To',
+    H.billToIsOwnPhone('(801) 555-1234', ['8015551234']) &&
+    !H.billToIsOwnPhone('8015559999', ['8015551234']) &&
+    !H.billToIsOwnPhone('123', ['bob123@x.com']),
+    'left set, their payment was carried as a credit AND kept as the deposit (S2)');
+  {
+    const ring = [{ id: 'b', data: { phone: '8012222222', billToPhone: '8013333333' } },
+                  { id: 'c', data: { phone: '8013333333', billToPhone: '8011111111' } }];
+    const path = H.billToLoopPath('8011111111', '8012222222', ring, 'a');
+    check('S431', 'a Bill To ring is found however long it is',
+      Array.isArray(path) && path.join('>') === '8012222222>8013333333>8011111111',
+      'A → B → C → A has each paying for the next and nobody paying for the first — got ' + JSON.stringify(path));
+    check('S431', 'and a chain that does not come back is allowed',
+      H.billToLoopPath('8019999999', '8012222222', ring, 'a') === null,
+      'a payer who pays somebody else’s bill is not a loop');
+  }
+  check('S431', 'a Bill To nobody holds is reported as unknown, a held one by name',
+    H.billToHolderName('8019990000', [{ id: 'x', data: { name: 'Dana', phone: '8015550000' } }], () => false) === null &&
+    H.billToHolderName('8015550000', [{ id: 'x', data: { name: 'Dana', phone: '(801) 555-0000' } }], () => false) === 'Dana' &&
+    !!H.billToHolderName('8017770000', [], (k) => k === '8017770000'),
+    'a typo made a nameless bill no screen lists (S3) — but a payer with a bill and no house is real');
+  {
+    const P = { id: 'p', data: { name: 'Payer', phone: '8011110000' } };
+    const others = [P, { id: 'k', data: { phone: '8012220000', billToPhone: '8011110000' } },
+      { id: 'cabin', data: { phone: '8011110000' } }, { id: 'away', data: { phone: '8011110000', billToPhone: '8019990000' } },
+      { id: 'z', data: { phone: '8013330000' } }];
+    const got = H.housesStillBilledTo(P, others).map(h => h.id).sort().join(',');
+    check('S431', 'both halves of a bill are found: Bill To houses and houses on the same phone',
+      got === 'cabin,k', 'got ' + got + ' — a house billing elsewhere is not on it, and the payer is not their own sharer');
+  }
+  {
+    const m = H.mergedInvoiceMoney(
+      { deposit: 700, removal: 0, creditNotes: [{ kind: 'manual', amount: 20 }, { kind: 'carried', amount: 99 }], changeFeeNotes: [{ amount: 30 }] },
+      { deposit: 100, removal: 50, creditNotes: [{ kind: 'manual', amount: 10 }], changeFeeNotes: [] });
+    check('S431', 'two bills merged keep both payments and every line',
+      m.deposit === 800 && m.removal === 50 && m.credits === 30 && m.changeFees === 30 &&
+      !m.creditNotes.some(c => c.kind === 'carried'),
+      'got ' + JSON.stringify(m) + ' — the carried credit is syncPayerInvoice’s to rebuild');
+  }
+  {
+    const stamp = new Function(extractFn(admin, 'carriedPaymentOnBillToChange') + '\nreturn carriedPaymentOnBillToChange;')();
+    const group = { data: { install: 1000, removal: 0, changeFees: 0, deposit: 1000, billedHouseIds: ['a', 'k'] } };
+    check('S431', 'leaving a fully paid group carries only this house’s share',
+      stamp('', '8015550001', group, { housePrice: 600 }) === 600,
+      'got ' + stamp('', '8015550001', group, { housePrice: 600 }));
+    const half = { data: { install: 1000, removal: 0, changeFees: 0, deposit: 500, billedHouseIds: ['a', 'k'] } };
+    check('S431', 'and a half paid group settles the houses that stay first',
+      stamp('', '8015550001', half, { housePrice: 600 }) === 100,
+      'the group keeps $400 of the $500 for the house still on it; $100 follows this one — got ' +
+      stamp('', '8015550001', half, { housePrice: 600 }));
+    check('S431', 'a group with nothing to price carries nothing, never the whole group’s money',
+      stamp('', '8015550001', group) === null,
+      'the old rule credited the new payer with every house’s payment (S6)');
+  }
+
+  /* ---- Add Customer asks the same question, before it writes anything (A3, A10) ---- */
+  {
+    const houses = [{ id: 'b', data: { name: 'Bea', phone: '8015550001', billToPhone: '8015559871' } }];
+    const ask = (o) => H.phoneAndBillToProblem(Object.assign({ verb: 'added', name: 'Test Person', phoneWas: '',
+      billToWas: '', selfId: null, houses: houses, invoiceExists: () => false }, o));
+    const letters = ask({ phone: '801', ownKey: '801' });
+    check('S431', 'Add Customer refuses a phone that is not ten digits',
+      !!letters && /^Nothing added — the phone number has 3 digits/.test(letters.refuse || ''),
+      '"801-CALL-NOW" was added as "801" with a bill filed under "801" (A3) — got ' + JSON.stringify(letters));
+    const ghost = ask({ phone: '8015559872', ownKey: '8015559872', billTo: '8010000001' });
+    check('S431', 'and asks before billing a phone nobody holds',
+      !!ghost && /Nobody on file has the phone 8010000001/.test(ghost.ask || ''),
+      'a typo made a nameless bill (A10) — got ' + JSON.stringify(ghost));
+    const loop = ask({ phone: '8015559871', ownKey: '8015559871', billTo: '8015550001' });
+    check('S431', 'and refuses a Bill To that already bills back to this phone',
+      !!loop && /each would be paying for the other/.test(loop.refuse || ''), 'got ' + JSON.stringify(loop));
+    check('S431', 'an Edit that leaves an odd old number alone is not refused for it',
+      H.phoneAndBillToProblem({ verb: 'saved', phone: '8015551', phoneWas: '(801) 555-1', billTo: '', houses: [] }) === null,
+      'an imported record with a short number must still be editable for everything else');
+    const add = sectionFrom(admin, admin.indexOf("getElementById('routeAddressForm').addEventListener"));
+    const asks = add.indexOf('phoneAndBillToProblem(');
+    check('S431', 'and the Add Customer submit asks it before the customer is written',
+      asks > 0 && asks < add.indexOf("addDoc(collection(db,'jobAddresses')"),
+      'the rule is only as good as the door that asks it');
+  }
+
+  /* ---- a Firestore that remembers, the real syncPayerInvoice over it ---- */
+  function world420(houses, invoices) {
+    const db = { jobAddresses: {}, invoices: {}, settings: {} };
+    houses.forEach(h => { db.jobAddresses[h.id] = clone420(h.data); });
+    Object.keys(invoices || {}).forEach(k => { db.invoices[k] = clone420(invoices[k]); });
+    const col = (c) => (db[c] = db[c] || {});
+    const put = (target, p) => {
+      Object.keys(p || {}).forEach(k => {
+        const v = p[k];
+        if (v && typeof v === 'object' && v.__inc !== undefined) target[k] = (Number(target[k]) || 0) + v.__inc;
+        else if (v !== undefined) target[k] = clone420(v);
+      });
+      return target;
+    };
+    const list = houses.map(h => ({ id: h.id, data: clone420(h.data) }));
+    /* Every write, so a refusal can be asserted as NOTHING written to the customer. */
+    const writes = [];
+    const F = {
+      db: {},
+      doc: (d, c, id) => ({ col: c, id: id }),
+      collection: (d, c) => ({ col: c }),
+      query: (c, ...w) => ({ col: c.col, where: w }),
+      where: (f, op, v) => ({ f: f, op: op, v: v }),
+      getDoc: async (r) => { const x = col(r.col)[r.id]; return { id: r.id, exists: () => !!x, data: () => clone420(x) }; },
+      getDocs: async (q) => {
+        const ids = Object.keys(col(q.col)).filter(id => (q.where || []).every(w => String(col(q.col)[id][w.f] || '') === String(w.v)));
+        return { forEach: (fn) => ids.forEach(id => fn({ id: id, data: () => clone420(col(q.col)[id]) })), size: ids.length };
+      },
+      setDoc: async (r, p, opt) => { writes.push({op: 'set', col: r.col, id: r.id}); col(r.col)[r.id] = put(opt && opt.merge ? (col(r.col)[r.id] || {}) : {}, p); },
+      updateDoc: async (r, p) => {
+        writes.push({op: 'update', col: r.col, id: r.id});
+        if (!col(r.col)[r.id]) throw new Error('No document to update: ' + r.col + '/' + r.id);
+        put(col(r.col)[r.id], p);
+      },
+      deleteDoc: async (r) => { writes.push({op: 'delete', col: r.col, id: r.id}); delete col(r.col)[r.id]; },
+      addDoc: async (r, p) => { const id = 'n' + Object.keys(col(r.col)).length; col(r.col)[id] = clone420(p); return { id: id }; },
+      serverTimestamp: () => 'NOW',
+      increment: (n) => ({ __inc: n })
+    };
+    const syncSrc = extractFn(admin, 'payerHouseOf') + '\n' + extractFn(admin, 'houseIsOnTheBill') + '\n' +
+      'async ' + extractFn(admin, 'syncPayerInvoice');
+    const sync = new Function('db', 'doc', 'collection', 'query', 'where', 'getDoc', 'getDocs', 'setDoc',
+      'serverTimestamp', 'jobAddresses', 'custInvoiceKey', 'computeInvoiceStatus', 'NEW_MEMBER_FEE', 'console',
+      syncSrc + '\nreturn syncPayerInvoice;')(F.db, F.doc, F.collection, F.query, F.where, F.getDoc, F.getDocs,
+      F.setDoc, F.serverTimestamp, list, custInvoiceKey, computeInvoiceStatus, NEW_MEMBER_FEE_NUM, console);
+    const asked = [];
+    const W = {
+      db: db, list: list, asked: asked, answer: true, writes: writes,
+      wroteCustomer: () => writes.some(w => w.col === 'jobAddresses' && w.op === 'update' && w.id === 'c894'),
+      /* What the jobAddresses listener does between two saves: the cache catches up. */
+      refresh() {
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (!db.jobAddresses[list[i].id]) list.splice(i, 1);
+          else list[i].data = clone420(db.jobAddresses[list[i].id]);
+        }
+      },
+      inv: (k) => db.invoices[k] || null,
+      ctx: Object.assign({}, F, {
+        jobAddresses: list,
+        custInvoiceKey: custInvoiceKey,
+        computeInvoiceStatus: computeInvoiceStatus,
+        syncPayerInvoice: sync,
+        allCustInvoiceFor: (item) => {
+          const k = custInvoiceKey(item.data || {});
+          return db.invoices[k] ? { id: k, data: clone420(db.invoices[k]) } : null;
+        },
+        invoiceById: { get: (k) => (db.invoices[k] ? { id: k, data: clone420(db.invoices[k]) } : undefined),
+                       has: (k) => !!db.invoices[k] },
+        confirm: (m) => { asked.push(String(m)); return W.answer; },
+        cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
+        /* Read out of js/money.js, never typed: the save's own-bill branch reads both. */
+        ARREARS_KIND: (money.match(/export const ARREARS_KIND = '([^']*)';/) || [])[1],
+        NEW_MEMBER_FEE: NEW_MEMBER_FEE_NUM,
+        /* ⚠ THE ONE STUB, AND IT REFUSES TO GUESS. The referral rule is a chain of season
+           helpers this suite does not measure, and no fixture here has a referral — so it
+           answers "none" for exactly that case and throws for any other, which turns a
+           fixture that grows a referral into a loud failure rather than a quiet wrong bill. */
+        referralCreditNotes: (entries, count) => {
+          if ((Array.isArray(entries) && entries.length) || Number(count) > 0) {
+            throw new Error('Suite 431 has no referral rule — lift it before giving a fixture referrals');
+          }
+          return [];
+        }
+      })
+    };
+    return W;
+  }
+  /* The house being edited is always c894 — the id Suite 108's harness opens. 400 ft on a
+     5000 number and a price the form agrees with, so nothing but the money moves. */
+  const A_PHONE = '8016160714';
+  const ash = (extra) => ({ id: 'c894', data: Object.assign({ name: 'Ashley Wray', phone: A_PHONE,
+    email: 'wraynash@gmail.com', address: '9991 Red Cedar Ln, Highland, UT', customerNumber: '5001',
+    housePrice: 600, measuredFeet: 400, rsvpStatus: 'yes', updatedAt: null }, extra || {}) });
+  const save420 = (W, fields, extra) => runSave(Object.assign({ noRequote: true,
+    cust: Object.assign({}, (W.list.find(h => h.id === 'c894') || {}).data || {}),
+    fields: Object.assign({ editCustNumber: '5001' }, fields || {}), ctxExtra: W.ctx }, extra || {}));
+
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ---- F1: switched away with a part payment, then back ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 600, deposit: 300, status: 'Partial Payment', billedHouseIds: ['c894'] },
+          '8015550001': { install: 300, deposit: 0, billedHouseIds: ['b1'] } });
+      const r1 = await save420(W, { editCustBillTo: '8015550001' });
+      W.refresh();
+      const mid = W.inv('8015550001');
+      check('S431', 'moving onto another bill carries the part payment across as a credit',
+        !!mid && mid.install === 900 && owed420(mid) === 600 && owed420(W.inv(A_PHONE)) === 0,
+        'got payer ' + JSON.stringify(mid) + ' / own ' + JSON.stringify(W.inv(A_PHONE)) + ' ' + r1.status + ' ' + r1.errs.join(' | '));
+      const r2 = await save420(W, { editCustBillTo: '' });
+      W.refresh();
+      const own = W.inv(A_PHONE), was = W.inv('8015550001');
+      check('S431', 'switched back, their own bill is the house again, owing what was not paid',
+        !!own && own.install === 600 && own.deposit === 300 && owed420(own) === 300 &&
+        (own.billedHouseIds || []).join() === 'c894',
+        'it stayed zeroed: the house was billed $0 (S1) — got ' + JSON.stringify(own) + ' ' + r2.errs.join(' | '));
+      check('S431', 'and the old payer no longer credits or bills it',
+        !!was && was.install === 300 && (Number(was.credits) || 0) === 0 && owed420(was) === 300 &&
+        Number(W.db.jobAddresses.c894.paidBeforeBillTo || 0) === 0,
+        'the payment must count once, on the bill the house is on — got ' + JSON.stringify(was));
+    }
+    /* ---- F2: Bill To set to their own phone ---- */
+    {
+      const W = world420([ash()], { [A_PHONE]: { install: 600, deposit: 300, billedHouseIds: ['c894'] } });
+      await save420(W, { editCustBillTo: '(801) 616-0714' });
+      const own = W.inv(A_PHONE);
+      check('S431', 'a Bill To of their own phone is saved as none, and nothing is carried',
+        W.db.jobAddresses.c894.billToPhone === '' && !W.db.jobAddresses.c894.paidBeforeBillTo &&
+        !!own && own.install === 600 && owed420(own) === 300,
+        'half the price vanished: the deposit counted as the payment AND as a carried credit (S2) — got ' +
+        JSON.stringify(W.db.jobAddresses.c894.billToPhone) + ' ' + JSON.stringify(own));
+    }
+    /* ---- F3: a loop, and a group payer billing elsewhere ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', billToPhone: A_PHONE, housePrice: 300 } }],
+        { [A_PHONE]: { install: 900, billedHouseIds: ['c894', 'b1'] } });
+      const r = await save420(W, { editCustBillTo: '8015550001' });
+      check('S431', 'a Bill To that comes back round to them is refused, and nothing is written',
+        !W.wroteCustomer() && /each would be paying for the other/.test(r.status) && W.inv(A_PHONE).install === 900 &&
+        !W.db.jobAddresses.c894.billToPhone,
+        'A → B with B → A billed $963 for $613 of houses (S4) — status ' + JSON.stringify(r.status));
+    }
+    {
+      const W = world420([ash(), { id: 'k1', data: { name: 'Kid', phone: '8012220000', billToPhone: A_PHONE, housePrice: 400 } },
+        { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 1000, deposit: 1000, status: 'Paid in Full', billedHouseIds: ['c894', 'k1'] },
+          '8015550001': { install: 300, billedHouseIds: ['b1'] } });
+      const r = await save420(W, { editCustBillTo: '8015550001' });
+      const g = W.inv(A_PHONE), b = W.inv('8015550001');
+      check('S431', 'a group payer billing elsewhere leaves their own group bill',
+        !!g && g.install === 400 && (g.billedHouseIds || []).join() === 'k1',
+        'their house stayed summed on their own group AND joined the new bill — charged twice (S6) — got ' +
+        JSON.stringify(g) + ' ' + r.errs.join(' | '));
+      check('S431', 'and only what they paid beyond the other house follows them',
+        !!b && b.install === 900 && b.credits === 600 && owed420(b) === 300 && owed420(g) === 0,
+        'the whole group’s $1000 credited to the new payer would invent $400 — got ' + JSON.stringify(b));
+    }
+    /* ---- F4: a discount and a fee go with the house, and come back with it ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 600, deposit: 0, billedHouseIds: ['c894'],
+            creditNotes: [{ kind: 'manual', amount: 50, reason: 'loyalty' }], credits: 50,
+            changeFeeNotes: [{ kind: 'manual', amount: 25, reason: 'extra strand' }], changeFees: 25 },
+          '8015550001': { install: 300, billedHouseIds: ['b1'] } });
+      await save420(W, { editCustBillTo: '8015550001' });
+      W.refresh();
+      const b = W.inv('8015550001');
+      check('S431', 'moving onto another bill takes their discount and their fee with them',
+        !!b && b.credits === 50 && b.changeFees === 25 && owed420(b) === 875 &&
+        (b.creditNotes || []).every(c => c.houseId === 'c894'),
+        'the discount was deleted with their bill — charged full price for good (S5) — got ' + JSON.stringify(b));
+      await save420(W, { editCustBillTo: '' });
+      W.refresh();
+      const own = W.inv(A_PHONE), back = W.inv('8015550001');
+      check('S431', 'and both come back when the house returns to its own bill',
+        !!own && owed420(own) === 575 && own.credits === 50 && own.changeFees === 25 &&
+        !!back && owed420(back) === 300 && !(back.changeFeeNotes || []).length,
+        'the fee stayed on the other payer’s bill after the house had left it (S7) — own ' +
+        JSON.stringify(own) + ' / payer ' + JSON.stringify(back));
+    }
+    /* ---- F6: phone changed onto a number another customer's paid bill is under ---- */
+    {
+      const houses = () => [ash(), { id: 'm1', data: { name: 'Mark Greco', phone: '8015551007', housePrice: 700 } }];
+      const bills = () => ({ [A_PHONE]: { install: 600, deposit: 0, billedHouseIds: ['c894'] },
+        '8015551007': { install: 700, deposit: 700, status: 'Paid in Full', billedHouseIds: ['m1'] } });
+      const W = world420(houses(), bills());
+      W.answer = false;
+      const no = await save420(W, { editCustPhone: '8015551007' });
+      check('S431', 'changing a phone onto another customer’s asks first, naming whose bill it is',
+        W.asked.some(m => /Mark Greco/.test(m) && /one bill|same bill/.test(m)) && !W.wroteCustomer() &&
+        W.inv('8015551007').deposit === 700 && W.inv('8015551007').install === 700,
+        'a typo silently overwrote Mark’s paid invoice (E1) — asked ' + JSON.stringify(W.asked));
+      const W2 = world420(houses(), bills());
+      const yes = await save420(W2, { editCustPhone: '8015551007' });
+      const m = W2.inv('8015551007');
+      check('S431', 'and putting them on one bill keeps the payment and bills both houses',
+        !!m && m.deposit === 700 && m.install === 1300 && owed420(m) === 600 &&
+        (m.billedHouseIds || []).slice().sort().join() === 'c894,m1' && !W2.inv(A_PHONE),
+        'got ' + JSON.stringify(m) + ' ' + yes.errs.join(' | '));
+    }
+    /* ---- F11 / F12: what the boxes may hold ---- */
+    {
+      const W = world420([ash()], { [A_PHONE]: { install: 600, billedHouseIds: ['c894'] } });
+      const r = await save420(W, { editCustPhone: '801-CALL-NOW' });
+      check('S431', 'a phone that is not ten digits is refused before anything is written',
+        !W.wroteCustomer() && /10 digits/.test(r.status) && W.db.jobAddresses.c894.phone === A_PHONE,
+        'it was saved as "801" and the bill moved to a key nobody can find (A3) — ' + JSON.stringify(r.status));
+      W.answer = false;
+      const u = await save420(W, { editCustBillTo: '8019990000' });
+      check('S431', 'a Bill To nobody holds is asked about, and Cancel saves nothing',
+        W.asked.some(m => /Nobody on file has the phone 8019990000/.test(m)) && !W.wroteCustomer() &&
+        !W.inv('8019990000') && W.inv(A_PHONE).install === 600,
+        'a typo made a nameless bill (S3) — asked ' + JSON.stringify(W.asked));
+    }
+    /* ---- H5: Save is shut while the price question is open ---- */
+    {
+      const W = world420([ash({ housePrice: 500 })], { [A_PHONE]: { install: 500, billedHouseIds: ['c894'] } });
+      let disabledWhileAsked = null, docRef = null;
+      const r = await save420(W, { editCustHousePrice: '600' }, {
+        seeDocument: (d) => { docRef = d; },
+        ctxExtra: Object.assign({}, W.ctx, {
+          askPriceRequote: async () => {
+            disabledWhileAsked = !!(docRef && docRef.getElementById('editCustSaveBtn').disabled);
+            return { raise: false };
+          } }) });
+      check('S431', 'Save is disabled while the price re-quote question is open, and back after',
+        disabledWhileAsked === true && !!docRef && docRef.getElementById('editCustSaveBtn').disabled === false && W.wroteCustomer(),
+        'a second press started a second save underneath the question (H5) — disabled while asked: ' +
+        disabledWhileAsked + ' ' + r.errs.join(' | '));
+    }
+
+  })());
+
+/* ⭐ SUITE 421. DELETING AND MERGING KEEP THE BILLS RIGHT (2026-10-29), the second half of the
+   Customers break-test, on the same remembering Firestore as Suite 431. Delete This Customer deleted
+   the bill under their phone whoever else was on it, rebuilt nothing, asked nothing and ran twice on a
+   double click; Merge duplicates deleted a spare whose own bill held a payment. */
+suite('Suite 432. Customers break-test: deleting and merging keep the bills right');
+
+  /* ---- the merge tool holds back a spare whose own bill holds money (M1) ---- */
+  {
+    const fnM = (n) => extractFn(admin, n);
+    const find = (custs, invoices) => {
+      const ctx = {};
+      new Function('jobAddresses', 'dupNormName', 'dupStreetOf', 'extractCleanCity',
+        'MERGE_ADDRESS_FIELDS', 'MERGE_SKIP_FIELDS', 'custInvoiceKey', 'fmtMoney',
+        fnM('mergeBlank') + fnM('dupAddressIsEmpty') + fnM('mergeFieldsFrom') + fnM('findMergeableCustomers') +
+        'this.find = findMergeableCustomers;'
+      ).call(ctx, custs, (n) => String(n || '').trim().toLowerCase(), (d) => (d && d.street) || '',
+        (c) => (c || '').trim(), { street: 1, city: 1, state: 1, zip: 1, address: 1, lat: 1, lng: 1, needsGeocode: 1 },
+        { portalToken: 1 }, custInvoiceKey, (n) => '$' + (Number(n) || 0).toFixed(2));
+      return ctx.find({}, invoices);
+    };
+    const keep = { id: 'keep', data: { name: 'Mark Greco', street: '1 A St', phone: '8015551007', customerNumber: '107', createdAt: { seconds: 1 } } };
+    const spare = { id: 'spare', data: { name: 'Mark Greco', street: '1 A St', phone: '8015557777', createdAt: { seconds: 2 } } };
+    const withMoney = find([keep, spare], { '8015557777': { install: 700, deposit: 200 } });
+    check('S432', 'a spare copy with a payment on a bill of its own is not merged',
+      withMoney.ready.length === 0 && withMoney.review.length === 1 &&
+      /8015557777/.test(withMoney.review[0].why.join(' ')),
+      'deleting it left $200 on a bill nobody holds, and the report called the copy empty — got ' +
+      JSON.stringify(withMoney.review.map(g => g.why)));
+    check('S432', 'and one whose bill holds no money still merges',
+      find([keep, spare], { '8015557777': { install: 700 } }).ready.length === 1,
+      'only a payment or a credit is worth stopping for');
+  }
+
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ---- F7: Delete This Customer rebuilds every bill the house was on ---- */
+    const remover420 = (W) => {
+      const env = Object.assign({}, W.ctx, {
+        housesStillBilledTo: H.housesStillBilledTo,
+        hlxNamesAlreadyOnTab: async () => ({}), hlxAppendRowsToSheet: async () => ({ written: 1 }),
+        rbCustomerToSheetRow: () => [], dupNormName: (n) => String(n || '').toLowerCase(),
+        paymentLedgerUser: () => 'test', removeCustomerFromUpcomingRoutes: async () => {}, logActivity: () => {},
+        console: { error: () => {}, log: () => {}, warn: () => {} }
+      });
+      const names = ['db', 'doc', 'getDoc', 'setDoc', 'deleteDoc', 'serverTimestamp', 'increment', 'jobAddresses',
+        'custInvoiceKey', 'syncPayerInvoice', 'housesStillBilledTo', 'hlxNamesAlreadyOnTab', 'hlxAppendRowsToSheet',
+        'rbCustomerToSheetRow', 'dupNormName', 'confirm', 'paymentLedgerUser', 'removeCustomerFromUpcomingRoutes',
+        'logActivity', 'console'];
+      /* hlxRemovingIds is module state in admin.html (one removal per customer at a time) —
+         declared here the way the page declares it, so the lifted remover runs as it does there. */
+      return new Function(...names, 'const hlxRemovingIds = new Set();\nasync ' + extractFn(admin, 'archiveCustomerSnapshot') + '\nasync ' +
+        extractFn(admin, 'hlxRemoveCustomerToRecycle') + '\nreturn hlxRemoveCustomerToRecycle;')(...names.map(n => env[n]));
+    };
+    const P_PHONE = '8011110000';
+    const group420 = () => world420([
+      { id: 'p0', data: { name: 'Pat Payer', phone: P_PHONE, housePrice: 500 } },
+      { id: 'k1', data: { name: 'Kid One', phone: '8012220001', billToPhone: P_PHONE, housePrice: 300 } },
+      { id: 'k2', data: { name: 'Kid Two', phone: '8012220002', billToPhone: P_PHONE, housePrice: 200 } }],
+      { [P_PHONE]: { install: 1000, deposit: 0, billedHouseIds: ['p0', 'k1', 'k2'] } });
+    {
+      const W = group420();
+      const out = await remover420(W)(W.list.find(h => h.id === 'p0'), {});
+      const inv = W.inv(P_PHONE);
+      check('S432', 'deleting a payer keeps the bill of the houses that still bill to them',
+        out.removed && !W.db.jobAddresses.p0 && !!inv && inv.install === 500 &&
+        (inv.billedHouseIds || []).slice().sort().join() === 'k1,k2',
+        'the whole group invoice was deleted — $10,105 of houses billed to nobody (D3) — got ' + JSON.stringify(inv));
+    }
+    {
+      const W = group420();
+      await remover420(W)(W.list.find(h => h.id === 'k1'), {});
+      const inv = W.inv(P_PHONE);
+      check('S432', 'deleting a house billed to somebody else takes it off that payer’s bill',
+        !!inv && inv.install === 700 && (inv.billedHouseIds || []).indexOf('k1') === -1,
+        'the deleted house went on being charged to the payer (D4) — got ' + JSON.stringify(inv));
+    }
+    {
+      const X = '8015551007';
+      const W = world420([{ id: 'main', data: { name: 'Mark Greco', phone: X, housePrice: 700 } },
+        { id: 'cabin', data: { name: 'Mark Greco', propertyLabel: 'Cabin', phone: X, housePrice: 300 } }],
+        { [X]: { install: 1000, deposit: 700, billedHouseIds: ['main', 'cabin'] } });
+      await remover420(W)(W.list.find(h => h.id === 'cabin'), {});
+      const inv = W.inv(X);
+      /* ⚠ THE CACHE STILL HOLDS THE CABIN HERE — nothing refreshed it — so this also proves
+         syncPayerInvoice does not sum a deleted house back in from the loaded list. */
+      check('S432', 'deleting a cabin on a shared phone keeps the main house’s bill and payment',
+        !!inv && inv.install === 700 && inv.deposit === 700 && owed420(inv) === 0 &&
+        (inv.billedHouseIds || []).join() === 'main' && W.list.some(h => h.id === 'cabin') &&
+        !(W.db.settings.financeArchive && W.db.settings.financeArchive.archivedRevenue),
+        'the main house’s invoice and its $700 were deleted with the cabin (D5) — got ' + JSON.stringify(inv));
+    }
+    {
+      const S = '8015551009';
+      const W = world420([{ id: 'solo', data: { name: 'Solo', phone: S, housePrice: 703 } }],
+        { [S]: { install: 703, deposit: 703, billedHouseIds: ['solo'] } });
+      await remover420(W)(W.list[0], {});
+      check('S432', 'a customer alone on their bill still has it archived with the payment counted',
+        !W.inv(S) && W.db.settings.financeArchive && W.db.settings.financeArchive.archivedRevenue === 703,
+        'the ordinary delete must not change — got ' + JSON.stringify(W.db.settings));
+    }
+
+    /* ---- F8: the Delete button asks, names who is left, and runs once ---- */
+    {
+      const at = admin.indexOf("document.getElementById('editCustDeleteBtn').addEventListener('click',");
+      /* The handler's own last line, the button getter onceAtATime is handed, ends the slice. */
+      const endMark = "}, function(){ return document.getElementById('editCustDeleteBtn'); })";
+      const end = at > 0 ? admin.indexOf(endMark, at) : -1;
+      const expr = end > 0 ? admin.slice(admin.indexOf('onceAtATime(', at), end + endMark.length) : '';
+      check('S432', 'the Delete This Customer handler was found to run', /^onceAtATime\(async function/.test(expr),
+        'it is no longer wrapped in onceAtATime — a double click runs two removals (D2)');
+      const W = group420();
+      W.list.find(h => h.id === 'p0').data.carryoverCredit = 40;
+      const make = (answer) => {
+        const els = {};
+        const docF = { getElementById: (id) => els[id] || (els[id] = { id: id, textContent: '', style: {}, disabled: false }) };
+        const calls = [], asked = [];
+        const env = { editCustomerId: 'p0', jobAddresses: W.list, document: docF,
+          fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2), housesStillBilledTo: H.housesStillBilledTo,
+          confirm: (m) => { asked.push(String(m)); return answer; }, toast: () => {},
+          hlxRemoveCustomerToRecycle: async (item) => { calls.push(item.id); await new Promise(r => setTimeout(r, 5)); return { removed: true }; },
+          console: console };
+        const names = Object.keys(env);
+        const h = new Function(...names, extractFn(admin, 'onceAtATime') + '\nreturn ' + expr + ';')(...names.map(n => env[n]));
+        return { h: h, calls: calls, asked: asked };
+      };
+      const yes = make(true);
+      await Promise.all([yes.h(), yes.h()]);
+      check('S432', 'Delete asks first, with the credit warning and the houses still on their bill',
+        yes.asked.length === 1 && /\$40\.00 in credit/.test(yes.asked[0]) && /Kid One/.test(yes.asked[0]) &&
+        /Kid Two/.test(yes.asked[0]),
+        'it removed on one click and carryWarn was built and never shown (D1) — asked ' + JSON.stringify(yes.asked));
+      check('S432', 'and a double click removes once',
+        yes.calls.length === 1, 'two removals added their payment to archivedRevenue twice (D2) — ran ' + yes.calls.length);
+      const no = make(false);
+      await no.h();
+      check('S432', 'and Cancel removes nothing', no.asked.length === 1 && no.calls.length === 0,
+        'ran ' + no.calls.length);
+    }
+  })());
+}
 }
 
 suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
@@ -34737,7 +35298,7 @@ suite('77. Schedule route generator');
        nearby-towns list is what makes the pairing legal, exactly as it does live — and
        Lehi is deliberately left out of it, so Draper can only join Alpine. */
     const NEARBY_TOWN_LIST = {Alpine: ['Draper'], Draper: ['Alpine']};
-    const gen = eval(admin.slice(havStart, havEnd) + '\n' +
+    const gen = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + admin.slice(havStart, havEnd) + '\n' +
       admin.slice(geoStart, geoEnd) + '\n' +
       admin.slice(lockStart, lockEnd) + '\n' +
       admin.slice(crewStart, crewEnd) + '\n' +
@@ -35004,7 +35565,7 @@ suite('77. Schedule route generator');
        The fixture day is in 2026 and long past, so it reads as locked; the control
        still draws, which is all this suite asks of it. */
     const panel = eval(
-      (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
+      (admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
       extractFn(admin, 'mtnNowParts') + '\n' +
       extractFn(admin, 'hoursUntilDayStarts') + '\n' +
       (admin.match(/const ROUTE_LOCK_WORKING_DAYS = \d+;/) || [''])[0] + '\n' +
@@ -36129,7 +36690,7 @@ suite('123. The two crew maps, actually rendered');
       global.cityOf = real('cityOf');
       global.dayAreas = real('dayAreas');
 
-      const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
+      const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
         ';({maps: renderDayMaps, routes: dayMapRoutes, panes: dayMapPanes,' +
         '  setCrews(l){ CREWS = normalizeCrews(l); }})');
@@ -36272,7 +36833,7 @@ suite('124. The house out on its own goes to an end of the day, on the way there
     global.esc = real('esc');
     global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
 
-    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+    const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, hav: haversine,' +
       '  split: outlyingStops, point: houseStopPoint, centre: stopsCentre,' +
@@ -47313,8 +47874,11 @@ suite('263. Priced is not sent - the card stays in Quotes');
     /* ⚠ NAMED ONE BY ONE, NOT COUNTED. A count of "at least three" is passed by
        three of the four, so the red-check that deletes exactly one goes straight
        through it — which is what happened on the first pass. */
+    /* ⚠ REPOINTED 2026-10-29: the button no longer claims the quote SENT before the sender has
+       decided (S427), so it files the card with the price; the sender files it on a real send,
+       which the next check counts. */
     check('S263', 'the Send button files the card into its new tab',
-      /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp\(\)/.test(rows),
+      /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, approvalStatus:/.test(rows),
       'without it the card sits in Quotes until the snapshot lands and then jumps ' +
       'out of the tab she is looking at, which reads as the send having eaten it');
     /* ⚠ THREE BECAME TWO ON 2026-09-12 ([[QT-41]]), and the count moved with the code
@@ -56094,7 +56658,7 @@ suite('Suite 302. The free quote asks less, and the property list outlives it');
 
   /* ---- the silent loss this uncovered ---- */
   check('S302', "a quote's buildings now follow the customer",
-    /buildings: addCustBuildingsFromQuote\(\)/.test(admin) &&
+    /buildings: addCustBuildingsFromQuote\(fromQuoteId\)/.test(admin) &&
     !!extractFn(admin, 'addCustBuildingsFromQuote'),
     'before this they were written onto the quote and dropped on conversion, with ' +
     'nothing anywhere reading them');
@@ -59141,6 +59705,619 @@ suite('308. Sharing the referral link, not opening it');
   }
 }
 
+/* =====================================================================
+   421–430. QUOTE REQUESTS BREAK-TEST FIXES (2026-10-29)
+   ⭐ THE ADD CUSTOMER SAVE IS RUN, NOT READ. `addCustHarness` lifts the REAL submit handler,
+   the real fill-from-quote, the real automatic convert, the real form reset and the real
+   onceAtATime out of admin.html and runs them against a small fake page and a fake
+   Firestore. Every claim in 421–424 is about what a save WRITES, in what order, while
+   another press is happening — a regex over the handler cannot see any of that. ⚠ The
+   scope is a Proxy that THROWS on any name it was not given, so a helper the handler
+   starts calling surfaces as a named failure here rather than a silent stub.
+   ===================================================================== */
+function addCustHarness(opts) {
+  opts = opts || {};
+  const lifted = ['onceAtATime', 'addCustSaveBusyMessage', 'renderAddCustQuoteBanner', 'clearAddCustQuoteLink',
+    'resetAddCustForm', 'addCustMissingFields', 'showAddCustMissing', 'fillAddCustFromQuote',
+    'applyConvertWirePick', 'autoConvertQuoteToCustomer', 'buildFullAddress', 'addCustBuildingsFromQuote',
+    /* The save asks the phone / Bill To guard (Suite 431) before it writes — lifted, never
+       stubbed, or a guard that refuses a save would be invisible here. */
+    'phoneAndBillToProblem', 'phoneLooksReal', 'billToIsOwnPhone', 'billToLoopPath', 'billToHolderName'];
+  const srcs = lifted.map(n => extractFn(admin, n));
+  const missing = lifted.filter((n, i) => !srcs[i]);
+  if (missing.length) throw new Error('addCustHarness could not lift: ' + missing.join(', '));
+  const hStart = admin.indexOf("document.getElementById('routeAddressForm').addEventListener('submit'");
+  const endTok = "}, function(){ return document.querySelector('#routeAddressForm button[type=\"submit\"]'); }));";
+  const hEnd = admin.indexOf(endTok, hStart);
+  if (hStart < 0 || hEnd < 0) throw new Error('addCustHarness could not find the submit handler');
+  const handler = admin.slice(hStart, hEnd + endTok.length);
+
+  class El extends EventTarget {
+    constructor(id) {
+      super(); this.id = id; this.value = ''; this.checked = false; this.textContent = ''; this.innerHTML = '';
+      this.style = {}; this.dataset = {}; this.disabled = false; this.src = ''; this.options = [];
+      this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
+    }
+    closest() { return new El('_'); } querySelector() { return null; } querySelectorAll() { return []; }
+    appendChild() {} focus() {}
+  }
+  const els = new Map();
+  const byId = id => { if (!els.has(id)) els.set(id, new El(id)); return els.get(id); };
+  const colours = ['Warm White', 'Red', 'Green'].map(v => { const e = new El('c-' + v); e.value = v; return e; });
+  const document = {
+    getElementById: byId,
+    createElement: tag => new El(tag),
+    querySelector: () => null,
+    querySelectorAll: sel => sel.indexOf('.addcust-color-check') === 0
+      ? (sel.indexOf(':checked') !== -1 ? colours.filter(c => c.checked) : colours.slice()) : []
+  };
+  const store = {}; let nextId = 0;
+  const toasts = [], syncCalls = [], answers = [];
+  const geo = { gate: null };
+  const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+  const custInvoiceKey = d => { const p = String((d && d.phone) || '').replace(/\D/g, ''); return p || String((d && d.email) || '').toLowerCase().trim(); };
+  const stubs = {
+    document, console, db: {}, jobAddresses: opts.jobAddresses || [], quotesCache: opts.quotesCache || [],
+    toast: m => toasts.push(String(m)),
+    confirm: () => (answers.length ? answers.shift() : true),
+    doc: (db, coll, id) => ({ path: coll + '/' + id, id }),
+    collection: (db, name) => ({ name }),
+    getDoc: async ref => { const d = store[ref.path]; return { exists: () => d !== undefined, data: () => clone(d), id: ref.id }; },
+    addDoc: async (c, data) => { const id = 'new' + (++nextId); store[c.name + '/' + id] = clone(data); return { id }; },
+    updateDoc: async (ref, data) => { if (!store[ref.path]) throw new Error('no document ' + ref.path); Object.assign(store[ref.path], clone(data)); },
+    setDoc: async (ref, data, o) => { store[ref.path] = (o && o.merge && store[ref.path]) ? Object.assign(store[ref.path], clone(data)) : clone(data); },
+    deleteDoc: async ref => { delete store[ref.path]; },
+    serverTimestamp: () => 'TS',
+    geocodeAddress: () => geo.gate || Promise.resolve({ lat: 40.3, lng: -111.8 }),
+    /* ⚠ A STUB ON PURPOSE: Suite 10 RUNS the real syncPayerInvoice. What is claimed here is
+       only that the save ASKS it, and that nothing the save writes afterwards undoes it. It
+       rebuilds the way the real one does in the part that matters — every house on the key
+       summed, the deposit kept. */
+    syncPayerInvoice: async key => {
+      syncCalls.push(key);
+      const ex = store['invoices/' + key] || {};
+      const houses = Object.keys(store).filter(p => p.indexOf('jobAddresses/') === 0).map(p => store[p])
+        .filter(d => !d.billToPhone && custInvoiceKey(d) === key);
+      store['invoices/' + key] = Object.assign({}, ex, { install: houses.reduce((s, d) => s + (Number(d.housePrice) || 0), 0),
+        deposit: Number(ex.deposit) || 0, creditNotes: ex.creditNotes || [], changeFees: Number(ex.changeFees) || 0 });
+    },
+    custInvoiceKey,
+    computeInvoiceStatus: (install, removal, deposit, credits, fees) => {
+      const owed = install + removal + fees - credits - deposit;
+      return owed <= 0 ? 'Paid in Full' : (deposit > 0 ? 'Partial Payment' : 'Unpaid');
+    },
+    fmtMoney: n => '$' + Number(n).toFixed(2), fmtPhone: p => p, NEW_MEMBER_FEE: 30, LIGHT_WINDOW_MS: 1,
+    houseSidesPickedList: () => [], houseSideCount: () => 1, houseSidesShowCount() {}, houseSidesShowList() {},
+    houseSidesAutoFill: () => [], houseSidesListFromValue: () => [], HOUSE_SIDES_DEFAULT: 1,
+    compileLightsDescription: s => s, rbDetectColorsAndPattern: () => ({ pattern: '' }),
+    calendarFieldsFrom: () => ({ fields: { awayDates: [], wantedFrom: '', wantedTo: '', stuckOnDate: '' }, note: '' }),
+    findExistingAddressMatch: opts.findExistingAddressMatch || (() => null),
+    cnBinsForFeet: () => 1, cnNextAvailable: () => ({ number: '1001' }),
+    getHighlightedPhotoUrl: async u => u, customerPhotoUpdates: () => ({ housePhotos: [] }),
+    generatePortalToken: () => 'tok', generateReferralToken: () => 'ref', referralSeasonNow: () => 2026,
+    WIRE_PICK_TOPIC: 'wire', creditReferralIfAny: async () => {}, referralCreditNotes: (e, n) => n > 0 ? [{ amount: 25 * n, reason: 'Referral', kind: 'referral' }] : [],
+    syncCustomerToOpenQuote: async () => {}, autoScheduleNewCustomer: async () => ({ done: false, message: '' }),
+    hlxAddCustomerToSheet: async () => null, awayFillHost() {}, updateAddCustDiscountSummary() {},
+    updateAddCustFeeSummary() {}, renderAddCustExtraPhotos() {}, renderAddCustHighlights() {},
+    syncSpecificOutletNotes() {}, perFootRate: 2.5, quoteEstimatedPrice: d => (Number(d.estimatedFeet) || 0) * 2.5,
+    quoteChargesSetupFee: () => true, quotePhotoList: () => [], normalizeBuildings: a => a
+  };
+  const realGlobal = k => typeof k !== 'string' || (k in globalThis);
+  const scope = new Proxy(stubs, {
+    has: (t, k) => (k in t) || !realGlobal(k),
+    get: (t, k) => { if (k in t) return t[k]; if (k === Symbol.unscopables) return undefined;
+      throw new ReferenceError('addCustHarness was not given ' + String(k)); }
+  });
+  const pre = "let addCustAutoConvert = false; let addCustPhotoUrl = ''; let addCustPhotoOriginal = ''; " +
+    "let addCustPhotoMarkup = []; let addCustFromQuoteId = null; let addCustSubmitGuard = null; " +
+    "let addCustSavingName = ''; let addCustContactMethodFromQuote = ''; let addCustQuoteLightsPattern = ''; " +
+    "let addCustQuoteColorsSnapshot = []; let addCustHighlights = []; let addCustExtraPhotos = [];\n";
+  const body = pre + srcs.join('\n') + '\n' + handler + '\nreturn {' +
+    ' autoConvert: autoConvertQuoteToCustomer, fill: fillAddCustFromQuote,' +
+    ' submit: function(){ document.getElementById("routeAddressForm").dispatchEvent(new Event("submit", {bubbles:true, cancelable:true})); },' +
+    ' busy: function(){ return !!(addCustSubmitGuard && addCustSubmitGuard.isBusy()); },' +
+    ' linkedQuote: function(){ return addCustFromQuoteId; } };';
+  const api = new Function('scope', 'with(scope){ return (function(){\n' + body + '\n})(); }')(scope);
+  api.store = store; api.toasts = toasts; api.syncCalls = syncCalls; api.answers = answers; api.geo = geo;
+  api.el = byId; api.colours = colours;
+  api.settle = async function () { for (let i = 0; i < 2000 && api.busy(); i++) await Promise.resolve(); for (let i = 0; i < 50; i++) await Promise.resolve(); };
+  api.gateGeocode = function () { let release; geo.gate = new Promise(r => { release = () => r({ lat: 40.3, lng: -111.8 }); }); return function () { geo.gate = null; release(); }; };
+  api.customers = () => Object.keys(store).filter(p => p.indexOf('jobAddresses/') === 0).map(p => Object.assign({ id: p.split('/')[1] }, store[p]));
+  return api;
+}
+const quoteFixture421 = (name, phone, over) => Object.assign({ name: name, phone: phone, email: name.split(' ')[0].toLowerCase() + '@x.test',
+  street: '1 ' + name.split(' ')[1] + ' St', city: 'Lehi', zip: '84043', lightColors: ['Warm White'], lightsDescription: 'Warm White',
+  quotedPrice: 340, estimatedFeet: 136, approvalStatus: 'approved', status: 'new' }, over || {});
+
+suite('421. Converting a second quote while the first is still saving closes the right one');
+{
+  let h = null;
+  try { h = addCustHarness(); } catch (e) { check('S421', 'the Add Customer save can be run in a harness', false, e.message); }
+  if (h) {
+    check('S421', 'the Add Customer save can be run in a harness', true);
+    pendingAsync.push((async function () {
+      const qa = quoteFixture421('Ashley Leonard', '8015552001'), qb = quoteFixture421('Tanner Banks', '8015552002', { quotedPrice: 390 });
+      h.store['quotes/qa'] = Object.assign({}, qa); h.store['quotes/qb'] = Object.assign({}, qb);
+      const release = h.gateGeocode();          // a real address lookup takes a second
+      h.autoConvert('qa', qa, 'White');
+      check('S421', 'the first conversion is in flight while its address is looked up', h.busy());
+      const second = h.autoConvert('qb', qb, 'Green');
+      check('S421', 'a second automatic conversion is REFUSED while the first is saving',
+        second === false && h.toasts.some(t => /Still saving Ashley Leonard/.test(t)),
+        'it used to refill the form under the running save — ' + JSON.stringify(h.toasts));
+      check('S421', 'and the refused press did not relink the form to its quote', h.linkedQuote() === 'qa',
+        'linked to ' + h.linkedQuote());
+      release(); await h.settle();
+      const custs = h.customers();
+      const ashley = custs.find(c => c.name === 'Ashley Leonard');
+      check('S421', 'the first save made the first customer', custs.length === 1 && !!ashley, JSON.stringify(custs.map(c => c.name)));
+      check('S421', 'and closed the FIRST quote against them',
+        h.store['quotes/qa'].status === 'closed' && ashley && h.store['quotes/qa'].convertedToCustomerId === ashley.id,
+        JSON.stringify(h.store['quotes/qa']));
+      check('S421', 'the second quote is untouched — still open, so it can be converted a second later',
+        h.store['quotes/qb'].status === 'new' && !h.store['quotes/qb'].convertedToCustomerAt, JSON.stringify(h.store['quotes/qb']));
+      const third = h.autoConvert('qb', qb, 'Green'); await h.settle();
+      check('S421', 'once the first is saved the second converts normally',
+        third !== false && h.store['quotes/qb'].status === 'closed' &&
+        h.customers().some(c => c.name === 'Tanner Banks' && c.id === h.store['quotes/qb'].convertedToCustomerId));
+    })());
+
+    /* ⭐ THE CAPTURE ON ITS OWN, with the refusal taken out of the way: a save that has
+       started must close ITS quote whatever the form is relinked to while it awaits. */
+    pendingAsync.push((async function () {
+      const h2 = addCustHarness();
+      const qa = quoteFixture421('Rachel Oslund', '8015552011'), qb = quoteFixture421('Miko Johnson', '8015552012');
+      h2.store['quotes/qa'] = Object.assign({}, qa); h2.store['quotes/qb'] = Object.assign({}, qb);
+      const release = h2.gateGeocode();
+      h2.autoConvert('qa', qa, 'White');
+      h2.fill('qb', qb);                          // anything relinking the form mid-save
+      release(); await h2.settle();
+      const rachel = h2.customers().find(c => c.name === 'Rachel Oslund');
+      check('S421', 'a save reads its quote ONCE — relinking the form mid-save cannot redirect the close',
+        rachel && h2.store['quotes/qa'].convertedToCustomerId === rachel.id && h2.store['quotes/qb'].status === 'new',
+        'qa ' + JSON.stringify(h2.store['quotes/qa']) + ' qb ' + JSON.stringify(h2.store['quotes/qb']));
+      check('S421', 'and the customer carries the RSVP yes of the quote it came from', rachel && rachel.rsvpStatus === 'yes');
+    })());
+  }
+  const manual = sectionFrom(admin, admin.indexOf("function showConvertQuoteChoice("));
+  check('S421', 'Fill in manually refuses too, before it closes the popup',
+    /const busyManual = addCustSaveBusyMessage\(\);\s*if\(busyManual\)\{ toast\(busyManual\); return; \}\s*close\(\);\s*const carried = fillAddCustFromQuote/.test(manual),
+    'refilling the form by hand under a running save is the same race');
+  check('S421', 'and Convert automatically refuses before it closes the popup',
+    /const busyAuto = addCustSaveBusyMessage\(\);\s*if\(busyAuto\)\{ toast\(busyAuto\); return; \}\s*close\(\);\s*autoConvertQuoteToCustomer/.test(manual));
+  check('S421', 'the submit handler reads the global link once and nowhere after',
+    (() => { const at = admin.indexOf("addEventListener('submit', addCustSubmitGuard = onceAtATime(");
+      const blk = stripComments(admin.slice(at, admin.indexOf("'#routeAddressForm button[type=\"submit\"]'", at)));
+      return at > 0 && (blk.match(/addCustFromQuoteId(?! = null;)/g) || []).length === 1; })(),
+    'a read after an await is the bug');
+}
+
+suite('422. Nothing typed on the hidden Add a Customer form rides onto a conversion');
+{
+  pendingAsync.push((async function () {
+    let h; try { h = addCustHarness(); } catch (e) { check('S422', 'harness', false, e.message); return; }
+    /* Somebody started typing a different customer and left the tab. */
+    const typed = { addCustBillTo: '8015551010', addCustOneTimeNotes: 'dog in yard', addCustWarehouseNote: 'extra clips',
+      addCustWarehouseOneTime: 'one-off', addCustNumber: '777', addCustFee: '15', addCustFeeReason: 'ladder',
+      addCustManualDiscount: '20', addCustDiscountReason: 'friend', addCustPhone2: '8015559999', addCustEmail2: 'alt@x.test',
+      addCustReferralCount: '2', addCustWantFrom: '2026-11-01', addCustInvoiceNotes: 'cash only', addCustPropertyLabel: 'Cabin' };
+    Object.keys(typed).forEach(id => { h.el(id).value = typed[id]; });
+    const q = quoteFixture421('Tanner Banks', '3855552009');
+    h.store['quotes/q9'] = Object.assign({}, q);
+    h.autoConvert('q9', q, 'White'); await h.settle();
+    const c = h.customers().find(x => x.name === 'Tanner Banks') || {};
+    check('S422', 'the conversion saved', !!c.id, JSON.stringify(h.toasts));
+    check('S422', 'no Bill To phone rode across — the house is on its OWN bill',
+      !c.billToPhone && !!h.store['invoices/3855552009'] && h.syncCalls.indexOf('8015551010') === -1,
+      'billToPhone ' + c.billToPhone + ', sync ' + JSON.stringify(h.syncCalls));
+    check('S422', 'no notes rode across', !c.oneTimeNote && !c.warehouseNote && !c.warehouseOneTimeNote,
+      JSON.stringify([c.oneTimeNote, c.warehouseNote, c.warehouseOneTimeNote]));
+    check('S422', 'no second phone, second email or property label rode across', !c.phone2 && !c.email2 && !c.propertyLabel);
+    check('S422', 'no typed customer number — the number came from the pool, not the leftover',
+      h.store['availableCustomerNumbers/777'] === undefined && !h.toasts.some(t => /#777/.test(t)), JSON.stringify(h.toasts));
+    const inv = h.store['invoices/3855552009'] || {};
+    check('S422', 'no leftover fee, discount, referral or invoice note reached their invoice',
+      !inv.changeFees && !inv.credits && !inv.invoiceNotes, JSON.stringify(inv));
+    check('S422', 'no leftover calendar', c.wantedFrom === '' || c.wantedFrom === undefined, String(c.wantedFrom));
+  })());
+  const fill = extractFn(admin, 'fillAddCustFromQuote') || '';
+  check('S422', 'every fill from a quote starts from the shared reset, before anything is filled',
+    /^function fillAddCustFromQuote\(quoteId, d\)\{\s*(\/\*[\s\S]*?\*\/\s*)?resetAddCustForm\(\);/.test(fill));
+  const reset = extractFn(admin, 'resetAddCustForm') || '';
+  ['addCustBillTo', 'addCustOneTimeNotes', 'addCustWarehouseNote', 'addCustWarehouseOneTime', 'addCustNumber',
+    'addCustFee', 'addCustManualDiscount', 'addCustPhone2', 'addCustEmail2', 'addCustReferralCount', 'addCustInvoiceNotes']
+    .forEach(id => check('S422', 'the reset clears ' + id, reset.indexOf("getElementById('" + id + "').value = ''") !== -1));
+  check('S422', 'the save resets through the same function rather than its own copy',
+    /resetAddCustForm\(\);/.test(admin.slice(admin.indexOf("addEventListener('submit', addCustSubmitGuard"))) &&
+    (admin.match(/getElementById\('addCustBillTo'\)\.value = '';/g) || []).length === 1);
+}
+
+suite('423. A refused automatic conversion says why and leaves nothing armed');
+{
+  pendingAsync.push((async function () {
+    const dupe = { id: 'c1', data: { name: 'Test', address: '209 S 850 W', city: 'Lehi', phone: '3853912235', customerNumber: '1001' } };
+    let dupOn = true;
+    let h; try { h = addCustHarness({ findExistingAddressMatch: () => dupOn ? dupe : null }); } catch (e) { check('S423', 'harness', false, e.message); return; }
+    const q = quoteFixture421('Test Person', '3853912235');
+    h.store['quotes/q2'] = Object.assign({}, q);
+    h.answers.push(false);                       // Cancel on "already on file at this address"
+    h.autoConvert('q2', q, 'White'); await h.settle();
+    check('S423', 'nothing was added', h.customers().length === 0);
+    check('S423', 'the reason reached the Quotes tab as a toast',
+      h.toasts.some(t => /^Could not convert Test Person — Nothing added/.test(t)), JSON.stringify(h.toasts));
+    check('S423', 'the form is no longer linked to the quote', h.linkedQuote() === null, String(h.linkedQuote()));
+    check('S423', 'and the hidden form was cleared', h.el('routeNameInput').value === '' && h.el('routePhoneInput').value === '');
+    /* the next customer typed by hand must not close that quote */
+    h.el('routeNameInput').value = 'Walk In Wendy'; h.el('routePhoneInput').value = '8015559999';
+    h.el('routeStreetInput').value = '55 New St'; h.el('routeCityInput').value = 'Orem'; h.el('addCustEmail').value = 'w@x.test';
+    h.el('addCustPrice').value = '300'; h.colours[0].checked = true;
+    dupOn = false;
+    h.submit(); await h.settle();
+    check('S423', 'a customer typed in afterwards does not close the refused quote',
+      h.store['quotes/q2'].status === 'new' && !h.store['quotes/q2'].convertedToCustomerAt, JSON.stringify(h.store['quotes/q2']));
+  })());
+  pendingAsync.push((async function () {
+    /* A MANUAL save that is refused keeps the form: the person is looking at it. */
+    const dupe = { id: 'c1', data: { name: 'Test', phone: '3853912235' } };
+    const h = addCustHarness({ findExistingAddressMatch: () => dupe });
+    const q = quoteFixture421('Test Person', '3853912235');
+    h.store['quotes/q2'] = Object.assign({}, q);
+    h.fill('q2', q); h.answers.push(false); h.submit(); await h.settle();
+    check('S423', 'a refused MANUAL save keeps the form and its link — the person is fixing it',
+      h.linkedQuote() === 'q2' && h.el('routeNameInput').value === 'Test Person' && !h.toasts.some(t => /^Could not convert/.test(t)));
+  })());
+}
+
+suite('424. A new house on a phone that already has an invoice is added to it, never written over it');
+{
+  pendingAsync.push((async function () {
+    const mark = { id: 'c0007', data: { name: 'Mark Greco', phone: '8015551007', housePrice: 703 } };
+    let h; try { h = addCustHarness({ jobAddresses: [mark] }); } catch (e) { check('S424', 'harness', false, e.message); return; }
+    h.store['jobAddresses/c0007'] = Object.assign({}, mark.data);
+    h.store['invoices/8015551007'] = { name: 'Mark Greco', install: 703, removal: 0, deposit: 703, credits: 0, changeFees: 0,
+      creditNotes: [{ amount: 50, reason: 'Service adjustment', kind: 'service' }], status: 'Paid in Full' };
+    const q = quoteFixture421('Tanner Banks', '8015551007', { quotedPrice: 390 });
+    h.store['quotes/q9'] = Object.assign({}, q);
+    h.autoConvert('q9', q, 'White'); await h.settle();
+    const inv = h.store['invoices/8015551007'];
+    check('S424', 'the conversion saved', h.customers().some(c => c.name === 'Tanner Banks'), JSON.stringify(h.toasts));
+    check('S424', 'their recorded payment survives', inv.deposit === 703, 'deposit ' + inv.deposit);
+    check('S424', 'the bill is rebuilt from BOTH houses through syncPayerInvoice',
+      h.syncCalls.indexOf('8015551007') !== -1 && inv.install === 703 + 390, 'install ' + inv.install + ', sync ' + JSON.stringify(h.syncCalls));
+    check('S424', 'a credit already on it is kept', (inv.creditNotes || []).some(c => c.kind === 'service'));
+  })());
+  pendingAsync.push((async function () {
+    /* ⭐ THE SAME WRITE FROM THE PLAIN FORM — a second property typed in by hand on the same
+       phone, with a fee and a discount typed for it. */
+    const mark = { id: 'c0007', data: { name: 'Mark Greco', phone: '8015551007', housePrice: 703 } };
+    const h = addCustHarness({ jobAddresses: [mark] });
+    h.store['jobAddresses/c0007'] = Object.assign({}, mark.data);
+    h.store['invoices/8015551007'] = { name: 'Mark Greco', install: 703, removal: 0, deposit: 703, credits: 0, changeFees: 10,
+      changeFeeNotes: [{ amount: 10, reason: 'Late colour change', kind: 'light' }], creditNotes: [], invoiceNotes: 'Pays by check' };
+    const set = (id, v) => { h.el(id).value = v; };
+    set('routeNameInput', 'Mark Greco'); set('routePhoneInput', '8015551007'); set('routeStreetInput', '9 Cabin Rd');
+    set('routeCityInput', 'Alpine'); set('addCustEmail', 'mark@x.test'); set('addCustPrice', '400'); h.colours[0].checked = true;
+    set('addCustPropertyLabel', 'Cabin'); set('addCustFee', '15'); set('addCustFeeReason', 'Ladder');
+    set('addCustManualDiscount', '20'); set('addCustDiscountReason', 'Second house'); set('addCustInvoiceNotes', 'Cabin key under mat');
+    h.submit(); await h.settle();
+    const inv = h.store['invoices/8015551007'];
+    check('S424', 'a hand-typed second property keeps the payment too', inv.deposit === 703 && inv.install === 1103,
+      JSON.stringify({ install: inv.install, deposit: inv.deposit }));
+    check('S424', 'its fee is ADDED to the fees already on the bill', inv.changeFees === 25 &&
+      (inv.changeFeeNotes || []).length === 2, JSON.stringify(inv.changeFeeNotes));
+    check('S424', 'its discount is added as a credit line', inv.credits === 20 && (inv.creditNotes || []).some(c => c.amount === 20 && c.kind === 'manual'));
+    check('S424', 'and its invoice note joins the one there rather than replacing it',
+      /Pays by check/.test(inv.invoiceNotes) && /Cabin key under mat/.test(inv.invoiceNotes), String(inv.invoiceNotes));
+    check('S424', 'the status is worked out from the whole bill', inv.status === 'Partial Payment', inv.status);
+  })());
+  pendingAsync.push((async function () {
+    /* ⚠ EITHER HALF ALONE IS ENOUGH. An invoice on file with the page's customer list not yet
+       holding its house, and a sharing house whose invoice was never written — each on its own
+       must route through the rebuild. A fixture holding both proves neither. */
+    const h = addCustHarness();
+    h.store['invoices/8015553000'] = { install: 500, removal: 0, deposit: 500, credits: 0, changeFees: 0 };
+    const q = quoteFixture421('Invoice Only', '8015553000', { quotedPrice: 200 });
+    h.store['quotes/qi'] = Object.assign({}, q);
+    h.autoConvert('qi', q, 'White'); await h.settle();
+    check('S424', 'an invoice already on file is enough on its own', h.store['invoices/8015553000'].deposit === 500 &&
+      h.syncCalls.indexOf('8015553000') !== -1, JSON.stringify(h.store['invoices/8015553000']));
+    const kin = { id: 'k1', data: { name: 'Kin', phone: '8015554000', housePrice: 300 } };
+    const h2 = addCustHarness({ jobAddresses: [kin] });
+    h2.store['jobAddresses/k1'] = Object.assign({}, kin.data);
+    const q2 = quoteFixture421('House Mate', '8015554000', { quotedPrice: 200 });
+    h2.store['quotes/qk'] = Object.assign({}, q2);
+    h2.autoConvert('qk', q2, 'White'); await h2.settle();
+    check('S424', 'and so is another house already filed under the key', h2.syncCalls.indexOf('8015554000') !== -1 &&
+      h2.store['invoices/8015554000'].install === 500, JSON.stringify(h2.store['invoices/8015554000']));
+  })());
+  pendingAsync.push((async function () {
+    /* A brand-new key still gets its fresh invoice exactly as before. */
+    const h = addCustHarness();
+    const q = quoteFixture421('Brand New', '8015550001', { quotedPrice: 250 });
+    h.store['quotes/qn'] = Object.assign({}, q);
+    h.autoConvert('qn', q, 'White'); await h.settle();
+    const inv = h.store['invoices/8015550001'] || {};
+    check('S424', 'somebody new still gets a fresh invoice of their own', inv.install === 250 && inv.deposit === 0 && h.syncCalls.length === 0,
+      JSON.stringify(inv) + ' sync ' + JSON.stringify(h.syncCalls));
+  })());
+}
+
+/* Lift code out of admin.html and run it inside a scope that holds exactly `stubs` — any
+   other name that is not a real JavaScript global THROWS, naming itself, rather than
+   quietly reading undefined. `code` is a function body; its `return` is the result. */
+function runLiftedCode(code, stubs) {
+  const realGlobal = k => typeof k !== 'string' || (k in globalThis);
+  const scope = new Proxy(stubs, {
+    has: (t, k) => (k in t) || !realGlobal(k),
+    get: (t, k) => { if (k in t) return t[k]; if (k === Symbol.unscopables) return undefined;
+      throw new ReferenceError('sandbox was not given ' + String(k)); }
+  });
+  return new Function('scope', 'with(scope){ return (function(){\n' + code + '\n})(); }')(scope);
+}
+/* extractFn drops an `async` keyword (CLAUDE.md §3); this keeps it. */
+function extractAsyncFn(src, name) {
+  const start = src.indexOf('async function ' + name + '(');
+  if (start === -1) return null;
+  let i = src.indexOf('{', start), depth = 0;
+  for (; i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); } }
+  return null;
+}
+/* A slice of admin.html between two anchors that must each appear once after `from`. */
+function sliceBetween(src, a, b) {
+  const i = src.indexOf(a); if (i < 0) return '';
+  const j = src.indexOf(b, i + a.length); return j < 0 ? '' : src.slice(i, j);
+}
+class FakeEl425 extends EventTarget {
+  constructor(id) { super(); this.id = id; this.value = ''; this.checked = false; this.textContent = ''; this.style = {};
+    this.dataset = {}; this.disabled = false; this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } }; }
+  querySelector() { return null; } closest() { return null; }
+}
+
+suite('425. A re-quote put down on one customer is never applied to the next one opened');
+{
+  const clearSrc = extractFn(admin, 'requoteClearInHand');
+  const restoreSrc = extractFn(admin, 'requoteRestoreSaveLabel');
+  const openSrc = extractFn(admin, 'openEditCustomerModal') || '';
+  const guardEnd = openSrc.indexOf('  editCustomerId = id;');
+  check('S425', 'the clearing function and the opener can be lifted', !!clearSrc && !!restoreSrc && guardEnd > 0);
+  if (clearSrc && restoreSrc && guardEnd > 0) {
+    /* The opener is RUN up to the point it takes the new id: everything after that is the
+       form fill, which this suite is not about. */
+    const openHead = openSrc.slice(0, guardEnd) + '  editCustomerId = id;\n}';
+    const saveBtn = new FakeEl425('editCustSaveBtn'); saveBtn.dataset.plainLabel = 'Save Changes'; saveBtn.textContent = 'Save Changes — finishes the re-quote';
+    const S = runLiftedCode(
+      'let requoteBeingConverted = null, requoteCustomerId = null, requoteBuildChoice = null, requoteLightsPattern = "", requoteColorsSnapshot = null, editCustomerId = null;\n' +
+      restoreSrc + '\n' + clearSrc + '\n' + openHead + '\n' +
+      'return { open: openEditCustomerModal, clear: requoteClearInHand,' +
+      ' set: function(q, c){ requoteBeingConverted = q; requoteCustomerId = c; requoteBuildChoice = {mode:"recycle"}; requoteLightsPattern = "Red, Red"; requoteColorsSnapshot = ["Red"]; },' +
+      ' state: function(){ return {q: requoteBeingConverted, c: requoteCustomerId, b: requoteBuildChoice, p: requoteLightsPattern, s: requoteColorsSnapshot, e: editCustomerId}; } };',
+      { document: { getElementById: id => id === 'editCustSaveBtn' ? saveBtn : null },
+        jobAddresses: [{ id: 'mark', data: { name: 'Mark' } }, { id: 'cath', data: { name: 'Catherine' } }] });
+    S.set('q9', 'mark'); S.clear();
+    const st = S.state();
+    check('S425', 'putting a re-quote down clears all five things it left set',
+      st.q === null && st.c === null && st.b === null && st.p === '' && st.s === null, JSON.stringify(st));
+    check('S425', 'and puts the Save button back to its own words', saveBtn.textContent === 'Save Changes', saveBtn.textContent);
+    S.set('q9', 'mark'); saveBtn.textContent = 'Save Changes — finishes the re-quote';
+    S.open('mark');
+    check('S425', 'reopening the re-quote’s OWN customer keeps it in hand', S.state().q === 'q9' && S.state().b !== null);
+    S.open('cath');
+    check('S425', 'opening anybody ELSE puts it down — Catherine is not re-quoted by a Save',
+      S.state().q === null && S.state().b === null && S.state().e === 'cath', JSON.stringify(S.state()));
+  }
+  const del = sliceBetween(admin, "document.getElementById('editCustDeleteBtn').addEventListener('click'", "/* ⭐ THE TOP BAR PRESSES THE REAL BUTTONS");
+  check('S425', 'Delete puts the re-quote down once the customer is gone',
+    /if\(!out\.removed\)\{[^\n]*return; \}[\s\S]*?editCustomerId = null;\s*requoteClearInHand\(\);/.test(del), 'the A4 leak');
+  const cancel = sliceBetween(admin, "document.getElementById('editCustCancelBtn').addEventListener('click'", '});');
+  check('S425', 'Cancel goes through the same function', /requoteClearInHand\(\);/.test(stripComments(cancel)));
+  check('S425', 'the re-quote records WHICH customer it is being applied to',
+    /requoteBeingConverted = quoteId;\s*requoteCustomerId = existingItem\.id;/.test(admin));
+}
+
+suite('426. Re-quoting a house that is already a customer can be applied to them');
+{
+  const fnSrc = extractFn(admin, 'requoteOfConvertedUpdates');
+  check('S426', 'the rule can be lifted', !!fnSrc);
+  if (fnSrc) {
+    const R = runLiftedCode(fnSrc + '\nreturn requoteOfConvertedUpdates;', {});
+    const book = [{ id: 'cust1', data: { customerNumber: '1001', measuredFeet: 136, numberOfBins: 1, lightsDescription: 'Warm White', lightColors: ['Warm White'] } }];
+    const conv = { convertedToCustomerAt: { s: 1 }, convertedToCustomerId: 'cust1', quotedPrice: 340 };
+    const u = R(conv, book);
+    check('S426', 'a converted quote re-quoted points at the customer it made', u.existingCustomerId === 'cust1', JSON.stringify(u));
+    check('S426', 'and its conversion stamp goes, so the card offers Apply Re-quote', 'convertedToCustomerAt' in u && u.convertedToCustomerAt === null);
+    check('S426', 'and it carries what is on file, for the "do not build this house again" box',
+      u.existingCustomerNumber === '1001' && u.existingMeasuredFeet === 136 && u.existingLightsDescription === 'Warm White');
+    const after = Object.assign({}, conv, u);
+    const live = !!after.existingCustomerId && book.some(a => a.id === after.existingCustomerId);
+    check('S426', 'the card’s own test now reads Apply Re-quote', live && !after.convertedToCustomerAt);
+    check('S426', 'a customer since deleted links nothing — converting them again is right',
+      JSON.stringify(R(conv, [])) === '{}');
+    check('S426', 'a quote that never became anybody is left alone', JSON.stringify(R({ quotedPrice: 1 }, book)) === '{}');
+    check('S426', 'an applied re-quote re-quoted again is re-opened against the same customer',
+      R({ existingCustomerId: 'cust1', convertedToCustomerAt: { s: 1 }, convertedToCustomerId: 'cust1' }, book).convertedToCustomerAt === null);
+  }
+  const rq = sliceBetween(admin, "list.querySelectorAll('[data-requote]').forEach", "await updateDoc(doc(db,'quotes', id), updates);");
+  check('S426', 'the Re-quote button writes those fields in the same update',
+    /Object\.assign\(updates, requoteOfConvertedUpdates\(d\)\);\s*$/.test(rq.replace(/\s+$/, '') + '\n'), 'not wired');
+}
+
+suite('427. A quote is only marked sent when the email actually went');
+{
+  const sendSrc = extractAsyncFn(admin, 'sendQuoteEmailNow');
+  const helpers = ['quoteFirstSentStamp', 'quoteFirstSentFromHistory', 'toJsDate'].map(n => extractFn(admin, n));
+  check('S427', 'the sender can be lifted', !!sendSrc && helpers.every(Boolean));
+  if (sendSrc && helpers.every(Boolean)) {
+    const make = (data, confirmAnswer, emailOk) => {
+      const writes = [];
+      const S = runLiftedCode(helpers.join('\n') + '\n' + sendSrc + '\nreturn sendQuoteEmailNow;', {
+        quotesCache: [{ id: 'q6', data: data }], document: { querySelector: () => null },
+        emailAddressProblem: e => emailOk === false ? 'That address is not complete.' : '',
+        confirm: () => confirmAnswer, quoteSendInFlight: new Set(), quoteSendResults: new Map(),
+        quoteTemplateFor: () => 'Quote Email', getEmailTemplateByName: () => ({ data: {} }), quoteTemplateNames: { newQuote: 'Quote Email' },
+        getEmailjsConfig: async () => ({ publicKey: 'p', serviceId: 's', templateId: 't' }), emailjsMissingParts: () => [],
+        window: { emailjs: {} }, emailjs: { init() {}, send: async () => ({ status: 200 }) },
+        buildQuoteEmailHtml: async () => ({ subject: 'x', html: 'y' }), emailGreetingName: n => n, quotePortalParam: () => '',
+        updateDoc: async (ref, u) => { writes.push(u); }, doc: (db, c, id) => c + '/' + id, db: {}, serverTimestamp: () => 'TS',
+        followQuoteToItsStage() {}, quoteSentNowStamp: () => 'NOW', repaintQuoteSendResults() {}, toast() {},
+        isRequote: () => false, console });
+      return { send: S, writes };
+    };
+    pendingAsync.push((async function () {
+      const a = make({ email: 'a@x.test', quotedPrice: 300, quoteToken: 't' }, false, true); await a.send('q6');
+      check('S427', 'Cancel on "no photo — send anyway?" writes nothing at all', a.writes.length === 0, JSON.stringify(a.writes));
+      const b = make({ email: 'sam@gmail', quotedPrice: 300, frontPhotoUrl: 'p' }, true, false); await b.send('q6');
+      check('S427', 'an address the sender refuses writes nothing either', b.writes.length === 0, JSON.stringify(b.writes));
+      const c = make({ email: 'a@x.test', quotedPrice: 300, frontPhotoUrl: 'p', quoteToken: 't' }, true, true); await c.send('q6');
+      const w = c.writes[0] || {};
+      check('S427', 'a send that went stamps the sent time', w.quoteSentAt === 'TS' && w.quoteManuallySent === true, JSON.stringify(w));
+      check('S427', 'and the first-send stamp, in the same write', w.quoteFirstSentAt === 'TS', JSON.stringify(w));
+    })());
+  }
+  /* The Send button's own handler, run against a fake card: it saves the price and the
+     link and leaves the sent time to the sender. */
+  const h = sliceBetween(admin, "  list.querySelectorAll('[data-getquotelink]').forEach(function(btn){", "  list.querySelectorAll('[data-copyquoteemail]')");
+  check('S427', 'the Send button handler was found', !!h);
+  if (h) {
+    const btn = new FakeEl425('b'); btn.dataset.getquotelink = 'q6';
+    const price = new FakeEl425('p'); price.value = '300';
+    const writes = [], sent = [];
+    runLiftedCode(h + '\nreturn null;', {
+      list: { querySelectorAll: s => s === '[data-getquotelink]' ? [btn] : [], querySelector: s => /quotePriceInput/.test(s) ? price : null },
+      quotesCache: [{ id: 'q6', data: { email: 'a@x.test' } }], generatePortalToken: () => 'newtok',
+      updateDoc: async (ref, u) => { writes.push(u); }, doc: () => 'quotes/q6', db: {}, serverTimestamp: () => 'TS',
+      quoteFirstSentStamp: () => ({ quoteFirstSentAt: 'TS' }), followQuoteToItsStage() {}, quoteSentNowStamp: () => 'NOW',
+      quotePortalParam: () => '', sendQuoteEmailNow: async id => { sent.push(id); } });
+    btn.dispatchEvent(new Event('click'));
+    pendingAsync.push((async function () {
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      const w = writes[0] || {};
+      check('S427', 'pressing Send saves the price and the link', w.quotedPrice === 300 && w.quoteToken === 'newtok', JSON.stringify(writes));
+      check('S427', 'and does NOT stamp the quote sent before the sender has decided',
+        !('quoteSentAt' in w) && !('quoteFirstSentAt' in w), JSON.stringify(w));
+      check('S427', 'then hands over to the sender', sent.length === 1);
+    })());
+  }
+}
+
+suite('428. Two presses on Convert open one popup, and the one on screen works');
+{
+  const card = sliceBetween(admin, "  list.querySelectorAll('[data-converttocust]').forEach(function(btn){", "  list.querySelectorAll('.quoteStatusSelect')");
+  check('S428', 'the card handler was found', !!card);
+  if (card) {
+    const btn = new FakeEl425('b'); btn.dataset.converttocust = 'q9';
+    let release; const gate = new Promise(r => { release = r; });
+    const opened = [];
+    runLiftedCode(card + '\nreturn null;', {
+      list: { querySelectorAll: s => s === '[data-converttocust]' ? [btn] : [] },
+      document: { querySelectorAll: () => [] }, quoteConvertOpening: new Set(),
+      getDoc: () => gate, doc: () => 'quotes/q9', db: {}, toast() {},
+      showConvertQuoteChoice: (id, d) => opened.push(id) });
+    btn.dispatchEvent(new Event('click')); btn.dispatchEvent(new Event('click'));
+    release({ exists: () => true, data: () => ({ name: 'Tanner' }) });
+    pendingAsync.push((async function () {
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+      check('S428', 'a double-click opens the popup ONCE', opened.length === 1, 'opened ' + opened.length);
+    })());
+  }
+  if (!JSDOM) { note('S428 popup checks skipped — jsdom not installed'); }
+  else {
+    const src = extractFn(admin, 'showConvertQuoteChoice'), wireOpts = extractFn(admin, 'convertWireOptionsHtml');
+    check('S428', 'the convert popup can be lifted', !!src && !!wireOpts);
+    if (src && wireOpts) {
+      const dom = new JSDOM('<select id="addCustWireColor"><option value="">Not chosen</option><option>White</option><option>Green</option></select>');
+      const calls = [];
+      const run = runLiftedCode(wireOpts + '\n' + src + '\nreturn showConvertQuoteChoice;', {
+        document: dom.window.document, jobAddresses: [], showApplyRequoteChoice() {}, quoteChargesSetupFee: () => true,
+        quotePhotoList: () => [], perFootRate: 2.5, esc: s => String(s), fmtMoney: n => '$' + n, NEW_MEMBER_FEE: 30,
+        toast() {}, addCustSaveBusyMessage: () => '', fillAddCustFromQuote: () => ({}), applyConvertWirePick() {},
+        goToAddCustomerForm() {}, autoConvertQuoteToCustomer: (id, d, w) => calls.push([id, w]), Event: dom.window.Event });
+      const d = { name: 'Tanner', street: '1 St', city: 'Lehi', phone: '8015550000', email: 't@x', quotedPrice: 390, lightColors: ['Red'] };
+      run('q9', d); run('q9', d);              // the stacked pair the old double-click made
+      const ovs = dom.window.document.querySelectorAll('.needsfix-popup-overlay');
+      const top = ovs[ovs.length - 1];
+      check('S428', 'each popup says which quote it is for', top && top.dataset.convertfor === 'q9');
+      const sel = top.querySelector('#convertQuoteWire');
+      sel.value = 'White'; sel.dispatchEvent(new dom.window.Event('change'));
+      const auto = top.querySelector('#convertQuoteAutoBtn');
+      check('S428', 'the VISIBLE popup’s wire answer reaches its own buttons', auto && auto.disabled === false,
+        'it bound to the first copy, so the one on screen stayed held');
+      auto.click();
+      check('S428', 'and its Convert automatically does convert', calls.length === 1 && calls[0][1] === 'White', JSON.stringify(calls));
+    }
+  }
+  const apply = extractFn(admin, 'showApplyRequoteChoice') || '';
+  const ids = []; let m; const re = /id="([A-Za-z0-9_]+)"/g; while ((m = re.exec(apply))) ids.push(m[1]);
+  const stray = ids.filter(id => apply.indexOf("document.getElementById('" + id + "')") !== -1);
+  check('S428', 'the Apply Re-quote popup finds its own controls inside itself, never by a page-wide id',
+    ids.length >= 8 && stray.length === 0 && /overlay\.dataset\.convertfor = quoteId;/.test(apply), 'page-wide: ' + stray.join(', '));
+}
+
+suite('429. The quote card’s Feet box and the Measure tool never save nonsense feet');
+{
+  const fnSrc = extractFn(admin, 'quoteFeetFromBox');
+  check('S429', 'the feet rule can be lifted', !!fnSrc);
+  if (fnSrc) {
+    const F = runLiftedCode(fnSrc + '\nreturn quoteFeetFromBox;', {});
+    check('S429', 'a cleared box saves nothing', F('') === null && F('  ') === null);
+    check('S429', 'a negative or nought saves nothing', F('-40') === null && F('0') === null);
+    check('S429', 'words save nothing', F('150 ft') === null);
+    check('S429', 'a real footage is kept', F('150') === 150 && F(' 136.5 ') === 136.5);
+  }
+  const h = sliceBetween(admin, "  list.querySelectorAll('.quoteFeetInput').forEach(function(input){", "  /* ⭐ EDIT CONTACT.");
+  check('S429', 'the Feet box handler was found', !!h);
+  if (h && fnSrc) {
+    const input = new FakeEl425('f'); input.dataset.id = 'q1';
+    const writes = [];
+    runLiftedCode(fnSrc + '\n' + h + '\nreturn null;', {
+      list: { querySelectorAll: s => s === '.quoteFeetInput' ? [input] : [] },
+      quotesCache: [{ id: 'q1', data: { estimatedFeet: 168 } }], updateDoc: (r, u) => { writes.push(u); return Promise.resolve(); },
+      doc: () => 'quotes/q1', db: {} });
+    ['', '-40', '0'].forEach(v => { input.value = v; input.dispatchEvent(new Event('change')); });
+    check('S429', 'clearing the box, -40 and 0 write nothing', writes.length === 0, JSON.stringify(writes));
+    check('S429', 'and the old footage goes back in the box', input.value === 168);
+    input.value = '150'; input.dispatchEvent(new Event('change'));
+    check('S429', 'a real footage is saved', writes.length === 1 && writes[0].estimatedFeet === 150, JSON.stringify(writes));
+  }
+  const feetOnly = sliceBetween(admin, "document.getElementById('rmUseFeetBtn').addEventListener('click'", "status.textContent = 'Saving the footage");
+  check('S429', 'Save the feet only refuses with nothing drawn, before anything is written',
+    /if\(!\(feet > 0\)\)\{ status\.textContent = '[^']+'; return; \}/.test(feetOnly), 'it saved 0 ft over the quote');
+  const commit = extractFn(admin, 'rmRenderCommit') || '';
+  check('S429', 'and it is held like the gold button until there are feet',
+    /const feetOnlyBtn = document\.getElementById\('rmUseFeetBtn'\);\s*if\(feetOnlyBtn\) feetOnlyBtn\.disabled = !\(feet > 0\);/.test(commit) &&
+    commit.indexOf('feetOnlyBtn.disabled') < commit.indexOf('if(feet <= 0){'), 'must be set before the nothing-drawn early return');
+}
+
+suite('430. A first price is saved once, and "Send again" only follows a real send');
+{
+  const h = sliceBetween(admin, "  list.querySelectorAll('.quotePriceInput').forEach(function(input){", "  list.querySelectorAll('[data-usequoteprice]')");
+  check('S430', 'the price box handlers were found', !!h);
+  if (h) {
+    const mk = data => {
+      const input = new FakeEl425('p'); input.dataset.id = 'q1';
+      const writes = [], toasts = [];
+      runLiftedCode(h + '\nreturn null;', {
+        list: { querySelectorAll: s => s === '.quotePriceInput' ? [input] : [] },
+        quotesCache: [{ id: 'q1', data: data }], updateDoc: (r, u) => { writes.push(u); return Promise.resolve(); },
+        doc: () => 'quotes/q1', db: {}, toast: t => toasts.push(t), fmtMoney: n => '$' + Number(n).toFixed(2) });
+      return { input, writes, toasts };
+    };
+    const a = mk({ quoteToken: 'tok' });          // link minted, never sent
+    a.input.value = '1200.50';
+    a.input.dispatchEvent(new Event('change'));  // the browser's own change on leaving the box
+    a.input.dispatchEvent(new Event('blur'));    // and the blur handler's
+    pendingAsync.push((async function () {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      check('S430', 'leaving the box after a first price writes it ONCE', a.writes.length === 1, a.writes.length + ' writes');
+      check('S430', 'and toasts once, as a plain save — a link nobody was sent is not a sent quote',
+        a.toasts.length === 1 && /^Price saved/.test(a.toasts[0]), JSON.stringify(a.toasts));
+      const b = mk({ quotedPrice: 300, quoteSentAt: { s: 1 } });
+      b.input.value = '350'; b.input.dispatchEvent(new Event('change'));
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      check('S430', 'a quote that WAS sent is told to send again', b.toasts.length === 1 && /Send again/.test(b.toasts[0]), JSON.stringify(b.toasts));
+    })());
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
@@ -61721,7 +62898,7 @@ suite('322. A stop in the wrong place gets moved, and far is measured from the r
     global.esc = real('esc');
     global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
 
-    const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
+    const api = eval((admin.match(/^const MAX_CREWS = \d+;/m) || [''])[0] + '\n' + extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
       ';({order: orderHousesForDriving, plain: reorderFlatStops, two: twoOptImprove,  or: orOptImprove, miles: tourMiles, hav: haversine, split: outlyingStops,  point: houseStopPoint, margin: ON_THE_WAY_MARGIN_MILES})');
 
@@ -63503,7 +64680,9 @@ suite('Suite 339. The office payment boxes record WHEN the money came in');
      from its own paidNow variable — that name is the only thing that tells them apart, and
      a file-wide search would pass with one of the two deleted. */
   const cut = (v) => {
-    const i = admin.indexOf('const ' + v + ' = deposit - was');
+    /* repointed 2026-10-29, not weakened: the delta is worked out in whole cents now
+       (centsOf(deposit - wasPaid) / 100, Suite 393), so the anchor names that form */
+    const i = admin.indexOf('const ' + v + ' = centsOf(deposit - was');
     if(i === -1) return '';
     const j = admin.indexOf('});', i);
     return j === -1 ? '' : admin.slice(i, j);
@@ -67658,4 +68837,323 @@ suite('390. A warehouse note on a house nobody is building for is seen and print
     /whSheetTable\(noted, WH_NOTED_COLUMNS\)/.test(print));
   check('S390', 'nothing here touches whSheetRowsForBuild — a noted house is never a build row',
     !/whSheetRowsForBuild/.test(src) && !/whNotedHousesOffTheList|whSheetRowsForNoted/.test(stripComments(extractFn(admin, 'whSheetRowsForBuild'))));
+}
+// =====================================================================
+// 397. The crew count and the nearby-towns list survive a reload (2026-10-29)
+// =====================================================================
+suite('397. The crew count and the nearby-towns list survive a reload — MAX_CREWS lives at module scope');
+/* A break-test found `const MAX_CREWS = 6` declared INSIDE the Schedule widget's IIFE while
+   loadSchedulingSettings, out in the main module, reads it. The read threw a ReferenceError
+   into the loader's own catch, which reset CREWS_PER_DAY to 2 and NEARBY_TOWN_LIST to the
+   defaults on EVERY load — so a third crew vanished on reload and "+ Add a crew" logged an
+   error. This RUNS the real loader in a sandbox that is given only the MAX_CREWS declarations
+   that sit OUTSIDE the widget: put the constant back inside and the loader answers two again. */
+(function(){
+  const wStart = admin.indexOf('(function(){ try{\r\n  const host=document.getElementById("scheduleHost")') >= 0
+    ? admin.indexOf('(function(){ try{\r\n  const host=document.getElementById("scheduleHost")')
+    : admin.indexOf('(function(){ try{\n  const host=document.getElementById("scheduleHost")');
+  const wEnd = admin.indexOf('}catch(err){ console.error("Schedule tab init failed:", err); } })();');
+  check('S397', 'the Schedule widget\'s bounds were found', wStart > 0 && wEnd > wStart);
+  const decls = [];
+  const re = /^const MAX_CREWS = (\d+);/gm;
+  let m;
+  while((m = re.exec(admin))) decls.push({at: m.index, text: m[0]});
+  const outside = decls.filter(function(d){ return d.at < wStart || d.at > wEnd; });
+  check('S397', 'MAX_CREWS is declared exactly once, and not inside the Schedule widget',
+    decls.length === 1 && outside.length === 1, decls.length + ' declaration(s), ' + outside.length + ' outside the widget');
+  const loader = extractFn(admin, 'loadSchedulingSettings');
+  check('S397', 'loadSchedulingSettings is there to run', !!loader);
+  if(!loader || wStart < 0) return;
+  const pre = outside.map(function(d){ return d.text; }).join('\n');
+  const run = new Function('getDoc', 'doc', 'db', 'document', 'DEFAULT_NEARBY_TOWNS', 'nearbyTownsToText', 'crewsPerDayStatusText',
+    pre + '\nlet CREWS_PER_DAY = 2; let NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS;\nasync ' + loader +
+    '\nreturn loadSchedulingSettings().then(function(){ return {crews: CREWS_PER_DAY, nearby: NEARBY_TOWN_LIST}; });');
+  const typed = {Lehi: ['Highland']};
+  const p = run(function(){ return Promise.resolve({exists: function(){ return true; }, data: function(){ return {crewsPerDay: 3, nearbyTowns: typed}; }}); },
+    function(){ return {}; }, {}, {getElementById: function(){ return null; }, activeElement: null}, {Default: ['Town']},
+    function(){ return ''; }, function(){ return ''; })
+    .then(function(r){
+      check('S397', 'a saved third crew is read back as three, not reset to two', r.crews === 3, 'read ' + r.crews);
+      check('S397', 'the office\'s typed nearby-towns list is kept, not replaced by the built-in one', r.nearby === typed);
+    }, function(e){ check('S397', 'the loader runs without throwing', false, String(e && e.message)); });
+  pendingAsync.push(p);
+})();
+suite('391. A typed dollar figure is read or refused, and the payment import cannot turn a phone number into money');
+{
+  /* Break-test, 2026-10-29. Every money box read its number with replace(/[^0-9.]/g,'') || 0,
+     so "abc" wiped a deposit, "-100" became 100 and "(50.00)" became +$50; and the payment
+     import opened both column boxes on column 0, so a Phone/Name/Amount file credited every
+     customer their phone number in dollars. A renamed file ("venmo (1).csv") was counted again
+     because the duplicate tag was the file name. RUNS parseTypedMoney and the whole Import
+     Payments handler against a fake Firestore. */
+  const moneySrc = read('js/money.js');
+  const centsSrc = extractFn(moneySrc, 'centsOf');
+  const maxLine = (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0];
+  const parseSrc = centsSrc + '\n' + maxLine + '\n' + extractFn(admin, 'parseTypedMoney') + '\n' +
+    extractFn(admin, 'typedMoneyProblem');
+  check('S391', 'parseTypedMoney, its limit and centsOf were all found',
+    !!centsSrc && !!maxLine && /function parseTypedMoney\(/.test(parseSrc) && /function typedMoneyProblem\(/.test(parseSrc));
+  const M = new Function(parseSrc + '\nreturn {parse: parseTypedMoney, problem: typedMoneyProblem};')();
+  const P = M.parse;
+  check('S391', '"$1,234.56" reads as 1234.56', P('$1,234.56').ok && P('$1,234.56').value === 1234.56);
+  check('S391', 'a figure a spreadsheet wrapped in quote marks still reads', P('"1,234.56"').value === 1234.56);
+  check('S391', '"abc" is refused, never read as 0', !P('abc').ok && P('abc').value === null && !P('abc').blank);
+  check('S391', '"-100" is a negative, never read as 100', !P('-100').ok && P('-100').negative && P('-100').value === -100);
+  check('S391', '"(50.00)" — an accounting refund — is a negative, never +50', !P('(50.00)').ok && P('(50.00)').negative);
+  check('S391', '"$1,200.50." with a stray dot is refused rather than wiping the figure', !P('$1,200.50.').ok);
+  check('S391', '"300.00 + 50" is refused', !P('300.00 + 50').ok);
+  check('S391', '"2,50" (a European decimal) is refused, never read as 250', !P('2,50').ok);
+  check('S391', 'a blank box is blank, not 0', P('').blank && P('   ').blank && !P('').ok);
+  check('S391', '"0" is a real answer', P('0').ok && P('0').value === 0);
+  check('S391', 'a phone number in the amount box is unreadable, not eight billion dollars', !P('8015551007').ok);
+  check('S391', '"1e25" is refused', !P('1e25').ok);
+  const frac = P('100.005');
+  check('S391', 'a fraction of a cent is rounded to whole cents on the way in',
+    frac.ok && Math.round(frac.value * 100) === frac.value * 100, String(frac.value));
+  check('S391', 'the refusal says which box and why',
+    /cannot be negative/.test(M.problem('Amount Paid', '-50')) && /not a dollar figure/.test(M.problem('Amount', 'abc')) &&
+    /is blank/.test(M.problem('Amount', '')) && M.problem('Amount', '12') === '');
+
+  const guessSrc = extractFn(admin, 'paymentImportGuessColumns') + '\n' + extractFn(admin, 'paymentImportAmountLooksWrong') +
+    '\n' + extractFn(admin, 'paymentImportRowKey');
+  const G = new Function(guessSrc + '\nreturn {guess: paymentImportGuessColumns, big: paymentImportAmountLooksWrong, key: paymentImportRowKey};')();
+  const g1 = G.guess(['Phone', 'Name', 'Amount']);
+  check('S391', 'Phone / Name / Amount picks column 0 and column 2 — never 0 and 0', g1.phone === 0 && g1.amount === 2, JSON.stringify(g1));
+  const g2 = G.guess(['Date', 'Amount Paid', 'Mobile']);
+  check('S391', 'the headings are read wherever they sit', g2.phone === 2 && g2.amount === 1, JSON.stringify(g2));
+  const g3 = G.guess(['Who', 'What']);
+  check('S391', 'headings nobody recognises leave both boxes unchosen', g3.phone === -1 && g3.amount === -1, JSON.stringify(g3));
+  const g4 = G.guess(['Phone Payment']);
+  check('S391', 'the amount is never guessed onto the phone column', g4.phone === 0 && g4.amount === -1, JSON.stringify(g4));
+  check('S391', 'an amount far above the balance is flagged', G.big(5000, 785) && G.big(8015551003, 0));
+  check('S391', 'an ordinary payment, a small overpayment and a payment on a settled bill are not',
+    !G.big(785, 785) && !G.big(800, 785) && !G.big(50, 0) && !G.big(100, 0));
+  check('S391', 'the row key is the same for the same row and different for a second identical row',
+    G.key(['8015551003', '100'], 1) === G.key([' 8015551003 ', '100'], 1) && G.key(['8015551003', '100'], 1) !== G.key(['8015551003', '100'], 2));
+  check('S391', 'and different for a different amount or date', G.key(['8015551003', '100'], 1) !== G.key(['8015551003', '101'], 1) &&
+    G.key(['1/2', '8015551003', '100'], 1) !== G.key(['1/3', '8015551003', '100'], 1));
+
+  /* THE HANDLER ITSELF, run against a fake Firestore. */
+  const hStart = admin.indexOf("document.getElementById('paymentImportBtn').addEventListener('click', onceAtATime(");
+  const hEndMark = "return document.getElementById('paymentImportBtn'); }));";
+  const hEnd = admin.indexOf(hEndMark, hStart);
+  const handlerSrc = (hStart !== -1 && hEnd !== -1) ? admin.slice(hStart, hEnd + hEndMark.length) : '';
+  check('S391', 'the Import Payments handler was found', handlerSrc.length > 2000);
+  const libSrc = parseSrc + '\n' + guessSrc + '\n' + extractFn(admin, 'onceAtATime') + '\n' +
+    extractFn(admin, 'findInvoiceForImportRow') + '\n' + extractFn(admin, 'balanceDueAmount');
+  function runImport(opts) {
+    const db = opts.db;
+    const writes = [];
+    const dialogs = [];
+    const els = {};
+    const el = id => els[id] || (els[id] = { value: '', style: {}, disabled: false,
+      addEventListener: function (ev, fn) { this._h = fn; } });
+    el('paymentImportPhoneCol').value = opts.phoneCol;
+    el('paymentImportAmountCol').value = opts.amountCol;
+    const document = { getElementById: el };
+    const window = { paymentImportFileName: opts.fileName, paymentImportFolderName: '' };
+    const cache = Object.keys(db).map(id => ({ id: id, data: JSON.parse(JSON.stringify(db[id])) }));
+    const updateDoc = async (ref, data) => {
+      writes.push({ path: ref, data: data });
+      const d = db[ref.id] || (db[ref.id] = {});
+      Object.keys(data).forEach(k => {
+        const v = data[k];
+        if (v && v.__inc !== undefined) d[k] = (Number(d[k]) || 0) + v.__inc;
+        else if (v && v.__union) d[k] = (d[k] || []).concat(v.__union.filter(x => (d[k] || []).indexOf(x) === -1));
+        else if (v && v.__ts) d[k] = 'ts';
+        else d[k] = v;
+      });
+    };
+    const fake = {
+      document: document, window: window, allInvoicesCache: cache,
+      confirm: m => { dialogs.push('confirm: ' + m); return /far more than/.test(m) ? !!opts.bigAnswer : false; },
+      alert: m => { dialogs.push('alert: ' + m); },
+      toast: () => {}, renderInvoicesList: () => {}, loadPaymentImportHistory: () => {},
+      fmtMoney: n => '$' + Number(n).toFixed(2),
+      doc: (db0, col, id) => ({ col: col, id: id }), db: {},
+      updateDoc: updateDoc, increment: n => ({ __inc: n }), arrayUnion: x => ({ __union: [x] }),
+      serverTimestamp: () => ({ __ts: true }),
+      logPayment: async e => { writes.push({ path: 'payments', data: e }); },
+      addDoc: async () => {}, collection: () => ({}),
+      sendPaymentReceipt: async () => ({ sent: false, quiet: true }), reportReceiptOutcome: () => {}
+    };
+    const names = Object.keys(fake);
+    const code = libSrc + '\nlet paymentImportData = __rows;\n' + handlerSrc +
+      "\nreturn document.getElementById('paymentImportBtn')._h;";
+    const h = new Function(...names, '__rows', code)(...names.map(n => fake[n]), opts.rows);
+    return h({ preventDefault() {} }).then(() => ({ writes: writes, dialogs: dialogs, db: db }));
+  }
+  if (handlerSrc) {
+    const sbNames = ['document', 'window', 'allInvoicesCache', 'confirm', 'alert', 'toast', 'renderInvoicesList',
+      'loadPaymentImportHistory', 'fmtMoney', 'doc', 'db', 'updateDoc', 'increment', 'arrayUnion', 'serverTimestamp',
+      'logPayment', 'addDoc', 'collection', 'sendPaymentReceipt', 'reportReceiptOutcome', '__rows'];
+    assertSandbox('S391', 'Import Payments', libSrc + '\n' + handlerSrc, admin, sbNames);
+    const book = () => ({
+      '8015551003': { name: 'Brian', phone: '8015551003', install: 785, deposit: 0 },
+      '8015551011': { name: 'Rita', phone: '8015551011', install: 383, deposit: 383 },
+      '8015551019': { name: 'Sam', phone: '8015551019', install: 313, deposit: 0 }
+    });
+    const pnrRows = [['801-555-1003', 'Brian', '100.00'], ['8015551019', 'Sam', '$50']];
+    pendingAsync.push((async function () {
+      let r = await runImport({ db: book(), rows: pnrRows, phoneCol: '', amountCol: '2', fileName: 'p.csv' });
+      check('S391', 'no phone column chosen: refused out loud, nothing written',
+        r.writes.length === 0 && r.dialogs.some(d => /Choose which column/.test(d)));
+      r = await runImport({ db: book(), rows: pnrRows, phoneCol: '0', amountCol: '0', fileName: 'p.csv' });
+      check('S391', 'phone and amount on the same column: refused, nothing written',
+        r.writes.length === 0 && r.dialogs.some(d => /SAME column/.test(d)));
+      const rows = [['8015551003', 'Brian', '100.00'], ['8015551003', 'Brian', '100.00'], ['8015551011', 'Rita', '(50.00)'],
+        ['8015551003', 'Brian', '-25'], ['8015551019', 'Sam', 'abc']];
+      const db1 = book();
+      r = await runImport({ db: db1, rows: rows, phoneCol: '0', amountCol: '2', fileName: 'venmo.csv' });
+      check('S391', 'two identical $100 rows are two payments', db1['8015551003'].deposit === 200 &&
+        (db1['8015551003'].importedPayments || []).length === 2, JSON.stringify(db1['8015551003']));
+      check('S391', 'a "(50.00)" refund row is not added to the invoice', db1['8015551011'].deposit === 383);
+      check('S391', '"abc" writes nothing to that invoice', db1['8015551019'].deposit === 0);
+      const refusedAlert = r.dialogs.find(d => /were NOT imported/.test(d)) || '';
+      check('S391', 'every refused row is named, by sheet row', /row 4 \(8015551011\)/.test(refusedAlert) &&
+        /refund/.test(refusedAlert) && /row 5/.test(refusedAlert) && /row 6 \(8015551019\)/.test(refusedAlert), refusedAlert.slice(0, 300));
+      check('S391', 'the ledger got exactly the two real payments', r.writes.filter(w => w.path === 'payments').length === 2);
+      const before = JSON.stringify(db1);
+      r = await runImport({ db: db1, rows: rows, phoneCol: '0', amountCol: '2', fileName: 'venmo (1).csv' });
+      check('S391', 'the same rows saved as "venmo (1).csv" are recognised and not counted again',
+        r.writes.filter(w => w.path && w.path.col === 'invoices').length === 0 && JSON.stringify(db1) === before);
+      const db2 = book();
+      db2['8015551003'].importedPayments = ['import:old.csv:0:8015551003:100.00'];
+      db2['8015551003'].deposit = 100;
+      r = await runImport({ db: db2, rows: [['8015551003', 'x', '100']], phoneCol: '0', amountCol: '2', fileName: 'old.csv' });
+      check('S391', 'a file imported before today is still recognised by the tag it was saved under',
+        db2['8015551003'].deposit === 100 && r.writes.length === 0);
+      const db3 = book();
+      r = await runImport({ db: db3, rows: [['8015551003', 'x', '5000']], phoneCol: '0', amountCol: '2', fileName: 'big.csv', bigAnswer: false });
+      check('S391', 'a payment far above the balance is asked about, and Cancel imports nothing',
+        r.dialogs.some(d => /far more than/.test(d)) && db3['8015551003'].deposit === 0 && r.writes.length === 0);
+      r = await runImport({ db: db3, rows: [['8015551003', 'x', '5000']], phoneCol: '0', amountCol: '2', fileName: 'big.csv', bigAnswer: true });
+      check('S391', 'and OK imports it as typed', db3['8015551003'].deposit === 5000);
+    })());
+  }
+  const load = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('paymentImportLoadBtn').addEventListener")));
+  check('S391', 'loading a file picks the columns by heading',
+    /const guessed = paymentImportGuessColumns\(header\);/.test(load) &&
+    /phoneSelect\.value = guessed\.phone >= 0 \? String\(guessed\.phone\) : '';/.test(load) &&
+    /amountSelect\.value = guessed\.amount >= 0 \? String\(guessed\.amount\) : '';/.test(load));
+  check('S391', 'and both boxes carry an unchosen option to fall back on', /pick\.value = '';/.test(load));
+  check('S391', 'the import no longer strips characters to make a number',
+    !/replace\(\/\[\^0-9\.\\-\]\/g/.test(stripComments(handlerSrc)) && /parseTypedMoney\(cell\)/.test(handlerSrc));
+}
+suite('392. Invoice Bulk Update never overwrites an existing invoice with blanks, and leaves a multi-house payer alone');
+{
+  /* Break-test, 2026-10-29: a blank Amount set install 0 (a NEGATIVE balance on a paid
+     invoice), "-300" became 300, a blank Name or Email wiped the invoice's, and a 500 replaced
+     a twelve-house payer's whole total. RUNS invoiceBulkRowPlan; the handler's use of it is
+     asserted on the comment-stripped source. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + extractFn(moneySrc, 'computeInvoiceStatus') + '\n' +
+    (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' + extractFn(admin, 'parseTypedMoney') + '\n' +
+    extractFn(admin, 'invoiceBulkRowPlan');
+  check('S392', 'invoiceBulkRowPlan was found', /function invoiceBulkRowPlan\(/.test(src));
+  assertSandbox('S392', 'invoiceBulkRowPlan', src, admin, []);
+  const plan = new Function(src + '\nreturn invoiceBulkRowPlan;')();
+  const paid = { name: 'Mark Greco', email: 'mark@x.test', phone: '8015551007', install: 703, deposit: 703, removal: 0 };
+  const row = (o) => Object.assign({ phone: '8015551007', name: '', email: '', amountRaw: '' }, o);
+  let r = plan(row({}), paid, 1);
+  check('S392', 'a blank Amount on an existing invoice leaves install alone',
+    !r.skip && !('install' in r.data) && r.data.status === 'Paid in Full', JSON.stringify(r));
+  check('S392', 'a blank Name and Email do not wipe the invoice\'s', !('name' in r.data) && !('email' in r.data));
+  check('S392', 'and the payment on file is kept', r.data.deposit === 703);
+  r = plan(row({ amountRaw: 'abc' }), paid, 1);
+  check('S392', 'an unreadable Amount refuses the row instead of writing 0', !!r.skip && /not a dollar figure/.test(r.skip));
+  r = plan(row({ amountRaw: '-300' }), paid, 1);
+  check('S392', '"-300" is refused, never read as 300', !!r.skip && /negative/.test(r.skip));
+  r = plan(row({ amountRaw: '$1,250.00', name: 'Mark G', email: 'new@x.test' }), paid, 1);
+  check('S392', 'a readable Amount, Name and Email are written', r.data.install === 1250 && r.data.name === 'Mark G' &&
+    r.data.email === 'new@x.test' && r.data.status === 'Partial Payment', JSON.stringify(r.data));
+  r = plan(row({ amountRaw: '500' }), Object.assign({}, paid, { billedHouseIds: ['a', 'b', 'c'] }), 1);
+  check('S392', 'a payer billed for several houses is refused (billedHouseIds)', !!r.skip && /3 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '500' }), paid, 12);
+  check('S392', 'and refused when the live group says so', !!r.skip && /12 houses/.test(r.skip));
+  r = plan(row({ amountRaw: '', name: 'New Person' }), null, 0);
+  check('S392', 'a brand-new invoice is still created from a blank amount, as before',
+    !r.skip && r.isNew && r.data.install === 0 && r.data.name === 'New Person' && r.data.email === '' && r.data.deposit === 0);
+  r = plan(row({ amountRaw: '400' }), null, 0);
+  check('S392', 'and from a typed one', r.data.install === 400 && r.data.status === 'Unpaid');
+
+  const hs = stripComments(sectionFrom(admin, admin.indexOf("document.getElementById('ibImportBtn').addEventListener")));
+  check('S392', 'the handler writes only what the plan says',
+    /const rowPlan = invoiceBulkRowPlan\(\{phone: phone, name: name, email: email, amountRaw: amounts\[i\] \|\| ''\},\s*existingInv\.exists\(\) \? existingInv\.data\(\) : null, billedHousesFor\(phone\)\.length\);/.test(hs) &&
+    /Object\.assign\(\{\}, rowPlan\.data, \{updatedAt: serverTimestamp\(\)\}\)/.test(hs));
+  check('S392', 'a refused row is skipped before anything is written for it',
+    /if\(rowPlan\.skip\)\{[\s\S]*?continue;\s*\}/.test(hs) && hs.indexOf('if(rowPlan.skip)') < hs.indexOf('await setDoc(doc(db,\'invoices\',phone)'));
+  check('S392', 'and named in the report', /refusedRows\.length \? ' (?:\\u26A0|⚠) ' \+ refusedRows\.length \+ ' row\(s\) LEFT ALONE: '/.test(hs));
+  check('S392', 'the old strip-and-zero read is gone', !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(hs));
+}
+suite('393. The status dropdown reads the Partial amount strictly, and Cancel puts the dropdown back');
+{
+  /* Break-test, 2026-10-29: "abc", "-100", "$1,200.50." and "300.00 + 50" typed into the
+     Partial Payment prompt all wiped or mangled the deposit; Cancel read a data-currentvalue
+     nothing ever set, so a paid-in-full invoice's dropdown went on showing Unpaid; and the row
+     balance was raw floats, so 100.005 against 100.004 read Partial with a $0.00 balance.
+     RUNS statusDropdownDeposit; both dropdown handlers are asserted to use it. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' +
+    extractFn(admin, 'parseTypedMoney') + '\n' + extractFn(admin, 'typedMoneyProblem') + '\n' + extractFn(admin, 'statusDropdownDeposit');
+  check('S393', 'statusDropdownDeposit was found', /function statusDropdownDeposit\(/.test(src));
+  assertSandbox('S393', 'statusDropdownDeposit', src, admin, []);
+  const f = new Function(src + '\nreturn statusDropdownDeposit;')();
+  ['abc', '-100', '$1,200.50.', '300.00 + 50', '(20)'].forEach(function (typed) {
+    const r = f('Partial Payment', 703, typed);
+    check('S393', 'Partial typed "' + typed + '" is refused with a message, never written', !!r.refuse && r.deposit === undefined, JSON.stringify(r));
+  });
+  check('S393', 'Partial typed "$1,200.50" is read as 1200.5', f('Partial Payment', 2000, '$1,200.50').deposit === 1200.5);
+  check('S393', 'Partial typed "0" is a real answer', f('Partial Payment', 2000, '0').deposit === 0);
+  check('S393', 'Cancel is its own answer', f('Partial Payment', 2000, null).cancel === true);
+  check('S393', 'a figure that covers the bill says so', f('Partial Payment', 300, '300').coversAll === true);
+  check('S393', 'Paid in Full writes the total in whole cents', f('Paid in Full', 100.004, null).deposit === 100, JSON.stringify(f('Paid in Full', 100.004, null)));
+  check('S393', 'Paid in Full never writes a negative deposit', f('Paid in Full', -40, null).deposit === 0);
+  check('S393', 'Unpaid writes 0', f('Unpaid', 500, null).deposit === 0);
+
+  const listSrc = stripComments(extractFn(admin, 'renderInvoicesList'));
+  check('S393', 'the Invoice List dropdown reads the amount through statusDropdownDeposit',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(listSrc));
+  check('S393', 'and its Cancel puts back the option the row was drawn with',
+    /const previous = sel\.querySelector\('option\[selected\]'\);/.test(listSrc) && !/dataset\.currentvalue/.test(listSrc));
+  check('S393', 'a refused figure puts the dropdown back and writes nothing',
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(listSrc));
+  check('S393', 'the old strip-and-zero read is gone from the Invoice List', !/Number\(String\(typed\)\.replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(listSrc));
+  check('S393', 'the row balance is the one balance rule', /const balance = centsOf\(balanceDueAmount\(d\)\) \/ 100;/.test(listSrc));
+  const routeSrc = stripComments(sectionFrom(admin, admin.indexOf("container.querySelectorAll('[data-setpaystatus]').forEach(function(sel){")));
+  check('S393', 'the route-list copy of the dropdown reads it the same way',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(routeSrc) &&
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(routeSrc) &&
+    !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(routeSrc));
+}
+
+suite('394. Customer Numbers: the pool takes real numbers only, and Assign is one press at a time');
+{
+  /* Break-test 2026-10-29. "Add to Available Pool" took anything parseInt could start on —
+     "7abc", "1e3", " 0099 " became pool ids and the next assign handed out #1e3 — plus "-5",
+     and 5600 typed as Regular (a two-bin label filed for a one-bin house). And two quick
+     presses on Assign Next Available gave two customers #1001. RUNS the rule. */
+  const chk = new Function(extractFn(admin, 'cnPoolNumberCheck') + 'return cnPoolNumberCheck;')();
+  check('S394', 'the pool refuses 7abc, 1e3, -5, 2.5 and 0, saying why',
+    ['7abc', '1e3', '-5', '2.5', '0', ''].every(v => chk(v, 'regular').num === '' && !!chk(v, 'regular').error),
+    JSON.stringify(['7abc', '1e3', '-5', '2.5', '0'].map(v => chk(v, 'regular'))));
+  check('S394', 'leading zeros and spaces are dropped, never stored as the id',
+    chk(' 0099 ', 'regular').num === '99');
+  check('S394', 'a 5000-series number typed as Regular is refused, and the other way round',
+    /Double Bin/.test(chk('5600', 'regular').error) && /Regular/.test(chk('1017', 'double').error) &&
+    chk('5600', 'double').num === '5600' && chk('5600', 'double').type === 'double');
+  check('S394', 'a number a customer already holds is refused',
+    /belongs to Ann/.test(chk('1017', 'regular', 'Ann').error));
+  const s = stripComments(admin);
+  const manual = s.slice(s.indexOf("getElementById('cnManualAddBtn').addEventListener"));
+  check('S394', 'the button writes only what the rule hands back, under the type it decided',
+    /onceAtATime\(async function\(\)\{/.test(manual.slice(0, 120)) &&
+    /cnPoolNumberCheck\(numInput\.value, type,/.test(manual) &&
+    /doc\(db,'availableCustomerNumbers', out\.num\), \{type: out\.type/.test(manual) &&
+    !/isNaN\(parseInt\(num/.test(manual.slice(0, manual.indexOf('}, function(){ return document.getElementById(\'cnManualAddBtn\')'))));
+  const assign = s.slice(s.indexOf("getElementById('cnAssignBtn').addEventListener"));
+  check('S394', 'Assign Next Available is one press at a time',
+    /^getElementById\('cnAssignBtn'\)\.addEventListener\('click', onceAtATime\(async function\(\)\{/.test(assign) &&
+    assign.indexOf("}, function(){ return document.getElementById('cnAssignBtn'); }));") > 0,
+    'cnNextAvailable reads the cache; a second press before the first write lands gets the same number');
 }
