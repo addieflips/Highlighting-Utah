@@ -82733,7 +82733,12 @@ function mergeShortOpenDays(opts){
    houses already on that day — one at a time, until it is full or nobody legal is left. Earliest October day first.
    ⛔ This REVERSES [[SCH-131]]'s "push them back to the end of November" for October room (R-024) — a longer drive on an
    October day is the price he accepted. Everything else stands: never a November, named-day, After Thanksgiving or
-   office-dated house (houseDeadline / houseMayGoOn), never onto a locked, printed or held day, never today. */
+   office-dated house (houseDeadline / houseMayGoOn), never onto a locked, printed or held day, never today.
+   ⭐ [[SCH-149]] (2026-10-29) BUT NEVER A HOUSE MORE THAN OCT_FILL_MAX_MILES FROM EVERY HOUSE ALREADY ON THAT DAY. The question
+   Dax answered was about houses "more than five miles" out; a lone house 100 miles away (Levan) was not part of it, and putting
+   it on a Lehi crew's sheet is a whole morning's drive for one house. It keeps a day of its own, as before. The owner, shown
+   that recommendation: "figure it our until its perfect dont stop". */
+const OCT_FILL_MAX_MILES = 25;
 function fillOctoberToCapacity(){
   const res = {moved: []};
   if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
@@ -82776,6 +82781,8 @@ function fillOctoberToCapacity(){
         const p = ptOf(c.h);
         let m = here.length ? Infinity : 0;
         here.forEach(function(x){ const q = ptOf(x); const z = haversine(p.lat, p.lng, q.lat, q.lng); if(z < m) m = z; });
+        /* [[SCH-149]] a longer drive, never a trip — a house this far from everything on the day keeps a day of its own */
+        if(m > OCT_FILL_MAX_MILES) return;
         if(!best || c.pr < best.pr || (c.pr === best.pr && m < bm)){ bm = m; best = c; }
       });
       if(!best) break;
@@ -83256,6 +83263,8 @@ function milesFromDay(day, pt){
    and already has a house within PRIORITY_REACH_MILES of theirs. Among those the EARLIEST wins —
    that is the priority — and on the same date the one with the shortest detour. Nothing else on
    the plan moves: one house changes day, and the two days it touched are re-ordered.
+   ⭐ [[SCH-149]] EXCEPT A TRADE: when that earliest day is full, the least urgent house on it swaps to this customer's old
+   day (priorityBumpOn, below) — still only those two days and those two houses.
    ⚠ An isolated customer with no qualifying earlier day STAYS WHERE THEY ARE. Priority chooses
    between reasonable opportunities; it never manufactures an unreasonable one. */
 const PRIORITY_REACH_MILES = 3;
@@ -83273,14 +83282,66 @@ function bestEarlierDayFor(h, custData, currentDs, opts){
     const ds = isoOf(dt);
     if(currentDs && ds >= currentDs) return;
     if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) return;
-    if((day.houses || []).length >= cap) return;
+    /* [[SCH-149]] a full day is still a chance when a Normal Schedule house on it can trade places — only for a house
+       already on a day (o.exclude), because the house it displaces has to have somewhere to go */
+    const full = (day.houses || []).length >= cap;
+    if(full && !o.exclude) return;
     if(!houseMayGoOn(h, custData || {}, ds, startStr).ok) return;
     const miles = milesFromDay(day, pt);
     if(!(miles <= reach)) return;
     if(best && !(ds < best.ds || (ds === best.ds && miles < best.miles))) return;
+    if(full){
+      const bump = priorityBumpOn(day, h, custData, o.exclude, currentDs, startStr);
+      if(bump) best = {day: day, ds: ds, miles: miles, bump: bump};
+      return;
+    }
     /* [[SCH-131]] never onto a day it would split into a crew stretched past five miles */
     if(typeof dayHoldsWithHouse === 'function' && !dayHoldsWithHouse(day, h)) return;
     best = {day: day, ds: ds, miles: miles};
+  });
+  return best;
+}
+/* ⭐ [[SCH-149]] (2026-10-29) A PRIORITY CUSTOMER TRADES PLACES WITH A NORMAL SCHEDULE HOUSE WHEN EVERY EARLIER DAY IS FULL.
+   [[SCH-148]] packs every October day to 40, so from then on "an earlier day with room" never exists and the rush box did
+   nothing. Recommended to the owner and taken ("figure it our until its perfect dont stop"): the priority customer takes the
+   place of the LEAST urgent house on that earlier day, and that house takes the priority customer's old day. Nobody else moves.
+   ⚠ ONLY A HOUSE THAT IS LESS URGENT and may legally go on the later day (houseMayGoOn — its month, deadline, away dates and
+   pin all still hold). Never a new hang, never another rush, never an office date, never a done, stuck, fix or takedown house.
+   ⚠ NEITHER DAY MAY BE BROKEN BY IT: a day that kept every crew within five miles must still do so after the trade. A day
+   that was already past five miles on purpose (the October fill) is not made a reason to refuse.
+   Among the candidates, the least urgent goes, then the one nearest the day it is sent to. */
+function daySwapHolds(day, out, inn){
+  const i = day.houses.indexOf(out);
+  if(i === -1) return false;
+  const held = dayHoldsWithHouses(day, []);
+  day.houses.splice(i, 1);
+  let ok = false;
+  try{ ok = dayHoldsWithHouse(day, inn); }
+  finally{ day.houses.splice(i, 0, out); }
+  return ok || !held;
+}
+function priorityBumpOn(day, h, custData, fromDay, fromDs, startStr){
+  if(!fromDay || !fromDs || (fromDay.houses || []).indexOf(h) === -1) return null;
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const mine = houseInstallPriority(h, custData || {}, {today: today});
+  const rest = {houses: fromDay.houses.filter(function(x){ return x !== h; })};
+  let best = null, bestPr = -Infinity, bestMi = Infinity;
+  (day.houses || []).forEach(function(b){
+    if(!b || b === h || b.done || b.hiddenDone || b.isFix || b.isTakedown || ('' + (b.stuck || '')).trim() || b.notBefore) return;
+    const c = (typeof planCustomerFor === 'function') ? planCustomerFor(b) : null;
+    const bd = (c && c.data) || null;
+    /* ⚠ mostly also said by the urgency test below (a new hang and a rush share tier 10, so neither is "less urgent"); it
+       bites only when the rush customer is closer to their deadline than the new hang is — red-checked 2026-10-29 as a
+       no-op on the season fixtures, and kept so a new hang is never the one displaced */
+    if(!bd || bd.rushInstall === true || bd.chargeNewMemberFee === true) return;
+    const pr = houseInstallPriority(b, bd, {today: today});
+    if(typeof pr !== 'number' || !(pr > mine)) return;
+    if(!houseMayGoOn(b, bd, fromDs, startStr).ok) return;
+    const p = (typeof houseGeoPoint === 'function') ? houseGeoPoint(b, bd) : null;
+    const mi = (p && typeof p.lat === 'number') ? milesFromDay(rest, p) : Infinity;
+    if(best && !(pr > bestPr || (pr === bestPr && mi < bestMi))) return;
+    if(!daySwapHolds(day, b, h) || !daySwapHolds(fromDay, h, b)) return;
+    best = b; bestPr = pr; bestMi = mi;
   });
   return best;
 }
@@ -83301,9 +83362,14 @@ function advancePriorityHouses(){
       const best = bestEarlierDayFor(h, d, ds, {exclude: day});
       if(!best){ res.stayed.push({name: h.name || '(no name)', day: ds}); return; }
       day.houses.splice(day.houses.indexOf(h), 1);
+      if(best.bump){
+        best.day.houses.splice(best.day.houses.indexOf(best.bump), 1);
+        if(best.bump.fiveMileTail) delete best.bump.fiveMileTail;
+        day.houses.push(best.bump);
+      }
       best.day.houses.push(h);
       res.moved.push({name: h.name || '(no name)', from: ds, to: best.ds, miles: Math.round(best.miles * 10) / 10,
-                      fromDay: day, toDay: best.day});
+                      fromDay: day, toDay: best.day, swappedWith: best.bump ? (best.bump.name || '(no name)') : ''});
     });
   });
   if(res.moved.length) computeDates();
@@ -83503,7 +83569,8 @@ async function setPriorityFor(houseId){
       [m.fromDay, m.toDay].forEach(function(dy){ try{ generateDayRoutes(dy); }catch(e){ console.error('[HU] re-order after priority move failed', e); } });
     });
     computeDates(); renderAll(); scheduleSave();
-    toast(me ? (who + ' are a priority customer — moved to ' + me.to + ', beside houses ' + me.miles + ' mi away')
+    toast(me ? (who + ' are a priority customer — moved to ' + me.to + ', beside houses ' + me.miles + ' mi away' +
+                (me.swappedWith ? ' (' + me.swappedWith + ' traded places with them and moves to ' + me.from + ')' : ''))
              : (who + ' are a priority customer — no earlier day has room near them yet, so they keep their day and go first the next time a crew is there'));
   } else {
     renderAll(); scheduleSave();

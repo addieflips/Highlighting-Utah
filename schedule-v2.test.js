@@ -1126,7 +1126,17 @@ suite('13 Individual customer priority');
     const moved = r.moved.filter(function(m){ return m.name === c.data.name; })[0];
     check('13.4: a priority customer is moved EARLIER', now < was, was + ' → ' + now);
     check('13.5: onto a day with work within ' + 3 + ' miles of them', moved && moved.miles <= 3, JSON.stringify(moved && moved.miles));
-    check('13.7: nobody else changed day', book.filter(function(b){ return b !== c; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    /* [[SCH-149]], 2026-10-29: October is packed to 40 ([[SCH-148]]), so the earlier day is usually full and the priority
+       customer TRADES PLACES with one less urgent house. That house — and only that house — goes to the priority customer's
+       old day; everybody else stays put. */
+    const swapped = moved && moved.swappedWith ? book.filter(function(b){ return b.data.name === moved.swappedWith; })[0] : null;
+    check('13.7: nobody else changed day, except the one house it traded places with',
+      book.filter(function(b){ return b !== c && b !== swapped; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    check('13.7: with October full to 40, the earlier day was full and the move is a trade', !!swapped, JSON.stringify(moved));
+    if(swapped){
+      check('13.7: …which goes to the priority customer\'s old day', dayOfCust(swapped.id) === was, dayIndex['cust-' + swapped.id] + ' → ' + dayOfCust(swapped.id));
+      check('13.7: …and is a less urgent, unflagged house', swapped.data.rushInstall !== true && swapped.data.chargeNewMemberFee !== true);
+    }
     check('13.4: and no hard rule broke', H.api.validateSeasonPlan({}).length === 0, JSON.stringify(H.api.validateSeasonPlan({}).slice(0, 2)));
     const p = H.api.houseSchedulingProfile({id: 'cust-' + c.id, pref: 'Normal Schedule'}, c.data);
     check('13.2: the customer record is otherwise untouched (profile reads the same place and window)', p.location && p.earliest && p.priority === true);
