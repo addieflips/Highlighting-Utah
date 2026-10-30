@@ -44334,10 +44334,16 @@ document.getElementById('addCustPrice').addEventListener('input', function(){
   const hasEmail = !!document.getElementById('addCustEmail').value.trim();
   document.getElementById('phoneRequiredMark').style.display = (anyFilled && !hasEmail) ? 'inline' : 'none';
 });
-async function syncPayerInvoice(payerKey){
+/* ⚠ `opts.removedIds` (2026-10-29): houses the caller has just DELETED. The loaded
+   jobAddresses list is a cache and can still hold a record Firestore no longer has,
+   and the fallbacks below read it — so a deleted cabin was summed straight back onto
+   the bill it had just left (break-test D5). Those ids are never counted, from the
+   cache or from a query. */
+async function syncPayerInvoice(payerKey, opts){
   if(!payerKey) return;
   const key = String(payerKey).trim();
   if(!key) return;
+  const removedIds = (opts && Array.isArray(opts.removedIds)) ? opts.removedIds : [];
   /* An invoice is keyed by the payer's phone when they have one and by their
      lowercased email when they don't (see custInvoiceKey). Looking an email key
      up by phone matched nothing, so the group came back empty and this rebuilt
@@ -44346,7 +44352,7 @@ async function syncPayerInvoice(payerKey){
   const linked = [];
   const seenHouseIds = {};
   function addHouse(id, data){
-    if(seenHouseIds[id]) return;
+    if(seenHouseIds[id] || removedIds.indexOf(id) !== -1) return;
     seenHouseIds[id] = true;
     linked.push({id: id, data: data});
   }
@@ -44924,6 +44930,28 @@ document.getElementById('routeAddressForm').addEventListener('submit', addCustSu
   if(wantsBilling && !custKey && !billToPhone){
     statusEl.textContent = 'Add a phone number or an email (or a Bill To phone) to also create the invoice.';
     return;
+  }
+  /* ⭐ A NUMBER THAT IS NOT A PHONE IS REFUSED (2026-10-29, break-test A3). Digits are
+     all this form keeps, so "801-CALL-NOW" was saved as "801" and the bill was filed
+     under "801". Same rule as Edit Customer — phoneLooksReal. */
+  /* ⚠ AND THE BILL TO IS CHECKED THE SAME WAY Edit Customer checks it: a loop back to
+     this phone is refused, a number nobody answers to is asked about (A10) — on the
+     automatic path nobody is looking, so it is let through there as it always was. A
+     Bill To of their own phone is already "no Bill To" here (billingElsewhere below). */
+  {
+    const boxProblem = phoneAndBillToProblem({verb: 'added', name: name,
+      phone: phone, phoneWas: '', billTo: billToPhone !== phone ? billToPhone : '', billToWas: '',
+      ownKey: custKey, selfId: null, houses: jobAddresses,
+      invoiceExists: function(k){ return typeof invoiceById !== 'undefined' && !!invoiceById && invoiceById.has(k); }});
+    if(boxProblem && boxProblem.refuse){
+      statusEl.textContent = boxProblem.refuse;
+      if(isAutoConvert) toast('Could not convert ' + (name || 'this quote') + ' — ' + boxProblem.refuse.replace(/^Nothing added — /, '') + ' Use "Fill in manually" and correct it.');
+      return;
+    }
+    if(boxProblem && boxProblem.ask && !isAutoConvert && !confirm(boxProblem.ask)){
+      statusEl.textContent = 'Nothing added — check the Bill To phone.';
+      return;
+    }
   }
   /* A second click on "Convert to Customer" (the button never hid itself once
      a quote was converted — fixed alongside this) re-fills this same form,
@@ -49959,7 +49987,7 @@ function mergeFieldsFrom(keep, lose){
        landlord or a family, not a duplicate;
      - more than one copy on an upcoming route — the same house is scheduled
        twice and which stop to lose is the office's decision. */
-function findMergeableCustomers(routedIds){
+function findMergeableCustomers(routedIds, invoices){
   const routed = routedIds || {};
   const groups = {};
   jobAddresses.forEach(function(c){
@@ -50000,6 +50028,27 @@ function findMergeableCustomers(routedIds){
       const add = mergeFieldsFrom(Object.assign({}, keeper.data || {}, gains), l.data || {});
       Object.keys(add).forEach(function(f){ if(!(f in gains)) gains[f] = add[f]; });
     });
+    /* ⚠ A SPARE WITH MONEY ON A BILL OF ITS OWN IS NOT MERGED (2026-10-29, break-test
+       M1). Its invoice is filed under its OWN phone or email, so deleting the record
+       left that bill — payment and all — on a key nobody holds any more, and the report
+       called the copy "empty". Moving a payment between bills is the office's call, so
+       it is named and left for them. Only checked when the caller hands the invoices
+       in; `invoices` maps key -> invoice data. */
+    if(invoices){
+      const keeperKey = custInvoiceKey(Object.assign({}, keeper.data || {}, gains));
+      losers.forEach(function(l){
+        const lk = custInvoiceKey(l.data || {});
+        const inv = lk && lk !== keeperKey ? invoices[lk] : null;
+        if(!inv) return;
+        const paid = Number(inv.deposit) || 0, cred = Number(inv.credits) || 0;
+        if(paid > 0 || cred > 0){
+          why.push('the spare copy has its own bill under ' + lk + ' with ' +
+            (paid > 0 ? fmtMoney(paid) + ' paid' : '') + (paid > 0 && cred > 0 ? ' and ' : '') +
+            (cred > 0 ? fmtMoney(cred) + ' in credits' : '') +
+            ' — move that onto ' + (keeperKey || 'the kept record’s bill') + ' first');
+        }
+      });
+    }
     const entry = {name: (keeper.data || {}).name || '(no name)', keeper: keeper, losers: losers,
                    gains: gains, why: why, number: numOf(keeper)};
     if(why.length) review.push(entry); else ready.push(entry);
@@ -50171,16 +50220,27 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
     return;
   }
   /* Routes decide WHICH copy is kept, so they have to be known before choosing.
-     No invoice read is needed here and that is not an oversight: identical
-     records produce an identical invoice key, so both copies point at the same
-     invoice and deleting one cannot orphan it. */
+     ⚠ CORRECTED 2026-10-29 (break-test M1): this said no invoice read was needed
+     because identical records share one invoice key. Copies are grouped by NAME, not
+     by key — a double-entered customer with a typo'd phone has a bill of its own, and
+     deleting that copy stranded its payment. So the bills are read, fresh (the cache
+     may never have been opened), and findMergeableCustomers holds back any spare with
+     money on a bill of its own. */
+  const invoicesByKey = {};
+  try{
+    const invSnap = await getDocs(collection(db,'invoices'));
+    invSnap.forEach(function(s){ invoicesByKey[s.id] = s.data(); });
+  } catch(err){
+    statusEl.textContent = 'Could not read the invoices, so it is not safe to decide. Nothing was changed.';
+    return;
+  }
   const routedIds = {};
   Object.keys(scheduledRoutesCache || {}).forEach(function(dt){
     (scheduledRoutesCache[dt] || []).forEach(function(r){
       ((r.data && r.data.stops) || []).forEach(function(st){ if(st && st.id) routedIds[st.id] = true; });
     });
   });
-  const found = findMergeableCustomers(routedIds);
+  const found = findMergeableCustomers(routedIds, invoicesByKey);
   const toDelete = found.ready.reduce(function(n, g){ return n + g.losers.length; }, 0);
   const toFill = found.ready.reduce(function(n, g){ return n + Object.keys(g.gains).length; }, 0);
   dupExactPending = found.ready;
@@ -59598,14 +59658,26 @@ function populateAllCustFilterCities(){
    an overpayment or a typo, and handing the difference to the new payer as
    credit would be inventing money.
    ⚠ CLEARED WHEN THEY GO BACK TO PAYING FOR THEMSELVES, or the credit keeps
-   discounting a payer who no longer has this house. */
-function carriedPaymentOnBillToChange(oldBillTo, newBillTo, ownInv){
+   discounting a payer who no longer has this house.
+   ⚠ A GROUP BILL IS NOT THIS HOUSE'S BILL (2026-10-29, break-test S6). When the
+   payer of several houses points their own house at somebody else, their invoice
+   stays — it still bills the other houses, and keeps its payment for them. Reading
+   the whole group's deposit as this house's would hand the new payer a credit for
+   everybody's money. So the other houses' share is settled first, and only what was
+   paid beyond it follows this house, capped at its own price. `house` is the
+   customer record; with no house to price, a group carries nothing. */
+function carriedPaymentOnBillToChange(oldBillTo, newBillTo, ownInv, house){
   const was = String(oldBillTo || '').replace(/\D/g,'');
   const now = String(newBillTo || '').replace(/\D/g,'');
   if(now && !was){
     const d = (ownInv && ownInv.data) || {};
     const gross = (Number(d.install) || 0) + (Number(d.removal) || 0) + (Number(d.changeFees) || 0);
     const paid = Number(d.deposit) || 0;
+    if(Array.isArray(d.billedHouseIds) && d.billedHouseIds.length > 1){
+      const part = Math.max(0, Number(house && house.housePrice) || 0);
+      const beyond = Math.max(0, Math.min(part, paid - (gross - part)));
+      return beyond > 0 ? beyond : null;
+    }
     const carried = Math.max(0, Math.min(paid, gross));
     return carried > 0 ? carried : null;
   }
@@ -59617,6 +59689,205 @@ function allCustInvoiceFor(addrItem){
   if(!key) return null;
   // Keyed lookup, not a scan of the whole invoice list — see invoiceById.
   return invoiceById.get(key) || null;
+}
+/* ⭐ WHAT A PHONE OR A BILL TO BOX MAY HOLD, AND WHERE A HOUSE'S OWN LINES GO
+   (2026-10-29, the Customers break-test). Each is its own top-level function so
+   run-all.js Suite 431 can RUN it — the same reason carriedPaymentOnBillToChange
+   is one.
+
+   phoneLooksReal — a phone is ten digits, or eleven with a leading 1. "801-CALL-NOW"
+   used to be stored as "801" and became an invoice key of its own (A3).
+   ⚠ DIGITS ONLY, never the typed wording: both forms strip everything else before
+   they store it, so this answers about what would actually be saved. */
+function phoneLooksReal(phone){
+  const p = String(phone || '').replace(/\D/g,'');
+  return p.length === 10 || (p.length === 11 && p.charAt(0) === '1');
+}
+/* A Bill To that is this customer's own phone is no Bill To at all. Left set, the
+   house was moved onto "somebody else's" bill that was its own, its payment was
+   carried across as a credit AND kept as the deposit, and half the price vanished
+   (S2). The Add form already treated it as blank; this is the Edit form's copy of
+   that one comparison, against every key the customer will file under. */
+function billToIsOwnPhone(billTo, ownKeys){
+  const b = String(billTo || '').replace(/\D/g,'');
+  if(!b) return false;
+  return (ownKeys || []).some(function(k){
+    const kd = String(k || '').replace(/\D/g,'');
+    return !!kd && kd === b && String(k || '').indexOf('@') === -1;
+  });
+}
+/* ⚠ A BILL TO THAT COMES BACK ROUND TO THIS CUSTOMER IS REFUSED (S4). A billing
+   B while B bills A left each paying for the other with both houses still summed on a
+   group invoice — $963 billed for $613 of houses. Followed through every house's own
+   Bill To, so a longer ring (A → B → C → A) is caught too. Returns the chain of phones
+   from the target back to `ownKey`, or null when there is no loop. `selfId` is left
+   out because its Bill To is the one being changed. */
+function billToLoopPath(ownKey, target, houses, selfId){
+  const own = String(ownKey || '').trim();
+  const start = String(target || '').replace(/\D/g,'');
+  if(!own || !start) return null;
+  const nextOf = {};
+  (houses || []).forEach(function(h){
+    if(!h || h.id === selfId) return;
+    const d = h.data || {};
+    const bt = String(d.billToPhone || '').replace(/\D/g,'');
+    const k = custInvoiceKey(d);
+    if(!bt || !k) return;
+    (nextOf[k] = nextOf[k] || []).push(bt);
+  });
+  const seen = {};
+  const queue = [[start]];
+  while(queue.length){
+    const path = queue.shift();
+    const cur = path[path.length - 1];
+    if(cur === own) return path;
+    if(seen[cur]) continue;
+    seen[cur] = true;
+    (nextOf[cur] || []).forEach(function(n){ queue.push(path.concat([n])); });
+  }
+  return null;
+}
+/* Does anybody answer to this Bill To phone? A typo used to create a nameless invoice
+   that no screen lists (S3, A10). A payer need not be a customer — a parent paying for
+   a child — so an existing invoice under the number counts as known too, and an
+   unknown one is a question for the office (confirm), never a refusal. */
+function billToHolderName(billTo, houses, invoiceExists){
+  const b = String(billTo || '').replace(/\D/g,'');
+  if(!b) return null;
+  const h = (houses || []).find(function(x){
+    return x && String(((x.data || {}).phone) || '').replace(/\D/g,'') === b;
+  });
+  if(h) return (h.data && h.data.name) || 'a customer';
+  if(typeof invoiceExists === 'function' && invoiceExists(b)) return 'an existing bill';
+  return null;
+}
+/* ⭐ THE PHONE AND BILL TO BOXES, CHECKED ONE WAY FOR BOTH FORMS. Add Customer and Edit
+   Customer each ask this before writing anything. Returns {refuse: why} for something that
+   cannot be saved, {ask: question} for something the office has to confirm, or null.
+   ⚠ ONLY WHAT CHANGED IS CHECKED (`phoneWas`, `billToWas`): an imported record with an odd
+   number on file must still be editable for everything else. `verb` is "saved" or "added".
+   ⚠ A Bill To that is their own phone must already have been blanked by the caller —
+   see billToIsOwnPhone. */
+function phoneAndBillToProblem(o){
+  const nothing = 'Nothing ' + (o.verb || 'saved') + ' — ';
+  const phone = String(o.phone || '').replace(/\D/g,'');
+  const billTo = String(o.billTo || '').replace(/\D/g,'');
+  const digitsWord = function(n){ return n + ' digit' + (n === 1 ? '' : 's'); };
+  if(phone && phone !== String(o.phoneWas || '').replace(/\D/g,'') && !phoneLooksReal(phone)){
+    return {refuse: nothing + 'the phone number has ' + digitsWord(phone.length) +
+      '. A phone is 10 digits (11 if it starts with 1). Check it, or leave it blank and use their email.'};
+  }
+  if(!billTo || billTo === String(o.billToWas || '').replace(/\D/g,'')) return null;
+  if(!phoneLooksReal(billTo)){
+    return {refuse: nothing + 'the Bill To phone has ' + digitsWord(billTo.length) +
+      '. A phone is 10 digits (11 if it starts with 1).'};
+  }
+  const loop = billToLoopPath(o.ownKey, billTo, o.houses, o.selfId);
+  if(loop){
+    return {refuse: nothing + billTo + ' is billed back to ' + (o.name || 'this customer') +
+      (loop.length > 2 ? ' (through ' + loop.slice(1, -1).join(', ') + ')' : '') +
+      ', so each would be paying for the other. Clear the Bill To on that customer first.'};
+  }
+  const others = (o.houses || []).filter(function(h){ return h && h.id !== o.selfId; });
+  if(!billToHolderName(billTo, others, o.invoiceExists)){
+    return {ask: 'Nobody on file has the phone ' + billTo + ', and there is no bill under it.\n\n' +
+      'This starts a new bill under that number for ' + (o.name || 'this customer') + '’s house. ' +
+      'If it is a typo, press Cancel and check it.\n\nBill ' + billTo + ' anyway?'};
+  }
+  return null;
+}
+/* ⭐ EVERY OTHER HOUSE WHOSE BILL IS FILED UNDER THIS CUSTOMER — the two halves
+   billingGroupsByPayer reads: a house whose Bill To is this key, and a house with no
+   Bill To on the same key (a cabin on one phone). Deleting this customer must not take
+   that bill with it (D3, D5), and the confirm names them. */
+function housesStillBilledTo(item, houses){
+  const d = (item && item.data) || {};
+  const key = custInvoiceKey(d);
+  if(!key) return [];
+  return (houses || []).filter(function(h){
+    if(!h || !item || h.id === item.id) return false;
+    const x = h.data || {};
+    const bt = String(x.billToPhone || '').replace(/\D/g,'');
+    if(bt) return bt === key;
+    return custInvoiceKey(x) === key;
+  });
+}
+/* ⭐ A HOUSE'S OWN LEDGER LINES TRAVEL WITH IT (F4). A manual discount or a fee on a
+   house's own bill used to be deleted with that bill when it moved onto somebody
+   else's, or left on the payer's bill when it came back. Lines that move are tagged
+   with `houseId`, and this splits an invoice into the lines that belong to that house
+   and the rest. ⚠ NEVER A `carried` CREDIT: syncPayerInvoice owns those and rebuilds
+   them from paidBeforeBillTo on every run. */
+function splitHouseLedgerLines(inv, houseId){
+  const d = inv || {};
+  const credits = Array.isArray(d.creditNotes) ? d.creditNotes : [];
+  const fees = Array.isArray(d.changeFeeNotes) ? d.changeFeeNotes : [];
+  const mine = function(n){ return !!n && !!houseId && n.houseId === houseId && n.kind !== 'carried'; };
+  return {
+    movingCredits: credits.filter(mine), keptCredits: credits.filter(function(n){ return !mine(n); }),
+    movingFees: fees.filter(mine), keptFees: fees.filter(function(n){ return !mine(n); })
+  };
+}
+function ledgerLinesTotal(lines){
+  return (lines || []).reduce(function(s, n){ return s + (Number(n && n.amount) || 0); }, 0);
+}
+/* Adds lines to an invoice and recomputes its totals and status. setDoc+merge, so a
+   payer whose bill does not exist yet still gets the line rather than a throw. */
+async function addLedgerLinesToInvoice(key, credits, fees){
+  if(!key || (!(credits || []).length && !(fees || []).length)) return;
+  const snap = await getDoc(doc(db,'invoices', key));
+  const cur = snap.exists() ? snap.data() : {};
+  const creditNotes = (Array.isArray(cur.creditNotes) ? cur.creditNotes : []).concat(credits || []);
+  const changeFeeNotes = (Array.isArray(cur.changeFeeNotes) ? cur.changeFeeNotes : []).concat(fees || []);
+  const creditsTotal = ledgerLinesTotal(creditNotes), feesTotal = ledgerLinesTotal(changeFeeNotes);
+  await setDoc(doc(db,'invoices', key), {
+    creditNotes: creditNotes, credits: creditsTotal,
+    changeFeeNotes: changeFeeNotes, changeFees: feesTotal,
+    status: computeInvoiceStatus(Number(cur.install) || 0, Number(cur.removal) || 0, Number(cur.deposit) || 0, creditsTotal, feesTotal),
+    updatedAt: serverTimestamp()
+  }, {merge: true});
+}
+/* Moves one house's tagged lines from the bill it is leaving to the bill it is
+   joining — back to its own when it returns, on to the next payer when it moves
+   again. Nothing tagged, nothing written. */
+async function moveHouseLedgerLines(fromKey, toKey, houseId){
+  if(!fromKey || !toKey || fromKey === toKey || !houseId) return;
+  const snap = await getDoc(doc(db,'invoices', fromKey));
+  if(!snap.exists()) return;
+  const cur = snap.data();
+  const s = splitHouseLedgerLines(cur, houseId);
+  if(!s.movingCredits.length && !s.movingFees.length) return;
+  const creditsTotal = ledgerLinesTotal(s.keptCredits), feesTotal = ledgerLinesTotal(s.keptFees);
+  await setDoc(doc(db,'invoices', fromKey), {
+    creditNotes: s.keptCredits, credits: creditsTotal,
+    changeFeeNotes: s.keptFees, changeFees: feesTotal,
+    status: computeInvoiceStatus(Number(cur.install) || 0, Number(cur.removal) || 0, Number(cur.deposit) || 0, creditsTotal, feesTotal),
+    updatedAt: serverTimestamp()
+  }, {merge: true});
+  await addLedgerLinesToInvoice(toKey, s.movingCredits, s.movingFees);
+}
+/* ⭐ A PHONE CHANGED ONTO A NUMBER THAT ALREADY HAS A BILL (F6). The old code copied
+   this customer's invoice over the other one with a merge, so their paid invoice
+   became this customer's unpaid one and their payment was gone. Both bills' money is
+   kept: payments and removal add up, every credit and fee line is kept. `install` is
+   not decided here — syncPayerInvoice rebuilds it from the houses straight after, and
+   it owns the `carried` credits, which are therefore left out. */
+function mergedInvoiceMoney(target, moving){
+  const t = target || {}, m = moving || {};
+  const notCarried = function(n){ return n && n.kind !== 'carried'; };
+  const creditNotes = (Array.isArray(t.creditNotes) ? t.creditNotes : []).filter(notCarried)
+    .concat((Array.isArray(m.creditNotes) ? m.creditNotes : []).filter(notCarried));
+  const changeFeeNotes = (Array.isArray(t.changeFeeNotes) ? t.changeFeeNotes : [])
+    .concat(Array.isArray(m.changeFeeNotes) ? m.changeFeeNotes : []);
+  const notes = [String(t.invoiceNotes || '').trim(), String(m.invoiceNotes || '').trim()].filter(Boolean);
+  return {
+    deposit: (Number(t.deposit) || 0) + (Number(m.deposit) || 0),
+    removal: (Number(t.removal) || 0) + (Number(m.removal) || 0),
+    creditNotes: creditNotes, credits: ledgerLinesTotal(creditNotes),
+    changeFeeNotes: changeFeeNotes, changeFees: ledgerLinesTotal(changeFeeNotes),
+    newMemberFeeApplied: !!(t.newMemberFeeApplied || m.newMemberFeeApplied),
+    invoiceNotes: notes.filter(function(n, i){ return notes.indexOf(n) === i; }).join('\n')
+  };
 }
 /* ---- "when is anybody next going to this house?" ----
    The Route column said "Scheduled" without ever saying WHEN, so the one
@@ -61519,7 +61790,10 @@ function openEditCustomerModal(id){
   /* Only the manual fee is editable here. Automatic light-change fees stay on
      the invoice and are managed from the Invoices tab. */
   const ecFeeNotes = (ecInv && Array.isArray(ecInv.data.changeFeeNotes)) ? ecInv.data.changeFeeNotes : [];
-  const ecManualFee = ecFeeNotes.find(f => f.kind === 'manual');
+  /* ⚠ THIS HOUSE'S OWN LINE ONLY — a fee tagged with another house came across with that
+     house (splitHouseLedgerLines) and is not this box's to show or rebuild. */
+  const ecOwnLine = f => !f.houseId || f.houseId === id;
+  const ecManualFee = ecFeeNotes.find(f => f.kind === 'manual' && ecOwnLine(f));
   document.getElementById('editCustFee').value = ecManualFee ? (Number(ecManualFee.amount) || '') : '';
   document.getElementById('editCustFeeReason').value = ecManualFee ? (ecManualFee.reason || '') : '';
   /* ⭐ THE OFFICE'S OWN CARRIED LINE, kept apart from the one Start New Season writes.
@@ -61529,7 +61803,7 @@ function openEditCustomerModal(id){
      credit already use: each rebuild owns one kind and keeps every other.
      ⚠ A BOX THAT SILENTLY EDITED THE AUTOMATIC LINE would let an ordinary save rewrite
      a debt the app worked out from the books, with nothing on screen saying so. */
-  const ecOfficeArrears = ecFeeNotes.find(f => f.kind === ARREARS_KIND && f.source === 'office');
+  const ecOfficeArrears = ecFeeNotes.find(f => f.kind === ARREARS_KIND && f.source === 'office' && ecOwnLine(f));
   document.getElementById('editCustArrears').value = ecOfficeArrears ? (Number(ecOfficeArrears.amount) || '') : '';
   /* ⚠ `year`, THE SAME FIELD arrearsYearOnInvoice READS. A second name for the same
      fact (this box briefly wrote `season`) is how the badge on the row and the line on
@@ -62462,14 +62736,29 @@ async function hlxRemoveCustomerToRecycle(item, opts){
 
   say("Removing them…");
   const custKey = custInvoiceKey(d);
+  /* ⭐ THE BILL UNDER THEIR KEY MAY NOT BE ONLY THEIRS (2026-10-29, break-test D3, D5).
+     It was deleted unconditionally — so removing a payer deleted the invoice of every
+     house that bills to them (thirteen in the test, $10,105 nobody was charged), and
+     removing a cabin that shares the main house's phone deleted the main house's bill
+     and its payment with it. When any other house still files under this key the bill
+     STAYS, payment and all, and is rebuilt without this house after the record is gone.
+     ⚠ AND THEN THE PAYMENT IS NOT ARCHIVED. archivedRevenue counts money whose invoice
+     is gone; money still sitting on a live bill counted there as well would be counted
+     twice in Finance. */
+  const sharing = custKey ? housesStillBilledTo(item, (typeof jobAddresses !== 'undefined' && jobAddresses) || []) : [];
+  let rebuildOwnKey = false;
   if(custKey){
     const invSnap = await getDoc(doc(db,'invoices',custKey));
     if(invSnap.exists()){
-      const paidAmount = Number(invSnap.data().deposit) || 0;
-      if(paidAmount > 0){
-        await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
+      if(sharing.length){
+        rebuildOwnKey = true;
+      } else {
+        const paidAmount = Number(invSnap.data().deposit) || 0;
+        if(paidAmount > 0){
+          await setDoc(doc(db,'settings','financeArchive'), {archivedRevenue: increment(paidAmount)}, {merge:true});
+        }
+        await deleteDoc(doc(db,'invoices',custKey));
       }
-      await deleteDoc(doc(db,'invoices',custKey));
     }
   }
   if(num){
@@ -62478,7 +62767,22 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   await removeCustomerFromUpcomingRoutes(item.id);
   await deleteDoc(doc(db,'jobAddresses', item.id));
   logActivity('Removed ' + (d.name || item.id) + ' to Recycle' + (num ? ', number #' + num + ' back in the pool' : ''), 'customers', item.id);
-  return {removed: true, wroteSheet: wroteSheet, number: num};
+  /* ⭐ AND EVERY BILL THEY WERE ON IS REBUILT WITHOUT THEM (D4, D5). A house billed to
+     somebody else stayed summed on that payer's invoice after it was deleted. Through
+     syncPayerInvoice, the one writer, told the house is gone so the loaded list cannot
+     sum it back in.
+     ⚠ AFTER THE DELETE AND GUARDED ON ITS OWN. The customer is already gone by this
+     line; a failed rebuild is reported by name, never turned into "could not remove". */
+  const billsNotRebuilt = [];
+  const payerKey = String(d.billToPhone || '').replace(/\D/g,'');
+  const rebuild = [];
+  if(rebuildOwnKey) rebuild.push(custKey);
+  if(payerKey && payerKey !== custKey) rebuild.push(payerKey);
+  for(const k of rebuild){
+    try{ await syncPayerInvoice(k, {removedIds: [item.id]}); }
+    catch(err){ console.error('[HU] could not rebuild the bill under ' + k + ' after a removal', err); billsNotRebuilt.push(k); }
+  }
+  return {removed: true, wroteSheet: wroteSheet, number: num, billsNotRebuilt: billsNotRebuilt};
   } finally {
     if(removingId) hlxRemovingIds.delete(removingId);
   }
@@ -62747,13 +63051,32 @@ document.getElementById('editCustColorChangeBtn').addEventListener('click', asyn
     if(statusEl) statusEl.textContent = 'Could not do that: ' + ((err && err.message) || err);
   }
 });
-document.getElementById('editCustDeleteBtn').addEventListener('click', async function(){
+/* ⚠ ONE REMOVAL AT A TIME, AND ASKED FIRST (2026-10-29, break-test D1, D2). It ran on a
+   single click with no question — `carryWarn` below was built and never shown — and a
+   double click ran the whole removal twice, adding their payment to archivedRevenue
+   twice. onceAtATime holds the button for the length of the run. */
+document.getElementById('editCustDeleteBtn').addEventListener('click', onceAtATime(async function(){
   if(!editCustomerId) return;
   const item = jobAddresses.find(function(it){ return it.id === editCustomerId; });
   if(!item) return;
   const d = item.data;
   const num = String(d.customerNumber||'');
   const carryWarn = Number(d.carryoverCredit) > 0 ? '\n\n⚠️ They have ' + fmtMoney(Number(d.carryoverCredit)) + ' in credit on file toward a future invoice — deleting them loses it.' : '';
+  /* ⭐ AND IT NAMES EVERY OTHER HOUSE ON THEIR BILL (D3). Those houses stay, and so does
+     the bill under this phone — rebuilt without this house — but somebody may mean to
+     move them to a new payer first, and this is the last moment anybody would see it. */
+  const stillBilled = housesStillBilledTo(item, jobAddresses);
+  const billWarn = stillBilled.length
+    ? '\n\n⚠️ ' + stillBilled.length + ' other house' + (stillBilled.length === 1 ? ' is' : 's are') +
+      ' billed under ' + (d.name || 'their') + '’s phone: ' +
+      stillBilled.slice(0, 5).map(function(h){ return (h.data && (h.data.name || h.data.address)) || h.id; }).join(', ') +
+      (stillBilled.length > 5 ? ' and ' + (stillBilled.length - 5) + ' more' : '') +
+      '.\nThey stay on that bill (with any payment on it). If somebody else should pay for them now, ' +
+      'press Cancel and change their Bill To first.'
+    : '';
+  if(!confirm('Delete ' + (d.name || 'this customer') + (num ? ' (#' + num + ')' : '') + '?' +
+      '\n\nThey go to Archive and onto the Recycle list, their lights come back' +
+      (num ? ', and #' + num + ' goes back in the pool' : '') + '.' + carryWarn + billWarn)) return;
   /* ⭐ THE RECYCLE INSTRUCTION HAS TO OUTLIVE THE CUSTOMER. Owner, 2026-08-20:
      "yes people in recycle should not exist as a customer", and "they are removed as a
      customer and then recycled." That is the order it really happens in, and it broke
@@ -62779,10 +63102,14 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
     requoteClearInHand();
     statusEl.textContent = '';
     toast((d.name || 'That customer') + ' removed' + (out.wroteSheet ? ' and added to the Recycle sheet' : '') + '.');
+    if(out.billsNotRebuilt && out.billsNotRebuilt.length){
+      toast('\u26a0 Removed \u2014 but the bill under ' + out.billsNotRebuilt.join(', ') +
+        ' could not be updated. Open that payer and press Save Changes to rebuild it.');
+    }
   } catch(err){
     statusEl.textContent = 'Could not remove \u2014 try again.';
   }
-});
+}, function(){ return document.getElementById('editCustDeleteBtn'); }));
 /* ⭐ THE TOP BAR PRESSES THE REAL BUTTONS rather than repeating what they do.
    Saving a customer re-derives the bin count, warns about the number series, rebuilds
    the invoice, re-syncs saved route stops and queues the warehouse " + M + " a second copy of
@@ -63084,7 +63411,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
   const newWireColor = document.getElementById('editCustWireColor').value;
-  const newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
+  /* ⚠ `let`, because a Bill To that is their OWN phone is blanked further down — see
+     billToIsOwnPhone. */
+  let newBillTo = document.getElementById('editCustBillTo').value.replace(/\D/g,'');
   const newGateCode = document.getElementById('editCustGateCode').value.trim();
   const newOutletTimer = document.getElementById('editCustOutletTimer').value;
   const newUseEaves = document.getElementById('editCustEaves').value;
@@ -63171,6 +63500,57 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newWarehouseNote = document.getElementById('editCustWarehouseNote').value.trim();
   const newWarehouseOneTime = document.getElementById('editCustWarehouseOneTime').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
+  /* ⭐ WHAT THE PHONE AND THE BILL TO BOXES MAY HOLD (2026-10-29, the Customers
+     break-test). Every check here runs BEFORE anything is written, so a refusal or a
+     Cancel leaves the customer exactly as they were.
+     ⚠ A NUMBER THAT IS NOT A PHONE IS REFUSED (A3). The box keeps digits only, so
+     "801-CALL-NOW" was saved as "801" and became an invoice key nobody could find.
+     Only a number being CHANGED is checked: an imported record with an odd number on
+     file must still be editable for everything else. */
+  /* ⚠ BILL TO = THEIR OWN PHONE IS NO BILL TO (S2). Left set, their payment was
+     carried across as a credit AND kept as the deposit on the same bill. */
+  if(billToIsOwnPhone(newBillTo, [newPhone, d.phone])) newBillTo = '';
+
+  /* ⚠ A BILL TO THAT COMES BACK ROUND TO THEM IS REFUSED (S4) — each would be paying for
+     the other — and a number nobody answers to is ASKED about (S3): a typo made a
+     nameless bill no screen lists, but a payer need not be a customer. */
+  {
+    const boxProblem = phoneAndBillToProblem({verb: 'saved', name: newName,
+      phone: newPhone, phoneWas: d.phone, billTo: newBillTo, billToWas: d.billToPhone,
+      ownKey: newPhone || newEmail.toLowerCase(), selfId: savingCustomerId, houses: jobAddresses,
+      invoiceExists: function(k){ return typeof invoiceById !== 'undefined' && !!invoiceById && invoiceById.has(k); }});
+    if(boxProblem && boxProblem.refuse){ statusEl.textContent = boxProblem.refuse; return; }
+    if(boxProblem && boxProblem.ask && !confirm(boxProblem.ask)){
+      statusEl.textContent = 'Nothing saved — check the Bill To phone.';
+      return;
+    }
+  }
+  /* ⭐ A PHONE CHANGED ONTO ONE SOMEBODY ELSE'S BILL IS FILED UNDER (E1). The bill is
+     keyed by the phone, so this puts both houses on ONE invoice — and the old code
+     copied this customer's invoice over theirs, wiping their payment. Asked first, by
+     name; the merge below keeps both bills' money. */
+  {
+    const saveKeyNew = newPhone || newEmail.toLowerCase();
+    if(saveKeyNew && saveKeyNew !== custInvoiceKey(d)){
+      const sharers = jobAddresses.filter(function(h){
+        return h.id !== savingCustomerId && custInvoiceKey(h.data || {}) === saveKeyNew;
+      });
+      const billThere = (typeof invoiceById !== 'undefined' && invoiceById) ? invoiceById.get(saveKeyNew) : null;
+      if(sharers.length || billThere){
+        const whose = sharers.length
+          ? sharers.slice(0, 3).map(function(h){ return (h.data && h.data.name) || 'a customer'; }).join(', ') +
+            (sharers.length > 3 ? ' and ' + (sharers.length - 3) + ' more' : '')
+          : ((billThere && billThere.data && billThere.data.name) || 'another customer');
+        if(!confirm(saveKeyNew + ' is already ' + whose + '’s, and their bill is filed under it.\n\n' +
+            'Saving puts ' + newName + ' on that same bill: one invoice for both houses, with both ' +
+            'payments kept on it.\n\nIf this is a typo, press Cancel and check the number.\n\n' +
+            'Put them on one bill?')){
+          statusEl.textContent = 'Nothing saved — check the phone number.';
+          return;
+        }
+      }
+    }
+  }
   /* ⚠ HAS ANYBODY ELSE TOUCHED THIS RECORD WHILE THE MODAL WAS OPEN?
      This handler writes ~30 fields from the snapshot taken when it opened —
      including Measured Feet, which drives bins, the customer number series and
@@ -63288,7 +63668,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        belongs to whichever bill the house is on, and left set it would keep
        discounting a payer who no longer has this house. */
     {
-      const carried = carriedPaymentOnBillToChange(oldBillTo, newBillTo, allCustInvoiceFor(item));
+      const carried = carriedPaymentOnBillToChange(oldBillTo, newBillTo, allCustInvoiceFor(item), item.data);
       if(carried !== null){
         addrUpdates.paidBeforeBillTo = carried;
         addrUpdates.paidBeforeBillToAt = carried > 0 ? serverTimestamp() : null;
@@ -63906,8 +64286,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     let priceWantsRequote = false;
     let priceRequoteNote = '';
     if(priceChanged && !feetChanged && !addressChanged && !requoteBeingConverted){
-      const answer = await askPriceRequote(newName || (d.name || 'this customer'),
-        Number(d.housePrice || 0), Number(newHousePrice || 0));
+      /* ⚠ SAVE IS SHUT WHILE THE QUESTION IS OPEN (2026-10-29, break-test H5). The
+         popup sits over the form but both Save buttons stayed live, so a second press
+         started a second save that asked again and wrote twice. Put back however the
+         question ends. */
+      const saveBtnsWhileAsking = ['editCustSaveBtn', 'editCustTopSave']
+        .map(function(i){ return document.getElementById(i); }).filter(Boolean);
+      saveBtnsWhileAsking.forEach(function(b){ b.disabled = true; });
+      let answer;
+      try{
+        answer = await askPriceRequote(newName || (d.name || 'this customer'),
+          Number(d.housePrice || 0), Number(newHousePrice || 0));
+      } finally {
+        saveBtnsWhileAsking.forEach(function(b){ b.disabled = false; });
+      }
       priceWantsRequote = !!(answer && answer.raise);
       priceRequoteNote = (answer && answer.note) || '';
     }
@@ -64274,6 +64666,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     let inv = allCustInvoiceFor(item);
     let resyncPayerAfter = null;
     let migratingFeeNotes = null;
+    /* The house's own credit lines (a manual discount) that travel with it onto the new
+       payer's bill — see splitHouseLedgerLines. Deleted with the bill before (S5). */
+    let migratingCredits = null;
+    /* Set when the payer of a GROUP bill points their own house at somebody else: that
+       bill stays for the other houses and has to be rebuilt without this one (S6). */
+    let resyncOwnGroup = null;
     /* Set below when a typed fee or discount had no bill to land on, so the toast can
        name the customer whose bill was created for it. */
     let mintedInvoiceForLedger = false;
@@ -64355,9 +64753,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            is NOT part of. Each rebuild here owns exactly one thing and keeps every other:
            this drops only `manual` fees and only `arrears` lines the office typed, so a
            balance Start New Season worked out from the books survives an ordinary save. */
+        /* ⚠ ONLY THIS HOUSE'S. A line tagged with ANOTHER house's id came across with
+           that house when it joined this bill (splitHouseLedgerLines) — this box never
+           showed it, so rebuilding it from the box would delete somebody else's fee. */
+        const ownLine = function(f){ return !f.houseId || f.houseId === savingCustomerId; };
         const keptFees = priorFees.filter(function(f){
-          if(f.kind === 'manual') return false;
-          if(f.kind === ARREARS_KIND && f.source === 'office') return false;
+          if(f.kind === 'manual' && ownLine(f)) return false;
+          if(f.kind === ARREARS_KIND && f.source === 'office' && ownLine(f)) return false;
           return true;
         });
         const rebuiltFeeNotes = keptFees.slice();
@@ -64423,8 +64825,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         // phone added to an email-only customer, or their email changed —
         // move the whole invoice to the new ID so payments stay attached.
         if(newKey !== oldKey){
-          await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
-          await deleteDoc(doc(db,'invoices', inv.id));
+          /* ⭐ AND IF A BILL IS ALREADY FILED UNDER THE NEW KEY, IT IS SOMEBODY ELSE'S
+             (E1) — the office was asked about it above. Copying this invoice over it
+             put this customer's unpaid total where their payment had been. The two are
+             merged instead (mergedInvoiceMoney: payments and every line kept) and the
+             total is rebuilt from both houses by syncPayerInvoice below. */
+          const targetSnap = await getDoc(doc(db,'invoices', newKey));
+          if(targetSnap.exists()){
+            await setDoc(doc(db,'invoices', newKey),
+              mergedInvoiceMoney(targetSnap.data(), Object.assign({}, inv.data, invoiceUpdates)), {merge:true});
+            resyncPayerAfter = newKey;
+          } else {
+            await setDoc(doc(db,'invoices', newKey), Object.assign({}, inv.data, invoiceUpdates), {merge:true});
+          }
+          /* ⚠ A bill seeded in memory above already carries the NEW key as its id — deleting
+             "the old one" would delete the one just written. */
+          if(inv.id !== newKey) await deleteDoc(doc(db,'invoices', inv.id));
         } else if(mintedInvoiceForLedger){
           /* ⚠ setDoc+merge, NOT updateDoc: this document does not exist yet — it was
              seeded in memory above so the ledger rebuild could place the typed lines on
@@ -64452,39 +64868,75 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         // A light-change fee isn't part of install/removal — it has to move to
         // the new payer's invoice explicitly, or zeroing/deleting this one
         // silently drops it and it never gets billed to anyone.
+        /* ⭐ TAGGED WITH THIS HOUSE AS THEY GO (2026-10-29, F4), so they can find their
+           way back when the house returns to its own bill or moves on again
+           (moveHouseLedgerLines below). Untagged, they stayed on the payer's bill for
+           ever after the house had left it (S7). */
+        const tagHouse = function(n){ return Object.assign({}, n, {houseId: n.houseId || savingCustomerId}); };
         const movingFee = Number(inv.data.changeFees) || 0;
         if(movingFee > 0){
-          migratingFeeNotes = Array.isArray(inv.data.changeFeeNotes) && inv.data.changeFeeNotes.length
+          migratingFeeNotes = (Array.isArray(inv.data.changeFeeNotes) && inv.data.changeFeeNotes.length
             ? inv.data.changeFeeNotes
-            : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}];
+            : [{amount: movingFee, reason: 'Light change fee (moved when bill-to changed)', date: new Date().toISOString()}]).map(tagHouse);
         }
+        /* ⭐ AND THE CREDIT LINES GO WITH IT (F4, S5). A manual discount used to be
+           deleted with this bill — gone for good, the customer charged full price. It
+           travels like the fees do. Referral lines stay: this save rebuilds them from
+           the count whenever the house is back on its own bill, and syncPayerInvoice
+           owns every `carried` one. */
+        const allCredits = Array.isArray(inv.data.creditNotes) ? inv.data.creditNotes : [];
+        const staysHere = function(c){
+          return c.kind === 'referral' || c.kind === 'carried' ||
+            (!c.kind && /^Referral — /.test(c.reason || ''));
+        };
+        const stayingCredits = allCredits.filter(staysHere);
+        const goingCredits = allCredits.filter(function(c){ return !staysHere(c); });
+        if(goingCredits.length) migratingCredits = goingCredits.map(tagHouse);
         if(Number(inv.data.deposit) > 0){
-          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, changeFees: 0, changeFeeNotes: [], status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, inv.data.credits || 0, 0), updatedAt: serverTimestamp() });
+          const stayingTotal = ledgerLinesTotal(stayingCredits);
+          await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, changeFees: 0, changeFeeNotes: [],
+            creditNotes: stayingCredits, credits: stayingTotal,
+            status: computeInvoiceStatus(0, 0, inv.data.deposit || 0, stayingTotal, 0), updatedAt: serverTimestamp() });
         } else {
           await deleteDoc(doc(db,'invoices', inv.id));
         }
+      } else if(isGroupInv && inv.id === oldKey){
+        /* ⚠ THEIR OWN BILL IS A GROUP ONE (S6). It stays — it still bills the other
+           houses — but THIS house has left it, and it went on being summed there as
+           well as on the new payer's bill: charged twice. Rebuilt without it below. */
+        resyncOwnGroup = oldKey;
       }
     }
+    /* ⚠ THE LOADED LIST IS TOLD WHAT WAS JUST WRITTEN, before the bills are rebuilt from
+       it. syncPayerInvoice's fallbacks read this cache, and a copy still saying "no Bill
+       To" summed this house straight back onto the bill it had just left. Same mirror
+       every other Edit Customer button makes. */
+    Object.assign(item.data, {billToPhone: newBillTo, phone: newPhone, email: newEmail});
+    if(addrUpdates.paidBeforeBillTo !== undefined) item.data.paidBeforeBillTo = addrUpdates.paidBeforeBillTo;
     if(resyncPayerAfter) await syncPayerInvoice(resyncPayerAfter);
+    if(resyncOwnGroup) await syncPayerInvoice(resyncOwnGroup);
     if(oldBillTo && oldBillTo !== newBillTo) await syncPayerInvoice(oldBillTo);
     if(newBillTo) await syncPayerInvoice(newBillTo);
+    /* ⭐ BACK ON THEIR OWN BILL, IT IS REBUILT FROM THE HOUSE (2026-10-29, F1, S1). The
+       bill was zeroed (or deleted) when they left, and the code above only rewrites
+       `install` when the PRICE changed — so a house switched away and back was left
+       owing $0. paidBeforeBillTo was cleared above, so the payment sitting on this bill
+       as its deposit is counted once, here, and no longer as a credit on the old payer's. */
+    else if(oldBillTo && newKey && newKey !== resyncPayerAfter) await syncPayerInvoice(newKey);
     // Fold the moved fee onto the payer's invoice after syncPayerInvoice has
     // rebuilt it, so it lands on top of the correct fresh install/removal
     // rather than being overwritten by that resync.
-    if(newBillTo && migratingFeeNotes){
-      const payerSnap = await getDoc(doc(db,'invoices', newBillTo));
-      const payerData = payerSnap.exists() ? payerSnap.data() : {};
-      const combinedFeeNotes = (Array.isArray(payerData.changeFeeNotes) ? payerData.changeFeeNotes : []).concat(migratingFeeNotes);
-      const combinedFees = combinedFeeNotes.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
-      /* setDoc+merge, not updateDoc: syncPayerInvoice above skips writing (on
+    if(newBillTo && (migratingFeeNotes || migratingCredits)){
+      /* setDoc+merge inside, not updateDoc: syncPayerInvoice above skips writing (on
          purpose) when every one of the payer's houses sat out the season, so
          this invoice doc may not exist yet — updateDoc would throw "No
          document to update" and the fee would be lost mid-save. */
-      await setDoc(doc(db,'invoices', newBillTo), {
-        changeFees: combinedFees, changeFeeNotes: combinedFeeNotes,
-        status: computeInvoiceStatus(payerData.install || 0, payerData.removal || 0, payerData.deposit || 0, payerData.credits || 0, combinedFees),
-        updatedAt: serverTimestamp()
-      }, {merge:true});
+      await addLedgerLinesToInvoice(newBillTo, migratingCredits || [], migratingFeeNotes || []);
+    }
+    /* ⭐ AND WHEN THE HOUSE LEAVES A PAYER, ITS OWN LINES COME WITH IT — back onto its
+       own bill, or on to the next payer (F4, S7). */
+    if(oldBillTo && oldBillTo !== newBillTo){
+      await moveHouseLedgerLines(String(oldBillTo).replace(/\D/g,''), newBillTo || newKey, savingCustomerId);
     }
     /* ⭐ THE LIGHT-CHANGE FEE, ON ITS OWN LINE (added 2026-08-21). LAST, on purpose:
        syncPayerInvoice above rebuilds the invoice from the houses, so a fee written

@@ -30133,6 +30133,24 @@ suite('Suite 112. The number on the bin');
   }
 }
 
+/* ⭐ THE BILL TO / PHONE / LEDGER HELPERS THE EDIT CUSTOMER SAVE CALLS (2026-10-29), lifted
+   out of admin.html into whichever sandbox is about to run it. One factory, so every harness
+   that runs the save gets the REAL rules over ITS OWN Firestore stubs — a stub here would
+   decide for itself who pays, which is the one thing Suite 431 exists to measure.
+   ⚠ `async` IS PUT BACK BY HAND: extractFn matches "function NAME(" and drops the keyword,
+   and a body full of bare `await` without it is a parse error that kills the whole run. */
+const CUSTOMER_MONEY_PURE = ['phoneLooksReal', 'billToIsOwnPhone', 'billToLoopPath', 'billToHolderName',
+  'housesStillBilledTo', 'splitHouseLedgerLines', 'ledgerLinesTotal', 'mergedInvoiceMoney',
+  'phoneAndBillToProblem'];
+const CUSTOMER_MONEY_ASYNC = ['addLedgerLinesToInvoice', 'moveHouseLedgerLines'];
+function liftCustomerMoney(c) {
+  const src = CUSTOMER_MONEY_PURE.map(n => extractFn(admin, n)).join('\n') + '\n' +
+    CUSTOMER_MONEY_ASYNC.map(n => 'async ' + extractFn(admin, n)).join('\n');
+  return new Function('custInvoiceKey', 'getDoc', 'doc', 'setDoc', 'db', 'serverTimestamp',
+    'computeInvoiceStatus',
+    src + '\nreturn {' + CUSTOMER_MONEY_PURE.concat(CUSTOMER_MONEY_ASYNC).join(', ') + '};')(
+    c.custInvoiceKey, c.getDoc, c.doc, c.setDoc, c.db, c.serverTimestamp, c.computeInvoiceStatus);
+}
 suite('Suite 108. The Edit Customer save, actually run');
 
 {
@@ -30204,6 +30222,8 @@ suite('Suite 108. The Edit Customer save, actually run');
          have gone on passing while proving the opposite. */
       editCustHousePrice: '600', editCustFeet: '400', editCustNumber: '894',
       editCustRsvp: o.rsvp || 'yes'};
+    /* Suite 431 types its own phone / Bill To / price into the form. */
+    Object.assign(FIELDS, o.fields || {});
     const els = {};
     const elm = (id) => els[id] || (els[id] = {id: id,
       value: FIELDS[id] !== undefined ? FIELDS[id] : '', textContent: '', innerHTML: '',
@@ -30239,6 +30259,8 @@ suite('Suite 108. The Edit Customer save, actually run');
         ? {value: String((o.sides || []).length)} : null),
       createElement: () => elm('_t')
     };
+    /* Suite 431 reads the Save button's state while a question is open. */
+    if (typeof o.seeDocument === 'function') o.seeDocument(fakeDoc);
     const ctx = {
       document: fakeDoc,
       /* ⚠ THE ASSUMED SEASON, LIFTED RATHER THAN TYPED (2026-08-31). The save handler
@@ -30539,6 +30561,14 @@ suite('Suite 108. The Edit Customer save, actually run');
         'return ' + feeSrc + ';addLightChangeFeeToInvoice'
       )(ctx.getDoc, ctx.doc, ctx.setDoc, ctx.db, ctx.serverTimestamp, ctx.computeInvoiceStatus);
     }
+    /* ⭐ SUITE 420's FIXTURES BRING THEIR OWN FIRESTORE AND HOUSES (2026-10-29), and the
+       Bill To / phone / ledger helpers the save calls are LIFTED, never stubbed, AFTER
+       those are merged — so the lifted async writers write into the fixture's store, not
+       into the default one. Every existing run passes no extras and gets the same lifts
+       over the default stubs: the extraction-list trap CLAUDE.md names, closed in the
+       same commit that made the save call them. */
+    Object.assign(ctx, o.ctxExtra || {});
+    Object.assign(ctx, liftCustomerMoney(ctx));
     const names = Object.keys(ctx);
     /* ⭐ `editCustomerId` IS MOVED UNDERNEATH THE SAVE THROUGH A `with` PROXY, NOT A
        GLOBAL (2026-09-12). The claim under test is that a save started on one customer
@@ -31138,6 +31168,486 @@ suite('Suite 108. The Edit Customer save, actually run');
       '      null, and it can only do that THROUGH the proxy — which is the same trap object\n' +
       '      that serves every read');
   })());
+
+/* ⭐ SUITE 420. THE CUSTOMERS BREAK-TEST, RUN RATHER THAN READ (2026-10-29). A break-test of
+   the Customers area found the money going wrong in eleven ways, every one of them through code
+   that had checks around it — because the checks read the code, or ran it against a Firestore
+   that answered "no such document" to every read. A Bill To switched away and back left the
+   house billed $0; a Bill To set to their own phone counted their payment twice; a loop doubled
+   two bills; a phone changed onto another customer's number overwrote that customer's paid
+   invoice; deleting a payer deleted thirteen houses' bill; a deleted cabin took the main
+   house's payment with it.
+
+   ⚠ SO THIS ONE RUNS THE REAL EDIT CUSTOMER SAVE (Suite 108's harness) AND THE REAL
+   syncPayerInvoice AGAINST A FIRESTORE THAT REMEMBERS — a store each write lands in and each
+   read comes back out of — and asserts on the BILLS AFTERWARDS, never on which calls were
+   made. Owed = install + removal + fees − credits − deposit, floored at 0.
+   ⚠ AND THE CACHE IS A SEPARATE LIST FROM THE STORE, refreshed only when a fixture says so,
+   because a stale cache summing a house back onto a bill it had left was half of what broke. */
+suite('Suite 431. Customers break-test: the money follows the house, run through the real save');
+
+{
+  const clone420 = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const owed420 = (i) => i ? Math.max(0, (Number(i.install) || 0) + (Number(i.removal) || 0) +
+    (Number(i.changeFees) || 0) - (Number(i.credits) || 0) - (Number(i.deposit) || 0)) : null;
+
+  /* ---- the pure rules, run directly ---- */
+  const H = liftCustomerMoney({ custInvoiceKey: custInvoiceKey, computeInvoiceStatus: computeInvoiceStatus });
+  check('S431', 'a phone is ten digits, or eleven with a leading 1',
+    H.phoneLooksReal('8015551234') && H.phoneLooksReal('18015551234') &&
+    !H.phoneLooksReal('801') && !H.phoneLooksReal('28015551234') && !H.phoneLooksReal(''),
+    '"801-CALL-NOW" was stored as "801" and became an invoice key (A3)');
+  check('S431', 'a Bill To that is their own phone counts as no Bill To',
+    H.billToIsOwnPhone('(801) 555-1234', ['8015551234']) &&
+    !H.billToIsOwnPhone('8015559999', ['8015551234']) &&
+    !H.billToIsOwnPhone('123', ['bob123@x.com']),
+    'left set, their payment was carried as a credit AND kept as the deposit (S2)');
+  {
+    const ring = [{ id: 'b', data: { phone: '8012222222', billToPhone: '8013333333' } },
+                  { id: 'c', data: { phone: '8013333333', billToPhone: '8011111111' } }];
+    const path = H.billToLoopPath('8011111111', '8012222222', ring, 'a');
+    check('S431', 'a Bill To ring is found however long it is',
+      Array.isArray(path) && path.join('>') === '8012222222>8013333333>8011111111',
+      'A → B → C → A has each paying for the next and nobody paying for the first — got ' + JSON.stringify(path));
+    check('S431', 'and a chain that does not come back is allowed',
+      H.billToLoopPath('8019999999', '8012222222', ring, 'a') === null,
+      'a payer who pays somebody else’s bill is not a loop');
+  }
+  check('S431', 'a Bill To nobody holds is reported as unknown, a held one by name',
+    H.billToHolderName('8019990000', [{ id: 'x', data: { name: 'Dana', phone: '8015550000' } }], () => false) === null &&
+    H.billToHolderName('8015550000', [{ id: 'x', data: { name: 'Dana', phone: '(801) 555-0000' } }], () => false) === 'Dana' &&
+    !!H.billToHolderName('8017770000', [], (k) => k === '8017770000'),
+    'a typo made a nameless bill no screen lists (S3) — but a payer with a bill and no house is real');
+  {
+    const P = { id: 'p', data: { name: 'Payer', phone: '8011110000' } };
+    const others = [P, { id: 'k', data: { phone: '8012220000', billToPhone: '8011110000' } },
+      { id: 'cabin', data: { phone: '8011110000' } }, { id: 'away', data: { phone: '8011110000', billToPhone: '8019990000' } },
+      { id: 'z', data: { phone: '8013330000' } }];
+    const got = H.housesStillBilledTo(P, others).map(h => h.id).sort().join(',');
+    check('S431', 'both halves of a bill are found: Bill To houses and houses on the same phone',
+      got === 'cabin,k', 'got ' + got + ' — a house billing elsewhere is not on it, and the payer is not their own sharer');
+  }
+  {
+    const m = H.mergedInvoiceMoney(
+      { deposit: 700, removal: 0, creditNotes: [{ kind: 'manual', amount: 20 }, { kind: 'carried', amount: 99 }], changeFeeNotes: [{ amount: 30 }] },
+      { deposit: 100, removal: 50, creditNotes: [{ kind: 'manual', amount: 10 }], changeFeeNotes: [] });
+    check('S431', 'two bills merged keep both payments and every line',
+      m.deposit === 800 && m.removal === 50 && m.credits === 30 && m.changeFees === 30 &&
+      !m.creditNotes.some(c => c.kind === 'carried'),
+      'got ' + JSON.stringify(m) + ' — the carried credit is syncPayerInvoice’s to rebuild');
+  }
+  {
+    const stamp = new Function(extractFn(admin, 'carriedPaymentOnBillToChange') + '\nreturn carriedPaymentOnBillToChange;')();
+    const group = { data: { install: 1000, removal: 0, changeFees: 0, deposit: 1000, billedHouseIds: ['a', 'k'] } };
+    check('S431', 'leaving a fully paid group carries only this house’s share',
+      stamp('', '8015550001', group, { housePrice: 600 }) === 600,
+      'got ' + stamp('', '8015550001', group, { housePrice: 600 }));
+    const half = { data: { install: 1000, removal: 0, changeFees: 0, deposit: 500, billedHouseIds: ['a', 'k'] } };
+    check('S431', 'and a half paid group settles the houses that stay first',
+      stamp('', '8015550001', half, { housePrice: 600 }) === 100,
+      'the group keeps $400 of the $500 for the house still on it; $100 follows this one — got ' +
+      stamp('', '8015550001', half, { housePrice: 600 }));
+    check('S431', 'a group with nothing to price carries nothing, never the whole group’s money',
+      stamp('', '8015550001', group) === null,
+      'the old rule credited the new payer with every house’s payment (S6)');
+  }
+
+  /* ---- Add Customer asks the same question, before it writes anything (A3, A10) ---- */
+  {
+    const houses = [{ id: 'b', data: { name: 'Bea', phone: '8015550001', billToPhone: '8015559871' } }];
+    const ask = (o) => H.phoneAndBillToProblem(Object.assign({ verb: 'added', name: 'Test Person', phoneWas: '',
+      billToWas: '', selfId: null, houses: houses, invoiceExists: () => false }, o));
+    const letters = ask({ phone: '801', ownKey: '801' });
+    check('S431', 'Add Customer refuses a phone that is not ten digits',
+      !!letters && /^Nothing added — the phone number has 3 digits/.test(letters.refuse || ''),
+      '"801-CALL-NOW" was added as "801" with a bill filed under "801" (A3) — got ' + JSON.stringify(letters));
+    const ghost = ask({ phone: '8015559872', ownKey: '8015559872', billTo: '8010000001' });
+    check('S431', 'and asks before billing a phone nobody holds',
+      !!ghost && /Nobody on file has the phone 8010000001/.test(ghost.ask || ''),
+      'a typo made a nameless bill (A10) — got ' + JSON.stringify(ghost));
+    const loop = ask({ phone: '8015559871', ownKey: '8015559871', billTo: '8015550001' });
+    check('S431', 'and refuses a Bill To that already bills back to this phone',
+      !!loop && /each would be paying for the other/.test(loop.refuse || ''), 'got ' + JSON.stringify(loop));
+    check('S431', 'an Edit that leaves an odd old number alone is not refused for it',
+      H.phoneAndBillToProblem({ verb: 'saved', phone: '8015551', phoneWas: '(801) 555-1', billTo: '', houses: [] }) === null,
+      'an imported record with a short number must still be editable for everything else');
+    const add = sectionFrom(admin, admin.indexOf("getElementById('routeAddressForm').addEventListener"));
+    const asks = add.indexOf('phoneAndBillToProblem(');
+    check('S431', 'and the Add Customer submit asks it before the customer is written',
+      asks > 0 && asks < add.indexOf("addDoc(collection(db,'jobAddresses')"),
+      'the rule is only as good as the door that asks it');
+  }
+
+  /* ---- a Firestore that remembers, the real syncPayerInvoice over it ---- */
+  function world420(houses, invoices) {
+    const db = { jobAddresses: {}, invoices: {}, settings: {} };
+    houses.forEach(h => { db.jobAddresses[h.id] = clone420(h.data); });
+    Object.keys(invoices || {}).forEach(k => { db.invoices[k] = clone420(invoices[k]); });
+    const col = (c) => (db[c] = db[c] || {});
+    const put = (target, p) => {
+      Object.keys(p || {}).forEach(k => {
+        const v = p[k];
+        if (v && typeof v === 'object' && v.__inc !== undefined) target[k] = (Number(target[k]) || 0) + v.__inc;
+        else if (v !== undefined) target[k] = clone420(v);
+      });
+      return target;
+    };
+    const list = houses.map(h => ({ id: h.id, data: clone420(h.data) }));
+    /* Every write, so a refusal can be asserted as NOTHING written to the customer. */
+    const writes = [];
+    const F = {
+      db: {},
+      doc: (d, c, id) => ({ col: c, id: id }),
+      collection: (d, c) => ({ col: c }),
+      query: (c, ...w) => ({ col: c.col, where: w }),
+      where: (f, op, v) => ({ f: f, op: op, v: v }),
+      getDoc: async (r) => { const x = col(r.col)[r.id]; return { id: r.id, exists: () => !!x, data: () => clone420(x) }; },
+      getDocs: async (q) => {
+        const ids = Object.keys(col(q.col)).filter(id => (q.where || []).every(w => String(col(q.col)[id][w.f] || '') === String(w.v)));
+        return { forEach: (fn) => ids.forEach(id => fn({ id: id, data: () => clone420(col(q.col)[id]) })), size: ids.length };
+      },
+      setDoc: async (r, p, opt) => { writes.push({op: 'set', col: r.col, id: r.id}); col(r.col)[r.id] = put(opt && opt.merge ? (col(r.col)[r.id] || {}) : {}, p); },
+      updateDoc: async (r, p) => {
+        writes.push({op: 'update', col: r.col, id: r.id});
+        if (!col(r.col)[r.id]) throw new Error('No document to update: ' + r.col + '/' + r.id);
+        put(col(r.col)[r.id], p);
+      },
+      deleteDoc: async (r) => { writes.push({op: 'delete', col: r.col, id: r.id}); delete col(r.col)[r.id]; },
+      addDoc: async (r, p) => { const id = 'n' + Object.keys(col(r.col)).length; col(r.col)[id] = clone420(p); return { id: id }; },
+      serverTimestamp: () => 'NOW',
+      increment: (n) => ({ __inc: n })
+    };
+    const syncSrc = extractFn(admin, 'payerHouseOf') + '\n' + extractFn(admin, 'houseIsOnTheBill') + '\n' +
+      'async ' + extractFn(admin, 'syncPayerInvoice');
+    const sync = new Function('db', 'doc', 'collection', 'query', 'where', 'getDoc', 'getDocs', 'setDoc',
+      'serverTimestamp', 'jobAddresses', 'custInvoiceKey', 'computeInvoiceStatus', 'NEW_MEMBER_FEE', 'console',
+      syncSrc + '\nreturn syncPayerInvoice;')(F.db, F.doc, F.collection, F.query, F.where, F.getDoc, F.getDocs,
+      F.setDoc, F.serverTimestamp, list, custInvoiceKey, computeInvoiceStatus, NEW_MEMBER_FEE_NUM, console);
+    const asked = [];
+    const W = {
+      db: db, list: list, asked: asked, answer: true, writes: writes,
+      wroteCustomer: () => writes.some(w => w.col === 'jobAddresses' && w.op === 'update' && w.id === 'c894'),
+      /* What the jobAddresses listener does between two saves: the cache catches up. */
+      refresh() {
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (!db.jobAddresses[list[i].id]) list.splice(i, 1);
+          else list[i].data = clone420(db.jobAddresses[list[i].id]);
+        }
+      },
+      inv: (k) => db.invoices[k] || null,
+      ctx: Object.assign({}, F, {
+        jobAddresses: list,
+        custInvoiceKey: custInvoiceKey,
+        computeInvoiceStatus: computeInvoiceStatus,
+        syncPayerInvoice: sync,
+        allCustInvoiceFor: (item) => {
+          const k = custInvoiceKey(item.data || {});
+          return db.invoices[k] ? { id: k, data: clone420(db.invoices[k]) } : null;
+        },
+        invoiceById: { get: (k) => (db.invoices[k] ? { id: k, data: clone420(db.invoices[k]) } : undefined),
+                       has: (k) => !!db.invoices[k] },
+        confirm: (m) => { asked.push(String(m)); return W.answer; },
+        cnBinsForFeet: (f) => (Number(f) > CN_DOUBLE_BIN_FEET ? 2 : 1),
+        /* Read out of js/money.js, never typed: the save's own-bill branch reads both. */
+        ARREARS_KIND: (money.match(/export const ARREARS_KIND = '([^']*)';/) || [])[1],
+        NEW_MEMBER_FEE: NEW_MEMBER_FEE_NUM,
+        /* ⚠ THE ONE STUB, AND IT REFUSES TO GUESS. The referral rule is a chain of season
+           helpers this suite does not measure, and no fixture here has a referral — so it
+           answers "none" for exactly that case and throws for any other, which turns a
+           fixture that grows a referral into a loud failure rather than a quiet wrong bill. */
+        referralCreditNotes: (entries, count) => {
+          if ((Array.isArray(entries) && entries.length) || Number(count) > 0) {
+            throw new Error('Suite 431 has no referral rule — lift it before giving a fixture referrals');
+          }
+          return [];
+        }
+      })
+    };
+    return W;
+  }
+  /* The house being edited is always c894 — the id Suite 108's harness opens. 400 ft on a
+     5000 number and a price the form agrees with, so nothing but the money moves. */
+  const A_PHONE = '8016160714';
+  const ash = (extra) => ({ id: 'c894', data: Object.assign({ name: 'Ashley Wray', phone: A_PHONE,
+    email: 'wraynash@gmail.com', address: '9991 Red Cedar Ln, Highland, UT', customerNumber: '5001',
+    housePrice: 600, measuredFeet: 400, rsvpStatus: 'yes', updatedAt: null }, extra || {}) });
+  const save420 = (W, fields, extra) => runSave(Object.assign({ noRequote: true,
+    cust: Object.assign({}, (W.list.find(h => h.id === 'c894') || {}).data || {}),
+    fields: Object.assign({ editCustNumber: '5001' }, fields || {}), ctxExtra: W.ctx }, extra || {}));
+
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ---- F1: switched away with a part payment, then back ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 600, deposit: 300, status: 'Partial Payment', billedHouseIds: ['c894'] },
+          '8015550001': { install: 300, deposit: 0, billedHouseIds: ['b1'] } });
+      const r1 = await save420(W, { editCustBillTo: '8015550001' });
+      W.refresh();
+      const mid = W.inv('8015550001');
+      check('S431', 'moving onto another bill carries the part payment across as a credit',
+        !!mid && mid.install === 900 && owed420(mid) === 600 && owed420(W.inv(A_PHONE)) === 0,
+        'got payer ' + JSON.stringify(mid) + ' / own ' + JSON.stringify(W.inv(A_PHONE)) + ' ' + r1.status + ' ' + r1.errs.join(' | '));
+      const r2 = await save420(W, { editCustBillTo: '' });
+      W.refresh();
+      const own = W.inv(A_PHONE), was = W.inv('8015550001');
+      check('S431', 'switched back, their own bill is the house again, owing what was not paid',
+        !!own && own.install === 600 && own.deposit === 300 && owed420(own) === 300 &&
+        (own.billedHouseIds || []).join() === 'c894',
+        'it stayed zeroed: the house was billed $0 (S1) — got ' + JSON.stringify(own) + ' ' + r2.errs.join(' | '));
+      check('S431', 'and the old payer no longer credits or bills it',
+        !!was && was.install === 300 && (Number(was.credits) || 0) === 0 && owed420(was) === 300 &&
+        Number(W.db.jobAddresses.c894.paidBeforeBillTo || 0) === 0,
+        'the payment must count once, on the bill the house is on — got ' + JSON.stringify(was));
+    }
+    /* ---- F2: Bill To set to their own phone ---- */
+    {
+      const W = world420([ash()], { [A_PHONE]: { install: 600, deposit: 300, billedHouseIds: ['c894'] } });
+      await save420(W, { editCustBillTo: '(801) 616-0714' });
+      const own = W.inv(A_PHONE);
+      check('S431', 'a Bill To of their own phone is saved as none, and nothing is carried',
+        W.db.jobAddresses.c894.billToPhone === '' && !W.db.jobAddresses.c894.paidBeforeBillTo &&
+        !!own && own.install === 600 && owed420(own) === 300,
+        'half the price vanished: the deposit counted as the payment AND as a carried credit (S2) — got ' +
+        JSON.stringify(W.db.jobAddresses.c894.billToPhone) + ' ' + JSON.stringify(own));
+    }
+    /* ---- F3: a loop, and a group payer billing elsewhere ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', billToPhone: A_PHONE, housePrice: 300 } }],
+        { [A_PHONE]: { install: 900, billedHouseIds: ['c894', 'b1'] } });
+      const r = await save420(W, { editCustBillTo: '8015550001' });
+      check('S431', 'a Bill To that comes back round to them is refused, and nothing is written',
+        !W.wroteCustomer() && /each would be paying for the other/.test(r.status) && W.inv(A_PHONE).install === 900 &&
+        !W.db.jobAddresses.c894.billToPhone,
+        'A → B with B → A billed $963 for $613 of houses (S4) — status ' + JSON.stringify(r.status));
+    }
+    {
+      const W = world420([ash(), { id: 'k1', data: { name: 'Kid', phone: '8012220000', billToPhone: A_PHONE, housePrice: 400 } },
+        { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 1000, deposit: 1000, status: 'Paid in Full', billedHouseIds: ['c894', 'k1'] },
+          '8015550001': { install: 300, billedHouseIds: ['b1'] } });
+      const r = await save420(W, { editCustBillTo: '8015550001' });
+      const g = W.inv(A_PHONE), b = W.inv('8015550001');
+      check('S431', 'a group payer billing elsewhere leaves their own group bill',
+        !!g && g.install === 400 && (g.billedHouseIds || []).join() === 'k1',
+        'their house stayed summed on their own group AND joined the new bill — charged twice (S6) — got ' +
+        JSON.stringify(g) + ' ' + r.errs.join(' | '));
+      check('S431', 'and only what they paid beyond the other house follows them',
+        !!b && b.install === 900 && b.credits === 600 && owed420(b) === 300 && owed420(g) === 0,
+        'the whole group’s $1000 credited to the new payer would invent $400 — got ' + JSON.stringify(b));
+    }
+    /* ---- F4: a discount and a fee go with the house, and come back with it ---- */
+    {
+      const W = world420([ash(), { id: 'b1', data: { name: 'Bea', phone: '8015550001', housePrice: 300 } }],
+        { [A_PHONE]: { install: 600, deposit: 0, billedHouseIds: ['c894'],
+            creditNotes: [{ kind: 'manual', amount: 50, reason: 'loyalty' }], credits: 50,
+            changeFeeNotes: [{ kind: 'manual', amount: 25, reason: 'extra strand' }], changeFees: 25 },
+          '8015550001': { install: 300, billedHouseIds: ['b1'] } });
+      await save420(W, { editCustBillTo: '8015550001' });
+      W.refresh();
+      const b = W.inv('8015550001');
+      check('S431', 'moving onto another bill takes their discount and their fee with them',
+        !!b && b.credits === 50 && b.changeFees === 25 && owed420(b) === 875 &&
+        (b.creditNotes || []).every(c => c.houseId === 'c894'),
+        'the discount was deleted with their bill — charged full price for good (S5) — got ' + JSON.stringify(b));
+      await save420(W, { editCustBillTo: '' });
+      W.refresh();
+      const own = W.inv(A_PHONE), back = W.inv('8015550001');
+      check('S431', 'and both come back when the house returns to its own bill',
+        !!own && owed420(own) === 575 && own.credits === 50 && own.changeFees === 25 &&
+        !!back && owed420(back) === 300 && !(back.changeFeeNotes || []).length,
+        'the fee stayed on the other payer’s bill after the house had left it (S7) — own ' +
+        JSON.stringify(own) + ' / payer ' + JSON.stringify(back));
+    }
+    /* ---- F6: phone changed onto a number another customer's paid bill is under ---- */
+    {
+      const houses = () => [ash(), { id: 'm1', data: { name: 'Mark Greco', phone: '8015551007', housePrice: 700 } }];
+      const bills = () => ({ [A_PHONE]: { install: 600, deposit: 0, billedHouseIds: ['c894'] },
+        '8015551007': { install: 700, deposit: 700, status: 'Paid in Full', billedHouseIds: ['m1'] } });
+      const W = world420(houses(), bills());
+      W.answer = false;
+      const no = await save420(W, { editCustPhone: '8015551007' });
+      check('S431', 'changing a phone onto another customer’s asks first, naming whose bill it is',
+        W.asked.some(m => /Mark Greco/.test(m) && /one bill|same bill/.test(m)) && !W.wroteCustomer() &&
+        W.inv('8015551007').deposit === 700 && W.inv('8015551007').install === 700,
+        'a typo silently overwrote Mark’s paid invoice (E1) — asked ' + JSON.stringify(W.asked));
+      const W2 = world420(houses(), bills());
+      const yes = await save420(W2, { editCustPhone: '8015551007' });
+      const m = W2.inv('8015551007');
+      check('S431', 'and putting them on one bill keeps the payment and bills both houses',
+        !!m && m.deposit === 700 && m.install === 1300 && owed420(m) === 600 &&
+        (m.billedHouseIds || []).slice().sort().join() === 'c894,m1' && !W2.inv(A_PHONE),
+        'got ' + JSON.stringify(m) + ' ' + yes.errs.join(' | '));
+    }
+    /* ---- F11 / F12: what the boxes may hold ---- */
+    {
+      const W = world420([ash()], { [A_PHONE]: { install: 600, billedHouseIds: ['c894'] } });
+      const r = await save420(W, { editCustPhone: '801-CALL-NOW' });
+      check('S431', 'a phone that is not ten digits is refused before anything is written',
+        !W.wroteCustomer() && /10 digits/.test(r.status) && W.db.jobAddresses.c894.phone === A_PHONE,
+        'it was saved as "801" and the bill moved to a key nobody can find (A3) — ' + JSON.stringify(r.status));
+      W.answer = false;
+      const u = await save420(W, { editCustBillTo: '8019990000' });
+      check('S431', 'a Bill To nobody holds is asked about, and Cancel saves nothing',
+        W.asked.some(m => /Nobody on file has the phone 8019990000/.test(m)) && !W.wroteCustomer() &&
+        !W.inv('8019990000') && W.inv(A_PHONE).install === 600,
+        'a typo made a nameless bill (S3) — asked ' + JSON.stringify(W.asked));
+    }
+    /* ---- H5: Save is shut while the price question is open ---- */
+    {
+      const W = world420([ash({ housePrice: 500 })], { [A_PHONE]: { install: 500, billedHouseIds: ['c894'] } });
+      let disabledWhileAsked = null, docRef = null;
+      const r = await save420(W, { editCustHousePrice: '600' }, {
+        seeDocument: (d) => { docRef = d; },
+        ctxExtra: Object.assign({}, W.ctx, {
+          askPriceRequote: async () => {
+            disabledWhileAsked = !!(docRef && docRef.getElementById('editCustSaveBtn').disabled);
+            return { raise: false };
+          } }) });
+      check('S431', 'Save is disabled while the price re-quote question is open, and back after',
+        disabledWhileAsked === true && !!docRef && docRef.getElementById('editCustSaveBtn').disabled === false && W.wroteCustomer(),
+        'a second press started a second save underneath the question (H5) — disabled while asked: ' +
+        disabledWhileAsked + ' ' + r.errs.join(' | '));
+    }
+
+  })());
+
+/* ⭐ SUITE 421. DELETING AND MERGING KEEP THE BILLS RIGHT (2026-10-29), the second half of the
+   Customers break-test, on the same remembering Firestore as Suite 431. Delete This Customer deleted
+   the bill under their phone whoever else was on it, rebuilt nothing, asked nothing and ran twice on a
+   double click; Merge duplicates deleted a spare whose own bill held a payment. */
+suite('Suite 432. Customers break-test: deleting and merging keep the bills right');
+
+  /* ---- the merge tool holds back a spare whose own bill holds money (M1) ---- */
+  {
+    const fnM = (n) => extractFn(admin, n);
+    const find = (custs, invoices) => {
+      const ctx = {};
+      new Function('jobAddresses', 'dupNormName', 'dupStreetOf', 'extractCleanCity',
+        'MERGE_ADDRESS_FIELDS', 'MERGE_SKIP_FIELDS', 'custInvoiceKey', 'fmtMoney',
+        fnM('mergeBlank') + fnM('dupAddressIsEmpty') + fnM('mergeFieldsFrom') + fnM('findMergeableCustomers') +
+        'this.find = findMergeableCustomers;'
+      ).call(ctx, custs, (n) => String(n || '').trim().toLowerCase(), (d) => (d && d.street) || '',
+        (c) => (c || '').trim(), { street: 1, city: 1, state: 1, zip: 1, address: 1, lat: 1, lng: 1, needsGeocode: 1 },
+        { portalToken: 1 }, custInvoiceKey, (n) => '$' + (Number(n) || 0).toFixed(2));
+      return ctx.find({}, invoices);
+    };
+    const keep = { id: 'keep', data: { name: 'Mark Greco', street: '1 A St', phone: '8015551007', customerNumber: '107', createdAt: { seconds: 1 } } };
+    const spare = { id: 'spare', data: { name: 'Mark Greco', street: '1 A St', phone: '8015557777', createdAt: { seconds: 2 } } };
+    const withMoney = find([keep, spare], { '8015557777': { install: 700, deposit: 200 } });
+    check('S432', 'a spare copy with a payment on a bill of its own is not merged',
+      withMoney.ready.length === 0 && withMoney.review.length === 1 &&
+      /8015557777/.test(withMoney.review[0].why.join(' ')),
+      'deleting it left $200 on a bill nobody holds, and the report called the copy empty — got ' +
+      JSON.stringify(withMoney.review.map(g => g.why)));
+    check('S432', 'and one whose bill holds no money still merges',
+      find([keep, spare], { '8015557777': { install: 700 } }).ready.length === 1,
+      'only a payment or a credit is worth stopping for');
+  }
+
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ---- F7: Delete This Customer rebuilds every bill the house was on ---- */
+    const remover420 = (W) => {
+      const env = Object.assign({}, W.ctx, {
+        housesStillBilledTo: H.housesStillBilledTo,
+        hlxNamesAlreadyOnTab: async () => ({}), hlxAppendRowsToSheet: async () => ({ written: 1 }),
+        rbCustomerToSheetRow: () => [], dupNormName: (n) => String(n || '').toLowerCase(),
+        paymentLedgerUser: () => 'test', removeCustomerFromUpcomingRoutes: async () => {}, logActivity: () => {},
+        console: { error: () => {}, log: () => {}, warn: () => {} }
+      });
+      const names = ['db', 'doc', 'getDoc', 'setDoc', 'deleteDoc', 'serverTimestamp', 'increment', 'jobAddresses',
+        'custInvoiceKey', 'syncPayerInvoice', 'housesStillBilledTo', 'hlxNamesAlreadyOnTab', 'hlxAppendRowsToSheet',
+        'rbCustomerToSheetRow', 'dupNormName', 'confirm', 'paymentLedgerUser', 'removeCustomerFromUpcomingRoutes',
+        'logActivity', 'console'];
+      return new Function(...names, 'async ' + extractFn(admin, 'archiveCustomerSnapshot') + '\nasync ' +
+        extractFn(admin, 'hlxRemoveCustomerToRecycle') + '\nreturn hlxRemoveCustomerToRecycle;')(...names.map(n => env[n]));
+    };
+    const P_PHONE = '8011110000';
+    const group420 = () => world420([
+      { id: 'p0', data: { name: 'Pat Payer', phone: P_PHONE, housePrice: 500 } },
+      { id: 'k1', data: { name: 'Kid One', phone: '8012220001', billToPhone: P_PHONE, housePrice: 300 } },
+      { id: 'k2', data: { name: 'Kid Two', phone: '8012220002', billToPhone: P_PHONE, housePrice: 200 } }],
+      { [P_PHONE]: { install: 1000, deposit: 0, billedHouseIds: ['p0', 'k1', 'k2'] } });
+    {
+      const W = group420();
+      const out = await remover420(W)(W.list.find(h => h.id === 'p0'), {});
+      const inv = W.inv(P_PHONE);
+      check('S432', 'deleting a payer keeps the bill of the houses that still bill to them',
+        out.removed && !W.db.jobAddresses.p0 && !!inv && inv.install === 500 &&
+        (inv.billedHouseIds || []).slice().sort().join() === 'k1,k2',
+        'the whole group invoice was deleted — $10,105 of houses billed to nobody (D3) — got ' + JSON.stringify(inv));
+    }
+    {
+      const W = group420();
+      await remover420(W)(W.list.find(h => h.id === 'k1'), {});
+      const inv = W.inv(P_PHONE);
+      check('S432', 'deleting a house billed to somebody else takes it off that payer’s bill',
+        !!inv && inv.install === 700 && (inv.billedHouseIds || []).indexOf('k1') === -1,
+        'the deleted house went on being charged to the payer (D4) — got ' + JSON.stringify(inv));
+    }
+    {
+      const X = '8015551007';
+      const W = world420([{ id: 'main', data: { name: 'Mark Greco', phone: X, housePrice: 700 } },
+        { id: 'cabin', data: { name: 'Mark Greco', propertyLabel: 'Cabin', phone: X, housePrice: 300 } }],
+        { [X]: { install: 1000, deposit: 700, billedHouseIds: ['main', 'cabin'] } });
+      await remover420(W)(W.list.find(h => h.id === 'cabin'), {});
+      const inv = W.inv(X);
+      /* ⚠ THE CACHE STILL HOLDS THE CABIN HERE — nothing refreshed it — so this also proves
+         syncPayerInvoice does not sum a deleted house back in from the loaded list. */
+      check('S432', 'deleting a cabin on a shared phone keeps the main house’s bill and payment',
+        !!inv && inv.install === 700 && inv.deposit === 700 && owed420(inv) === 0 &&
+        (inv.billedHouseIds || []).join() === 'main' && W.list.some(h => h.id === 'cabin') &&
+        !(W.db.settings.financeArchive && W.db.settings.financeArchive.archivedRevenue),
+        'the main house’s invoice and its $700 were deleted with the cabin (D5) — got ' + JSON.stringify(inv));
+    }
+    {
+      const S = '8015551009';
+      const W = world420([{ id: 'solo', data: { name: 'Solo', phone: S, housePrice: 703 } }],
+        { [S]: { install: 703, deposit: 703, billedHouseIds: ['solo'] } });
+      await remover420(W)(W.list[0], {});
+      check('S432', 'a customer alone on their bill still has it archived with the payment counted',
+        !W.inv(S) && W.db.settings.financeArchive && W.db.settings.financeArchive.archivedRevenue === 703,
+        'the ordinary delete must not change — got ' + JSON.stringify(W.db.settings));
+    }
+
+    /* ---- F8: the Delete button asks, names who is left, and runs once ---- */
+    {
+      const at = admin.indexOf("document.getElementById('editCustDeleteBtn').addEventListener('click',");
+      /* The handler's own last line, the button getter onceAtATime is handed, ends the slice. */
+      const endMark = "}, function(){ return document.getElementById('editCustDeleteBtn'); })";
+      const end = at > 0 ? admin.indexOf(endMark, at) : -1;
+      const expr = end > 0 ? admin.slice(admin.indexOf('onceAtATime(', at), end + endMark.length) : '';
+      check('S432', 'the Delete This Customer handler was found to run', /^onceAtATime\(async function/.test(expr),
+        'it is no longer wrapped in onceAtATime — a double click runs two removals (D2)');
+      const W = group420();
+      W.list.find(h => h.id === 'p0').data.carryoverCredit = 40;
+      const make = (answer) => {
+        const els = {};
+        const docF = { getElementById: (id) => els[id] || (els[id] = { id: id, textContent: '', style: {}, disabled: false }) };
+        const calls = [], asked = [];
+        const env = { editCustomerId: 'p0', jobAddresses: W.list, document: docF,
+          fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2), housesStillBilledTo: H.housesStillBilledTo,
+          confirm: (m) => { asked.push(String(m)); return answer; }, toast: () => {},
+          hlxRemoveCustomerToRecycle: async (item) => { calls.push(item.id); await new Promise(r => setTimeout(r, 5)); return { removed: true }; },
+          console: console };
+        const names = Object.keys(env);
+        const h = new Function(...names, extractFn(admin, 'onceAtATime') + '\nreturn ' + expr + ';')(...names.map(n => env[n]));
+        return { h: h, calls: calls, asked: asked };
+      };
+      const yes = make(true);
+      await Promise.all([yes.h(), yes.h()]);
+      check('S432', 'Delete asks first, with the credit warning and the houses still on their bill',
+        yes.asked.length === 1 && /\$40\.00 in credit/.test(yes.asked[0]) && /Kid One/.test(yes.asked[0]) &&
+        /Kid Two/.test(yes.asked[0]),
+        'it removed on one click and carryWarn was built and never shown (D1) — asked ' + JSON.stringify(yes.asked));
+      check('S432', 'and a double click removes once',
+        yes.calls.length === 1, 'two removals added their payment to archivedRevenue twice (D2) — ran ' + yes.calls.length);
+      const no = make(false);
+      await no.h();
+      check('S432', 'and Cancel removes nothing', no.asked.length === 1 && no.calls.length === 0,
+        'ran ' + no.calls.length);
+    }
+  })());
+}
 }
 
 suite('Suite 92. A day inside 48 hours is printed, and printed is finished');
