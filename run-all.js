@@ -9577,6 +9577,12 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
+    /* "today" is an input from outside the scheduler, pinned the way schedule-v2.harness.js pins it: the day before the
+       fixture's first day, so every fixture day has been reached or is still ahead exactly as the checks below assume.
+       The customer-window half of the leftover moves (houseWindowWhy) is RUN in schedule-v2.test.js against the real
+       houseMayGoOn; here houseMayGoOn is absent, so that half answers '' and these checks keep their old meaning. */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-02' }), window: undefined });
+    global.isoOf = eval('(' + extractFn(admin, 'isoOf') + ')');
     /* [[SCH-135]] the crew-check helpers these moves now ask — lifted, never stubbed (nothing here is held, so they answer no) */
     const holdStart = admin.indexOf('const CREW_HOLD_UNTIL_HOUR');
     const holdEnd = admin.indexOf('function refreshLockedDates(', holdStart);
@@ -9704,6 +9710,8 @@ check('leftovers', 'the panel closes itself once nothing is left',
        actually did rather than trusting that it called something. */
     global._ticks = [];
     global.planTickCustomer = (h, done) => { global._ticks.push({ id: h.id, done: done }); };
+    /* the fixture day (3 Nov) is the day being worked — the leftover flow refuses a day the crew has not reached yet */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-03' }), window: undefined });
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' +
       admin.slice(stateStart, stateEnd) +
       '\n;({open: openLeftovers, apply: applyLeftoverPicks,' +
@@ -9782,6 +9790,23 @@ check('leftovers', 'the panel closes itself once nothing is left',
     api.apply('d1');
     check('leftovers', 'a house wrongly marked done comes back off done when ticked as a miss',
       SEASON[0].houses.map(h => h.done).join() === 'true,true,false');
+    /* ⛔ (break-test, 2026-10-29) A DAY STILL AHEAD IS REFUSED. "Nobody was missed — mark the whole day done" on a day weeks
+       away ticked every customer on it complete, and the nightly run bills on that. Nobody can have been missed on a day the
+       crew has not reached, so the panel will not open and Continue writes nothing. */
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-02' }), window: undefined });
+    const ahead = fresh();
+    SEASON = [ day(ahead) ];
+    global._ticks = []; global._toast = '';
+    api.open('d1');
+    check('leftovers', 'a day the crew has not reached yet does not open the missed-houses panel',
+      /has not been worked yet/.test(global._toast), global._toast);
+    global._toast = '';
+    api.apply('d1');
+    check('leftovers', 'and Continue on it marks nobody done and writes nothing to a customer',
+      ahead.every(h => !h.done) && global._ticks.length === 0, JSON.stringify(global._ticks));
+    check('leftovers', 'and the office is told why, in words',
+      /has not been worked yet/.test(global._toast), global._toast);
+    global.scheduleTodayStr = real('scheduleTodayStr', { mtnNowParts: () => ({ date: '2026-11-03' }), window: undefined });
   }
 }
 

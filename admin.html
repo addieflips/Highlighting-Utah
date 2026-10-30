@@ -77402,9 +77402,11 @@ function laterDaysLike(day){
    that already has at least one house in that town, so the truck is going
    there anyway. Null when there is no such day left, which is a real answer
    and has to be said out loud rather than dumping them somewhere. */
-function nextDayInCity(day,city){
+function nextDayInCity(day,city,house){
   if(!day||!city) return null;
-  return laterDaysLike(day).find(d=>d.houses.some(h=>sameCity(cityOf(h),city)))||null;
+  /* ⛔ and, given the house, only a day its customer may have (break-test, 2026-10-29): this used to send an October
+     customer to the next Lehi day whatever its date, 27 November included. */
+  return laterDaysLike(day).find(d=>d.houses.some(h=>sameCity(cityOf(h),city))&&!(house&&houseWindowWhy(house,d)))||null;
 }
 /* Houses in neither crew's city. Shown rather than silently swallowed — a
    stop nobody is holding a sheet for is a stop nobody drives to. */
@@ -79602,8 +79604,24 @@ let leftoverPicked=new Set();
    about the misses. A day that has been ticked through already answered that
    question, so it goes straight to the two ways out — adding a step there
    would slow down the path that already worked. */
+/* ⛔ ONLY A DAY THAT HAS ARRIVED (break-test, 2026-10-29). Opened on a day weeks away, "Nobody was missed — mark
+   the whole day done" ticked every customer on it complete — and the nightly run bills on that — with no question,
+   and the same flow stripped houses off a printed day still ahead. Nobody can have been missed on a day the crew has
+   not reached, so the panel refuses and says why. "Today" is the crew's hang day ([[SCH-116]]), so a day the crews
+   are behind on still counts as not reached. Returns the day's date when it is still ahead, '' when it may be used. */
+function leftoverDayNotReached(day){
+  const dt=day?dayDate(day):null; if(!dt) return '';
+  const ds=isoOf(dt);
+  return ds>scheduleTodayStr()?ds:'';
+}
+function leftoverNotReachedText(day){
+  const l=dlabel(dayDate(day));
+  return l.wd+' '+l.full+' has not been worked yet, so nothing on it can be marked '+(day.isTakedown?'removed':'done')+
+    ' or missed. To take houses off a day still ahead, move them one at a time with each house’s day dropdown.';
+}
 function openLeftovers(dayId){
   const day=getDay(dayId); if(!day) return;
+  if(leftoverDayNotReached(day)){leftoverFor=null;renderLeftovers();toast(leftoverNotReachedText(day));return;}
   const touched=day.houses.some(h=>h.done);
   leftoverFor=dayId;
   leftoverMode=touched?'ask':'pick';
@@ -79620,6 +79638,9 @@ function closeLeftovers(){leftoverFor=null;renderLeftovers();}
    something on this step that they had marked done earlier. */
 function applyLeftoverPicks(dayId){
   const day=getDay(dayId); if(!day) return;
+  /* the same refusal as openLeftovers, at the write — a panel left open across midnight, or a stale button, must not
+     tick a future day's customers complete */
+  if(leftoverDayNotReached(day)){leftoverFor=null;renderLeftovers();toast(leftoverNotReachedText(day));return;}
   /* ⚠ THIS WRITES BOTH DIRECTIONS ON PURPOSE, and must keep doing so: the office is
      saying which houses the crew MISSED, so the ones they did are marked done and the
      ones they did not are marked back to not-done. A one-way version silently leaves
@@ -85083,10 +85104,12 @@ RT.addEventListener('change',e=>{const t=e.target;
     return;
   }
   if(t.dataset.lmove&&t.value){
-    const target=moveLeftover(t.dataset.lmove,t.value);
+    /* the refusal names its reason — a printed day, a checked crew, a Warehouse list, or the customer's own window */
+    const why=leftoverMoveWhy(t.dataset.lmove,t.value);
+    const target=why?null:moveLeftover(t.dataset.lmove,t.value);
     renderAll();
     if(target)toast('Moved to '+dlabel(dayDate(target)).wd+' '+dlabel(dayDate(target)).full);
-    else if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(getDay(t.value)))toast('That day has been printed and can no longer be changed — pick another');
+    else toast(why||'That house could not be moved there — pick another day');
     return;
   }
   if(t.dataset.crewname!=null){const i=+t.dataset.crewname,v=(t.value||'').trim();
@@ -85720,14 +85743,44 @@ function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=get
    you just moved it to" — working down a list of misses, that would throw you
    onto a different day after every single one. */
 function moveLeftover(id,dayId){
+  return leftoverMoveWhy(id,dayId)?null:leftoverMoveDo(id,dayId);
+}
+/* Why a missed house may NOT go to that day, in words for the office ('' when it may). One answer for the move, the
+   "Put them on another day myself" dropdown's refusal, and nothing else deciding it on the side. */
+function leftoverMoveWhy(id,dayId){
+  const f=findHouse(id);if(!f)return 'that house is no longer on the schedule';
+  const target=getDay(dayId);if(!target||target===f.day)return 'that is the day it is already on';
+  /* [[SCH-120]] a missed house may leave the day the crew worked, but may not land on a printed day still ahead —
+     and (break-test, 2026-10-29) nothing comes OFF a printed day still ahead either: that day has not been worked. */
+  if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return 'that day has been printed and can no longer be changed — pick another';
+  if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(f.day))return 'their day has been printed and has not been worked yet, so nothing comes off it';
+  /* [[SCH-135]] a held crew's house stays put until 5 PM, and a held day takes nobody. */
+  if(houseOnHeldCrew(f.day,f.house))return heldCrewRefusal(f.day);
+  if(dayHasHeldCrew(target))return heldCrewRefusal(target);
+  /* [[SCH-137]] a missed house now on a Warehouse list is not given another day — the sync takes it off its old one */
+  if(!target.isFixRoute&&!target.isTakedown&&houseOnWarehouseList(f.house))return (f.house.name||'They')+' '+WAREHOUSE_HOLD_TEXT;
+  /* ⛔ THE CUSTOMER'S OWN WINDOW (break-test, 2026-10-29). This door had no date check at all, so "Put them on another
+     day myself" put an October customer on 27 November. Held to houseMayGoOn exactly as moveHouse is. */
+  const win=houseWindowWhy(f.house,target);
+  if(win)return (f.house.name||'They')+' cannot go on '+dlabel(dayDate(target)).full+' — '+win;
+  return '';
+}
+/* ⭐ THE CUSTOMER'S WINDOW FOR A HAND MOVE (break-test, 2026-10-29): '' when the house may go on that install day,
+   otherwise the reason — the day has been worked, or houseMayGoOn says no (earliest day, last day, away, pinned).
+   Fix and takedown rows, and fix or takedown days, are not held to an install window. */
+function houseWindowWhy(h,target){
+  if(!h||!target||target.isFixRoute||target.isTakedown||h.isFix||h.isTakedown)return '';
+  if(typeof houseMayGoOn!=='function')return '';
+  const dt=dayDate(target);if(!dt)return 'that day has no date';
+  const tds=isoOf(dt);
+  if(tds<=scheduleTodayStr())return 'that day has already been worked';
+  const c=(typeof planCustomerFor==='function')?planCustomerFor(h):null;
+  const ok=houseMayGoOn(h,(c&&c.data)||{},tds,isoOf(seasonStartDate()));
+  return ok.ok?'':ok.why;
+}
+function leftoverMoveDo(id,dayId){
   const f=findHouse(id);if(!f)return null;
   const target=getDay(dayId);if(!target||target===f.day)return null;
-  /* [[SCH-120]] a missed house may leave the day the crew worked, but may not land on a printed day still ahead. */
-  if(typeof dayIsPrintedAhead==='function'&&dayIsPrintedAhead(target))return null;
-  /* [[SCH-135]] a held crew's house stays put until 5 PM, and a held day takes nobody. */
-  if(houseOnHeldCrew(f.day,f.house)||dayHasHeldCrew(target))return null;
-  /* [[SCH-137]] a missed house now on a Warehouse list is not given another day — the sync takes it off its old one */
-  if(!target.isFixRoute&&!target.isTakedown&&houseOnWarehouseList(f.house))return null;
   if(dayHasHeldCrew(f.day)){if(!takeOffHeldDay(f.day,f.house))return null;}else
   f.day.houses=f.day.houses.filter(x=>x!==f.house);target.houses.push(f.house);
   if(isNewMemberHouse(f.house)||f.house.isFix){const l=dlabel(target._date);f.house.autoDay=l.wd+' '+l.full;f.house.autoReason='not done — rescheduled';}
@@ -85740,11 +85793,12 @@ function planLeftoverMoves(day){
   return unfinishedOn(day).map(function(h){
     /* [[SCH-135]] a house on a crew checked for tomorrow has no target until the hold ends at 5 PM. */
     if(houseOnHeldCrew(day,h))return {house:h, city:cityOf(h), target:null, held:true};
-    return {house:h, city:cityOf(h), target:nextDayInCity(day,cityOf(h))};
+    return {house:h, city:cityOf(h), target:nextDayInCity(day,cityOf(h),h)};
   });
 }
 function moveAllLeftoversAuto(dayId){
   const day=getDay(dayId);if(!day)return;
+  if(leftoverDayNotReached(day)){closeLeftovers();toast(leftoverNotReachedText(day));return;}
   const plan=planLeftoverMoves(day);
   const stuck=plan.filter(p=>!p.target);
   plan.filter(p=>p.target).forEach(p=>moveLeftover(p.house.id,p.target.id));

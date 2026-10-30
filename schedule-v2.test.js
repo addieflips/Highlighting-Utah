@@ -2182,6 +2182,36 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
   }
 }
 /* ======================================================================================= */
+suite('Break-test 2026-10-29: a missed house is only ever moved to a day its customer allows');
+{
+  /* "Put them on another day myself" had no date check at all, so an October customer the crew missed could be put on
+     27 November by hand, and "the next day we are in that city" could be a November day too. Both now ask houseMayGoOn. */
+  const book = makeBook(160, 10291);
+  run(book);
+  const prefOf = function(id){ const b = book.filter(function(x){ return 'cust-' + x.id === String(id); })[0]; return b ? b.data.installPreference : ''; };
+  const days = daysOf().sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const oct = days.filter(function(d){ return d.ds <= '2026-10-31' && d.ids.some(function(id){ return prefOf(id) === 'October'; }); })[0];
+  const nov = days.filter(function(d){ return d.ds > '2026-10-31'; })[0];
+  check('B1.0 the season has an October day holding an October customer, and a November day', !!oct && !!nov);
+  if(oct && nov){
+    const hid = oct.ids.filter(function(id){ return prefOf(id) === 'October'; })[0];
+    const p = oct.ds.split('-').map(Number);
+    H.setNow(new Date(p[0], p[1] - 1, p[2], 18, 0));   // the crew has worked that day
+    const moved = H.api.moveLeftover(hid, nov.day.id);
+    check('B1.1 an October customer the crew missed cannot be put on a November day by hand',
+      moved === null && daysOf().filter(function(d){ return d.ids.indexOf(hid) !== -1; })[0].ds === oct.ds);
+    const plan = H.api.planLeftoverMoves(oct.day);
+    const octPlan = plan.filter(function(x){ return prefOf(x.house.id) === 'October'; });
+    check('B1.2 and the automatic "next day in their city" never sends an October customer past October',
+      octPlan.length > 0 && octPlan.every(function(x){ return !x.target || H.api.isoOf(H.api.dayDate(x.target)) <= '2026-10-31'; }),
+      JSON.stringify(octPlan.map(function(x){ return x.target ? H.api.isoOf(H.api.dayDate(x.target)) : null; })));
+    const back = H.api.moveLeftover(hid, oct.day.id);
+    check('B1.3 a move onto the day it is already on is refused, not counted', back === null);
+    const laterOct = days.filter(function(d){ return d.ds > oct.ds && d.ds <= '2026-10-31' && !H.api.dayIsPrintedAhead(d.day); })[0];
+    if(laterOct) check('B1.4 and it CAN still go on a later October day', H.api.moveLeftover(hid, laterOct.day.id) !== null);
+  }
+}
+
 suite('SCH-134 October is filled with the people who don\'t care when, before November is');
 {
   /* Dax, 2026-10-15: "we currently have people for normal schedule in november but we are like out of houses for October
