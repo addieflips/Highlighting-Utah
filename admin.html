@@ -7146,7 +7146,8 @@ function debounced(fn, waitMs){
 }
 function onceAtATime(handler, getBtn){
   let busy = false;
-  return async function(e){
+  /* isBusy: see addCustSaveBusyMessage (2026-10-29). */
+  const run = async function(e){
     if(busy){
       if(e && typeof e.preventDefault === 'function') e.preventDefault();
       return;
@@ -7173,6 +7174,8 @@ function onceAtATime(handler, getBtn){
       if(btn){ btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = ''; }
     }
   };
+  run.isBusy = function(){ return busy; };
+  return run;
 }
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -7798,6 +7801,40 @@ function quoteLinkToCustomerUpdates(c){
     changed: {what: 'address', oldAddress: d.address || '', oldPrice: Number(d.housePrice) || 0},
     linkedToCustomerAt: Date.now()
   };
+}
+/* ⭐ RE-QUOTING A HOUSE THAT IS ALREADY A CUSTOMER LINKS IT TO THEM (2026-10-29). "Re-quote this
+   house" on a converted quote kept convertedToCustomerAt and never set existingCustomerId,
+   so the card hid Apply Re-quote (it hides on convertedToCustomerAt) and a click refused —
+   a re-quote that could be priced, sent and approved and then never applied to anybody.
+   When the quote names a customer who is still on the books (either link), the re-quote
+   points at them and the old conversion stamp goes, exactly as quoteLinkToCustomerUpdates
+   does for a member who moved. A customer since deleted links nothing: converting is then
+   right, and the card offers it. Returns the extra fields only; the caller writes them. */
+function requoteOfConvertedUpdates(d, book){
+  const q = d || {};
+  const target = String(q.existingCustomerId || q.convertedToCustomerId || '').trim();
+  if(!target) return {};
+  const list = book || (typeof jobAddresses !== 'undefined' ? jobAddresses : []);
+  const c = (list || []).find(function(a){ return a && String(a.id) === target; });
+  if(!c) return {};
+  const cd = c.data || {};
+  return {
+    existingCustomerId: c.id,
+    existingCustomerNumber: cd.customerNumber || '',
+    existingMeasuredFeet: Number(cd.measuredFeet) || 0,
+    existingNumberOfBins: Number(cd.numberOfBins) || 0,
+    existingLightsDescription: cd.lightsDescription || '',
+    existingLightColors: Array.isArray(cd.lightColors) ? cd.lightColors : [],
+    convertedToCustomerAt: null
+  };
+}
+/* What a typed Feet box on the quote card may save: a positive number, else null (blank,
+   nought, negative or not a number) — and null means change nothing. */
+function quoteFeetFromBox(raw){
+  const t = String(raw == null ? '' : raw).trim();
+  if(t === '') return null;
+  const n = Number(t);
+  return (isFinite(n) && n > 0) ? n : null;
 }
 function quoteContactMatchHtml(item){
   const matches = quotePossibleExistingCustomers(item.data);
@@ -14338,6 +14375,8 @@ function quoteNeedsText(d){
                          and send the customer a duplicate email */
 const quoteSendResults = new Map();
 const quoteSendInFlight = new Set();
+/* Quote ids whose Convert / Apply Re-quote popup is being opened, so a double-click opens one. */
+const quoteConvertOpening = new Set();
 let showArchivedQuotes = false; // Closed tab: swap between converted and archived
 /* The four stages a quote moves through, in the order they're worked:
      new    — it came in, nobody has priced it yet
@@ -16814,6 +16853,10 @@ let addCustAutoConvert = false;
    save — the caller decides which of those happens. Returns what it carried
    over so the caller can say so. */
 function fillAddCustFromQuote(quoteId, d){
+  /* ⭐ FROM AN EMPTY FORM, EVERY TIME (2026-10-29). Below only fills what the QUOTE has, so
+     anything left typed on the hidden form — a Bill To phone, a one-time note, a fee, a
+     customer number — used to ride onto this conversion with nobody looking at it. */
+  resetAddCustForm();
   document.getElementById('routeNameInput').value = d.name || '';
   document.getElementById('routePhoneInput').value = (d.phone || '').replace(/\D/g,'');
   document.getElementById('routeStreetInput').value = d.street || '';
@@ -17010,6 +17053,10 @@ function applyConvertWirePick(wire){
    anybody can see. The handler's own missing-field check is what reports this
    instead, and on this path it reports rather than blocks. */
 function autoConvertQuoteToCustomer(quoteId, d, wirePick){
+  /* ⭐ NEVER WHILE ANOTHER SAVE IS RUNNING — see addCustSaveBusyMessage. Refilling the form
+     now would hand the running save this quote and drop this one. */
+  const busy = addCustSaveBusyMessage();
+  if(busy){ toast(busy); return false; }
   const carried = fillAddCustFromQuote(quoteId, d);
   /* ⚠ ONLY WHEN THE POPUP ACTUALLY ASKED ([[WH-42]]). `undefined` means no picker was
      shown, and overwriting the quote's own value with a blank there would take a wire
@@ -17636,6 +17683,10 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   const numberStillFits = !newFeet || !num || (newBins >= 2) === (parseInt(num, 10) >= 5000);
   const overlay = document.createElement('div');
   overlay.className = 'needsfix-popup-overlay';
+  /* ⚠ ITS OWN ELEMENTS ARE FOUND INSIDE IT (2026-10-29). The ids below are fixed, so a second
+     copy of this popup (a double-click on the card) bound every handler to the FIRST copy
+     and left the visible one dead. The card refuses a second copy, and this looks inside. */
+  overlay.dataset.convertfor = quoteId;
   overlay.innerHTML = '<div class="needsfix-popup" style="max-width:500px;">'+
     '<h3 style="color:var(--dusk);">Update '+esc(who)+'</h3>'+
     '<p>They are already a customer'+(num ? ' on <strong>#'+esc(num)+'</strong>' : '')+', so this updates the record they already have. It does <strong>not</strong> add a second copy of them, and they keep their number, their invoice and their place on any route.</p>'+
@@ -17765,11 +17816,11 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
   document.body.appendChild(overlay);
   function close(){ overlay.remove(); }
   overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
-  document.getElementById('applyRequoteCancelBtn').addEventListener('click', close);
-  const priceBox = document.getElementById('requotePriceInput');
-  const goBtn = document.getElementById('applyRequoteBtn');
-  const echo = document.getElementById('requotePriceEcho');
-  const delta = document.getElementById('requotePriceDelta');
+  overlay.querySelector('#applyRequoteCancelBtn').addEventListener('click', close);
+  const priceBox = overlay.querySelector('#requotePriceInput');
+  const goBtn = overlay.querySelector('#applyRequoteBtn');
+  const echo = overlay.querySelector('#requotePriceEcho');
+  const delta = overlay.querySelector('#requotePriceDelta');
   /* A price the form cannot use must not be walked past. Blank or negative
      disables the button and says so, rather than opening the record and leaving
      the old price in place under a button that promised a new one. */
@@ -17783,7 +17834,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     const p = typedPrice();
     /* ⚠ BOTH BUTTONS, NOT JUST THE ONE THIS STARTED AS. A second way through that is
        still live while the price is blank is the same dead end wearing a new label. */
-    [goBtn, document.getElementById('applyRequoteNowBtn')].forEach(function(b){
+    [goBtn, overlay.querySelector('#applyRequoteNowBtn')].forEach(function(b){
       if(!b) return;
       b.disabled = (p === null);
       b.style.opacity = (p === null) ? '.55' : '';
@@ -17815,9 +17866,9 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     /* Read the choice off the buttons rather than from a variable set when they were
        drawn: what she last clicked is what the radio holds, and anything else here
        would be a second answer to the same question. */
-    const topUpEl = document.getElementById('requoteBuildTopUp');
-    const noneEl = document.getElementById('requoteBuildNone');
-    const recycleEl = document.getElementById('requoteBuildRecycle');
+    const topUpEl = overlay.querySelector('#requoteBuildTopUp');
+    const noneEl = overlay.querySelector('#requoteBuildNone');
+    const recycleEl = overlay.querySelector('#requoteBuildRecycle');
     const wantsNothing = !!(noneEl && noneEl.checked);
     const wantsTopUp = !wantsNothing && !!(topUpEl && topUpEl.checked);
     /* ⚠ NOTHING CHOSEN MUST NOT MEAN RECYCLE (2026-09-11). Recycle was the FALLBACK as
@@ -17833,7 +17884,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     /* ⚠ THE ADD-ON IS WHATEVER IS IN THE BOX, not the suggestion it was pre-filled with.
        An office that types over a wrong sum and then watches the wrong sum get used has
        been given a box that does nothing. */
-    const addOnEl = document.getElementById('requoteTopUpFeet');
+    const addOnEl = overlay.querySelector('#requoteTopUpFeet');
     const addOn = Math.round(Number(addOnEl && addOnEl.value) || 0);
     /* What the record will hold once this is saved — the new footage if the re-quote
        carries one, otherwise what they already had. */
@@ -17916,6 +17967,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
         ? {mode: 'topup', haveFeet: totalFeet - addOn, extraFeet: addOn}
         : {mode: 'recycle'});
     requoteBeingConverted = quoteId;
+    requoteCustomerId = existingItem.id;
     /* ⭐ AND THE SAVE BUTTON SAYS WHAT PRESSING IT FINISHES. "Save Changes" on a form
        that opened by itself does not read as the second half of a conversion, which is
        how a re-quote came to be left open with everything else waiting behind it. Put
@@ -17952,7 +18004,7 @@ function showApplyRequoteChoice(quoteId, d, existingItem){
     }
   }
   goBtn.addEventListener('click', function(){ applyRequote(false); });
-  const nowBtn = document.getElementById('applyRequoteNowBtn');
+  const nowBtn = overlay.querySelector('#applyRequoteNowBtn');
   if(nowBtn) nowBtn.addEventListener('click', function(){ applyRequote(true); });
 }
 /* The popup that asks which way. */
@@ -18076,6 +18128,10 @@ function showConvertQuoteChoice(quoteId, d){
   const hasLights = !!String(d.lightsDescription || (d.lightColors || []).join(', ')).trim();
   const overlay = document.createElement('div');
   overlay.className = 'needsfix-popup-overlay';
+  /* ⚠ ITS OWN ELEMENTS ARE FOUND INSIDE IT (2026-10-29). The ids below are fixed, so a second
+     copy of this popup (a double-click on the card) bound every handler to the FIRST copy
+     and left the visible one dead. The card refuses a second copy, and this looks inside. */
+  overlay.dataset.convertfor = quoteId;
   overlay.innerHTML = '<div class="needsfix-popup" style="max-width:480px;">'+
     '<h3 style="color:var(--dusk);">Convert '+esc(who)+' to a customer</h3>'+
     '<p>Both ways create the customer, their invoice, their customer number and their warehouse build. The only difference is whether you check the details first.</p>'+
@@ -18121,17 +18177,17 @@ function showConvertQuoteChoice(quoteId, d){
   document.body.appendChild(overlay);
   function close(){ overlay.remove(); }
   overlay.addEventListener('click', function(e){ if(e.target === overlay) close(); });
-  document.getElementById('convertQuoteCancelBtn').addEventListener('click', close);
+  overlay.querySelector('#convertQuoteCancelBtn').addEventListener('click', close);
   /* ⚠ THE NOTE SAYS WHAT IS STILL MISSING, and it moves with the box. A picker whose blank
      option carries no consequence reads as an optional extra rather than as the question
      [[WH-40]] is otherwise left to ask days later.
      ⭐ AND IT HOLDS BOTH BUTTONS ([[WH-43]]). ⚠ BOTH, not only the automatic one: the
      manual path fills the very box being asked about, so letting it through would make the
      requirement something a person walks past rather than answers. */
-  const convertWireSel = document.getElementById('convertQuoteWire');
-  const convertWireNote = document.getElementById('convertQuoteWireNote');
-  const convertAutoBtn = document.getElementById('convertQuoteAutoBtn');
-  const convertManualBtn = document.getElementById('convertQuoteManualBtn');
+  const convertWireSel = overlay.querySelector('#convertQuoteWire');
+  const convertWireNote = overlay.querySelector('#convertQuoteWireNote');
+  const convertAutoBtn = overlay.querySelector('#convertQuoteAutoBtn');
+  const convertManualBtn = overlay.querySelector('#convertQuoteManualBtn');
   /* ⚠ THE SUB-LABEL SAYS WHY, NOT JUST THAT IT IS OFF. A greyed button with its ordinary
      wording under it is a button that looks broken. */
   function setConvertBtn(btn, off, okWhy, offWhy){
@@ -18165,12 +18221,15 @@ function showConvertQuoteChoice(quoteId, d){
   /* ⚠ READ BEFORE close(), on BOTH buttons. `close()` removes the overlay, so the select
      is gone by the time anything below it runs and the answer would read as blank — which
      is itself a legal value here, so it would fail silently rather than throw. */
-  document.getElementById('convertQuoteManualBtn').addEventListener('click', function(){
+  overlay.querySelector('#convertQuoteManualBtn').addEventListener('click', function(){
     const wire = convertWireSel ? convertWireSel.value : '';
     /* ⚠ ASKED AGAIN HERE, because a disabled button is still reachable by keyboard — the
        same rule the re-quote popup's price box already follows. It returns BEFORE close(),
        so the popup stays up with the red note on it rather than vanishing silently. */
     if(!wire){ refreshConvertWireGate(); return; }
+    /* Asked before close(), so a refused press leaves the popup up to press again. */
+    const busyManual = addCustSaveBusyMessage();
+    if(busyManual){ toast(busyManual); return; }
     close();
     const carried = fillAddCustFromQuote(quoteId, d);
     applyConvertWirePick(wire);
@@ -18180,9 +18239,11 @@ function showConvertQuoteChoice(quoteId, d){
       (carried.pricedFrom === 'quote' ? ', using the approved quote price' : (carried.pricedFrom === 'feet' ? ', price estimated from footage' : '')) +
       ' — review and click Add Customer');
   });
-  document.getElementById('convertQuoteAutoBtn').addEventListener('click', function(){
+  overlay.querySelector('#convertQuoteAutoBtn').addEventListener('click', function(){
     const wire = convertWireSel ? convertWireSel.value : '';
     if(!wire){ refreshConvertWireGate(); return; }
+    const busyAuto = addCustSaveBusyMessage();
+    if(busyAuto){ toast(busyAuto); return; }
     close();
     autoConvertQuoteToCustomer(quoteId, d, wire);
   });
@@ -19397,10 +19458,15 @@ function renderQuoteRows(filtered){
       if(!token) token = generatePortalToken();
       if(statusEl) statusEl.textContent = 'Saving…';
       try{
-        const updates = Object.assign({quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()}, quoteFirstSentStamp(item.data));
+        /* ⚠ THE PRICE AND THE LINK ONLY — NOT THE SENT TIME (2026-10-29). This used to stamp
+           quoteSentAt / quoteFirstSentAt here, BEFORE sendQuoteEmailNow had checked anything,
+           so pressing Cancel on "no photo — send anyway?", or an address it refuses, still
+           moved the card to Awaiting Response and started the nudge clock on an email that
+           never went. sendQuoteEmailNow stamps both on its success branch, and only there. */
+        const updates = {quotedPrice: price, quoteToken: token};
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
-        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp(), approvalStatus: updates.approvalStatus || item.data.approvalStatus});
+        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, approvalStatus: updates.approvalStatus || item.data.approvalStatus});
         const link = 'https://highlightingutah.com/#/quote-details?token='+token+quotePortalParam(item.data)+'&action=approve';
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
@@ -19609,6 +19675,8 @@ function renderQuoteRows(filtered){
           quoteArchived: false,
           quoteArchivedReason: ''
         };
+        /* A converted quote re-quoted is a re-quote of THAT customer — see requoteOfConvertedUpdates. */
+        Object.assign(updates, requoteOfConvertedUpdates(d));
         await updateDoc(doc(db,'quotes', id), updates);
         /* The two server timestamps are sentinels, not dates - handing them to
            the local copy would print gibberish on the card until Firestore
@@ -19798,6 +19866,12 @@ function renderQuoteRows(filtered){
   list.querySelectorAll('[data-converttocust]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const quoteId = btn.dataset.converttocust;
+      /* One popup per quote — a double-click stacked two (2026-10-29). */
+      if(quoteConvertOpening.has(quoteId)) return;
+      if(Array.prototype.some.call(document.querySelectorAll('.needsfix-popup-overlay'),
+        function(o){ return o.dataset && o.dataset.convertfor === quoteId; })) return;
+      quoteConvertOpening.add(quoteId);
+      try{
       const snap2 = await getDoc(doc(db,'quotes', quoteId));
       if(!snap2.exists()){ toast('That quote is no longer there — refresh Quote Requests.'); return; }
       const d = snap2.data();
@@ -19809,6 +19883,9 @@ function renderQuoteRows(filtered){
         return;
       }
       showConvertQuoteChoice(quoteId, d);
+      } finally {
+        quoteConvertOpening.delete(quoteId);
+      }
     });
   });
   list.querySelectorAll('.quoteStatusSelect').forEach(function(sel){
@@ -19849,7 +19926,15 @@ function renderQuoteRows(filtered){
   // out from under the person typing into it.
   list.querySelectorAll('.quoteFeetInput').forEach(function(input){
     input.addEventListener('change', function(){
-      updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: Number(input.value) || 0});
+      /* ⚠ THE PRICE BOX'S GUARD, ON THE FEET (2026-10-29). `Number(v) || 0` saved a cleared box
+         as 0 ft and "-40" as -40 ft — and the feet decide the bins, the number series and
+         the bundle count. Nonsense changes nothing and the old value goes back in the box. */
+      const item = quotesCache.find(function(q){ return q.id === input.dataset.id; });
+      const prev = (item && typeof item.data.estimatedFeet === 'number') ? item.data.estimatedFeet : null;
+      const feet = quoteFeetFromBox(input.value);
+      if(feet === null){ input.value = (prev !== null && prev > 0) ? prev : ''; return; }
+      if(prev !== null && feet === prev) return;
+      updateDoc(doc(db,'quotes',input.dataset.id), {estimatedFeet: feet});
     });
   });
   /* ⭐ EDIT CONTACT. Opens and closes the row without a re-render, the same
@@ -19999,15 +20084,22 @@ function renderQuoteRows(filtered){
         return;
       }
       if(prev !== null && price === prev) return;
+      /* ⚠ ONE WRITE FOR A FIRST PRICE (2026-10-29). Leaving the box fires the browser's own change
+         AND the blur handler's, before the saved price has come back to quotesCache — so the
+         first price was written, and toasted, twice. The value just sent is remembered. */
+      if(prev === null && input.dataset.savingPrice === String(price)) return;
+      input.dataset.savingPrice = String(price);
       updateDoc(doc(db,'quotes',id), {quotedPrice: price}).then(function(){
         /* If the quote already went out, the email they are holding still
            quotes the old number even though their approval page now shows
            the new one - so say so instead of letting the two drift apart. */
-        const alreadySent = !!(item && (item.data.quoteToken || item.data.quoteManuallySent));
+        /* Sent means SENT — a quote that only has its link minted has never reached them. */
+        const alreadySent = !!(item && (item.data.quoteSentAt || item.data.quoteManuallySent));
         toast(alreadySent
           ? 'Price updated to '+fmtMoney(price)+' \u2014 use "Send again" so they get the new number'
           : 'Price saved \u2014 '+fmtMoney(price));
       }).catch(function(){
+        delete input.dataset.savingPrice;
         if(prev !== null) input.value = prev;
         toast('Could not save the price \u2014 check your connection and try again');
       });
@@ -37643,6 +37735,9 @@ function rmRenderCommit(){
       ? 'One press — the feet and the price go together, or neither goes.'
       : 'Trace a roofline first — there is nothing to save yet.';
   }
+  /* ⚠ AND THE FEET-ONLY LINK LIKEWISE (2026-10-29): it saved 0 ft over a quote with nothing drawn. */
+  const feetOnlyBtn = document.getElementById('rmUseFeetBtn');
+  if(feetOnlyBtn) feetOnlyBtn.disabled = !(feet > 0);
   if(feet <= 0){
     document.getElementById('rmCommitFt').textContent = '—';
     document.getElementById('rmCommitPr').textContent = '—';
@@ -40358,6 +40453,9 @@ function openRoofMeasure(quoteId){
     const measured = rmTotals().all;
     const feet = Math.round(measured * RM_FEET_MULTIPLIER);
     const status = document.getElementById('rmStatus');
+    /* Asked again here — a disabled button is still reachable by keyboard. Nothing drawn is
+       not a measurement of nought feet, and saving it wiped the footage on the quote. */
+    if(!(feet > 0)){ status.textContent = 'Nothing is drawn yet — trace the roofline first; there are no feet to save.'; return; }
     /* ⚠ ASKED BEFORE IT REACHES THE QUOTE. Owner: "I need no guessing I need
        feet to be correct." Once this is saved it drives the price, the bin
        count and the bundle count, and nothing downstream can tell a measured
@@ -43724,6 +43822,17 @@ let addCustPhotoMarkup = [];
 /* Set when the Add form was filled in from a quote, so saving the customer can
    close that quote out instead of leaving it sitting in the list. */
 let addCustFromQuoteId = null;
+/* ⭐ ONE CONVERSION AT A TIME (2026-10-29). The Add Customer submit is wrapped in
+   onceAtATime, so a second submit while one is saving is DROPPED — and before this, the
+   convert paths refilled the form and relinked `addCustFromQuoteId` anyway, so the save
+   already running closed the SECOND quote against the FIRST customer. Both convert paths
+   ask this first and refuse with a toast; the submit also captures its quote id once. */
+let addCustSubmitGuard = null;
+let addCustSavingName = '';
+function addCustSaveBusyMessage(){
+  if(!addCustSubmitGuard || typeof addCustSubmitGuard.isBusy !== 'function' || !addCustSubmitGuard.isBusy()) return '';
+  return 'Still saving ' + (addCustSavingName || 'the last customer') + ' — wait a second, then convert this one.';
+}
 /* Keep the banner honest about whether this form is converting a quote.
    Called wherever addCustFromQuoteId is set or cleared. */
 function renderAddCustQuoteBanner(quoteName){
@@ -44234,10 +44343,11 @@ document.addEventListener('click', function(e){
    the quote has no record of its own; on a customer the record IS the main house, so
    carrying it across would list the same address twice. It is matched on the flag the
    quote form writes, and on the words it defaults to when nobody renamed it. */
-function addCustBuildingsFromQuote(){
-  const q = (typeof addCustFromQuoteId !== 'undefined' && addCustFromQuoteId &&
-             typeof quotesCache !== 'undefined')
-    ? (quotesCache.find(function(x){ return x.id === addCustFromQuoteId; }) || null)
+/* ⚠ THE SAVE HANDS IN ITS OWN QUOTE ID (2026-10-29) — the global can be relinked while the
+   save awaits, which is the wrong-quote race the submit handler now reads once. */
+function addCustBuildingsFromQuote(quoteId){
+  const q = (quoteId && typeof quotesCache !== 'undefined')
+    ? (quotesCache.find(function(x){ return x.id === quoteId; }) || null)
     : null;
   const raw = (q && q.data && q.data.buildings) || [];
   return normalizeBuildings(raw.filter(function(b){
@@ -44245,6 +44355,91 @@ function addCustBuildingsFromQuote(){
     if(b.isMain === true) return false;
     return String(b.name || '').trim().toLowerCase() !== 'main house';
   }));
+}
+/* ⭐ THE ONE RESET OF THE ADD A CUSTOMER FORM (2026-10-29). Run after a successful save and
+   at the start of every fill from a quote (`fillAddCustFromQuote`), so a conversion starts
+   from an empty form and never inherits anything typed for somebody else. It also drops
+   the form's link to a quote. It does not touch the status line. */
+function resetAddCustForm(){
+  document.getElementById('routeStreetInput').value = '';
+  document.getElementById('routeCityInput').value = '';
+  document.getElementById('routeZipInput').value = '';
+  document.getElementById('routeNameInput').value = '';
+  document.getElementById('routePhoneInput').value = '';
+  document.getElementById('addCustPrice').value = '';
+  document.getElementById('addCustBillTo').value = '';
+  document.getElementById('addCustGateCode').value = '';
+  document.getElementById('addCustOutletTimer').value = '';
+  document.getElementById('addCustSpecificOutlet').value = '';
+  document.getElementById('addCustSpecificOutletNotes').value = '';
+  document.getElementById('addCustNotes').value = '';
+  document.getElementById('addCustBins').value = '1';
+  document.getElementById('addCustNumber').value = '';
+  addCustFromQuoteId = null;
+  addCustQuoteLightsPattern = '';
+  renderAddCustQuoteBanner('');
+  addCustQuoteColorsSnapshot = [];
+  document.getElementById('addCustWantsMailed').checked = false;
+  document.getElementById('addCustFeet').value = '';
+  document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.';
+  document.getElementById('addCustEmail').value = '';
+  document.getElementById('addCustPropertyLabel').value = '';
+  document.getElementById('addCustPhone2').value = '';
+  document.getElementById('addCustEmail2').value = '';
+  /* Back to the default rather than to nothing: one side is what an unrecorded
+     house counts as, so the form should show what it is about to save. */
+  houseSidesShowCount('addcust', HOUSE_SIDES_DEFAULT);
+  /* ⚠ THE BOXES FOLLOW THE COUNT HERE, and that is not the same as inventing an
+     answer: a count of one already SAYS the front and nothing else (it is the only
+     side one can mean), so ticking Front adds no claim the default did not already
+     make. Leaving them blank while the count reads 1 would put the form in the one
+     state the wiring exists to keep it out of. */
+  houseSidesShowList('addcust', houseSidesAutoFill(HOUSE_SIDES_DEFAULT));
+  document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
+  /* ⛔ BLANK, NOT White (2026-09-17). This reset is the fourth door that was quietly
+     writing a colour nobody chose: the form opens on it, nobody touches it, and Save
+     records White. [[OPT-12]] closed the other doors and missed this one. */
+  document.getElementById('addCustWireColor').value = '';
+  document.getElementById('addCustInstallPref').value = 'Normal Schedule';
+  /* ⚠ CLEARED WITH THE REST OF THE FORM, or the next customer typed in is silently given
+     the last one's holidays — and nothing on the new record would say where they came
+     from. awayFillHost with an empty list leaves one blank row, which is what the form
+     opens with. */
+  document.getElementById('addCustWantFrom').value = '';
+  document.getElementById('addCustWantTo').value = '';
+  document.getElementById('addCustStuckOn').value = '';
+  awayFillHost('addCustAwayList', []);
+  document.getElementById('addCustOneTimeNotes').value = '';
+  document.getElementById('addCustInvoiceNotes').value = '';
+  document.getElementById('addCustReferralCount').value = '';
+  document.getElementById('addCustFee').value = '';
+  document.getElementById('addCustFeeReason').value = '';
+  document.getElementById('addCustManualDiscount').value = '';
+  document.getElementById('addCustDiscountReason').value = '';
+  document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
+  updateAddCustDiscountSummary();
+  updateAddCustFeeSummary();
+  document.getElementById('addCustNewMemberFee').checked = false;
+  document.getElementById('addCustPhoto').value = '';
+  document.getElementById('addCustPhotoWrap').style.display = 'none';
+  document.getElementById('addCustViewToggle').style.display = 'none';
+  document.getElementById('addCustPhotoStatus').textContent = '';
+  addCustPhotoUrl = '';
+  addCustExtraPhotos = [];
+  renderAddCustExtraPhotos();
+  addCustHighlights = [];
+  renderAddCustHighlights();
+  showAddCustMissing([]);
+  /* ⭐ AND THE REST OF THE FORM (2026-10-29). The reset after a save used to miss these,
+     and the automatic convert fills only the quote's own fields — so whatever was typed
+     here and never saved rode onto the next converted quote unseen: a Bill To phone moved
+     the new house onto somebody else's bill. Everything a person can type is cleared. */
+  document.getElementById('addCustWarehouseNote').value = '';
+  document.getElementById('addCustWarehouseOneTime').value = '';
+  document.getElementById('addCustEaves').value = '';
+  addCustPhotoOriginal = '';
+  addCustPhotoMarkup = [];
+  addCustContactMethodFromQuote = '';
 }
 function showAddCustMissing(fields){
   const box = document.getElementById('addCustMissingBox');
@@ -44281,8 +44476,18 @@ function addCustMissingFields(v){
   if(!(v.price > 0)) missing.push('Total Price');
   return missing;
 }
-document.getElementById('routeAddressForm').addEventListener('submit', onceAtATime(async function(e){
+document.getElementById('routeAddressForm').addEventListener('submit', addCustSubmitGuard = onceAtATime(async function(e){
   e.preventDefault();
+  /* ⭐ WHICH QUOTE THIS SAVE IS CONVERTING IS READ ONCE, HERE (2026-10-29). Everything below
+     can await — the address lookup alone takes a second on a real network — and the global
+     is rewritten the moment anybody presses Convert on another card. Read again after an
+     await, the save closed THAT quote against THIS customer, and the second quote's own save
+     was dropped by onceAtATime. `fromQuoteId` is the only name used below. */
+  const fromQuoteId = addCustFromQuoteId;
+  const fromQuoteContact = fromQuoteId ? (addCustContactMethodFromQuote || '') : '';
+  const autoAtStart = addCustAutoConvert;
+  addCustSavingName = document.getElementById('routeNameInput').value.trim();
+  const outcome = await (async function(){
   const street = document.getElementById('routeStreetInput').value.trim();
   const city = document.getElementById('routeCityInput').value.trim();
   const zip = document.getElementById('routeZipInput').value.trim();
@@ -44332,7 +44537,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
   // didn't change which colours are checked, keep that exact pattern instead
   // of rebuilding a plain comma-joined list from checkbox DOM order — see
   // addCustQuoteLightsPattern above for why that flattening was a real bug.
-  const keptQuotePattern = addCustFromQuoteId && addCustQuoteLightsPattern &&
+  const keptQuotePattern = fromQuoteId && addCustQuoteLightsPattern &&
     selectedColors.length === addCustQuoteColorsSnapshot.length &&
     selectedColors.every(c => addCustQuoteColorsSnapshot.includes(c));
   const lightsDescription = keptQuotePattern
@@ -44403,7 +44608,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     if(isAutoConvert){
       toast('Could not convert ' + (name || 'this quote') + ' — no light colours on it. Use "Fill in manually" and pick their colours.');
     }
-    return;
+    return 'refused';
   }
   if(missingFields.length){
     document.getElementById('routeAddStatus').textContent =
@@ -44503,8 +44708,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
      customer number for the same quote. Re-checking against the server
      rather than the cached list catches a second staff member converting it
      in a different tab too. */
-  if(addCustFromQuoteId){
-    const dupCheckSnap = await getDoc(doc(db,'quotes', addCustFromQuoteId));
+  if(fromQuoteId){
+    const dupCheckSnap = await getDoc(doc(db,'quotes', fromQuoteId));
     const dupCheckData = dupCheckSnap.exists() ? dupCheckSnap.data() : null;
     if(dupCheckData && dupCheckData.convertedToCustomerAt){
       statusEl.textContent = 'This quote was already converted to a customer — refresh Quote Requests instead of converting it again.';
@@ -44626,8 +44831,8 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          reads a bare yes with no date as "nobody heard from them" and shows Pending, so
          writing the status alone would set a field that every reader then ignores —
          which looks exactly like the change not working. */
-      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
-      rsvpRespondedAt: addCustFromQuoteId ? serverTimestamp() : null,
+      rsvpStatus: fromQuoteId ? 'yes' : '',
+      rsvpRespondedAt: fromQuoteId ? serverTimestamp() : null,
       /* ⭐ AND THEY GET A DAY WITHOUT WAITING FOR A BUTTON (added 2026-08-22). Owner:
          "The new costumer should be assigned to and scheduled our right away when
          we'll be in that city."
@@ -44650,7 +44855,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          day. Left standing it would fire again after Start New Season, when the plan
          is empty, and dribble the whole book onto the earliest days one at a time. */
       needsDayAssignedAt: serverTimestamp(),
-      contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
+      contactMethod: (fromQuoteId ? fromQuoteContact : ''),
       wireColor: wireColor,
       /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
          Owner, 2026-08-21, on two customers who were nowhere in the warehouse: "Ashley
@@ -44667,7 +44872,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          it. The warehouse clears the flag when the bundle is made. */
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
       lightsQueuedAt: serverTimestamp(),
-      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, houseSidesList: selectedSidesList.length ? selectedSidesList : null, buildings: addCustBuildingsFromQuote(), customerNumber: customerNumber
+      scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, houseSidesList: selectedSidesList.length ? selectedSidesList : null, buildings: addCustBuildingsFromQuote(fromQuoteId), customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     /* ⭐ NOBODY HAS PICKED A WIRE COLOUR, SO THE OFFICE IS ASKED — WITH A PICTURE
        (2026-09-17, see WIRE_PICK_TOPIC). The customer is never asked for one any more and
@@ -44688,7 +44893,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
         name: name, phone: phone, email: email, contactMethod: '',
         customerId: newAddrRef.id,
         message: (name || 'This customer') + ' has no wire colour on their record' +
-          (addCustFromQuoteId ? ' — it was not picked when their quote was converted' : '') +
+          (fromQuoteId ? ' — it was not picked when their quote was converted' : '') +
           '. Nothing has been chosen for them: pick White or Green here, from the picture of ' +
           'their house, and it goes straight onto their record.',
         autoQueuedToWarehouse: false, needsReassign: false,
@@ -44701,7 +44906,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     if(customerNumber){
       await deleteDoc(doc(db,'availableCustomerNumbers', customerNumber)).catch(function(){ /* fine if it was never pooled */ });
     }
-    if(addCustFromQuoteId){
+    if(fromQuoteId){
       /* ⚠ THIS IS THE WRITE THAT TAKES THE QUOTE OUT OF THE PIPELINE, and it
          used to be wrapped in an empty catch. The customer above is already
          created by this point, so a failure here leaves a live customer with a
@@ -44712,7 +44917,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       /* ⭐ AND WHICH CUSTOMER IT BECAME ([[SCH-107]]). The other convert path already wrote
          convertedToCustomerId; this one — the one used every day — did not, so the only way
          back from a new hang to their quote was a shared phone number. */
-      await updateDoc(doc(db,'quotes', addCustFromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp(),
+      await updateDoc(doc(db,'quotes', fromQuoteId), {status: 'closed', convertedToCustomerAt: serverTimestamp(),
                                                              convertedToCustomerId: newAddrRef.id})
         .catch(function(err){
           console.error('The customer was created but their quote could not be closed:', err);
@@ -44724,10 +44929,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          before the toast claims the customer was added, and it can never throw.
          ⚠ THE QUOTE ID IS READ BEFORE THE LINE BELOW CLEARS IT. Moved after it, the
          token is gone and every referral through this door is silently worth nothing. */
-      const referralQuote = quotesCache.find(function(q){ return q && q.id === addCustFromQuoteId; });
+      const referralQuote = quotesCache.find(function(q){ return q && q.id === fromQuoteId; });
       if(referralQuote){
         await creditReferralIfAny(
-          Object.assign({}, referralQuote.data, {__quoteId: addCustFromQuoteId}),
+          Object.assign({}, referralQuote.data, {__quoteId: fromQuoteId}),
           newAddrRef.id,
           {name: name, phone: phone, email: email});
       }
@@ -44767,6 +44972,42 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
         newFeeNotes.push({amount: manualFee, reason: feeReason || 'Fee', kind: 'manual', date: new Date().toISOString()});
       }
       const totalFees = newFeeNotes.reduce((sum, f) => sum + f.amount, 0);
+      /* ⭐ A SHARED INVOICE IS REBUILT, NEVER OVERWRITTEN (2026-10-29). The write below sets
+         `install` to this one house and `deposit: 0` — right for somebody with no invoice yet,
+         and a disaster on a key somebody already bills under: a second property on the same
+         phone, a shared-phone household, a converted quote from a member's relative. It
+         replaced their total with this house's price and WIPED THEIR RECORDED PAYMENT.
+         So when the invoice already exists, or another house already files under this key,
+         the bill is rebuilt from every house through syncPayerInvoice — the one money writer
+         that sums the group and keeps the deposit — and anything typed here (discount, fee,
+         invoice note) is ADDED to what is on it, never written over it. */
+      const sharedInvSnap = await getDoc(doc(db,'invoices',custKey));
+      const sharesKey = sharedInvSnap.exists() || (Array.isArray(jobAddresses) && jobAddresses.some(function(c){
+        const cd = (c && c.data) || {};
+        return c && c.id !== newAddrRef.id && !cd.billToPhone && custInvoiceKey(cd) === custKey;
+      }));
+      if(sharesKey){
+        await syncPayerInvoice(custKey);
+        if(newCreditNotes.length || newFeeNotes.length || invoiceNotes){
+          const rebuiltSnap = await getDoc(doc(db,'invoices',custKey));
+          const rebuilt = rebuiltSnap.exists() ? rebuiltSnap.data() : {};
+          const allCredits = (Array.isArray(rebuilt.creditNotes) ? rebuilt.creditNotes : []).concat(newCreditNotes);
+          const allFees = (Array.isArray(rebuilt.changeFeeNotes) ? rebuilt.changeFeeNotes : []).concat(newFeeNotes);
+          const creditsSum = allCredits.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
+          const feesSum = (Number(rebuilt.changeFees) || 0) + totalFees;
+          const priorNotes = String(rebuilt.invoiceNotes || '').trim();
+          await setDoc(doc(db,'invoices',custKey), Object.assign({
+            credits: creditsSum, creditNotes: allCredits,
+            changeFees: feesSum, changeFeeNotes: allFees,
+            status: computeInvoiceStatus(Number(rebuilt.install) || 0, Number(rebuilt.removal) || 0,
+              Number(rebuilt.deposit) || 0, creditsSum, feesSum),
+            updatedAt: serverTimestamp()
+          }, invoiceNotes ? {invoiceNotes: priorNotes ? (priorNotes + '\n' + invoiceNotes) : invoiceNotes} : {}), {merge:true});
+        }
+        invoiceMsg = ' Added to the invoice already filed under ' + custKey + ' — rebuilt from every house on it, payments kept.';
+        if(totalCredits > 0) invoiceMsg += ' ' + fmtMoney(totalCredits) + ' in discounts added.';
+        if(totalFees > 0) invoiceMsg += ' ' + fmtMoney(totalFees) + ' in fees added.';
+      } else {
       await setDoc(doc(db,'invoices',custKey), Object.assign({
         name: name, phone: phone, email: email, phone2: phone2, email2: email2,
         lightsDescription: lightsDescription, install: price, removal: 0, deposit: 0,
@@ -44777,6 +45018,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       invoiceMsg = phone ? ' Invoice created too.' : ' Invoice created too (keyed by email — they log in with their email).';
       if(totalCredits > 0) invoiceMsg += ' ' + fmtMoney(totalCredits) + ' in discounts applied.';
       if(totalFees > 0) invoiceMsg += ' ' + fmtMoney(totalFees) + ' in fees added.';
+      }
     }
     if(phone) await syncCustomerToOpenQuote(phone, {name: name, email: email});
     /* Straight onto the next day the crew is already in their city, obeying the
@@ -44822,75 +45064,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
         ((err && err.message) || "the sheet is not connected on this computer") +
         " They will show up in the sheet comparison until it is done.");
     }
-    document.getElementById('routeStreetInput').value = '';
-    document.getElementById('routeCityInput').value = '';
-    document.getElementById('routeZipInput').value = '';
-    document.getElementById('routeNameInput').value = '';
-    document.getElementById('routePhoneInput').value = '';
-    document.getElementById('addCustPrice').value = '';
-    document.getElementById('addCustBillTo').value = '';
-    document.getElementById('addCustGateCode').value = '';
-    document.getElementById('addCustOutletTimer').value = '';
-    document.getElementById('addCustSpecificOutlet').value = '';
-    document.getElementById('addCustSpecificOutletNotes').value = '';
-    document.getElementById('addCustNotes').value = '';
-    document.getElementById('addCustBins').value = '1';
-    document.getElementById('addCustNumber').value = '';
-    addCustFromQuoteId = null;
-    addCustQuoteLightsPattern = '';
-    renderAddCustQuoteBanner('');
-    addCustQuoteColorsSnapshot = [];
-    document.getElementById('addCustWantsMailed').checked = false;
-    document.getElementById('addCustFeet').value = '';
-    document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.';
-    document.getElementById('addCustEmail').value = '';
-    document.getElementById('addCustPropertyLabel').value = '';
-    document.getElementById('addCustPhone2').value = '';
-    document.getElementById('addCustEmail2').value = '';
-    /* Back to the default rather than to nothing: one side is what an unrecorded
-       house counts as, so the form should show what it is about to save. */
-    houseSidesShowCount('addcust', HOUSE_SIDES_DEFAULT);
-    /* ⚠ THE BOXES FOLLOW THE COUNT HERE, and that is not the same as inventing an
-       answer: a count of one already SAYS the front and nothing else (it is the only
-       side one can mean), so ticking Front adds no claim the default did not already
-       make. Leaving them blank while the count reads 1 would put the form in the one
-       state the wiring exists to keep it out of. */
-    houseSidesShowList('addcust', houseSidesAutoFill(HOUSE_SIDES_DEFAULT));
-    document.querySelectorAll('.addcust-color-check').forEach(function(cb){ cb.checked = false; cb.closest('.pill-check').classList.remove('checked'); });
-    /* ⛔ BLANK, NOT White (2026-09-17). This reset is the fourth door that was quietly
-       writing a colour nobody chose: the form opens on it, nobody touches it, and Save
-       records White. [[OPT-12]] closed the other doors and missed this one. */
-    document.getElementById('addCustWireColor').value = '';
-    document.getElementById('addCustInstallPref').value = 'Normal Schedule';
-    /* ⚠ CLEARED WITH THE REST OF THE FORM, or the next customer typed in is silently given
-       the last one's holidays — and nothing on the new record would say where they came
-       from. awayFillHost with an empty list leaves one blank row, which is what the form
-       opens with. */
-    document.getElementById('addCustWantFrom').value = '';
-    document.getElementById('addCustWantTo').value = '';
-    document.getElementById('addCustStuckOn').value = '';
-    awayFillHost('addCustAwayList', []);
-    document.getElementById('addCustOneTimeNotes').value = '';
-    document.getElementById('addCustInvoiceNotes').value = '';
-    document.getElementById('addCustReferralCount').value = '';
-    document.getElementById('addCustFee').value = '';
-    document.getElementById('addCustFeeReason').value = '';
-    document.getElementById('addCustManualDiscount').value = '';
-    document.getElementById('addCustDiscountReason').value = '';
-    document.getElementById('addCustSpecificOutletNotesWrap').style.display = 'none';
-    updateAddCustDiscountSummary();
-    updateAddCustFeeSummary();
-    document.getElementById('addCustNewMemberFee').checked = false;
-    document.getElementById('addCustPhoto').value = '';
-    document.getElementById('addCustPhotoWrap').style.display = 'none';
-    document.getElementById('addCustViewToggle').style.display = 'none';
-    document.getElementById('addCustPhotoStatus').textContent = '';
-    addCustPhotoUrl = '';
-    addCustExtraPhotos = [];
-    renderAddCustExtraPhotos();
-    addCustHighlights = [];
-    renderAddCustHighlights();
-    showAddCustMissing([]);
+    resetAddCustForm();
     /* A pin that could not be found is said out loud rather than left for
        someone to notice when the house never appears on a route. It is not an
        error — the customer is saved — so it does not time out with the rest. */
@@ -44930,6 +45104,22 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
        status line is on another tab, and a conversion that failed silently
        looks exactly like one that worked. */
     if(isAutoConvert) toast('Could not convert ' + (name || 'this quote') + ' — ' + ((err && err.message) || 'something went wrong') + '. Check All Customers before trying again.');
+    return 'failed';
+  }
+  return 'saved';
+  })();
+  /* ⭐ A REFUSED AUTOMATIC CONVERSION SAYS WHY AND LEAVES NOTHING ARMED (2026-10-29). Every
+     early return above writes its reason on the Add Customer status line — which is on a
+     tab nobody converting from Quotes is looking at — and left the hidden form filled in and
+     still linked to the quote, so the next customer typed by hand closed it. On the
+     automatic path the reason travels to a toast and the form is reset. A manual save keeps
+     the form exactly as it is: the person is looking at it, fixing what it asked for. */
+  if(autoAtStart && outcome !== 'saved'){
+    if(outcome === undefined){
+      const why = String((document.getElementById('routeAddStatus') || {}).textContent || '').trim();
+      toast('Could not convert ' + (addCustSavingName || 'this quote') + (why ? ' \u2014 ' + why : '.'));
+    }
+    resetAddCustForm();
   }
 }, function(){ return document.querySelector('#routeAddressForm button[type="submit"]'); }));
 /* ---------------- BULK UPDATES (Add Customer) ---------------- */
@@ -59771,6 +59961,23 @@ function requoteRestoreSaveLabel(){
   const btn = document.getElementById('editCustSaveBtn');
   if(btn && btn.dataset.plainLabel) btn.textContent = btn.dataset.plainLabel;
 }
+/* Which customer the re-quote in hand is being applied to. Set beside requoteBeingConverted. */
+let requoteCustomerId = null;
+/* ⭐ PUTTING DOWN A RE-QUOTE IS ONE FUNCTION (2026-10-29). The re-quote flow leaves five
+   module-level values set while the Edit Customer form is open: the quote, the warehouse
+   answer, the typed light pattern, its colours and the Save label. Only Cancel cleared them,
+   so "Open their record first" then DELETE on that form, then opening ANYBODY else and
+   pressing Save applied the re-quote to them — recycle and build flags, requoteAppliedAt —
+   and closed the quote against the wrong customer. Called from Cancel, from Delete, and from
+   openEditCustomerModal whenever it opens somebody other than the re-quote's customer. */
+function requoteClearInHand(){
+  requoteBeingConverted = null;
+  requoteCustomerId = null;
+  requoteBuildChoice = null;
+  requoteLightsPattern = '';
+  requoteColorsSnapshot = null;
+  requoteRestoreSaveLabel();
+}
 /* The record's updatedAt at the moment the Edit Customer modal was opened, so
    the save can tell whether anyone else has touched it since. */
 let editCustOpenedWithUpdatedAt = null;
@@ -60677,6 +60884,8 @@ function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
   const d = item.data;
+  /* A re-quote in hand belongs to ONE customer — see requoteClearInHand. */
+  if(requoteBeingConverted && String(id) !== String(requoteCustomerId)) requoteClearInHand();
   editCustomerId = id;
   /* Remember how fresh the record was when this modal opened. The Save button
      writes ~30 fields from the snapshot taken right now, so if somebody else —
@@ -62090,6 +62299,7 @@ document.getElementById('editCustDeleteBtn').addEventListener('click', async fun
     if(!out.removed){ statusEl.textContent = 'Not removed \u2014 ' + out.reason + '.'; return; }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
+    requoteClearInHand();
     statusEl.textContent = '';
     toast((d.name || 'That customer') + ' removed' + (out.wroteSheet ? ' and added to the Recycle sheet' : '') + '.');
   } catch(err){
@@ -62303,14 +62513,10 @@ document.getElementById('editCustCancelBtn').addEventListener('click', function(
   /* Cancelling leaves the re-quote OPEN and waiting, which is right - nothing
      was applied. Not clearing this would close it against the next customer
      somebody happens to edit. */
-  requoteBeingConverted = null;
   /* ⭐ AND THE SAME FOR WHAT THE WAREHOUSE WAS TOLD TO DO. Left set, the recycle and
      build flags meant for THIS customer would be written onto the next person whose
-     record anybody saved. */
-  requoteBuildChoice = null;
-  requoteLightsPattern = '';
-  requoteColorsSnapshot = null;
-  requoteRestoreSaveLabel();
+     record anybody saved. requoteClearInHand puts all of it down at once. */
+  requoteClearInHand();
   /* ⚠ AND IT SAYS SO, BECAUSE APPLYING A RE-QUOTE IS TWO STEPS AND THE SECOND ONE WAS
      SILENT. Owner, 2026-08-20: "I converted her but she hasnt left the requote secion",
      "shes not in the recycle section", "shes not in the build section." All three are
