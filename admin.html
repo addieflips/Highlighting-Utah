@@ -7150,7 +7150,7 @@ function debounced(fn, waitMs){
 }
 function onceAtATime(handler, getBtn){
   let busy = false;
-  /* isBusy: see addCustSaveBusyMessage (2026-10-29). */
+  /* isBusy: see addCustSaveBusyMessage, added 2026-10-29. */
   const run = async function(e){
     if(busy){
       if(e && typeof e.preventDefault === 'function') e.preventDefault();

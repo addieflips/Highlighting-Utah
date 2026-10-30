@@ -31558,7 +31558,9 @@ suite('Suite 432. Customers break-test: deleting and merging keep the bills righ
         'custInvoiceKey', 'syncPayerInvoice', 'housesStillBilledTo', 'hlxNamesAlreadyOnTab', 'hlxAppendRowsToSheet',
         'rbCustomerToSheetRow', 'dupNormName', 'confirm', 'paymentLedgerUser', 'removeCustomerFromUpcomingRoutes',
         'logActivity', 'console'];
-      return new Function(...names, 'async ' + extractFn(admin, 'archiveCustomerSnapshot') + '\nasync ' +
+      /* hlxRemovingIds is module state in admin.html (one removal per customer at a time) —
+         declared here the way the page declares it, so the lifted remover runs as it does there. */
+      return new Function(...names, 'const hlxRemovingIds = new Set();\nasync ' + extractFn(admin, 'archiveCustomerSnapshot') + '\nasync ' +
         extractFn(admin, 'hlxRemoveCustomerToRecycle') + '\nreturn hlxRemoveCustomerToRecycle;')(...names.map(n => env[n]));
     };
     const P_PHONE = '8011110000';
@@ -59709,7 +59711,10 @@ function addCustHarness(opts) {
   opts = opts || {};
   const lifted = ['onceAtATime', 'addCustSaveBusyMessage', 'renderAddCustQuoteBanner', 'clearAddCustQuoteLink',
     'resetAddCustForm', 'addCustMissingFields', 'showAddCustMissing', 'fillAddCustFromQuote',
-    'applyConvertWirePick', 'autoConvertQuoteToCustomer', 'buildFullAddress', 'addCustBuildingsFromQuote'];
+    'applyConvertWirePick', 'autoConvertQuoteToCustomer', 'buildFullAddress', 'addCustBuildingsFromQuote',
+    /* The save asks the phone / Bill To guard (Suite 431) before it writes — lifted, never
+       stubbed, or a guard that refuses a save would be invisible here. */
+    'phoneAndBillToProblem', 'phoneLooksReal', 'billToIsOwnPhone', 'billToLoopPath', 'billToHolderName'];
   const srcs = lifted.map(n => extractFn(admin, n));
   const missing = lifted.filter((n, i) => !srcs[i]);
   if (missing.length) throw new Error('addCustHarness could not lift: ' + missing.join(', '));
