@@ -8066,7 +8066,9 @@ if (!JSDOM) {
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
-      '\n' + extractFn(admin, 'whBinNumberMoved'));
+      '\n' + extractFn(admin, 'whBinNumberMoved') +
+      /* Mark Recycled is wrapped in onceAtATime now (break-test 2026-10-29) — lifted, not stubbed. */
+      '\n' + extractFn(admin, 'onceAtATime'));
     /* ⭐ THE COLOUR TABLES (2026-08-24). whColorsFromWords reads them now, and it lives
        inside the slice eval'd below while the tables live hundreds of lines earlier,
        outside it. Read out of the real file, never restated — a local copy of the colour
@@ -28126,8 +28128,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
        reach neither button; this repo has shipped exactly that shape before. */
     const wh = admin.slice(admin.indexOf("btn.dataset.whdonehouse"),
                            admin.indexOf("const WH_BUILD_COLUMNS = ["));
+    /* repointed 2026-10-29, not weakened: the calls now pass the house record (so a pending
+       recycle keeps its bin label), so a call is counted with or without an argument —
+       the declaration `whBuiltUpdates(d){` is excluded. */
     check('S107', 'and so does marking a whole group done',
-      (wh.match(/whBuiltUpdates\(\)/g) || []).length >= 2,
+      (wh.match(/whBuiltUpdates\((?!d\)\{)/g) || []).length >= 2,
       'both Mark Done paths — one house and a whole colour group — must go through the ' +
       'one rule, or a field cleared on one is left behind on the other');
   }
@@ -67972,4 +67977,35 @@ suite('393. The status dropdown reads the Partial amount strictly, and Cancel pu
     /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(routeSrc) &&
     /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(routeSrc) &&
     !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(routeSrc));
+}
+
+suite('394. Customer Numbers: the pool takes real numbers only, and Assign is one press at a time');
+{
+  /* Break-test 2026-10-29. "Add to Available Pool" took anything parseInt could start on —
+     "7abc", "1e3", " 0099 " became pool ids and the next assign handed out #1e3 — plus "-5",
+     and 5600 typed as Regular (a two-bin label filed for a one-bin house). And two quick
+     presses on Assign Next Available gave two customers #1001. RUNS the rule. */
+  const chk = new Function(extractFn(admin, 'cnPoolNumberCheck') + 'return cnPoolNumberCheck;')();
+  check('S394', 'the pool refuses 7abc, 1e3, -5, 2.5 and 0, saying why',
+    ['7abc', '1e3', '-5', '2.5', '0', ''].every(v => chk(v, 'regular').num === '' && !!chk(v, 'regular').error),
+    JSON.stringify(['7abc', '1e3', '-5', '2.5', '0'].map(v => chk(v, 'regular'))));
+  check('S394', 'leading zeros and spaces are dropped, never stored as the id',
+    chk(' 0099 ', 'regular').num === '99');
+  check('S394', 'a 5000-series number typed as Regular is refused, and the other way round',
+    /Double Bin/.test(chk('5600', 'regular').error) && /Regular/.test(chk('1017', 'double').error) &&
+    chk('5600', 'double').num === '5600' && chk('5600', 'double').type === 'double');
+  check('S394', 'a number a customer already holds is refused',
+    /belongs to Ann/.test(chk('1017', 'regular', 'Ann').error));
+  const s = stripComments(admin);
+  const manual = s.slice(s.indexOf("getElementById('cnManualAddBtn').addEventListener"));
+  check('S394', 'the button writes only what the rule hands back, under the type it decided',
+    /onceAtATime\(async function\(\)\{/.test(manual.slice(0, 120)) &&
+    /cnPoolNumberCheck\(numInput\.value, type,/.test(manual) &&
+    /doc\(db,'availableCustomerNumbers', out\.num\), \{type: out\.type/.test(manual) &&
+    !/isNaN\(parseInt\(num/.test(manual.slice(0, manual.indexOf('}, function(){ return document.getElementById(\'cnManualAddBtn\')'))));
+  const assign = s.slice(s.indexOf("getElementById('cnAssignBtn').addEventListener"));
+  check('S394', 'Assign Next Available is one press at a time',
+    /^getElementById\('cnAssignBtn'\)\.addEventListener\('click', onceAtATime\(async function\(\)\{/.test(assign) &&
+    assign.indexOf("}, function(){ return document.getElementById('cnAssignBtn'); }));") > 0,
+    'cnNextAvailable reads the cache; a second press before the first write lands gets the same number');
 }

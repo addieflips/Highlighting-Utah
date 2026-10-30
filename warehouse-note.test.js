@@ -166,9 +166,12 @@ check('while still clearing the build flag and stamping the date',
    instruction that outlives its build, which is the failure the shared rule exists for. */
 const markDone = admin.slice(admin.indexOf('btn.dataset.whdonehouse'),
                              admin.indexOf('function whBuiltUpdates('));
+/* ⚠ REPOINTED 2026-10-29, NOT WEAKENED: the calls now hand over the house's record (so the
+   rule can keep a pending recycle's bin label), so they are counted as calls, with or
+   without an argument. */
 check('both Mark Done paths go through that one rule',
-  (markDone.match(/whBuiltUpdates\(\)/g) || []).length >= 2,
-  'found ' + (markDone.match(/whBuiltUpdates\(\)/g) || []).length +
+  (markDone.match(/whBuiltUpdates\(/g) || []).length >= 2,
+  'found ' + (markDone.match(/whBuiltUpdates\(/g) || []).length +
   ' — one house and a whole colour group must clear the same fields');
 /* ⚠ SCOPED TO THE BUILD STAMP, NOT TO THE FLAG. The first draft of this check forbade
    any inline `needsLightBuild: false` in the region and so failed on TWO writes that are
@@ -469,7 +472,128 @@ check('a returning customer\'s whole new set is a REBUILD, not a new hang',
 check('the warehouse sheet prints a What to do column, not the number columns',
   /label:'What to do'/.test(whCols) && !/label:'Added ft'/.test(whCols));
 
+/* =========================================================================
+   ⛔ BREAK-TEST 2026-10-29 — FOUR WAREHOUSE FAULTS, RUN RATHER THAN MATCHED WHERE THEY CAN BE
+   ========================================================================= */
+head('break-test 2026-10-29: Mark Done, Mark Completed, Mark Recycled, bin says');
+{
+  /* #5 — Mark Done on a mover's new set wiped the old bin's label the recycle crew needs. */
+  const mk = new Function('serverTimestamp', lift('whBuiltUpdates') + 'return whBuiltUpdates;')(() => 'TS');
+  const mover = mk({needsLightBuild: true, needsLightRecycle: true, binLabelNumber: '894'});
+  check('Mark Done keeps the old bin label while their old set is still to come back',
+    !('binLabelNumber' in mover) && mover.needsLightBuild === false,
+    'got ' + JSON.stringify(mover) + ' — the recycle row would fall back to their new number');
+  check('and still clears it for a house with nothing coming back',
+    mk({needsLightBuild: true, binLabelNumber: '894'}).binLabelNumber === null &&
+    mk().binLabelNumber === null);
+  const callers = (admin.match(/whBuiltUpdates\(([^)]*\)?[^)]*)\)/g) || [])
+    .filter(c => !/whBuiltUpdates\(d\)/.test(c));
+  check('every caller hands over the house record',
+    callers.length >= 3 && callers.every(c => !/whBuiltUpdates\(\)/.test(c)),
+    'found ' + JSON.stringify(callers) + ' — a call with no record clears the label for everybody');
+
+  /* #4 — "1.5" named one house in the confirm and cleared two. */
+  const cnt = new Function(lift('whCompleteCount') + 'return whCompleteCount;')();
+  check('Mark Completed refuses a fraction of a house, out loud',
+    cnt('1.5').n === 0 && /whole number/.test(cnt('1.5').error), JSON.stringify(cnt('1.5')));
+  check('and refuses 1e1, -2 and 0, and stays silent on a blank box',
+    cnt('1e1').n === 0 && cnt('-2').n === 0 && cnt('0').n === 0 && cnt('').error === 'blank');
+  check('and takes a whole number as it is', cnt(' 3 ').n === 3 && !cnt('3').error);
+  const markCompleted = admin.slice(admin.indexOf("querySelectorAll('[data-whcompletebtn]')"));
+  check('the Mark Completed handler counts through that rule before it confirms anything',
+    /whCompleteCount\(input\.value\)/.test(markCompleted.slice(0, markCompleted.indexOf('confirm('))) &&
+    !/Number\(input\.value\)/.test(markCompleted.slice(0, markCompleted.indexOf('confirm('))));
+
+  /* #6 — Mark Recycled pressed twice ran the whole removal twice: archivedRevenue counted twice. */
+  const rmSrc = lift('hlxRemoveCustomerToRecycle');
+  check('a second removal of the same customer while one is in flight stops at once',
+    (function(){
+      const body = rmSrc.slice(0, rmSrc.indexOf('const o = opts'));
+      return /hlxRemovingIds\.has\(removingId\)\)\s*return/.test(body) && /hlxRemovingIds\.add\(removingId\)/.test(body) &&
+        /finally\s*\{\s*if\(removingId\) hlxRemovingIds\.delete\(removingId\)/.test(rmSrc);
+    })(),
+    'without it the deposit is added to archivedRevenue once per press');
+  /* RUN it: the guard and the already-gone check, with every write recorded. */
+  (async function(){
+    const writes = [];
+    let exists = true;
+    const fake = {
+      getDoc: async () => ({exists: () => exists}),
+      doc: (_db, col, id) => col + '/' + id,
+      setDoc: async (ref, v) => writes.push(['set', ref]), deleteDoc: async (ref) => { writes.push(['del', ref]); exists = false; },
+      increment: n => ({inc: n}), serverTimestamp: () => 'TS'
+    };
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const run = new Function('getDoc','doc','setDoc','deleteDoc','increment','serverTimestamp','db',
+      'hlxNamesAlreadyOnTab','dupNormName','hlxAppendRowsToSheet','rbCustomerToSheetRow','archiveCustomerSnapshot',
+      'custInvoiceKey','removeCustomerFromUpcomingRoutes','logActivity','confirm',
+      'const hlxRemovingIds = new Set();' + rmSrc + 'return hlxRemoveCustomerToRecycle;')(
+      fake.getDoc, fake.doc, fake.setDoc, fake.deleteDoc, fake.increment, fake.serverTimestamp, {},
+      async () => ({}), n => n, async () => ({written: true}), d => d,
+      async () => { await gate; }, () => '', async () => {}, () => {}, () => true);
+    const item = {id: 'c1', data: {name: 'Sheri', customerNumber: '5016'}};
+    const first = run(item, {});
+    const second = await run(item, {});
+    release();
+    const one = await first;
+    const third = await run(item, {});
+    check('a second press while the first is writing does nothing', second.removed === false && /being removed/.test(second.reason),
+      JSON.stringify(second));
+    check('the first one still finishes', one.removed === true, JSON.stringify(one));
+    check('and a record already gone is not removed again', third.removed === false && /already removed/.test(third.reason),
+      JSON.stringify(third));
+    check('so the customer document was deleted exactly once',
+      writes.filter(w => w[0] === 'del' && w[1] === 'jobAddresses/c1').length === 1, JSON.stringify(writes));
+    finish();
+  })().catch(e => { check('the removal ran in its sandbox', false, e && e.stack); finish(); });
+
+  /* #14 — Add to Queue for somebody out for the season said "queued to build" and the house
+     never showed. The note asks the same status rule the "is a house on this list" box asks. */
+  const note = new Function(lift('whBuildStatusText') + lift('whQueuedButHiddenNote') +
+    'return whQueuedButHiddenNote;')();
+  check('a house that will not show on the build list is said to, after "queued to build"',
+    /not said yes/.test(note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false)) &&
+    /Back Next Year/.test(note('Kelvin', {state: 'nextyear', why: 'Back Next Year'}, false)),
+    note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false));
+  check('and an unanswered RSVP is not called a recycle',
+    !/recycled/.test(note('Kelvin', {state: 'nextyear', why: 'unconfirmed'}, false)));
+  check('and a house that IS on the list gets no warning',
+    note('A', {state: 'building', where: 'Red'}, false) === '' &&
+    note('A', {state: 'timeronly'}, true) === '');
+  const statusSrc = lift('whHouseBuildStatus');
+  check('the status rule tells an unanswered customer from one being recycled',
+    /needsLightRecycle \? '' : 'unconfirmed'/.test(statusSrc));
+  const addQ = admin.slice(admin.indexOf("getElementById('whAddExtraBtn').addEventListener('click'"));
+  const addQBody = addQ.slice(0, addQ.indexOf("}, function(){ return document.getElementById('whAddExtraBtn'); }));"));
+  check('Add to Queue warns through that note after a linked add',
+    /whQueuedButHiddenNote\(linked\.data\.name, whHouseBuildStatus\(linked\)/.test(addQBody),
+    'a note nothing calls leaves "queued to build" standing alone');
+  /* #7 — two quick presses on buffer stock wrote two rows. */
+  check('Add to Queue is one press at a time',
+    /^getElementById\('whAddExtraBtn'\)\.addEventListener\('click', onceAtATime\(async function\(\)\{/.test(addQ) &&
+    addQBody.length < addQ.length,
+    'the top-up check reads a cache the first write has not reached yet');
+
+  /* LOW — the "bin says" box refused "abc" and went on showing it. */
+  const binBox = admin.slice(admin.indexOf("querySelectorAll('[data-whbinlabel]')"));
+  const refusal = binBox.slice(0, binBox.indexOf('return;'));
+  check('a refused bin number is put back to what is saved',
+    /input\.value = input\.defaultValue;/.test(refusal),
+    'a box still reading "abc" looks as if it was kept');
+}
+
+/* ⚠ A SANDBOX THAT NEVER SETTLES MUST NOT EXIT GREEN. If the removal hangs (a second press
+   waiting on the first, with no guard) node runs out of work and exits 0 without ever
+   reaching the summary — a pass for the worst possible reason. */
+let finished = false;
+process.on('exit', function(){
+  if(!finished){ console.log('\n  FAIL  the async removal checks never finished — a hung second removal'); process.exitCode = 1; }
+});
+function finish(){
+finished = true;
 console.log('\n=======================================================');
 console.log('Warehouse note — ' + pass + ' passed, ' + fail + ' failed');
 console.log('=======================================================\n');
 if (fail) { failures.forEach(f => console.log('  - ' + f)); console.log(''); process.exit(1); }
+}

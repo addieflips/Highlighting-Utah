@@ -499,7 +499,8 @@ if (Array.isArray(pages)) {
   /* And finishing the colour change finishes the build, or the house falls straight back onto it. */
   const ccDoneSrc = (function(){ const i = admin.indexOf("btn.dataset.whccdone"); return i < 0 ? '' : admin.slice(i, admin.indexOf('renderWarehouseColorChangeQueue();', i)); })();
   check('Mark Done on the Color Change list also marks the build done',
-    /builtToo \? whBuiltUpdates\(\) : \{\}/.test(ccDoneSrc) && /needsColorChange: false/.test(ccDoneSrc),
+    /* repointed 2026-10-29: the record is passed so a pending recycle keeps its bin label */
+    /builtToo \? whBuiltUpdates\(item\.data\) : \{\}/.test(ccDoneSrc) && /needsColorChange: false/.test(ccDoneSrc),
     'without it a finished colour change reappears on the build list and gets a second set');
 }
 /* ⚠ AND BOTH THE BUILD BUTTON AND THE RECYCLE ONE GO THROUGH THE SECTIONS API, or one

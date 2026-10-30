@@ -5472,6 +5472,7 @@
           </div>
         </div>
         <button type="button" class="btn btn-outline btn-sm" id="cnManualAddBtn">Add to Available Pool</button>
+        <span id="cnManualStatus" class="form-note" style="margin-left:8px;"></span>
       </div>
       </div>
       <div id="cnPrintArea" style="display:none;"></div>
@@ -27107,9 +27108,12 @@ function populateMoveToSelect(){
      the separate Inbox option that used to be written out here is gone rather than
      doubled. The nesting dashes went with `flatFolderList`: her own folders are a flat
      list by construction, and drawing a tree that cannot have branches is a lie. */
+  /* A redraw while she is mid-pick keeps her pick if that folder still exists. */
+  const was = sel.value;
+  const names = msgFileableFolders();
   sel.innerHTML = '<option value="">Move to&hellip;</option>' +
-    msgFileableFolders().map(f => '<option value="'+esc(f)+'">'+esc(f)+'</option>').join('');
-  sel.value = '';
+    names.map(f => '<option value="'+esc(f)+'">'+esc(f)+'</option>').join('');
+  sel.value = (was && names.indexOf(was) !== -1) ? was : '';
 }
 /* ⭐ ADD FOLDER ANSWERS, WHATEVER HAPPENS (2026-08-25). Owner: "the add folder is
    not working." The mechanism was fine — a folder really was written — but every
@@ -27188,6 +27192,21 @@ function msgContactCustomer(d){
      the link they hit. Already refuses on more than one match. */
   const found = (typeof msgErrorWhoIs === 'function') ? msgErrorWhoIs(d) : null;
   return (found && found.cust) ? found.cust : null;
+}
+/* ⭐ WHICH CUSTOMER A COLOUR-CHANGE MESSAGE IS ABOUT, for Send to Warehouse (2026-10-29,
+   break-test). An id the message carries wins outright; otherwise the same refusing match
+   the contact line uses — one phone owner, else one email owner, else the portal token —
+   and NOBODY when it is shared or blank. Linking a light change to the wrong house builds
+   the wrong bundle; an empty box only costs somebody picking the house. */
+function msgSendToWhCustomer(d){
+  d = d || {};
+  const list = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  const id = String(d.customerId || d.jobAddressId || '').trim();
+  if(id){
+    const byId = list.find(function(a){ return a.id === id; });
+    if(byId) return byId;
+  }
+  return msgContactCustomer(d);
 }
 /* What the sender gave us wins; the record only ever fills a GAP. Their own answer is
    the one to reply to — somebody who wrote in from a new address wants the reply
@@ -28222,6 +28241,18 @@ function commRowMatches(d, section, tab){
   const hersOnBuiltIn = (commBuiltInExtras(section).tabs || [])
     .find(function(t){ return t && t.key === tab; });
   if(hersOnBuiltIn){
+    /* ⛔ BUT NOT A FOLDER SHE FILLS BY HAND (2026-10-29, break-test). Filing a message
+       there is what takes it OUT of the Inbox (`msgIsFiledAway`), so "must also pass the
+       Inbox" could never be true of anything in it: the folder read 0 for ever, and since
+       `commHandFolders` claims the name the "Your folders" line skipped it too — the
+       message was findable by search alone. So a hand folder asks the section about the
+       message AS IF IT WERE NOT FILED — the one fact the folder itself changed — and every
+       other half of the section rule still applies: a system notice filed into a folder
+       under the Inbox is still not shown there, which is what [[MSG-19]]'s rule protects. */
+    if(hersOnBuiltIn.filter && hersOnBuiltIn.filter.fill === 'hand'){
+      if(!commRowMatches(Object.assign({}, d, {filedByHand: false}), section, 'all')) return false;
+      return commFilterMatches(d, hersOnBuiltIn.filter);
+    }
     if(!commRowMatches(d, section, 'all')) return false;
     return commFilterMatches(d, hersOnBuiltIn.filter);
   }
@@ -28537,6 +28568,110 @@ function renderCommNav(){
         'moved to \u201C' + folder + '\u201D');
     });
   });
+  /* ⛔ THE MOVE TO… LIST IS REBUILT WITH THE NAV (2026-10-29, break-test). Its only call
+     went out with the old folder sidebar in 02068e2, so the select sat on its bare
+     "Move to…" placeholder for ever and named no folder at all — the three-routes,
+     one-dead shape [[MSG-20]] fixed once already. The nav is redrawn whenever a section
+     or a filed message changes, which is exactly when the list of folders can. */
+  populateMoveToSelect();
+}
+/* ⭐ WHICH FOLDER EACH VIEW OF A SECTION IS (2026-10-29, break-test). `''` is the section
+   itself, otherwise the subtab's key. Takes a stored section, a draft in the editor, or a
+   row of `commAllSections()` (whose tabs are [key, label, record]) — one reader, so the
+   save check, the delete and the rename cannot disagree about what a section holds. */
+function commSectionFolderMap(sec){
+  const out = {};
+  const f = sec && sec.filter;
+  if(f && f.fill === 'hand' && String(f.folder || '').trim()) out[''] = String(f.folder).trim();
+  ((sec && sec.tabs) || []).forEach(function(t){
+    const rec = Array.isArray(t) ? t[2] : t;
+    if(rec && rec.key && rec.filter && rec.filter.fill === 'hand' && String(rec.filter.folder || '').trim()){
+      out[rec.key] = String(rec.filter.folder).trim();
+    }
+  });
+  return out;
+}
+/* Every folder a section claims, including a HIDDEN built-in's — hiding a section does not
+   empty its folders, so they are still somebody's. */
+function commAllFolderClaims(){
+  const out = [];
+  const push = function(key, label, map){
+    Object.keys(map).forEach(function(v){ out.push({section: key, label: label, view: v, folder: map[v]}); });
+  };
+  COMM_SECTIONS.forEach(function(s){
+    const extra = commBuiltInExtras(s.key);
+    push(s.key, extra.label || s.label, commSectionFolderMap({tabs: extra.tabs || []}));
+  });
+  ((commSections && commSections.custom) || []).forEach(function(sec){
+    push(sec.key, sec.label || 'Untitled', commSectionFolderMap(sec));
+  });
+  return out;
+}
+/* ⛔ WHY A SECTION'S FOLDER NAME CAN BE REFUSED (2026-10-29, break-test). Returns '' when the
+   names are fine, otherwise the sentence to show. Two sections naming one folder looked like
+   two places and were one: deleting either put the other's messages back in the Inbox. And a
+   folder called Inbox is the unfiled pile itself — `msgIsFiledAway` treats it as not filed, so
+   a "folder" by that name could never hold anything. Compared without case, because Done and
+   done are two folders to the code and one to anybody reading the sidebar. */
+function commFolderNameProblem(sectionKey, names, claims){
+  const seen = {};
+  for(const raw of names){
+    const n = String(raw || '').trim();
+    const k = n.toLowerCase();
+    if(!k) continue;
+    if(k === 'inbox') return '“Inbox” is where unfiled messages already live, so a folder cannot be called that — pick another name.';
+    if(seen[k]) return 'Two folders in this section are both called “' + n + '” — give each its own name.';
+    seen[k] = true;
+    const other = (claims || []).find(function(c){ return c.section !== sectionKey && String(c.folder).toLowerCase() === k; });
+    if(other) return 'A folder called “' + n + '” already belongs to the section “' + other.label + '”. ' +
+      'Two sections sharing one folder means deleting one empties the other — pick a different name.';
+  }
+  return '';
+}
+/* ⛔ A RENAMED FOLDER TAKES ITS MESSAGES WITH IT (2026-10-29, break-test). The view asks each
+   message which folder it is in, so renaming the view's folder left every message filed under
+   the OLD name — the section read 0 and they surfaced under "Your folders". Pure, so a test
+   can run it: which old name moves to which new one, per view key, skipping a name another
+   view still claims (those messages are still where somebody looks for them). */
+function commFolderRenames(before, after, stillClaimed){
+  const moves = [];
+  Object.keys(before || {}).forEach(function(v){
+    const from = before[v], to = (after || {})[v];
+    if(!from || !to || from === to) return;
+    if((stillClaimed || []).indexOf(from) !== -1) return;
+    if(moves.some(function(m){ return m.from === from; })) return;
+    moves.push({from: from, to: to});
+  });
+  return moves;
+}
+/* The write half of a rename, batched (a busy folder can hold hundreds). A failed batch is
+   counted and said, never swallowed: those messages are still reachable under "Your folders"
+   by their old name, so nothing is lost, but the office has to be told why the count is short. */
+async function commMoveFolderMessages(moves){
+  let moved = 0, failed = 0;
+  for(const mv of (moves || [])){
+    const ids = (allMessages || []).filter(function(m){
+      return m.data && m.data.filedByHand && messageFolderOf(m.data) === mv.from;
+    }).map(function(m){ return m.id; });
+    for(let i = 0; i < ids.length; i += 400){
+      const chunk = ids.slice(i, i + 400);
+      try{
+        const batch = writeBatch(db);
+        chunk.forEach(function(id){ batch.update(doc(db, 'messages', id), {folder: mv.to, filedByHand: true}); });
+        await batch.commit();
+        moved += chunk.length;
+      }catch(err){
+        failed += chunk.length;
+        console.error('Could not move messages from ' + mv.from + ' to ' + mv.to + ':', err);
+      }
+    }
+  }
+  return {moved: moved, failed: failed};
+}
+function commMoveReport(r){
+  if(!r || (!r.moved && !r.failed)) return '';
+  return (r.moved ? ' — ' + r.moved + ' message' + (r.moved === 1 ? '' : 's') + ' moved with the folder' : '') +
+    (r.failed ? ' — ' + r.failed + ' could not be moved and are under “Your folders” by the old name' : '');
 }
 /* ⭐ THE EDITOR ([[MSG-15]]). One popup for the whole section: its name, its icon, what
    belongs in it at all, and its subtabs. A popup rather than a `confirm()` for the reason
@@ -28585,6 +28720,9 @@ function commEditSection(existing){
        filter: {fill: 'hand', folder: '', types: [], categories: [], statuses: [], priorities: [], severities: [], search: ''},
        tabs: []};
   draft.tabs = draft.tabs || [];
+  /* The folder each view held when the editor opened, so Save can carry messages across a
+     rename (`commFolderRenames`). */
+  const foldersBefore = commSectionFolderMap(existing || {});
 
   const overlay = document.createElement('div');
   overlay.className = 'needsfix-popup-overlay';
@@ -28790,8 +28928,16 @@ function commEditSection(existing){
         if(t.filter && t.filter.fill === 'hand' && String(t.filter.folder||'').trim() &&
            folders.indexOf(t.filter.folder.trim()) === -1) folders.push(t.filter.folder.trim());
       });
+      /* ⛔ A FOLDER ANOTHER SECTION STILL SHOWS IS NOT THIS SECTION'S TO EMPTY (2026-10-29,
+         break-test). Two sections could name one folder; deleting either used to put the
+         other's messages back in the Inbox, emptying a section nobody touched. Save now
+         refuses a shared name, but sections saved before that can still share one. */
+      const stillShown = commAllFolderClaims()
+        .filter(function(c){ return c.section !== draft.key; })
+        .map(function(c){ return c.folder; });
+      const ours = folders.filter(function(f){ return stillShown.indexOf(f) === -1; });
       const held = (allMessages || []).filter(function(m){
-        return msgIsFiledAway(m.data) && folders.indexOf(messageFolderOf(m.data)) !== -1;
+        return msgIsFiledAway(m.data) && ours.indexOf(messageFolderOf(m.data)) !== -1;
       });
       if(!confirm('Delete the section "' + (draft.label || 'Untitled') + '"?\n\n' +
         (held.length
@@ -28835,6 +28981,13 @@ function commEditSection(existing){
           needFolder.push(t.filter.folder);
         }
       });
+      const claims = commAllFolderClaims();
+      const nameProblem = commFolderNameProblem(draft.key, needFolder, claims);
+      if(nameProblem){ alert(nameProblem); return; }
+      const foldersAfter = commSectionFolderMap(draft);
+      const renames = commFolderRenames(foldersBefore, foldersAfter,
+        claims.filter(function(c){ return c.section !== draft.key; }).map(function(c){ return c.folder; })
+          .concat(Object.keys(foldersAfter).map(function(v){ return foldersAfter[v]; })));
       save.disabled = true;
       try{
         /* ⭐ ONE VOCABULARY ([[MSG-19]]). The folder she names in the sidebar is created as a
@@ -28857,9 +29010,10 @@ function commEditSection(existing){
           nextBuiltIn[builtInKey] = {label: draft.label, icon: draft.icon, tabs: draft.tabs};
           await saveCommSections({custom: commSections.custom || [],
                                   hidden: commSections.hidden || [], builtIn: nextBuiltIn});
+          const movedB = await commMoveFolderMessages(renames);
           overlay.remove();
           commView = {section: builtInKey, tab: 'all'};
-          toast('Saved "' + draft.label + '".');
+          toast('Saved "' + draft.label + '"' + commMoveReport(movedB) + '.');
           return;
         }
         const list = (commSections.custom || []).slice();
@@ -28867,9 +29021,10 @@ function commEditSection(existing){
         if(at === -1) list.push(draft); else list[at] = draft;
         await saveCommSections({custom: list, hidden: commSections.hidden || [],
                                 builtIn: commSections.builtIn || {}});
+        const movedC = await commMoveFolderMessages(renames);
         overlay.remove();
         commView = {section: draft.key, tab: 'all'};
-        toast('Saved "' + draft.label + '".');
+        toast('Saved "' + draft.label + '"' + commMoveReport(movedC) + '.');
       }catch(err){
         save.disabled = false;
         console.error('Could not save the section:', err);
@@ -29437,8 +29592,11 @@ function renderMessagesList(){
       const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
       if(!msg) return;
       const d = msg.data;
-      const phoneDigits = (d.phone||'').replace(/\D/g,'');
-      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      /* ⛔ NEVER A FIRST-MATCH ON THE PHONE (2026-10-29, break-test). A shared household
+         phone linked the change to whichever sibling came first, and a blank phone matched
+         the first customer with no phone ('' === ''). `msgSendToWhCustomer` refuses an
+         ambiguous match and leaves the house box for a person to pick. */
+      const cust = msgSendToWhCustomer(d);
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
       // This is a NEW entry, so drop out of edit mode first — otherwise it
@@ -29459,7 +29617,8 @@ function renderMessagesList(){
         labelEl.value = d.name || '';
       }
       labelEl.dispatchEvent(new Event('input'));
-      document.getElementById('whAddExtraStatus').textContent = 'Filled in from the Inbox \u2014 check it over, then Add to Queue.';
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from the Inbox \u2014 check it over, then Add to Queue.' +
+        (cust ? '' : ' Could not tell for certain which customer sent it (no single match on their phone or email) \u2014 pick the house before adding.');
     });
   });
   attachDeleteHandlers(list);
@@ -52975,6 +53134,8 @@ function renderWarehouseRecycleQueue(){
       const typed = String(input.value || '').trim();
       if(typed && !/^[0-9]+$/.test(typed)){
         toast('A bin number is digits only \u2014 leave it blank if you do not know it.');
+        /* Put back what is saved: left showing "abc", the box reads as if it had been kept. */
+        input.value = input.defaultValue;
         return;
       }
       const archived = (whArchivedPending || []).some(function(a){ return a.id === id; });
@@ -53002,7 +53163,10 @@ function renderWarehouseRecycleQueue(){
     });
   });
   list.querySelectorAll('[data-whrecycledone]').forEach(function(btn){
-    btn.addEventListener('click', async function(e){
+    /* ⚠ onceAtATime: a second press while the first is still writing is ignored, and the
+       button stays dead until it finishes (2026-10-29, break-test — a double press used to
+       run the whole removal twice; the removal itself refuses a second run as well). */
+    btn.addEventListener('click', onceAtATime(async function(e){
       e.stopPropagation();
       const custId = btn.dataset.whrecycledone;
       /* ⭐ THE ROW MAY BE AN ARCHIVED ONE. The queue lists people already removed
@@ -53067,11 +53231,13 @@ function renderWarehouseRecycleQueue(){
         if(out.removed){
           toast((d.name || 'They') + ' recycled and removed' +
             (out.number ? ', number #' + out.number + ' back in the pool' : '') + '.');
+        } else if(out.reason === 'already removed' || out.reason === 'already being removed'){
+          toast((d.name || 'They') + ' ' + (out.reason === 'already removed' ? 'were already recycled' : 'are already being recycled') + ' \u2014 nothing more to do.');
         }
       } catch(err){
         toast('Could not finish that one \u2014 try again.');
       }
-    });
+    }, btn));
   });
 }
 /* Every panel redraws off this one listener. Without isolation a single
@@ -53803,7 +53969,9 @@ function renderCustomerNumbersPanel(){
   const el = document.getElementById('cnFullSearch');
   if(el) el.addEventListener('input', debounced(renderCustomerNumbersPanel));
 })();
-document.getElementById('cnAssignBtn').addEventListener('click', async function(){
+/* ⛔ onceAtATime (2026-10-29, break-test): two quick presses handed two customers #1001 —
+   cnNextAvailable reads the cache, and the first write had not reached it. */
+document.getElementById('cnAssignBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('cnAssignStatus');
   const custId = document.getElementById('cnAssignCustomerSelect').value;
   const type = document.getElementById('cnAssignBinType').value;
@@ -53817,7 +53985,7 @@ document.getElementById('cnAssignBtn').addEventListener('click', async function(
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
-});
+}, function(){ return document.getElementById('cnAssignBtn'); }));
 /* ---------------- BULK ASSIGN CUSTOMER NUMBERS ---------------- */
 /* One-time tool for stamping the master sheet's numbers onto customers who are
    already in the system. Deliberately does NOT touch anything but customerNumber
@@ -54063,14 +54231,46 @@ document.getElementById('cnFindGapsBtn').addEventListener('click', function(){
     document.getElementById('cnFindGapsBtn').click();
   });
 });
-document.getElementById('cnManualAddBtn').addEventListener('click', async function(){
+/* ⛔ WHAT MAY GO INTO THE POOL BY HAND (2026-10-29, break-tests). It accepted anything parseInt
+   could start on: "7abc", "1e3" and " 0099 " became pool documents with those very ids, and
+   the next assign handed a customer #1e3. "-5" went in, and so did 5600 typed as Regular —
+   a 5000-series number is a two-bin label, so filing it as regular hands it to a one-bin
+   house. A whole positive number only, leading zeros dropped, and the type picked must match
+   the series — the same `parseInt(num,10) >= 5000 ? 'double' : 'regular'` every other pool
+   write uses. A number a customer already holds is refused too. Returns the number to
+   store, or a sentence saying why not. */
+function cnPoolNumberCheck(raw, type, heldBy){
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t) return {num: '', error: 'Type a number first.'};
+  if(!/^\d+$/.test(t)) return {num: '', error: '\u201C' + t + '\u201D is not a customer number \u2014 digits only, like 1017 or 5012.'};
+  const num = String(parseInt(t, 10));
+  if(num === '0') return {num: '', error: 'Customer numbers start at 1.'};
+  const series = parseInt(num, 10) >= 5000 ? 'double' : 'regular';
+  if(type && type !== series){
+    return {num: '', error: '#' + num + (series === 'double'
+      ? ' is a 5000-series number, which means two bins \u2014 pick Double Bin.'
+      : ' is a regular number, under 5000 \u2014 pick Regular.')};
+  }
+  if(heldBy) return {num: '', error: '#' + num + ' belongs to ' + heldBy + ' \u2014 it is not free.'};
+  return {num: num, type: series, error: ''};
+}
+document.getElementById('cnManualAddBtn').addEventListener('click', onceAtATime(async function(){
   const numInput = document.getElementById('cnManualNumber');
-  const num = numInput.value.trim();
+  const statusEl = document.getElementById('cnManualStatus');
   const type = document.getElementById('cnManualType').value;
-  if(!num || isNaN(parseInt(num,10))) return;
-  await setDoc(doc(db,'availableCustomerNumbers', num), {type: type, releasedAt: serverTimestamp()});
-  numInput.value = '';
-});
+  const wanted = String(parseInt(String(numInput.value || '').trim(), 10));
+  const holder = (jobAddresses || []).find(function(a){ return String((a.data || {}).customerNumber || '') === wanted; });
+  const out = cnPoolNumberCheck(numInput.value, type, holder ? (holder.data.name || 'a customer') : '');
+  if(out.error){ if(statusEl) statusEl.textContent = out.error; return; }
+  try{
+    await setDoc(doc(db,'availableCustomerNumbers', out.num), {type: out.type, releasedAt: serverTimestamp()});
+    numInput.value = '';
+    if(statusEl) statusEl.textContent = '#' + out.num + ' added to the pool.';
+  }catch(err){
+    console.error('Could not add that number to the pool:', err);
+    if(statusEl) statusEl.textContent = 'Could not save that \u2014 check your connection and try again.';
+  }
+}, function(){ return document.getElementById('cnManualAddBtn'); }));
 function cnBuildPrintTable(sortedItems, title){
   let rows = sortedItems.map(function(item){
     const d = item.data;
@@ -56506,7 +56706,11 @@ function whHouseBuildStatus(item){
      Build Them A New Set — which queues one, and the queue then refuses it. */
   if(typeof isOutForSeason === 'function' && isOutForSeason(d)){
     const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
-    return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
+    /* ⚠ 'unconfirmed' (2026-10-29, break-test): somebody out only because they have not said
+       yes was told their lights were "queued to be recycled", which is false and sends the
+       office looking for a recycle that does not exist. */
+    return {state: 'nextyear', why: bny ? 'Back Next Year'
+      : (d.needsLightRecycle ? '' : 'unconfirmed')};
   }
   /* ⭐ [[WH-27]] — queued for a timer and nothing else. Answered BEFORE 'notqueued', which
      would otherwise send the office to press Build Them A New Set on a house that is on this
@@ -56526,6 +56730,17 @@ function whHouseBuildStatus(item){
   if(d.needsColorChange === true) return {state: 'colorchange'};
   return {state: 'unknown'};
 }
+/* ⛔ "QUEUED TO BUILD" ONLY WHEN IT WILL SHOW (2026-10-29, break-test). Add to Queue for a
+   customer out for the season (unanswered RSVP, Back Next Year) set the flag and said
+   "queued to build" while the build list, which asks isOutForSeason, never showed them.
+   After the write it asks the SAME rule the "is a house on this list" box asks, and says
+   whBuildStatusText's own sentence when the house is not going to appear. '' when it is. */
+function whQueuedButHiddenNote(name, st, timerOnly){
+  const state = st && st.state;
+  if(state === 'building' || state === 'extra' || state === 'colorchange') return '';
+  if(timerOnly && (state === 'timeronly' || state === 'timerremoval')) return '';
+  return ' But: ' + whBuildStatusText(name, st);
+}
 /* One sentence per state, and each one says what to do about it. */
 function whBuildStatusText(name, st){
   const who = name || 'That customer';
@@ -56533,6 +56748,8 @@ function whBuildStatusText(name, st){
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'timeronly') return who + ' only needs a TIMER \u2014 they are on the Timers list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
   if(st.state === 'timerremoval') return who + ' is having their TIMER TAKEN OUT \u2014 they are on the Remove Timer list, not the build list. Nothing is being made up for them and no colours are needed. Press \u201cBuild Them A New Set\u201d on their record if they do need a bundle.';
+  if(st.state === 'nextyear' && st.why === 'unconfirmed') return who +
+    ' has not said yes to this season yet, so they are not on the build list — they appear there once their RSVP is a yes.';
   if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
     ? ' is marked Back Next Year'
     : ' is out for this season — their lights are queued to be recycled') +
@@ -56644,7 +56861,7 @@ function renderWarehouseColorChangeQueue(){
            one and somebody makes a second set. Only when it was flagged: stamping lightsMarkedBuiltAt
            on a house nobody queued would claim a build that never happened. */
         const builtToo = !!(item && item.data && item.data.needsLightBuild);
-        const built = builtToo ? whBuiltUpdates() : {};
+        const built = builtToo ? whBuiltUpdates(item.data) : {};
         await updateDoc(doc(db,'jobAddresses', custId),
           Object.assign({needsColorChange: false, colorChangeDoneAt: serverTimestamp()}, built));
         if(item && item.data){
@@ -57036,7 +57253,8 @@ function renderWarehouseQueue(){
          ⚠ THE CREW PORTAL DOES NOT STAMP IT. whToggleLightsNew in employee.html clears
          the same flag and is deliberately left alone — owner, 2026-08-27: not using the
          crew portal this year. A house ticked there reads "no build recorded". */
-      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse), whBuiltUpdates())
+      updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
+        whBuiltUpdates(((jobAddresses || []).find(function(a){ return a.id === btn.dataset.whdonehouse; }) || {}).data))
         /* ⚠ THE ROW STAYING PUT IS NOT A MESSAGE. Somebody who has just built a
            bundle presses this and watches the house stay on the list, which reads
            as the button doing nothing — so they press it again, and then work
@@ -57241,8 +57459,9 @@ function renderWarehouseQueue(){
       const pattern = btn.dataset.whcompletebtn;
       const row = btn.closest('.row-item');
       const input = row.querySelector('.whcompleteinput');
-      let remaining = Number(input.value);
-      if(!remaining || remaining <= 0) return;
+      const asked = whCompleteCount(input.value);
+      if(asked.error){ if(asked.error !== 'blank') toast(asked.error); return; }
+      let remaining = asked.n;
       const g = groups[pattern];
       if(!g) return;
       /* Clamp, then say exactly who this clears, in the order it will clear
@@ -57276,7 +57495,7 @@ function renderWarehouseQueue(){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
         try{
-          await updateDoc(doc(db,'jobAddresses', h.id), whBuiltUpdates());
+          await updateDoc(doc(db,'jobAddresses', h.id), whBuiltUpdates(h.data));
         } catch(err){
           missedHouses.push((h.data && h.data.name) || h.id);
           console.error('[HU] could not mark that build done', h.id, err);
@@ -58088,16 +58307,37 @@ function whNoteEditorHtml(h){
    the other is an instruction that outlives the build it belonged to, and the warehouse
    goes on obeying it. ⚠ The crew portal's whToggleLightsNew is still deliberately outside
    this — it clears the flag and stamps nothing, and that is recorded where it lives. */
-function whBuiltUpdates(){
+/* ⛔ HOW MANY HOUSES "Mark Completed" MAY CLEAR (2026-10-29, break-test). It took
+   Number(value), so "1.5" named one house in the confirm (slice(0, 1.5) is one) while the
+   loop, counting down by one while above nought, cleared TWO. A count of houses is a whole
+   number; anything else is refused with a reason rather than rounded, because rounding is
+   a guess about which of two numbers somebody meant. */
+function whCompleteCount(raw){
+  const t = String(raw == null ? '' : raw).trim();
+  if(!t) return {n: 0, error: 'blank'};
+  if(!/^\d+$/.test(t)) return {n: 0, error: 'Type a whole number of houses — "' + t + '" is not one.'};
+  const n = parseInt(t, 10);
+  if(n <= 0) return {n: 0, error: 'Type how many houses are finished — 1 or more.'};
+  return {n: n, error: ''};
+}
+function whBuiltUpdates(d){
   /* ⚠ `buildBundleOverride` IS CLEARED HERE FOR THE SAME REASON `buildTopUpFromFeet` IS
      ([[WH-44]]). It is a count somebody typed for THIS build. Left set, it silently governs
      the next one too — so a house re-quoted to twice the roofline next season would still
      be built to the four bundles somebody typed in a warehouse a year earlier, and nothing
      on any screen would say why. The footage answer takes back over the moment the bundle
      is made, which is the same shape as the one-time note clearing on the line below. */
-  return {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
+  const out = {needsLightBuild: false, buildTopUpFromFeet: null, binLabelNumber: null,
           buildBundleOverride: null,
           lightsMarkedBuiltAt: serverTimestamp(), warehouseOneTimeNote: ''};
+  /* ⛔ BUT NOT THE BIN LABEL WHILE THE OLD SET IS STILL OUT (2026-10-29, break-test). A mover
+     has a build AND a recycle queued; `binLabelNumber` is the number painted on the OLD bin
+     that the recycle crew has to find (`whBinNumberFor`). Marking the new set built cleared
+     it, so the recycle row fell back to their NEW number and the old bin could not be found.
+     Mark Recycled clears it once that bin is back. Pass the record; no record keeps the old
+     behaviour. */
+  if(d && d.needsLightRecycle) delete out.binLabelNumber;
+  return out;
 }
 /* ⭐ FEET BACK ON THE PAPER (2026-10-05). Dax: "in the warehouse on builds it says what to
    build but not how many feet ... we need to make sure the feet are printed as well", and
@@ -58503,7 +58743,10 @@ async function whAddRequestToCustomer(linked, kind, pattern, wireColor, qty){
   return {ok: true, charged: !!(change && change.feeAmount > 0 && !waived), waived: waived,
           timer: kind === 'timer', bundles: updates.buildBundleOverride || 0};
 }
-document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
+/* ⛔ onceAtATime (2026-10-29, break-test): two quick presses on buffer stock wrote two rows —
+   the 'already has a request' top-up check reads a cache the first write has not reached yet.
+   The button stays dead until the first press has finished. */
+document.getElementById('whAddExtraBtn').addEventListener('click', onceAtATime(async function(){
   const statusEl = document.getElementById('whAddExtraStatus');
   const kind = document.getElementById('whExtraKind').value === 'timer' ? 'timer' : 'lights';
   /* Chosen, not typed — this reads the hidden input the colour picker writes,
@@ -58590,8 +58833,11 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
       }
       statusEl.textContent = (linked.data.name || 'They') + ' — ' +
         (out.timer ? 'timer added to their record' : 'lights updated and queued to build') +
-        (out.charged ? ', $30 light-change fee added' : (out.waived ? ', fee waived' : '')) + '.';
-      setTimeout(function(){ statusEl.textContent = ''; }, 6000);
+        (out.charged ? ', $30 light-change fee added' : (out.waived ? ', fee waived' : '')) + '.' +
+        whQueuedButHiddenNote(linked.data.name, whHouseBuildStatus(linked), !!out.timer);
+      /* A warning stays up longer than a plain confirmation — it is the one worth reading. */
+      const statusNow = statusEl.textContent;
+      setTimeout(function(){ if(statusEl.textContent === statusNow) statusEl.textContent = ''; }, /NOT on|nothing is being built|not showing/.test(statusNow) ? 20000 : 6000);
     } catch(err){
       console.error('Warehouse request could not be saved', err);
       statusEl.textContent = 'Something went wrong — ' + ((err && err.message) || 'try again') + '.';
@@ -58680,7 +58926,7 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
   } catch(err){
     statusEl.textContent = 'Something went wrong — try again.';
   }
-});
+}, function(){ return document.getElementById('whAddExtraBtn'); }));
 /* A customer only reaches the build queue when they have light colours AND the
    build flag. This finds the ones that fell through either gap. */
 document.getElementById('whFindNotQueuedBtn').addEventListener('click', function(){
@@ -61931,7 +62177,24 @@ async function archiveCustomerSnapshot(id, d, opts){
   await setDoc(doc(db, 'archivedCustomers', id), row);
   return row;
 }
+/* Customer ids with a removal in flight — see the guard at the top of the function below. */
+const hlxRemovingIds = new Set();
 async function hlxRemoveCustomerToRecycle(item, opts){
+  /* ⛔ ONE REMOVAL PER CUSTOMER AT A TIME, AND NEVER ONE THAT ALREADY HAPPENED (2026-10-29,
+     break-test). Mark Recycled pressed again while the first press was still writing ran the
+     whole removal twice: the deposit was added to settings/financeArchive.archivedRevenue
+     twice (an `increment`, so the second one counts) and the removal was logged twice. The
+     second call now stops here, and a record that is already gone is not removed again. */
+  const removingId = item && item.id;
+  if(removingId && hlxRemovingIds.has(removingId)) return {removed: false, reason: 'already being removed'};
+  if(removingId) hlxRemovingIds.add(removingId);
+  try{
+  if(removingId){
+    let gone = false;
+    try{ gone = !(await getDoc(doc(db, 'jobAddresses', removingId))).exists(); }
+    catch(err){ /* a failed read is not proof of anything — carry on as before */ console.warn('Could not re-read the customer before removing:', err); }
+    if(gone) return {removed: false, reason: 'already removed'};
+  }
   const o = opts || {};
   const d = (item && item.data) || {};
   const num = String(d.customerNumber || "");
@@ -62007,6 +62270,9 @@ async function hlxRemoveCustomerToRecycle(item, opts){
   await deleteDoc(doc(db,'jobAddresses', item.id));
   logActivity('Removed ' + (d.name || item.id) + ' to Recycle' + (num ? ', number #' + num + ' back in the pool' : ''), 'customers', item.id);
   return {removed: true, wroteSheet: wroteSheet, number: num};
+  } finally {
+    if(removingId) hlxRemovingIds.delete(removingId);
+  }
 }
 /* ⭐ RECYCLE WITHOUT DELETING (added 2026-08-20). Owner: "I need a way to recycle
    ashley wray without deleting her because she just moved and I already requoted her so
@@ -72116,8 +72382,11 @@ function systemNoticeWireRows(list){
       const msg = allMessages.find(function(m){ return m.id === btn.dataset.sendtowh; });
       if(!msg) return;
       const d = msg.data;
-      const phoneDigits = (d.phone||'').replace(/\D/g,'');
-      const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
+      /* ⛔ NEVER A FIRST-MATCH ON THE PHONE (2026-10-29, break-test). A shared household
+         phone linked the change to whichever sibling came first, and a blank phone matched
+         the first customer with no phone ('' === ''). `msgSendToWhCustomer` refuses an
+         ambiguous match and leaves the house box for a person to pick. */
+      const cust = msgSendToWhCustomer(d);
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
       // Same hand-off as the Inbox copy above — the form fills itself from the
@@ -72135,7 +72404,8 @@ function systemNoticeWireRows(list){
         labelEl.value = d.name || '';
       }
       labelEl.dispatchEvent(new Event('input'));
-      document.getElementById('whAddExtraStatus').textContent = 'Filled in from System Messages \u2014 check it over, then Add to Queue.';
+      document.getElementById('whAddExtraStatus').textContent = 'Filled in from System Messages \u2014 check it over, then Add to Queue.' +
+        (cust ? '' : ' Could not tell for certain which customer sent it (no single match on their phone or email) \u2014 pick the house before adding.');
     });
   });
   attachDeleteHandlers(list);
