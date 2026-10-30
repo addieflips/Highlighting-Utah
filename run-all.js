@@ -63502,7 +63502,9 @@ suite('Suite 339. The office payment boxes record WHEN the money came in');
      from its own paidNow variable — that name is the only thing that tells them apart, and
      a file-wide search would pass with one of the two deleted. */
   const cut = (v) => {
-    const i = admin.indexOf('const ' + v + ' = deposit - was');
+    /* repointed 2026-10-29, not weakened: the delta is worked out in whole cents now
+       (centsOf(deposit - wasPaid) / 100, Suite 393), so the anchor names that form */
+    const i = admin.indexOf('const ' + v + ' = centsOf(deposit - was');
     if(i === -1) return '';
     const j = admin.indexOf('});', i);
     return j === -1 ? '' : admin.slice(i, j);
@@ -67865,4 +67867,44 @@ suite('392. Invoice Bulk Update never overwrites an existing invoice with blanks
     /if\(rowPlan\.skip\)\{[\s\S]*?continue;\s*\}/.test(hs) && hs.indexOf('if(rowPlan.skip)') < hs.indexOf('await setDoc(doc(db,\'invoices\',phone)'));
   check('S392', 'and named in the report', /refusedRows\.length \? ' (?:\\u26A0|⚠) ' \+ refusedRows\.length \+ ' row\(s\) LEFT ALONE: '/.test(hs));
   check('S392', 'the old strip-and-zero read is gone', !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(hs));
+}
+suite('393. The status dropdown reads the Partial amount strictly, and Cancel puts the dropdown back');
+{
+  /* Break-test, 2026-10-29: "abc", "-100", "$1,200.50." and "300.00 + 50" typed into the
+     Partial Payment prompt all wiped or mangled the deposit; Cancel read a data-currentvalue
+     nothing ever set, so a paid-in-full invoice's dropdown went on showing Unpaid; and the row
+     balance was raw floats, so 100.005 against 100.004 read Partial with a $0.00 balance.
+     RUNS statusDropdownDeposit; both dropdown handlers are asserted to use it. */
+  const moneySrc = read('js/money.js');
+  const src = extractFn(moneySrc, 'centsOf') + '\n' + (admin.match(/const MONEY_TYPED_MAX = \d+;/) || [''])[0] + '\n' +
+    extractFn(admin, 'parseTypedMoney') + '\n' + extractFn(admin, 'typedMoneyProblem') + '\n' + extractFn(admin, 'statusDropdownDeposit');
+  check('S393', 'statusDropdownDeposit was found', /function statusDropdownDeposit\(/.test(src));
+  assertSandbox('S393', 'statusDropdownDeposit', src, admin, []);
+  const f = new Function(src + '\nreturn statusDropdownDeposit;')();
+  ['abc', '-100', '$1,200.50.', '300.00 + 50', '(20)'].forEach(function (typed) {
+    const r = f('Partial Payment', 703, typed);
+    check('S393', 'Partial typed "' + typed + '" is refused with a message, never written', !!r.refuse && r.deposit === undefined, JSON.stringify(r));
+  });
+  check('S393', 'Partial typed "$1,200.50" is read as 1200.5', f('Partial Payment', 2000, '$1,200.50').deposit === 1200.5);
+  check('S393', 'Partial typed "0" is a real answer', f('Partial Payment', 2000, '0').deposit === 0);
+  check('S393', 'Cancel is its own answer', f('Partial Payment', 2000, null).cancel === true);
+  check('S393', 'a figure that covers the bill says so', f('Partial Payment', 300, '300').coversAll === true);
+  check('S393', 'Paid in Full writes the total in whole cents', f('Paid in Full', 100.004, null).deposit === 100, JSON.stringify(f('Paid in Full', 100.004, null)));
+  check('S393', 'Paid in Full never writes a negative deposit', f('Paid in Full', -40, null).deposit === 0);
+  check('S393', 'Unpaid writes 0', f('Unpaid', 500, null).deposit === 0);
+
+  const listSrc = stripComments(extractFn(admin, 'renderInvoicesList'));
+  check('S393', 'the Invoice List dropdown reads the amount through statusDropdownDeposit',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(listSrc));
+  check('S393', 'and its Cancel puts back the option the row was drawn with',
+    /const previous = sel\.querySelector\('option\[selected\]'\);/.test(listSrc) && !/dataset\.currentvalue/.test(listSrc));
+  check('S393', 'a refused figure puts the dropdown back and writes nothing',
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(listSrc));
+  check('S393', 'the old strip-and-zero read is gone from the Invoice List', !/Number\(String\(typed\)\.replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(listSrc));
+  check('S393', 'the row balance is the one balance rule', /const balance = centsOf\(balanceDueAmount\(d\)\) \/ 100;/.test(listSrc));
+  const routeSrc = stripComments(sectionFrom(admin, admin.indexOf("container.querySelectorAll('[data-setpaystatus]').forEach(function(sel){")));
+  check('S393', 'the route-list copy of the dropdown reads it the same way',
+    /const plan = statusDropdownDeposit\(sel\.value, total, typed\);/.test(routeSrc) &&
+    /if\(plan\.refuse\)\{ alert\(plan\.refuse\); sel\.value = previous \? previous\.value : 'Unpaid'; return; \}/.test(routeSrc) &&
+    !/replace\(\/\[\^0-9\.\]\/g,''\)\) \|\| 0/.test(routeSrc));
 }

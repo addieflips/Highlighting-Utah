@@ -9842,6 +9842,20 @@ function typedMoneyProblem(label, raw, parsed){
   if(p.negative) return label + ' cannot be negative ("' + String(raw).trim() + '"). To take money back off, type the new, smaller total.';
   return label + ' "' + String(raw).trim() + '" is not a dollar figure. Type just the number, like 250 or 1,250.50.';
 }
+/* What the payment-status dropdown writes as the deposit (both copies of it — the Invoice List
+   and the route list). `typed` is what the Partial Payment prompt returned (null = Cancel).
+   Returns {deposit[, coversAll]}, {cancel:true} or {refuse: message}. A refused figure writes
+   nothing; the caller puts the dropdown back. Paid in Full is the bill total in whole cents,
+   never below 0. */
+function statusDropdownDeposit(choice, total, typed){
+  const t = centsOf(total) / 100;
+  if(choice === 'Paid in Full') return {deposit: Math.max(t, 0)};
+  if(choice === 'Unpaid') return {deposit: 0};
+  if(typed === null || typed === undefined) return {cancel: true};
+  const p = parseTypedMoney(typed);
+  if(!p.ok) return {refuse: typedMoneyProblem('The amount paid so far', typed, p) + ' Nothing was changed.'};
+  return {deposit: p.value, coversAll: p.value >= t && t > 0};
+}
 /* Template names are typed by hand, and an em dash, en dash and hyphen all
    look near enough identical in a text box. Matching on the exact characters
    meant a template that was plainly there "did not exist". This compares names
@@ -30753,7 +30767,9 @@ function renderInvoicesList(){
   let html = '';
   filtered.forEach(function(item){
     const d = item.data;
-    const balance = (d.install||0) + (d.removal||0) + (d.changeFees||0) - (d.credits||0) - (d.deposit||0);
+    /* The one balance rule, in whole cents — raw floats here printed "Partial Payment,
+       Balance: $0.00" beside a status computeInvoiceStatus worked out in cents. */
+    const balance = centsOf(balanceDueAmount(d)) / 100;
     const liveStatus = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
     const overdue = isInvoiceOverdue(d);
     const needsReview = d.priceReviewed === false;
@@ -30826,25 +30842,26 @@ function renderInvoicesList(){
     sel.addEventListener('change', function(){
       const invId = sel.dataset.setpaystatus;
       const total = Number(sel.dataset.total) || 0;
-      let deposit;
-      if(sel.value === 'Paid in Full'){
-        deposit = total;
-      } else if(sel.value === 'Unpaid'){
-        deposit = 0;
-      } else {
-        const typed = prompt('How much have they paid so far?', '');
-        if(typed === null){ sel.value = sel.dataset.currentvalue || 'Unpaid'; return; }
-        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
-        if(deposit >= total && total > 0){
-          alert('That covers the full balance, so this will be marked Paid in Full.');
-        }
+      /* ⭐ READ STRICTLY, AND CANCEL PUTS IT BACK (2026-10-29, break-test). "abc", "-100",
+         "$1,200.50." and "300.00 + 50" used to wipe or mangle the deposit, because the figure
+         was whatever digits were left. And Cancel read `data-currentvalue`, which nothing
+         ever set, so a paid-in-full row went on showing Unpaid. The option drawn `selected`
+         is what the row really says — the route-list copy below always read it. */
+      const previous = sel.querySelector('option[selected]');
+      const typed = sel.value === 'Partial Payment' ? prompt('How much have they paid so far?', '') : null;
+      const plan = statusDropdownDeposit(sel.value, total, typed);
+      if(plan.cancel){ sel.value = previous ? previous.value : 'Unpaid'; return; }
+      if(plan.refuse){ alert(plan.refuse); sel.value = previous ? previous.value : 'Unpaid'; return; }
+      const deposit = plan.deposit;
+      if(plan.coversAll){
+        alert('That covers the full balance, so this will be marked Paid in Full.');
       }
       /* How much this payment actually was, so a correction (the figure going
          down, or not moving) can be told apart from a real payment and stays
          silent. */
       const invRec = allInvoicesCache.find(i => i.id === invId);
       const wasPaid = invRec ? (Number(invRec.data.deposit) || 0) : 0;
-      const paidNow = deposit - wasPaid;
+      const paidNow = centsOf(deposit - wasPaid) / 100;
       updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
         /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
            year's payment from last year's, and this box was the one payment path that
@@ -51944,25 +51961,22 @@ function attachAddressRowHandlers(container){
     sel.addEventListener('change', function(){
       const invId = sel.dataset.setpaystatus;
       const total = Number(sel.dataset.total) || 0;
-      let deposit;
-      if(sel.value === 'Paid in Full'){
-        deposit = total;
-      } else if(sel.value === 'Unpaid'){
-        deposit = 0;
-      } else {
-        const previous = sel.querySelector('option[selected]');
-        const typed = prompt('How much have they paid so far?', '');
-        if(typed === null){ sel.value = previous ? previous.value : 'Unpaid'; return; }
-        deposit = Number(String(typed).replace(/[^0-9.]/g,'')) || 0;
-        if(deposit >= total && total > 0){
-          alert('That covers the full balance, so this will be marked Paid in Full.');
-        }
+      /* Read through the same rule as the Invoice List copy (statusDropdownDeposit): a figure
+         that is not a dollar amount, or is negative, is refused and the dropdown put back. */
+      const previous = sel.querySelector('option[selected]');
+      const typed = sel.value === 'Partial Payment' ? prompt('How much have they paid so far?', '') : null;
+      const plan = statusDropdownDeposit(sel.value, total, typed);
+      if(plan.cancel){ sel.value = previous ? previous.value : 'Unpaid'; return; }
+      if(plan.refuse){ alert(plan.refuse); sel.value = previous ? previous.value : 'Unpaid'; return; }
+      const deposit = plan.deposit;
+      if(plan.coversAll){
+        alert('That covers the full balance, so this will be marked Paid in Full.');
       }
       /* updatedAt was missing here, so recording a payment on this screen never
          reset the Overdue clock. Added alongside the receipt. */
       const invRec2 = allInvoicesCache.find(i => i.id === invId);
       const wasPaid2 = invRec2 ? (Number(invRec2.data.deposit)||0) : 0;
-      const paidNow2 = deposit - wasPaid2;
+      const paidNow2 = centsOf(deposit - wasPaid2) / 100;
       updateDoc(doc(db,'invoices',invId), Object.assign({deposit: deposit, updatedAt: serverTimestamp()},
         /* ⭐ WHEN THE MONEY ARRIVED ([[SCH-82]]). housePaidThisSeason has to tell this
            year's payment from last year's, and this box was the one payment path that
