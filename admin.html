@@ -42631,6 +42631,21 @@ function seasonRuleIsLive(){
    only way to hold the flag AND read "no" is to have been marked back-next-year and
    then answered no through the portal afterwards. That is the same rule isOutForSeason
    already states — the answer is what decides now — and either way they are out. */
+/* ⭐ WHY "ON HOLD", SAID ON THE ROW (2026-11-01). Dax: "there are people who are confirmed not on schedule or
+   warehouse, that should never happen." Measured live the same day: every Confirmed customer was on a day or
+   already hung, and the people he was reading were the ~290 On hold rows whose only reason is that they never
+   replied to the RSVP. The pill's tooltip said "In for the season but blocked by the reason beside it" and
+   there WAS no reason beside it unless they owed money — so a customer who simply had not answered read as a
+   confirmed customer the schedule had lost. This names the reason, in the same order isOutForSeason checks
+   them; it decides nothing, the badge itself is still seasonBadgeKey's. */
+function onHoldReason(d, owes){
+  d = d || {};
+  if(owes) return {title: 'Owes for a previous season — not scheduled until it is paid. Listed on Schedule › Owes from last year.', pill: ''};
+  const pill = function(t){ return '<br><span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; margin-top:4px; display:inline-block;">' + t + '</span>'; };
+  if(d.needsLightRecycle && !d.recycleKeepingCustomer)
+    return {title: 'Their set is queued on the Recycle tab — not scheduled while it is coming back.', pill: pill('Set on Recycle')};
+  return {title: 'Has not replied to the RSVP — not scheduled until they answer. Listed on Schedule › Waiting on RSVP.', pill: pill('No RSVP reply yet')};
+}
 function seasonBadgeKey(d){
   if(!d) return 'pending';
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -60586,7 +60601,7 @@ function renderAllCustomersTable(){
       : badgeKey === 'requote'
       ? '<span class="status-pill" style="background:#FFF0E6; color:#9A4A12; font-weight:700;" title="Their sides changed and the re-quote is still open — not scheduled until it is answered, then placed again on the next sync">Re-quote</span>'+unpaidPill
       : badgeKey === 'pending'
-      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
+      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="'+esc(onHoldReason(r.d, !!unpaidTag).title)+'">On hold</span>'+unpaidPill+onHoldReason(r.d, !!unpaidTag).pill
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
