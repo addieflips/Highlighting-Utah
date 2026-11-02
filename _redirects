@@ -23,6 +23,15 @@
 # ⚠ THESE ARE 301s, NOT 200s. search-visibility.test.js reads only the
 # "/index.html 200" lines as routes, so none of these can pass for a page.
 
+# ⭐ THE BACKUP ADDRESS SENDS EVERYBODY TO THE REAL ONE (added 2026-11-02, [[PROC-41]]).
+# highlightingutah.netlify.app is the same site and the same database, so nothing
+# saved there was ever lost — but a signed-in session, the "remember me" choices and
+# any link copied from the address bar belong to the address they were made on, and
+# customer links must only ever say highlightingutah.com. A host rule, so it sits
+# above every path rule. ⚠ Deploy previews live on deploy-preview-N--highlightingutah
+# .netlify.app, a different host, and are untouched by this line.
+https://highlightingutah.netlify.app/*  https://highlightingutah.com/:splat  301!
+
 # The old city pages. Each one ranked for "christmas lights installation <city>".
 /christmas-lights-installation-alpine-utah-84004            /areas         301
 /christmas-lights-installation-american-fork-utah           /areas         301
