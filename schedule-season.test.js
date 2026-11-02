@@ -85,7 +85,7 @@ function makeBook(seed, n, tag){
 /* ---- one season ---- */
 const WAREHOUSE = [
   {k: 'build', set: function(d, at){ d.needsLightBuild = true; d.lightsQueuedAt = {toMillis: function(){ return at; }}; }, clear: function(d){ d.needsLightBuild = false; }},
-  {k: 'timer', set: function(d){ d.needsTimerOnly = true; }, clear: function(d){ d.needsTimerOnly = false; }},
+  {k: 'timer', set: function(d){ d.needsTimerOnly = true; d.outletTimer = 'Yes'; }, clear: function(d){ d.needsTimerOnly = false; }},
   {k: 'colour', set: function(d){ d.needsColorChange = true; }, clear: function(d){ d.needsColorChange = false; }},
   {k: 'recycle', set: function(d){ d.needsLightRecycle = true; d.recycleKeepingCustomer = true; }, clear: function(d){ d.needsLightRecycle = false; d.recycleKeepingCustomer = false; }}];
 function season(cfg){

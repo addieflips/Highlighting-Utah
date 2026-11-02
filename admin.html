@@ -42709,7 +42709,15 @@ function isWaitingOnBuild(d){ return !!(d && d.needsLightBuild === true); }
    the flag they are Confirmed again and the five-minute sync places them — no Recalculate needed.
    ⚠ NOT isOutForSeason: the warehouse queues themselves ask that, and a house cannot be taken off the list that
    holds it. Schedule only. */
-function isWaitingOnTimer(d){ return !!(d && (d.needsTimerOnly === true || d.needsTimerRemoved === true)); }
+/* ⭐ [[SCH-150]] THE HOLD IS EXACTLY WHAT THE BUILD TAB SHOWS (2026-11-02). whBuildQueueGroups puts a timer-only house on
+   the Timers list only when its timer is `Yes` — a timer-only flag left over after the timer was set to anything else is on
+   NO list. Holding that house kept a customer off the schedule and off every Warehouse tab at once, which is the one thing
+   the owner's rule forbids. A timer coming OUT is always listed (Remove Timer), so it still holds. */
+function isWaitingOnTimer(d){
+  if(!d) return false;
+  if(d.needsTimerRemoved === true) return true;
+  return d.needsTimerOnly === true && String(d.outletTimer || '').trim() === 'Yes';
+}
 /* ⭐⭐ [[SCH-123]] AND THE RECYCLE LIST (2026-10-09). Dax: "no one located anywhere in the warehouse list is ever put anywhere
    on the schedule whether it be builds, color change or recycle, but when they are finished or taken off the warehouse list
    through deletion then the next time we click recalculate everything they go on the schedule". Measured on a simulated
@@ -84590,7 +84598,13 @@ function placeJoinedHouses(){
      such day they were left `waiting`, on no day and no list, until somebody pressed Recalculate. They now go through the
      same safety net Recalculate uses (placeConfirmedLeftOff), which makes the day when there is none; it still never
      touches a locked day and never goes before tomorrow. */
-  if(res.waiting.length && typeof placeConfirmedLeftOff === 'function'){
+  /* ⭐ [[SCH-150]] AND NOT ONLY FOR THE JOINERS ABOVE. A Confirmed customer whose only house sits on a day that has gone is
+     no joiner — customersMissingFromSeason sees that house and passes them by — so the net is asked whenever ANYBODY
+     Confirmed is off a day still to come, which is the same question Recalculate's net asks. */
+  let offStill = 0;
+  try{ offStill = (typeof confirmedNotOnAnyDay === 'function') ? confirmedNotOnAnyDay().length : 0; }
+  catch(err){ console.error('[HU] could not check that every confirmed customer is on a day', err); }
+  if((res.waiting.length || offStill) && typeof placeConfirmedLeftOff === 'function'){
     try{
       const t = new Date(); t.setHours(0,0,0,0);
       const floorStr = isoOf(nextWorkingDay(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)));
@@ -85782,11 +85796,41 @@ function customersHeldToALaterDay(){
    ⚠ AND IT DECIDES NOTHING. It adds nobody, removes nobody and writes nothing — it
    only produces the sentence. A checker that could also "fix" what it found would hide
    the very drift it exists to report. */
+/* ⭐⭐ [[SCH-150]] "ON A DAY" MEANS A DAY THAT IS STILL TO COME (2026-11-02). seasonCustomerIds counts a house on ANY
+   day, so a Confirmed customer whose only house was left on a day that has already GONE read as scheduled to every check
+   — the safety net never placed them, Recalculate's late net never placed them, validateSeasonPlan never named them —
+   while All Customers showed a date in the past and no crew was ever coming. Measured in the harness: missed on Monday,
+   away until the new year from Tuesday, the gone-day sweep found no legal later day ("stuck"), and they stayed on
+   Monday through every sync AND every press after it. This is the answer the safety net asks: a house that is DONE
+   (the customer is hung), or a house not done on an install day that has not gone (dated today or later). Only a day
+   KNOWN to have gone is left out. seasonCustomerIds keeps its wider answer for customersMissingFromSeason, which must not
+   build a second house for somebody who already has one — placeConfirmedLeftOff MOVES that house instead. */
+function seasonCustomerIdsStillToCome(){
+  const have = new Set();
+  if(typeof SEASON === 'undefined') return have;
+  /* a sandbox with no calendar at all cannot say a day has gone, so it answers exactly as seasonCustomerIds always did */
+  const dated = typeof dayDate === 'function' && typeof isoOf === 'function';
+  const today = !dated ? '' : (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
+  SEASON.forEach(function(day){
+    if(dated && (day.isFixRoute || day.isTakedown)) return;
+    const dt = dated ? dayDate(day) : null;
+    const ds = dt ? isoOf(dt) : '';
+    (day.houses || []).forEach(function(h){
+      if(!h || h.isTakedown || h.isFix) return;
+      /* only a day KNOWN to have gone is left out; one whose date cannot be worked out answers as before */
+      if(dated && ds && !h.done && ds < today) return;
+      const cust = planCustomerFor(h);
+      if(cust && cust.id) have.add(cust.id);
+    });
+  });
+  return have;
+}
 function confirmedNotOnAnyDay(){
   const out = [];
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return out;
   if(typeof seasonBadgeKey !== 'function') return out;
-  const have = seasonCustomerIds();
+  const have = seasonCustomerIdsStillToCome();
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
     if(seasonBadgeKey(d) !== 'confirmed') return;
@@ -85928,8 +85972,35 @@ function placeConfirmedLeftOff(floorStr, startStr){
   };
   const cap = function(d){ return (typeof maxTownsPerDay === 'function') ? maxTownsPerDay(d) : 4; };
   const towns = function(d){ return (typeof dayTownCount === 'function') ? dayTownCount(d) : 0; };
+  /* [[SCH-150]] somebody whose only house sits on a day that has gone is MOVED, not given a second house:
+     their own house comes off that day — it keeps its id, its missed days and its pin — and is placed below like anybody else.
+     Only a day before today; confirmedNotOnAnyDay already counts every day from today on. */
+  const todayStr = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : isoOf(new Date()));
+  const staleHouseOf = function(item){
+    let found = null;
+    const emptied = [];
+    SEASON.forEach(function(day){
+      if(day.isFixRoute || day.isTakedown) return;
+      const dt = dayDate(day);
+      const ds = dt ? isoOf(dt) : '';
+      if(!ds || ds >= todayStr) return;
+      (day.houses || []).slice().forEach(function(x){
+        if(!x || x.done || x.isFix || x.isTakedown) return;
+        const c = planCustomerFor(x);
+        if(!c || c.id !== item.id) return;
+        day.houses = day.houses.filter(function(y){ return y !== x; });
+        if(ds && typeof markHouseMissed === 'function') markHouseMissed(x, ds);
+        if(!found) found = x;
+        if(!day.houses.length) emptied.push(day);
+      });
+    });
+    /* a gone day left with nobody on it goes, exactly as sweepGoneDaysForward drops one */
+    if(emptied.length) SEASON = SEASON.filter(function(day){ return emptied.indexOf(day) === -1; });
+    return found;
+  };
   off.forEach(function(item){
-    const h = houseFromCustomer(item);
+    const h = staleHouseOf(item) || houseFromCustomer(item);
     if(!h) return;
     const d = (item && item.data) || {};
     const from = (typeof houseEarliestDay === 'function') ? (houseEarliestDay(h, d, startStr) || '')
@@ -88734,6 +88805,32 @@ function exportCSV(){
   if(__tab) __tab.addEventListener("click", function(){ __start(); __wakeSchedule(); });
   const __p=document.getElementById("panel-routes");
   if(__p && __p.classList.contains("active")) __start();
+  /* ⭐⭐ [[SCH-150]] THE SCHEDULE KEEPS ITSELF IN STEP WHETHER OR NOT ANYBODY OPENS ROUTES (2026-11-02). Owner: every
+     Confirmed customer is on a day or on a Warehouse list, always. Everything that makes that true — the five-minute sync,
+     placeJoinedHouses and its safety net — lives in this widget, and the widget only started when somebody clicked Routes on
+     THAT computer. scheduleSyncFromCustomers returns at once while the plan is not loaded, and the per-change trigger
+     (safeRender 'scheduleSync') waits for the Routes panel to be opened. So a customer turned Confirmed by an RSVP yes, a
+     warehouse Mark Done or a converted quote sat on no day and no list for as long as the office worked in Customers or
+     Warehouse. Now the plan is loaded and the sync timer started as soon as somebody is signed in and the customers have
+     landed, on every admin computer. Nothing new is decided here: it is the same __start the Routes click calls, guarded by
+     __started, followed by the same first sync the click runs. ⚠ A SELF-ENDING WAIT, not a standing timer: a one-shot
+     re-armed every few seconds that stops for good the moment it has started (or after ten minutes with no customers, which
+     means nobody signed in). From then on the five-minute sync timer __start begins is the one that runs. */
+  function __autoStartWhenReady(tries){
+    if(__started || tries>200) return;
+    if((typeof HU_SIGNED_OUT!=='undefined' && HU_SIGNED_OUT) || typeof jobAddresses==='undefined' || !jobAddresses.length){
+      setTimeout(function(){ __autoStartWhenReady(tries+1); }, 3000);
+      return;
+    }
+    __start();
+    __firstSyncWhenLoaded(0);
+  }
+  function __firstSyncWhenLoaded(waited){
+    if(!loaded){ if(waited<40) setTimeout(function(){ __firstSyncWhenLoaded(waited+1); }, 1500); return; }
+    try{ window.scheduleSyncFromCustomers({quiet:true}); }
+    catch(e){ console.error('[HU] first schedule sync after sign-in failed', e); }
+  }
+  setTimeout(function(){ __autoStartWhenReady(0); }, 3000);
 }catch(err){ console.error("Schedule tab init failed:", err); } })();
 /* ============================ BLUEPRINT MAPS ============================
    ⭐ THE HAND-DRAWN ROOFLINE, PHOTOGRAPHED ONTO THE HOUSE AND PRINTED SMALL.

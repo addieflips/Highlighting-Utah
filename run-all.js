@@ -58432,6 +58432,8 @@ suite('306. A Confirmed tag means a day on the plan, no exceptions');
       extractFn(admin, 'planCustomerFor') +
       extractFn(admin, 'seasonCustomerIds') +
       extractFn(admin, 'customersMissingFromSeason') +
+      /* [[SCH-150]] lifted, never stubbed: confirmedNotOnAnyDay asks it now */
+      extractFn(admin, 'seasonCustomerIdsStillToCome') +
       extractFn(admin, 'confirmedNotOnAnyDay') +
       'return {missing:customersMissingFromSeason().map(function(x){return x.id;}),' +
       '        off:confirmedNotOnAnyDay().map(function(x){return x.id;})};');
@@ -65325,7 +65327,7 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
                  'houseInstallPriority', 'anyStampMillis', 'lightsLockMillis',
                  'scheduleHoldMillis', 'scheduleHoldEndsMillis',
                  'houseHoldFrom', 'houseEarliestDay', 'isOutForSeason', 'seasonBadgeKey', 'planCustomerFor', 'seasonCustomerIds',
-                 'customersMissingFromSeason', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
+                 'customersMissingFromSeason', 'seasonCustomerIdsStillToCome', 'confirmedNotOnAnyDay', 'placeConfirmedLeftOff',
                  'houseFromCustomer', 'uniqueDayIds', 'rebuildSeasonDays',
                  'dayAreas', 'dayCrewTowns', 'crewTownsFor'];
   const gone = lifts.filter(f => !extractFn(admin, f));
@@ -65362,6 +65364,8 @@ suite('Suite 346. HEADLINE: every Confirmed customer is on a day after Recalcula
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       'function seasonRuleIsLive(){return false;}' +
       'function houseOwesFromLastSeason(){return false;}' +
+      /* [[SCH-150]] "a day still to come" is measured against the same pinned Monday, never the machine clock */
+      'function scheduleTodayStr(){return isoOf(__TODAY);}' +
       'var custById=new Map();' +
       'function hlxResolvePlanHouse(h){const raw=String((h&&h.id)==null?"":h.id);' +
       'if(raw.indexOf("cust-")===0)return custById.get(raw.slice(5))||null;' +

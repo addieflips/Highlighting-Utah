@@ -158,7 +158,8 @@ const AUTOMATION = [
   {
     id: '__syncTimer',
     title: 'The schedule sync',
-    where: 'admin.html, while the Schedule tab has a plan loaded',
+    /* [[SCH-150]] started by itself once somebody is signed in and the customers have loaded — before, only by opening Routes */
+    where: 'admin.html, on every signed-in admin computer once the customers have loaded (it no longer waits for Routes to be opened)',
     when: 'every 5 minutes',
     does: 'Pulls corrected towns, timings, names, addresses, phones and notes across from ' +
       'the customer records onto the saved season, adds customers who were never on it, ' +
