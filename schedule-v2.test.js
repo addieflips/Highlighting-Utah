@@ -1504,6 +1504,53 @@ suite('SCH-136b Customers marked for tomorrow from TODAY’s list — the crew d
   check('36b.4 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
 }
 
+suite('SCH-152 A route that makes sense beats the office date’s week');
+{
+  /* Dax, 2026-11-03, on a Mapleton new hang laid on a Lehi day because her office date allowed only that week: "we are going
+     for a route that makes sense not a detour that makes no sense ... it can be a detour if the next house is in springville
+     cause they are both out there but doing it in a lehi day makes no sense". RUN through the real press and the real sync. */
+  const book = makeBook(140, 5152, {towns: ['Lehi', 'American Fork', 'Saratoga Springs', 'Highland']});
+  const SV = TOWNS['Springville'];
+  for(let i = 0; i < 12; i++) book.push({id: 'sv' + i, data: Object.assign({name: 'South ' + i, customerNumber: String(7100 + i), city: 'Springville',
+    address: (200 + i) + ' South Ln', lat: SV[0] + (i % 4) * 0.004, lng: SV[1] + Math.floor(i / 4) * 0.004, installPreference: '11/20+'}, YES)});
+  const ms = function(y, m, d){ return {toMillis: function(){ return new Date(y, m, d).getTime(); }}; };
+  const lone = {id: 'lone', data: Object.assign({name: 'Lone Mapleton', customerNumber: '7188', city: 'Mapleton', address: '188 Aspen Dr',
+    lat: SV[0] - 0.01, lng: SV[1] + 0.03, installPreference: 'November', earliestInstallDate: ms(2026, 10, 2)}, YES)};
+  book.push(lone);
+  const out = run(book);
+  const hOf = function(id){ return H.api.installDays().reduce(function(a, d){ return a.concat(d.houses || []); }, []).filter(function(h){ return h.id === 'cust-' + id; })[0]; };
+  const nearest = function(id){ const ds = dayOfCust(id); const d = daysOf().filter(function(x){ return x.ds === ds; })[0]; const me = ptOf(book, 'cust-' + id);
+    let m = Infinity; (d ? d.ids : []).forEach(function(o){ if(o === 'cust-' + id) return; const q = ptOf(book, o); if(q) m = Math.min(m, miles(me, q)); }); return m; };
+  const southFrom = daysOf().filter(function(d){ return d.ids.indexOf('cust-sv0') !== -1; }).map(function(d){ return d.ds; })[0] || '';
+  check('152.0 the scenario: the Springville houses open on 20 November, after the office week (2–9 November)', southFrom >= '2026-11-20', southFrom);
+  check('152.1 the lone house rides with a crew within five miles of it, not alone on a far day', nearest('lone') <= 5, dayOfCust('lone') + ' nearest ' + nearest('lone').toFixed(1));
+  const h = hOf('lone');
+  check('152.2 its window was stretched for the office date it was given, and says to which day', !!h && !!h.windowStretch && h.windowStretch.for === '2026-11-02' && h.windowStretch.to === dayOfCust('lone'),
+    JSON.stringify(h && h.windowStretch));
+  check('152.3 the plan is legal with it there — every invariant holds', out.violations.length === 0, JSON.stringify(out.violations.slice(0, 3)));
+  const why = H.api.placementReasons(h, H.api.installDays().filter(function(d){ return d.houses.indexOf(h) !== -1; })[0]).join(' | ');
+  check('152.4 Why this day says the office date was stretched', /Office date stretched to/.test(why), why);
+  const was = dayOfCust('lone');
+  H.load(book, {season: H.season()}); H.tick();
+  check('152.5 the five-minute sync leaves it there', dayOfCust('lone') === was, was + ' -> ' + dayOfCust('lone'));
+  H.load(book, {season: H.season()}); H.press();
+  check('152.6 and so does the next Recalculate', nearest('lone') <= 5 && dayOfCust('lone') >= '2026-11-20', dayOfCust('lone'));
+  /* a house with a crew near it inside its week keeps the week: the stretch is only for nothing being near */
+  const book2 = makeBook(140, 5153, {towns: ['Lehi', 'American Fork', 'Saratoga Springs', 'Highland']});
+  const LH = TOWNS['Lehi'];
+  const near2 = {id: 'near2', data: Object.assign({name: 'Lehi Dated', customerNumber: '7189', city: 'Lehi', address: '189 Main St',
+    lat: LH[0] + 0.002, lng: LH[1], installPreference: 'November', earliestInstallDate: ms(2026, 10, 2)}, YES)};
+  run(book2.concat([near2]));
+  const h2 = hOf('near2');
+  check('152.7 a dated house with a crew nearby inside its week stays inside the week, unstretched', dayOfCust('near2') >= '2026-11-02' && dayOfCust('near2') <= '2026-11-09' && !(h2 && h2.windowStretch),
+    dayOfCust('near2') + ' ' + JSON.stringify(h2 && h2.windowStretch));
+  /* a stretch belongs to the date it was given for: change the office date and the stretch is gone */
+  const hs = {notBefore: '2026-11-02', windowStretch: {for: '2026-11-02', to: '2026-11-24'}, pref: 'November'};
+  check('152.8 the stretch widens the ceiling for its own date and no other', H.api.houseDeadline(hs) === '2026-11-24' &&
+    H.api.houseDeadline(Object.assign({}, hs, {notBefore: '2026-11-03'})) === '2026-11-10', H.api.houseDeadline(hs));
+  check('152.9 October and Before Thanksgiving are never stretched — only an office date has a stretch', H.api.houseDeadline({pref: 'October', windowStretch: {for: '', to: '2026-11-24'}}) === '2026-10-31');
+}
+
 suite('SCH-146 Confirmed is on a day or on a warehouse list, never neither — even when no day exists that suits them');
 {
   /* Dax, 2026-10-20: "if they are confirmed they are always either on the build list or schedule but always one or the
