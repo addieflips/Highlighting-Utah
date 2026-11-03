@@ -82739,6 +82739,26 @@ function rebuildSeasonDays(){
    re-import the season on top of work done by hand. */
 function customerForHouse(h){
   if(!h) return null;
+  /* ⭐⭐ [[SCH-151]] A HOUSE BUILT FROM A CUSTOMER IS THAT CUSTOMER, WHATEVER NUMBER IT CARRIES (2026-11-03). Owner: a
+     Confirmed customer was "no where to be found". Their house was on a December day under id
+     'cust-<their record>' — so every check counted them as placed — but the card showed ANOTHER customer's name and address.
+     The house still carried the number they had before their number changed, that number had since been handed to somebody else, and
+     syncHousesFromCustomers and syncTownsFromCustomers asked THIS function, which went by number first: every five
+     minutes they copied the other customer's name, number and address onto their card, and the card could never
+     correct itself because the number it was matched on was the one being copied. Searching their name found nothing, the crew
+     sheet sent the van to the other house twice, and ticking that card would have marked them complete and billed them.
+     hlxResolvePlanHouse already answered this way (the id is exact, the number is a guess because numbers are recycled);
+     the syncs, the stop points and the flag badges did not. Now every caller does. ⚠ A 'cust-' id whose record is gone
+     answers null, never the number — the same answer hlxResolvePlanHouse gives, so a deleted customer's leftover card
+     is an orphan rather than a stranger's. Only a sandbox with no customer index at all falls through to the old match. */
+  const rawId = String((h.srcId != null && h.srcId !== '') ? h.srcId : (h.id == null ? '' : h.id));
+  if(rawId.indexOf('cust-') === 0){
+    const docId = rawId.slice(5);
+    if(typeof custById !== 'undefined' && custById && typeof custById.has === 'function') return custById.has(docId) ? custById.get(docId) : null;
+    if(typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses) && jobAddresses.length && jobAddresses[0] && typeof jobAddresses[0] === 'object'){
+      return jobAddresses.find(function(a){ return a && a.id === docId; }) || null;
+    }
+  }
   const num = String(h.cu == null ? '' : h.cu).trim();
   if(num && typeof custByNumber !== 'undefined' && custByNumber.has(num)) return custByNumber.get(num);
   const digits = String(h.phone == null ? '' : h.phone).replace(/\D/g,'');
@@ -83023,6 +83043,9 @@ const SCHEDULE_SYNC_FIELDS = [
                                      return prefKey(a) === prefKey(b);
                                    }},
   {key:'name',    label:'name',    read:function(d){ return d.name; }},
+  /* [[SCH-151]] the number follows the record too. It was never synced, so a house whose customer changed number kept the
+     old one for ever — and a number is recycled, so the stale one ended up naming somebody else's record. The number is what the card, the crew sheet and every number-first lookup show and ask by. */
+  {key:'cu',      label:'customer number', read:function(d){ return d.customerNumber == null ? '' : String(d.customerNumber); }},
   {key:'address', label:'address', read:function(d){ return d.street || (('' + (d.address||'')).split(',')[0]); }},
   {key:'phone',   label:'phone',   read:function(d){ return d.phone; },
                                    same:function(a,b){ return ('' + (a||'')).replace(/\D/g,'') === ('' + (b||'')).replace(/\D/g,''); }},
