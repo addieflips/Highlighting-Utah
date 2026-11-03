@@ -81689,7 +81689,12 @@ function houseDeadline(h){
      ⚠ EMPTY WHEN THE CALENDAR HELPERS ARE ABSENT (a lifted sandbox), which reads as no
      ceiling — the behaviour every house had before this existed. */
   if(h && h.notBefore && typeof staffDateWindowEnd === 'function'){
-    return staffDateWindowEnd(h.notBefore) || '';
+    const end = staffDateWindowEnd(h.notBefore) || '';
+    /* [[SCH-152]] a route that makes sense beats the office date's week: when no day inside it had a crew within five
+       miles, giveOfficeWindowsWay stretched the window to the first day that does. Only for the date it was given for. */
+    const st = h.windowStretch;
+    if(end && st && st.for === String(h.notBefore) && String(st.to || '') > end) return String(st.to);
+    return end;
   }
   /* ⭐ AND THE CUSTOMER'S OWN WINDOW CLOSES ([[SCH-99]]). The other half of "a calendar
      timeframe of when they want to be scheduled": houseAllowedFrom holds the opening day,
@@ -84244,8 +84249,80 @@ function deadlineNearestDayFor(h, fromDay, until){
    window goes to the nearest day it may have, a house past a deadline that can still be met is pulled inside it (or, once it
    cannot, to the soonest day after it), and a house left on a day that has gone is carried forward. Locked days are never
    touched ([[SCH-106]]). */
+/* ⭐⭐ [[SCH-152]] A ROUTE THAT MAKES SENSE BEATS THE OFFICE DATE'S WEEK (2026-11-03). Dax, on a Mapleton new hang laid on a
+   Lehi day because her office date allowed only that week: "we are going for a route that makes sense not a detour that
+   makes no sense that the crew is gonna skip anyway ... it can be a detour if the next house is in springville cause they
+   are both out there but doing it in a lehi day makes no sense". So a house held by an office date ("Install Closest To",
+   whose ceiling is five working days past it) that sits on a day with no other house within MAX_CREW_HOP_MILES, and has no
+   day inside its window with one, gets its window stretched to the earliest later open day where a crew already works within
+   five miles of it — and is moved there. The floor, away dates and pins still hold; October and Before Thanksgiving are a
+   customer's own deadline and are not stretched; locked, printed and checked days are never touched ([[SCH-106]]).
+   Stored on the house (windowStretch {for, to}) so every mover reads one window; a changed office date drops it. */
+function giveOfficeWindowsWay(){
+  const res = {moved: []};
+  if(typeof SEASON === 'undefined' || !Array.isArray(SEASON) || !SEASON.length) return res;
+  if(typeof MAX_CREW_HOP_MILES !== 'number' || typeof houseGeoPoint !== 'function' || typeof haversine !== 'function') return res;
+  const startStr = isoOf(seasonStartDate());
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const dsOf = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : ''; };
+  const live = function(x){ return x && !x.done && !x.hiddenDone && !x.isFix && !x.isTakedown; };
+  const custOf = function(x){ const c = (typeof planCustomerFor === 'function') ? planCustomerFor(x) : null; return (c && c.data) || {}; };
+  const ptOf = function(x){ const p = houseGeoPoint(x, custOf(x)); return (p && typeof p.lat === 'number' && isFinite(p.lat)) ? p : null; };
+  const capFor = function(ds){ const lim = (typeof dayLimitOn === 'function') ? dayLimitOn(ds) : '';
+    return lim === 'man' ? ((typeof ONE_MAN_MAX_HOUSES === 'number') ? ONE_MAN_MAX_HOUSES : 8) : (lim === 'crew' ? ((typeof crewCap === 'function') ? crewCap() : 20) : cap); };
+  const open = function(d){ const ds = dsOf(d); return !!ds && ds > today && !d.isFixRoute && !d.isTakedown && !d.printedAt &&
+    !(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)) && !(typeof dayHasHeldCrew === 'function' && dayHasHeldCrew(d)); };
+  const nearOn = function(d, h, p){ return (d.houses || []).some(function(x){ if(x === h || !live(x)) return false; const q = ptOf(x);
+    return q && haversine(p.lat, p.lng, q.lat, q.lng) <= MAX_CREW_HOP_MILES; }); };
+  SEASON.forEach(function(day){
+    if(day.isFixRoute || day.isTakedown) return;
+    (day.houses || []).slice().forEach(function(h){
+      if(!live(h) || !h.notBefore || ('' + (h.stuck || '')).trim()) return;
+      if(h.windowStretch && h.windowStretch.for !== String(h.notBefore)) delete h.windowStretch;
+      if(!open(day)) return;
+      const p = ptOf(h);
+      if(!p || nearOn(day, h, p)) return;                       // already with a crew in its own area
+      const end = staffDateWindowEnd(h.notBefore) || '';
+      if(!end) return;
+      const cd = custOf(h);
+      const days = SEASON.filter(function(d){ return d !== day && open(d) && (d.houses || []).filter(live).length < capFor(dsOf(d)); })
+        .sort(function(a, b){ return dsOf(a) < dsOf(b) ? -1 : (dsOf(a) > dsOf(b) ? 1 : 0); });
+      const prev = h.windowStretch;
+      delete h.windowStretch;
+      /* a sensible day inside the office week comes first: the window stands and they simply go there */
+      const inWeek = days.find(function(d){ const ds = dsOf(d); return ds <= end && nearOn(d, h, p) && houseMayGoOn(h, cd, ds, startStr).ok &&
+        !(typeof dayHoldsWithHouse === 'function' && !dayHoldsWithHouse(d, h)); });
+      if(inWeek){
+        day.houses.splice(day.houses.indexOf(h), 1);
+        inWeek.houses.push(h);
+        res.moved.push({name: h.name || '(no name)', from: dsOf(day), to: dsOf(inWeek)});
+        return;
+      }
+      const hit = days.find(function(d){
+        const ds = dsOf(d);
+        if(ds <= end || !nearOn(d, h, p)) return false;
+        h.windowStretch = {for: String(h.notBefore), to: ds};
+        if(!houseMayGoOn(h, cd, ds, startStr).ok){ delete h.windowStretch; return false; }
+        if(typeof dayHoldsWithHouse === 'function' && !dayHoldsWithHouse(d, h)){ delete h.windowStretch; return false; }
+        return true;
+      });
+      if(!hit){ if(prev && prev.for === String(h.notBefore)) h.windowStretch = prev; return; }
+      day.houses.splice(day.houses.indexOf(h), 1);
+      hit.houses.push(h);
+      res.moved.push({name: h.name || '(no name)', from: dsOf(day), to: dsOf(hit), stretched: true});
+    });
+  });
+  if(res.moved.length){
+    SEASON = SEASON.filter(function(d){ return d.isFixRoute || d.isTakedown || d.pin || d.printedAt || d.fixedOn || (d.houses || []).length; });
+    computeDates();
+  }
+  return res;
+}
 function keepEveryHouseLegal(){
   const out = {moved: [], stuck: []};
+  try{ if(typeof giveOfficeWindowsWay === 'function'){ const w = giveOfficeWindowsWay(); out.moved = out.moved.concat(w.moved); } }
+  catch(err){ console.error('Could not keep the office-dated houses with a crew in their own area:', err); }
   for(let i = 0; i < 3; i++){
     const a = enforceInstallTiming(), b = pullBackPastDeadline(), g = sweepGoneDaysForward();
     const m = a.moved.concat(b.moved, g.moved);
@@ -84658,6 +84735,8 @@ function placementReasons(h, day){
   if(p.priority) out.push('Priority customer — placed at the first sensible chance');
   if(p.missed) out.push('The crew did not reach them before (' + p.missed + ' time' + (p.missed === 1 ? '' : 's') + ')');
   if(p.earliest || p.latest) out.push('Allowed ' + (p.earliest ? 'from ' + p.earliest : '') + (p.earliest && p.latest ? ' ' : '') + (p.latest ? 'until ' + p.latest : ''));
+  /* [[SCH-152]] said, so a house past its office date's week reads as a choice, not a slip */
+  if(h && h.windowStretch && h.notBefore && h.windowStretch.for === String(h.notBefore)) out.push('Office date stretched to ' + h.windowStretch.to + ' — no crew within five miles of them before then');
   if(p.warehouseHoldUntil && ds && p.warehouseHoldUntil >= ds) out.push('Warehouse hold ends ' + p.warehouseHoldUntil);
   const near = milesFromDay({houses: (day.houses || []).filter(function(x){ return x !== h; })}, p.location);
   const others = (day.houses || []).filter(function(x){ return x !== h && !x.isTakedown && !x.isFix; }).length;
