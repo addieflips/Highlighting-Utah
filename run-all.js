@@ -13509,6 +13509,25 @@ suite('Suite 26. Schedule picks up a corrected town');
       sb.match({ cu: '5012', phone: '8015550123' }).data.city === 'Lehi');
     check('S26', 'an unknown house matches nothing rather than the first record',
       sb.match({ cu: '', phone: '8019999999' }) === null);
+    /* [[SCH-151]] a card carrying a recycled number was matched to whoever holds that number now. */
+    {
+      const own = { id: 'ownDoc', data: { name: 'Own', customerNumber: '188', city: 'Mapleton' } };
+      const other = { id: 'otherDoc', data: { name: 'Other', customerNumber: '376', city: 'Salem' } };
+      const s3 = [{ houses: [{ id: 'cust-ownDoc', name: 'Other', cu: '376', phone: '', city: 'Salem' },
+                             { id: 'cust-goneDoc', name: 'Gone', cu: '376', phone: '', city: 'Orem' }] }];
+      const sb3 = {};
+      new Function('jobAddresses', 'custByNumber', 'custByPhoneDigits', 'SEASON', 'extractCleanCity', 'custById',
+        matchSrc + '\n' + syncSrc + '\nthis.sync=syncTownsFromCustomers;this.match=customerForHouse;'
+      ).call(sb3, [own, other], new Map([['376', other]]), new Map(), s3, c => String(c == null ? '' : c).trim(),
+        new Map([['ownDoc', own], ['otherDoc', other]]));
+      check('S26', 'SCH-151: a house built from a customer is that customer even when its number now belongs to somebody else',
+        sb3.match(s3[0].houses[0]) === own);
+      sb3.sync();
+      check('S26', 'SCH-151: so the sync corrects the card from its own record, not from the recycled number',
+        s3[0].houses[0].city === 'Mapleton', 'got ' + s3[0].houses[0].city);
+      check('S26', 'SCH-151: a house whose customer is gone matches nobody, never the number',
+        sb3.match(s3[0].houses[1]) === null && s3[0].houses[1].city === 'Orem');
+    }
     check('S26', 'nothing happens when the customer list has not loaded',
       (() => {
         const s2 = [{ houses: [{ name: 'x', cu: '5012', city: 'Draper' }] }];
