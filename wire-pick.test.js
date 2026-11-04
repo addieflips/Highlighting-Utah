@@ -483,7 +483,11 @@ check('the card reads the customer record, not the notice, for the answer',
     const api = new Function('esc', 'jobAddresses', 'quoteChargesSetupFee', 'quotePhotoList',
       'perFootRate', 'showApplyRequoteChoice', 'fillAddCustFromQuote', 'goToAddCustomerForm',
       'toast', 'autoConvertQuoteToCustomer', 'fmtMoney', 'NEW_MEMBER_FEE', 'document',
-      [lift('convertWireOptionsHtml'), lift('applyConvertWirePick'), lift('showConvertQuoteChoice')]
+      /* The popup's buttons first ask whether an earlier save is still running
+         (addCustSaveBusyMessage, 2026-10-29) — lifted with its module state declared
+         idle, exactly as the page is when nothing is saving. */
+      ["let addCustSubmitGuard = null; let addCustSavingName = '';", lift('addCustSaveBusyMessage'),
+       lift('convertWireOptionsHtml'), lift('applyConvertWirePick'), lift('showConvertQuoteChoice')]
         .join('\n') + '\nreturn {open: showConvertQuoteChoice};')(
       function (s) {
         return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {

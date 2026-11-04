@@ -97,7 +97,7 @@ suite('2. A plan that saves itself over and over is said once');
   check('the same number of saves spread over longer than a minute is not a runaway', fired === 0 && logged.length === 0);
 
   const saveNow = stripComments(extractFrom(admin, 'async function saveNow('));
-  /* [[SCH-148]] the write carries the savedBy/savedAt stamp now (planStamped) */
+  /* [[SCH-153]] the write carries the savedBy/savedAt stamp now (planStamped) */
   const ok = saveNow.indexOf('await setDoc(PLAN_REF(),planStamped(data))'), call = saveNow.indexOf('planSaveRunaway(');
   const caught = saveNow.indexOf('catch(e)');
   check('WIRING: it is counted after a save succeeds and before the catch, so a refused save is not a "save"',

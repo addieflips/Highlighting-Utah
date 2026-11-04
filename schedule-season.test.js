@@ -85,7 +85,7 @@ function makeBook(seed, n, tag){
 /* ---- one season ---- */
 const WAREHOUSE = [
   {k: 'build', set: function(d, at){ d.needsLightBuild = true; d.lightsQueuedAt = {toMillis: function(){ return at; }}; }, clear: function(d){ d.needsLightBuild = false; }},
-  {k: 'timer', set: function(d){ d.needsTimerOnly = true; }, clear: function(d){ d.needsTimerOnly = false; }},
+  {k: 'timer', set: function(d){ d.needsTimerOnly = true; d.outletTimer = 'Yes'; }, clear: function(d){ d.needsTimerOnly = false; }},
   {k: 'colour', set: function(d){ d.needsColorChange = true; }, clear: function(d){ d.needsColorChange = false; }},
   {k: 'recycle', set: function(d){ d.needsLightRecycle = true; d.recycleKeepingCustomer = true; }, clear: function(d){ d.needsLightRecycle = false; d.recycleKeepingCustomer = false; }}];
 function season(cfg){
@@ -190,6 +190,9 @@ function season(cfg){
       if(label !== 'press') return;
       /* [[SCH-131]] the working days after Thanksgiving are the overflow for houses with no crew near them — not measured */
       if(x >= TAIL0) return;
+      /* [[SCH-148]] (2026-10-29) an October day is filled to a full day with the Normal Schedule houses before November gets
+         any, even when they are more than five miles out — Dax chose October first, so October days are not measured here */
+      if(x.slice(5, 7) === '10') return;
       crews.forEach(function(c){
         const P = c.map(ptOf);
         if(!locked) c.forEach(function(h, i){ const p = P[i]; if(!p) return; const far = c.every(function(o, j){ return j === i || !P[j] || H.api.haversine(p.lat, p.lng, P[j].lat, P[j].lng) > 5; }); if(far && c.length > 1 && !H.api.houseDateWindow(h, (H.api.planCustomerFor(h) || {}).data || {}, T0()).until) add('no house is more than five miles from the rest of its crew (SCH-131)', label + ' ' + today + ': ' + h.id + ' on ' + x); });

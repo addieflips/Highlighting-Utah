@@ -502,7 +502,7 @@ function sliceTo(src, site) {
 }
 
 /* Wrap a lifted slice into a callable of the record. */
-function amountFn(slice, inputVar, returnExpr) {
+function amountFn(slice, inputVar, returnExpr, prelude) {
   const sandbox = {};
   vm.createContext(sandbox);
   /* ⚠ centsOf comes along with every slice, LIFTED from js/money.js rather than
@@ -510,7 +510,7 @@ function amountFn(slice, inputVar, returnExpr) {
      it is a module, so it imports the real helper — and a slice that calls it
      needs it in scope here. Harmless for the sites that do not. */
   vm.runInContext(
-    clientCentsSrc + '\n' +
+    clientCentsSrc + '\n' + (prelude || '') + '\n' +
     'this.__fn = function (' + inputVar + ') {\n' + slice + '\nreturn ' + returnExpr + ';\n};',
     sandbox
   );
@@ -610,7 +610,11 @@ for (const s of SITES) {
     } else {
       const slice = sliceTo(SRC_BY_NAME[s.src], s);
       if (!slice) why = 'anchor not found, or no longer unique';
-      else fn = amountFn(slice, s.input, s.returnExpr || s.result);
+      /* ⚠ A site that now ASKS the one balance rule (balanceDueAmount) gets the REAL
+         function lifted in beside it, never a stub — a stub would decide the very
+         amount being compared. */
+      else fn = amountFn(slice, s.input, s.returnExpr || s.result,
+        /\bbalanceDueAmount\(/.test(slice) ? balanceDueSrc : '');
     }
   } catch (e) { why = e.message; }
   check('lifted ' + s.label, !!fn,

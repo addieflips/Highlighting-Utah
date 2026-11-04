@@ -188,7 +188,7 @@ module.exports = [
          the one-time warehouse note cannot be handled one way on one path and another way on
          the other. This check found the two old anchors still present but no longer writing
          the field, which is exactly what it is for. */
-      { file: 'admin', near: 'function whBuiltUpdates()', where: 'Warehouse \u203a Build', when: 'either Mark Done is pressed \u2014 one house or a whole colour group',
+      { file: 'admin', near: 'function whBuiltUpdates(d)', where: 'Warehouse \u203a Build', when: 'either Mark Done is pressed \u2014 one house or a whole colour group',
         rules: ['It records the button being pressed, not a bundle being made \u2014 so every screen says "marked built", never "built".',
                 'A house that will not save is named, and stays on the build list.'] },
       { file: 'admin', fn: 'renderWarehouseColorChangeQueue', where: 'Warehouse › Build', when: 'a colour change is marked done and its bundle was made too',
@@ -695,7 +695,7 @@ module.exports = [
         rules: ['A recorded payment survives the rebuild — the invoice is rebuilt from house prices and this is not one of them.'] },
       { file: 'admin', el: 'paymentImportBtn', where: 'Invoices › Import / Export', when: 'a bank or card file is imported',
         rules: ['The file knows when the money actually arrived, so the ledger date comes from it rather than from now.'] },
-      { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'Invoice Bulk Update writes a row',
+      { file: 'admin', fn: 'invoiceBulkRowPlan', where: 'Invoices › Import / Export', when: 'Invoice Bulk Update writes a row',
         rules: ['An existing payment is PRESERVED, never zeroed — this tool wiped every deposit until it was guarded.'] },
       { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer touches an invoice' },
       { file: 'admin', el: 'fixMissingInvoicesBtn', where: 'Invoices › Invoice List', when: 'a missing invoice is rebuilt' },

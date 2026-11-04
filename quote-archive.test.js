@@ -158,7 +158,9 @@ lines.forEach((l, i) => {
   if (/quoteSentAt:\s*serverTimestamp\(\)|\{quoteManuallySent: true, quoteManuallySentAt: serverTimestamp\(\)\}/.test(l)) doors.push(i);
 });
 const unstamped = doors.filter(i => !lines.slice(Math.max(0, i - 2), i + 6).join('\n').match(/quoteFirstSent(?:Stamp|FromHistory)\(/));
-check('there are six doors that mark a quote sent', doors.length === 6,
+/* ⚠ SIX WENT TO FIVE ON 2026-10-29, deliberately: the Send button stopped stamping quoteSentAt
+   before the sender had decided (run-all S427); the sender's own success write is that door. */
+check('there are five doors that mark a quote sent', doors.length === 5,
   'found ' + doors.length + ' — a door added or removed; check it stamps quoteFirstSentAt and change this number');
 check('and every one of them stamps the first send', unstamped.length === 0,
   'lines without the stamp: ' + unstamped.map(i => i + 1).join(', '));

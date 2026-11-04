@@ -57,6 +57,12 @@ function liftConst(n){
    and the customer's picker offered different folders — and these strings ARE the folder
    names. */
 const commSectionsSrc = () => liftConst('RSVP_DECLINE_REASONS') + liftConst('COMM_SECTIONS');
+/* ⛔ THE SECTION EDITOR'S FOLDER RULES (break-test, 2026-10-29) — every sandbox that lifts
+   commEditSection needs them, lifted never stubbed. The async keyword is put back by hand because
+   liftFn anchors on 'function NAME(' and would otherwise hand back bare awaits. */
+const folderHelpersSrc = () => liftFn('commSectionFolderMap') + liftFn('commAllFolderClaims') +
+  liftFn('commFolderNameProblem') + liftFn('commFolderRenames') + liftFn('commMoveReport') +
+  'async ' + liftFn('commMoveFolderMessages');
 /* ⚠ THREE COMPUTED ENTRIES NOW LEAD THIS LIST, AND TWO BRANCHES FOUND THE SAME TRAP IN THE
    SAME WEEK. `SYSTEM_NOTICE_TOPICS` stopped being a table of plain strings: [[FIX-02]] gave
    it `FIX_NOTICE_TOPIC` and [[RS-59]] gave it `RSVP_NO_TOPIC` / `RSVP_BNY_TOPIC`, so lifting
@@ -950,7 +956,73 @@ console.log('--- her own sections and folders ---');
     sb.matches({topic:'Routes Kept Up To Date', folder:'System', read:true, message:'x'},
                'member', 'all') === false,
     'she can rename it and add folders to it; what belongs in it is still code');
+
+  /* ⛔ BREAK-TEST 2026-10-29: A FOLDER UNDER THE BUILT-IN INBOX. Filing is what takes a
+     message OUT of the Inbox, so "must also pass the Inbox" was never true of anything in
+     the folder: it read 0, and the "Your folders" line skipped it because a section claimed
+     the name. The message was reachable by search alone. */
+  sb.setSections({custom: [], hidden: [], builtIn: {inbox: {label: 'Inbox', tabs: [
+    {key:'t-ib', label:'Completed', filter:{fill:'hand', folder:'Completed'}}
+  ]}}});
+  check('a folder she added under the Inbox holds what she filed into it',
+    sb.matches(filed, 'inbox', 't-ib') === true,
+    'the Inbox rule drops filed messages, so asking it as-is can never be true here');
+  check('and nothing she has not filed there',
+    sb.matches(unfiled, 'inbox', 't-ib') === false);
+  check('and a system notice filed there is still not an Inbox row',
+    sb.matches({topic:'Routes Kept Up To Date', folder:'Completed', filedByHand:true,
+                read:true, message:'x'}, 'inbox', 't-ib') === false,
+    'only the filing is set aside; the rest of the section rule still applies');
+  check('and filing it there still takes it out of the Inbox itself',
+    sb.matches(filed, 'inbox', 'all') === false);
   sb.setSections({custom: [], hidden: [], builtIn: {}});
+}
+
+/* ⛔ BREAK-TEST 2026-10-29: THE SECTION EDITOR'S FOLDER NAMES. RUN, not matched. */
+console.log('');
+console.log('--- a folder name belongs to one section, and a rename carries its messages ---');
+{
+  const fx = {};
+  new Function('commSections', liftConst('RSVP_DECLINE_REASONS') + liftConst('COMM_SECTIONS') +
+    liftFn('commBuiltInExtras') + folderHelpersSrc() +
+    'this.map = commSectionFolderMap; this.claims = commAllFolderClaims;' +
+    'this.problem = commFolderNameProblem; this.renames = commFolderRenames;')
+    .call(fx, {custom: [{key:'c-1', label:'Done', filter:{fill:'hand', folder:'Done'}, tabs: []}],
+               hidden: ['member'],
+               builtIn: {member: {tabs: [{key:'t-m', label:'Kept', filter:{fill:'hand', folder:'Kept'}}]}}});
+  const claims = fx.claims();
+  check('every section\'s folders are claimed, a hidden built-in\'s included',
+    claims.some(c => c.section === 'c-1' && c.folder === 'Done') &&
+    claims.some(c => c.section === 'member' && c.folder === 'Kept'),
+    JSON.stringify(claims));
+  check('a second section cannot take a folder name another already has, whatever the case',
+    /already belongs to the section/.test(fx.problem('c-2', ['done'], claims)),
+    'two sections on one folder: deleting either emptied the other');
+  check('nor one a HIDDEN section still holds',
+    /already belongs/.test(fx.problem('c-2', ['Kept'], claims)));
+  check('but the section that owns it can save itself again',
+    fx.problem('c-1', ['Done'], claims) === '',
+    'refusing her own section its own folder makes every edit impossible');
+  check('a folder cannot be called Inbox',
+    /Inbox/.test(fx.problem('c-2', ['inbox'], claims)),
+    'Inbox is the unfiled pile itself; msgIsFiledAway never counts it as filed');
+  check('nor named twice inside one section',
+    /Two folders/.test(fx.problem('c-2', ['A', 'a'], [])));
+  check('a fresh name is fine', fx.problem('c-2', ['Later'], claims) === '');
+
+  const mv = fx.renames({'': 'Done', 't1': 'Old'}, {'': 'Completed', 't1': 'Old'}, []);
+  check('renaming a section\'s folder moves Done to Completed and touches nothing else',
+    mv.length === 1 && mv[0].from === 'Done' && mv[0].to === 'Completed', JSON.stringify(mv));
+  check('a name another view still claims is not moved out from under it',
+    fx.renames({'': 'Done'}, {'': 'Completed'}, ['Done']).length === 0);
+  check('the editor computes the renames and moves the messages after the save',
+    (function(){
+      const body = liftFn('commEditSection').replace(/\/\*[\s\S]*?\*\//g, '');
+      const r = body.indexOf('commFolderRenames(foldersBefore'), s = body.indexOf('await saveCommSections({custom: list');
+      const m = body.indexOf('commMoveFolderMessages(renames)', s);
+      return r !== -1 && s !== -1 && m > s && /commFolderNameProblem\(draft\.key/.test(body);
+    })(),
+    'a rule nothing calls leaves the messages stranded under the old name');
 }
 /* ⭐ AND THE LINE THAT MUST NOT BE CROSSED, asserted as code rather than left as a note:
    a section is a filter, so nothing about it can WRITE to a message. If a future change
@@ -1025,7 +1097,7 @@ if(!JSDOM){
        asks which folders she has already added to one and what that section holds. */
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
     liftFn('commSectionByKey') + liftFn('commRowMatches') +
-    liftFn('commFilterMatches') + liftFn('commEditSection');
+    liftFn('commFilterMatches') + folderHelpersSrc() + liftFn('commEditSection');
   const ed = {};
   new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
     'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'messageFolders',
@@ -1132,7 +1204,7 @@ if(!JSDOM){
    because the editor passing proves nothing about anybody being able to open it. That exact
    gap went green across a 5,162-check suite once (the Edit Customer tab strip). */
 if(JSDOM){
-  const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div></body>');
+  const dom2 = new JSDOM('<!doctype html><body><div id="commCentreNav"></div><select id="msgMoveTo"></select></body>');
   const d2 = dom2.window.document;
   const NAV = liftConst('WIRE_PICK_TOPIC') +
     liftConst('FIX_NOTICE_TOPIC') + liftConst('RSVP_NO_TOPIC') + liftConst('RSVP_BNY_TOPIC') +
@@ -1152,7 +1224,9 @@ if(JSDOM){
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
     liftFn('commFilterMatches') + liftFn('commSectionByKey') + liftFn('commAllSections') +
     liftFn('commHandFolders') +
-    liftFn('commRowMatches') + liftFn('commRows') + liftFn('commCount') + liftFn('renderCommNav');
+    liftFn('commRowMatches') + liftFn('commRows') + liftFn('commCount') + liftFn('renderCommNav') +
+    /* ⛔ renderCommNav rebuilds Move to… now (2026-10-29) — lifted, never stubbed. */
+    'var messageFolders = [];' + liftFn('msgFileableFolders') + liftFn('populateMoveToSelect');
   const nav = {};
   new Function('document', 'allMessages', 'commSections', 'commView', 'renderCommDash',
     'renderMessagesList', 'commEditSection', 'saveCommSections', 'confirm', 'toast',
@@ -1181,6 +1255,14 @@ if(JSDOM){
     'the editor is unreachable without it');
   check('her own section is drawn, with its subtabs',
     /Gate codes/.test(host.innerHTML) && /Unread/.test(host.innerHTML));
+  /* ⛔ BREAK-TEST 2026-10-29: Move to… had no caller after 02068e2 and sat on its bare
+     placeholder for ever. Drawing the nav must fill it, with Inbox and her folder. */
+  {
+    const opts = Array.prototype.map.call(d2.getElementById('msgMoveTo').options, function(o){ return o.value; });
+    check('drawing the nav fills Move to… with Inbox and her own folder',
+      opts.indexOf('Inbox') !== -1 && opts.indexOf('Completed') !== -1,
+      'got ' + JSON.stringify(opts) + ' — a select naming no folder is one route of three to filing gone dead');
+  }
   check('and its All tab is added rather than stored',
     host.querySelectorAll('[data-commsec="c-9"][data-commtab="all"]').length === 1,
     'a section with one subtab must still have an All that agrees with it');
@@ -1276,7 +1358,7 @@ if(JSDOM){
     liftFn('msgPriorityOf') + liftFn('msgSeverityOf') + liftFn('msgFacets') +
     liftFn('messageFolderOf') + liftFn('msgIsFiledAway') + liftFn('commBuiltInExtras') +
     liftFn('commSectionByKey') + liftFn('commRowMatches') +
-    liftFn('commFilterMatches') + liftFn('commEditSection');
+    liftFn('commFilterMatches') + folderHelpersSrc() + liftFn('commEditSection');
   const del = {};
   const mine = {key: 'c-done', icon: '\u{1F4CC}', label: 'Completed',
                 filter: {fill: 'hand', folder: 'Completed'}, tabs: []};
@@ -1314,6 +1396,38 @@ if(JSDOM){
         'mB was never filed anywhere; touching it would be rewriting somebody else\'s row');
     }));
   }
+
+  /* ⛔ BREAK-TEST 2026-10-29: TWO SECTIONS SAVED BEFORE THE SHARED-NAME REFUSAL EXISTED,
+     BOTH ON "Completed". Deleting one used to put the other's messages back in the Inbox. */
+  const domS = new JSDOM('<!doctype html><body></body>');
+  const docS = domS.window.document;
+  const wroteS = [];
+  const twin = {key: 'c-twin', icon: '\u{1F4CC}', label: 'Also completed',
+                filter: {fill: 'hand', folder: 'Completed'}, tabs: []};
+  const shared = {};
+  new Function('document', 'allMessages', 'commSections', 'saveCommSections', 'toast',
+    'confirm', 'alert', 'MEMBER_ERROR_TOPIC', 'ADMIN_ERROR_TOPIC', 'messageFolders',
+    'addDoc', 'collection', 'db', 'serverTimestamp', 'updateDoc', 'doc',
+    DEL + 'this.open = commEditSection;')
+    .call(shared, docS,
+      [{id: 'mA', data: {topic: 'General Question', read: true, message: 'x',
+                         folder: 'Completed', filedByHand: true}}],
+      {custom: [mine, twin], hidden: [], builtIn: {}},
+      async function(){}, function(){}, function(){ return true; }, function(){},
+      'Member Error', 'Admin Error', [],
+      async function(){}, function(){ return {}; }, {}, function(){ return null; },
+      async function(ref, patch){ wroteS.push({ref: ref, patch: patch}); },
+      function(_db, _col, id){ return id; });
+  shared.open(JSON.parse(JSON.stringify(mine)));
+  const delS = docS.getElementById('commEdDelete');
+  if(delS){
+    delS.dispatchEvent(new domS.window.MouseEvent('click', {bubbles: true}));
+    pendingChecks.push(new Promise(function(r){ setTimeout(r, 0); }).then(function(){
+      check('deleting one of two sections that share a folder leaves the other\'s messages where they are',
+        wroteS.length === 0,
+        'got ' + JSON.stringify(wroteS) + ' — the other section still shows that folder');
+    }));
+  } else check('the shared-folder section can be deleted', false);
 }
 
 
@@ -1601,6 +1715,37 @@ console.log('--- nothing here hides until you hover ---');
     'a note nothing calls is indistinguishable on screen from no note');
 }
 
+
+/* ⛔ BREAK-TEST 2026-10-29: SEND TO WAREHOUSE LINKED THE WRONG CUSTOMER. Both copies (Inbox
+   and System Messages) took the FIRST customer whose phone digits matched — a shared
+   household picked a sibling, and a message with no phone matched the first customer with
+   none ('' === ''). RUN, not matched. */
+console.log('');
+console.log('--- send to warehouse finds the right customer or nobody ---');
+{
+  const book = [
+    {id:'a', data:{name:'Ashley', phone:'801-555-0001', email:'a@x.test'}},
+    {id:'b', data:{name:'Catherine', phone:'(801) 555-0001', email:'c@x.test'}},
+    {id:'n', data:{name:'No Phone', phone:'', email:''}},
+    {id:'s', data:{name:'Solo', phone:'8015550002', email:'solo@x.test'}}
+  ];
+  const w = {};
+  new Function('jobAddresses', liftFn('msgContactCustomer') + liftFn('msgSendToWhCustomer') +
+    'this.who = msgSendToWhCustomer;').call(w, book);
+  check('a shared household phone links nobody', w.who({phone:'8015550001', email:''}) === null,
+    'the first sibling on file is a coin toss on whose lights get rebuilt');
+  check('a blank phone and blank email links nobody', w.who({phone:'', email:''}) === null,
+    "'' === '' matched the first customer with no phone");
+  check('a phone held by one customer links them', (w.who({phone:'801.555.0002'}) || {}).id === 's');
+  check('an email-only message resolves by a unique email', (w.who({phone:'', email:'Solo@x.test'}) || {}).id === 's');
+  check('an id on the message wins outright', (w.who({customerId:'a', phone:'8015550002'}) || {}).id === 'a');
+  const handlers = admin.split("querySelectorAll('[data-sendtowh]')").slice(1)
+    .map(function(t){ return t.slice(0, t.indexOf('labelEl.dispatchEvent')); });
+  check('both Send to Warehouse handlers ask the refusing rule and nothing else',
+    handlers.length === 2 && handlers.every(function(h){
+      return /msgSendToWhCustomer\(d\)/.test(h) && !/jobAddresses\.find/.test(h); }),
+    'a second copy left on the first-match lookup is the same bug on the other screen');
+}
 
 Promise.all(pendingChecks).then(function(){
   console.log('');

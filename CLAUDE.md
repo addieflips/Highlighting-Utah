@@ -77,7 +77,7 @@ touching scheduling must know before editing anything:
   (`seasonBadgeKey`) and goes through **`isOffTheSchedule`** — never a gate in the schedule — exactly as
   the colour-change list does ([[SCH-105]]). That is the headline rule's own instruction.
 - **A plan received from another computer is never written back until somebody here changes it**
-  ([[SCH-148]], 2026-11-03). `planHeldKey` is this computer's derived view of the plan it last received and
+  ([[SCH-153]], 2026-11-03). `planHeldKey` is this computer's derived view of the plan it last received and
   `saveNow` treats it as saved. Two computers whose "today" differed (a clock hours off) re-derived the
   locked days differently and bounced the plan for ever — 30+ saves a minute, every screen on its own
   schedule. Every save is stamped `savedBy`/`savedAt` (outside `serialize()`, no `PLAN_SCHEMA` bump), the

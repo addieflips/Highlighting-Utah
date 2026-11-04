@@ -1318,10 +1318,14 @@ function seasonResetWrite() {
      office's own carried line) failed a check about correct code — the same slow-fuse
      shape as S82 and S129. What must be true is about WHICH NOTES SURVIVE, so the real
      filter is lifted and run over one note of each kind. */
-  const keptFilterSrc = editRebuild.slice(editRebuild.indexOf('priorFees.filter('),
+  /* ⚠ REPOINTED AGAIN 2026-10-29: the filter now asks `ownLine` (only THIS house's lines
+     are rebuilt — a line that came across with another house is left alone), so the
+     helper is lifted with it. Every fixture note here carries no houseId, i.e. this
+     house's own, so the answers below are unchanged. */
+  const keptFilterSrc = editRebuild.slice(editRebuild.indexOf('const ownLine'),
                                           editRebuild.indexOf('const rebuiltFeeNotes'));
-  const keptFilter = new Function('ARREARS_KIND',
-    'const priorFees = arguments[1]; return ' + keptFilterSrc.replace(/;\s*$/, '') + ';');
+  const keptFilter = new Function('ARREARS_KIND', 'priorFees',
+    'const savingCustomerId = "this-house";\n' + keptFilterSrc + '\nreturn keptFees;');
   const survivors = keptFilter('arrears', [
     { amount: 30, kind: 'manual', reason: 'typed on this form' },
     { amount: 30, reason: 'Light change' },

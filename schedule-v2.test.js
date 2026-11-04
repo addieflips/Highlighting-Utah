@@ -227,7 +227,7 @@ suite('1.1 The Schedule is the only install-date authority');
   /* 2026-10-12: "unsaved" has to mean a save is queued. The five-minute sync freezes days in memory and used to
      return without saving, so an idle computer differed for ever and refused every plan the other one sent. */
   check('another computer\'s plan is only held off by a save that is really queued',
-    /* [[SCH-148]] and this computer's own derived view of the plan it last received is not an unsaved edit either */
+    /* [[SCH-153]] and this computer's own derived view of the plan it last received is not an unsaved edit either */
     /if\(\(mine!==planSyncedKey && mine!==planHeldKey && savePending\) \|\| recalcRunning\)/.test(noComments) &&
     /function scheduleSave\(\)\{(?:if\(PLAN_PAGE_OUTDATED\)return;)?clearTimeout\(saveTimer\);savePending=true;/.test(noComments) &&
     /async function saveNow\(\)\{\s*savePending=false;/.test(noComments));
@@ -1012,16 +1012,17 @@ function liveWarehouse(label, set, useTick){
   check(how + ': and not onto either printed day', lockedDs.indexOf(dayOfCust(who.id)) === -1, 'landed on ' + dayOfCust(who.id));
 }
 [false, true].forEach(function(useTick){
-  liveWarehouse('a TIMER ONLY row (Kate Johnson)', function(d){ d.needsTimerOnly = true; }, useTick);
+  /* [[SCH-150]] shaped as the queue writes it: whTimerOnlyQueue only ever queues a timer that ends up Yes, and that is what put Kate on the Timers list */
+  liveWarehouse('a TIMER ONLY row (Kate Johnson)', function(d){ d.needsTimerOnly = true; d.outletTimer = 'Yes'; }, useTick);
   liveWarehouse('a Remove Timer row (WH-34)', function(d){ d.needsTimerRemoved = true; }, useTick);
   liveWarehouse('the Color Change list (Brooks Bostick)', function(d){ d.needsColorChange = true; }, useTick);
 });
 {
   const yes = function(extra){ return Object.assign({}, YES, extra || {}); };
-  check('a timer-only house does not read Confirmed (it reads Being built)', H.api.seasonBadgeKey(yes({needsTimerOnly: true})) === 'building');
+  check('a timer-only house does not read Confirmed (it reads Being built)', H.api.seasonBadgeKey(yes({needsTimerOnly: true, outletTimer: 'Yes'})) === 'building');
   check('nor does a house having a timer taken out', H.api.seasonBadgeKey(yes({needsTimerRemoved: true})) === 'building');
   check('every Warehouse list holds a house off the schedule',
-    ['needsLightBuild', 'needsTimerOnly', 'needsTimerRemoved', 'needsColorChange'].every(function(f){ const o = {}; o[f] = true; return H.api.isOffTheSchedule(yes(o)); }));
+    ['needsLightBuild', 'needsTimerOnly', 'needsTimerRemoved', 'needsColorChange'].every(function(f){ const o = {outletTimer: 'Yes'}; o[f] = true; return H.api.isOffTheSchedule(yes(o)); }));
   check('and an ordinary yes is still Confirmed and still scheduled', H.api.seasonBadgeKey(yes()) === 'confirmed' && !H.api.isOffTheSchedule(yes()));
 }
 
@@ -1127,7 +1128,17 @@ suite('13 Individual customer priority');
     const moved = r.moved.filter(function(m){ return m.name === c.data.name; })[0];
     check('13.4: a priority customer is moved EARLIER', now < was, was + ' → ' + now);
     check('13.5: onto a day with work within ' + 3 + ' miles of them', moved && moved.miles <= 3, JSON.stringify(moved && moved.miles));
-    check('13.7: nobody else changed day', book.filter(function(b){ return b !== c; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    /* [[SCH-149]], 2026-10-29: October is packed to 40 ([[SCH-148]]), so the earlier day is usually full and the priority
+       customer TRADES PLACES with one less urgent house. That house — and only that house — goes to the priority customer's
+       old day; everybody else stays put. */
+    const swapped = moved && moved.swappedWith ? book.filter(function(b){ return b.data.name === moved.swappedWith; })[0] : null;
+    check('13.7: nobody else changed day, except the one house it traded places with',
+      book.filter(function(b){ return b !== c && b !== swapped; }).every(function(b){ return dayOfCust(b.id) === dayIndex['cust-' + b.id]; }));
+    check('13.7: with October full to 40, the earlier day was full and the move is a trade', !!swapped, JSON.stringify(moved));
+    if(swapped){
+      check('13.7: …which goes to the priority customer\'s old day', dayOfCust(swapped.id) === was, dayIndex['cust-' + swapped.id] + ' → ' + dayOfCust(swapped.id));
+      check('13.7: …and is a less urgent, unflagged house', swapped.data.rushInstall !== true && swapped.data.chargeNewMemberFee !== true);
+    }
     check('13.4: and no hard rule broke', H.api.validateSeasonPlan({}).length === 0, JSON.stringify(H.api.validateSeasonPlan({}).slice(0, 2)));
     const p = H.api.houseSchedulingProfile({id: 'cust-' + c.id, pref: 'Normal Schedule'}, c.data);
     check('13.2: the customer record is otherwise untouched (profile reads the same place and window)', p.location && p.earliest && p.priority === true);
@@ -1494,6 +1505,53 @@ suite('SCH-136b Customers marked for tomorrow from TODAY’s list — the crew d
   check('36b.4 nobody lost (SCH-85)', H.api.confirmedNotOnAnyDay().length === 0, String(H.api.confirmedNotOnAnyDay().length));
 }
 
+suite('SCH-152 A route that makes sense beats the office date’s week');
+{
+  /* Dax, 2026-11-03, on a Mapleton new hang laid on a Lehi day because her office date allowed only that week: "we are going
+     for a route that makes sense not a detour that makes no sense ... it can be a detour if the next house is in springville
+     cause they are both out there but doing it in a lehi day makes no sense". RUN through the real press and the real sync. */
+  const book = makeBook(140, 5152, {towns: ['Lehi', 'American Fork', 'Saratoga Springs', 'Highland']});
+  const SV = TOWNS['Springville'];
+  for(let i = 0; i < 12; i++) book.push({id: 'sv' + i, data: Object.assign({name: 'South ' + i, customerNumber: String(7100 + i), city: 'Springville',
+    address: (200 + i) + ' South Ln', lat: SV[0] + (i % 4) * 0.004, lng: SV[1] + Math.floor(i / 4) * 0.004, installPreference: '11/20+'}, YES)});
+  const ms = function(y, m, d){ return {toMillis: function(){ return new Date(y, m, d).getTime(); }}; };
+  const lone = {id: 'lone', data: Object.assign({name: 'Lone Mapleton', customerNumber: '7188', city: 'Mapleton', address: '188 Aspen Dr',
+    lat: SV[0] - 0.01, lng: SV[1] + 0.03, installPreference: 'November', earliestInstallDate: ms(2026, 10, 2)}, YES)};
+  book.push(lone);
+  const out = run(book);
+  const hOf = function(id){ return H.api.installDays().reduce(function(a, d){ return a.concat(d.houses || []); }, []).filter(function(h){ return h.id === 'cust-' + id; })[0]; };
+  const nearest = function(id){ const ds = dayOfCust(id); const d = daysOf().filter(function(x){ return x.ds === ds; })[0]; const me = ptOf(book, 'cust-' + id);
+    let m = Infinity; (d ? d.ids : []).forEach(function(o){ if(o === 'cust-' + id) return; const q = ptOf(book, o); if(q) m = Math.min(m, miles(me, q)); }); return m; };
+  const southFrom = daysOf().filter(function(d){ return d.ids.indexOf('cust-sv0') !== -1; }).map(function(d){ return d.ds; })[0] || '';
+  check('152.0 the scenario: the Springville houses open on 20 November, after the office week (2–9 November)', southFrom >= '2026-11-20', southFrom);
+  check('152.1 the lone house rides with a crew within five miles of it, not alone on a far day', nearest('lone') <= 5, dayOfCust('lone') + ' nearest ' + nearest('lone').toFixed(1));
+  const h = hOf('lone');
+  check('152.2 its window was stretched for the office date it was given, and says to which day', !!h && !!h.windowStretch && h.windowStretch.for === '2026-11-02' && h.windowStretch.to === dayOfCust('lone'),
+    JSON.stringify(h && h.windowStretch));
+  check('152.3 the plan is legal with it there — every invariant holds', out.violations.length === 0, JSON.stringify(out.violations.slice(0, 3)));
+  const why = H.api.placementReasons(h, H.api.installDays().filter(function(d){ return d.houses.indexOf(h) !== -1; })[0]).join(' | ');
+  check('152.4 Why this day says the office date was stretched', /Office date stretched to/.test(why), why);
+  const was = dayOfCust('lone');
+  H.load(book, {season: H.season()}); H.tick();
+  check('152.5 the five-minute sync leaves it there', dayOfCust('lone') === was, was + ' -> ' + dayOfCust('lone'));
+  H.load(book, {season: H.season()}); H.press();
+  check('152.6 and so does the next Recalculate', nearest('lone') <= 5 && dayOfCust('lone') >= '2026-11-20', dayOfCust('lone'));
+  /* a house with a crew near it inside its week keeps the week: the stretch is only for nothing being near */
+  const book2 = makeBook(140, 5153, {towns: ['Lehi', 'American Fork', 'Saratoga Springs', 'Highland']});
+  const LH = TOWNS['Lehi'];
+  const near2 = {id: 'near2', data: Object.assign({name: 'Lehi Dated', customerNumber: '7189', city: 'Lehi', address: '189 Main St',
+    lat: LH[0] + 0.002, lng: LH[1], installPreference: 'November', earliestInstallDate: ms(2026, 10, 2)}, YES)};
+  run(book2.concat([near2]));
+  const h2 = hOf('near2');
+  check('152.7 a dated house with a crew nearby inside its week stays inside the week, unstretched', dayOfCust('near2') >= '2026-11-02' && dayOfCust('near2') <= '2026-11-09' && !(h2 && h2.windowStretch),
+    dayOfCust('near2') + ' ' + JSON.stringify(h2 && h2.windowStretch));
+  /* a stretch belongs to the date it was given for: change the office date and the stretch is gone */
+  const hs = {notBefore: '2026-11-02', windowStretch: {for: '2026-11-02', to: '2026-11-24'}, pref: 'November'};
+  check('152.8 the stretch widens the ceiling for its own date and no other', H.api.houseDeadline(hs) === '2026-11-24' &&
+    H.api.houseDeadline(Object.assign({}, hs, {notBefore: '2026-11-03'})) === '2026-11-10', H.api.houseDeadline(hs));
+  check('152.9 October and Before Thanksgiving are never stretched — only an office date has a stretch', H.api.houseDeadline({pref: 'October', windowStretch: {for: '', to: '2026-11-24'}}) === '2026-10-31');
+}
+
 suite('SCH-146 Confirmed is on a day or on a warehouse list, never neither — even when no day exists that suits them');
 {
   /* Dax, 2026-10-20: "if they are confirmed they are always either on the build list or schedule but always one or the
@@ -1663,7 +1721,7 @@ suite('SCH-137 On a Warehouse list means on no day — every door');
   /* who goes on which list, from where */
   const cases = [
     ['an open day, a new build', crewHouse(open[0], 0), {needsLightBuild: true}],
-    ['tomorrow, on a crew CHECKED for tomorrow, a timer job', crewHouse(tom, 0), {needsTimerOnly: true}],
+    ['tomorrow, on a crew CHECKED for tomorrow, a timer job', crewHouse(tom, 0), {needsTimerOnly: true, outletTimer: 'Yes'}],
     ['tomorrow, the other crew, a build', crewHouse(tom, 1), {needsLightBuild: true}],
     ['the day after (locked), a recycle', crewHouse(second, 0), {needsLightRecycle: true}],
     ['a PRINTED open day, a colour change', crewHouse(open[1], 0), {needsColorChange: true}],
@@ -1926,7 +1984,7 @@ suite('SCH-123 Two weeks of real presses and syncs: the next two days never move
       const id = list[Math.floor(r() * list.length)];
       if(flagged[id]) return;
       const k = KINDS[(i + day.getDate()) % 4];
-      byId[id].data[k[1]] = true; flagged[id] = k[0]; kindsSeen[k[0]] = 1;
+      byId[id].data[k[1]] = true; if(k[0] === 'timer') byId[id].data.outletTimer = 'Yes'; flagged[id] = k[0]; kindsSeen[k[0]] = 1;
     });
     Object.keys(flagged).forEach(function(id){
       if(r() < 0.3){ const k = KINDS.filter(function(k){ return k[0] === flagged[id]; })[0]; byId[id].data[k[1]] = false; delete flagged[id]; released[id] = today; }
@@ -2183,6 +2241,36 @@ suite('SCH-128 No crew goes out for fewer than ten houses');
   }
 }
 /* ======================================================================================= */
+suite('Break-test 2026-10-29: a missed house is only ever moved to a day its customer allows');
+{
+  /* "Put them on another day myself" had no date check at all, so an October customer the crew missed could be put on
+     27 November by hand, and "the next day we are in that city" could be a November day too. Both now ask houseMayGoOn. */
+  const book = makeBook(160, 10291);
+  run(book);
+  const prefOf = function(id){ const b = book.filter(function(x){ return 'cust-' + x.id === String(id); })[0]; return b ? b.data.installPreference : ''; };
+  const days = daysOf().sort(function(a, b){ return a.ds < b.ds ? -1 : 1; });
+  const oct = days.filter(function(d){ return d.ds <= '2026-10-31' && d.ids.some(function(id){ return prefOf(id) === 'October'; }); })[0];
+  const nov = days.filter(function(d){ return d.ds > '2026-10-31'; })[0];
+  check('B1.0 the season has an October day holding an October customer, and a November day', !!oct && !!nov);
+  if(oct && nov){
+    const hid = oct.ids.filter(function(id){ return prefOf(id) === 'October'; })[0];
+    const p = oct.ds.split('-').map(Number);
+    H.setNow(new Date(p[0], p[1] - 1, p[2], 18, 0));   // the crew has worked that day
+    const moved = H.api.moveLeftover(hid, nov.day.id);
+    check('B1.1 an October customer the crew missed cannot be put on a November day by hand',
+      moved === null && daysOf().filter(function(d){ return d.ids.indexOf(hid) !== -1; })[0].ds === oct.ds);
+    const plan = H.api.planLeftoverMoves(oct.day);
+    const octPlan = plan.filter(function(x){ return prefOf(x.house.id) === 'October'; });
+    check('B1.2 and the automatic "next day in their city" never sends an October customer past October',
+      octPlan.length > 0 && octPlan.every(function(x){ return !x.target || H.api.isoOf(H.api.dayDate(x.target)) <= '2026-10-31'; }),
+      JSON.stringify(octPlan.map(function(x){ return x.target ? H.api.isoOf(H.api.dayDate(x.target)) : null; })));
+    const back = H.api.moveLeftover(hid, oct.day.id);
+    check('B1.3 a move onto the day it is already on is refused, not counted', back === null);
+    const laterOct = days.filter(function(d){ return d.ds > oct.ds && d.ds <= '2026-10-31' && !H.api.dayIsPrintedAhead(d.day); })[0];
+    if(laterOct) check('B1.4 and it CAN still go on a later October day', H.api.moveLeftover(hid, laterOct.day.id) !== null);
+  }
+}
+
 suite('SCH-134 October is filled with the people who don\'t care when, before November is');
 {
   /* Dax, 2026-10-15: "we currently have people for normal schedule in november but we are like out of houses for October
@@ -2240,6 +2328,19 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     }
     check('29.' + k + 'b book ' + spec[1] + ': and no October working date stands empty while one of them could go on it',
       emptyOct.length === 0 || waiting.length === 0, emptyOct.join(',') + ' with ' + waiting.length + ' waiting');
+    /* [[SCH-148]] Dax, 2026-10-29: "novenmber shouldnt have any normal schedules until these are full" — and October first even
+       when the only ones left are more than five miles away. So none of them may wait in November while an open October day
+       is short of a full day and could legally take them. */
+    const stillWaiting = [];
+    days.filter(function(x){ return open(x) && x.ds > '2026-10-31'; }).forEach(function(x){
+      (x.day.houses || []).forEach(function(h){
+        if(h.done || h.isFix || h.isTakedown || String(h.stuck || '').trim() || H.api.houseDeadline(h)) return;
+        const room = octOpen.filter(function(o){ return (o.day.houses || []).filter(function(y){ return !y.done; }).length < 40 && H.api.houseMayGoOn(h, custOf(h), o.ds, startStr).ok; });
+        if(room.length) stillWaiting.push((h.name || h.id) + ' ' + x.ds + ' -> ' + room[0].ds);
+      });
+    });
+    check('29.' + k + 'f book ' + spec[1] + ': no Normal Schedule house waits in November while an October day is short of 40 (SCH-148)',
+      stillWaiting.length === 0, stillWaiting.slice(0, 5).join(' | '));
     const v = H.api.validateSeasonPlan({});
     check('29.' + k + 'c book ' + spec[1] + ': every placement rule still holds (month, deadline, away, nobody lost)', v.length === 0, JSON.stringify(v.slice(0, 2)));
     const lateOct = book.filter(function(b){ return b.data.installPreference === 'October' && dayOfCust(b.id) > '2026-10-31'; });
@@ -2250,12 +2351,12 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
 }
 
 /* ======================================================================================= */
-/* [[SCH-148]] TWO COMPUTERS ON ONE PLAN. The office: "My computer won't sync with other computers when someone makes a change
+/* [[SCH-153]] TWO COMPUTERS ON ONE PLAN. The office: "My computer won't sync with other computers when someone makes a change
    to the schedule." The real followPlanLive and saveNow are RUN here against a fake Firestore, a fake hydrate/serialize
    whose redraw derives something the other computer did not (today's anchors, a done flag from a fresher customer cache),
    and timers that fire by hand. What is asserted is which writes go out, because that is the whole bug: a received plan,
    re-derived and written straight back, is the bounce that kept every screen on its own schedule. */
-suite('40 [[SCH-148]] a plan received from another computer is shown here and never written back until somebody here changes it');
+suite('40 [[SCH-153]] a plan received from another computer is shown here and never written back until somebody here changes it');
 {
   let api = null, why = '';
   try{
@@ -2372,6 +2473,190 @@ suite('40 [[SCH-148]] a plan received from another computer is shown here and ne
   check('40.23 the hold is taken AFTER renderAll derives, and before the queued save can run', /syncTabs\(\); renderAll\(\);\s*planHeldKey=planKey\(serialize\(\)\);/.test(nc));
   check('40.24 a real save clears the hold', /planSyncedKey=k; planHeldKey=null;/.test(nc));
   check('40.25 the Schedule tab has the line to say it on', admin.indexOf('id=\\"syncNote\\"') !== -1);
+}
+/* ======================================================================================= */
+/* ⭐⭐ [[SCH-150]] EVERY CONFIRMED CUSTOMER IS ON A DAY STILL TO COME OR ON A WAREHOUSE LIST — NEVER NEITHER (2026-11-02).
+   The owner's rule, asked after EVERY action of a whole season rather than once after a press. "On a day" is what All
+   Customers shows — a crew's sheet on an install day dated today or later (or already hung) — and "on a Warehouse list" is
+   the REAL lists, lifted out of admin.html (whBuildQueueGroups, whColorChangeHouses, whRecycleGroups), never a copy of
+   their rules: the gap this closes was a hold (the badge) disagreeing with what a list actually shows. */
+if(H){
+suite('SCH-150 Every Confirmed customer is on a day still to come or on a Warehouse list, never neither');
+{
+  const L = liftDeep(['whBuildQueueGroups', 'whColorChangeHouses', 'whRecycleGroups', 'seasonBadgeKey', 'isOffTheSchedule'],
+    {provided: ['document', 'window']});
+  const moneySrc = fs.readFileSync(path.join(ROOT, 'js', 'money.js'), 'utf8').replace(/^export\s+/gm, '').replace(/^import[^;]+;/gm, '');
+  let W = null;
+  try{
+    W = new Function(moneySrc + '\nvar window = {}; var document = {getElementById: function(){ return null; }};\n' + L.code +
+      '\nreturn {lists: function(book){ jobAddresses = book; var ids = new Set(); var g = whBuildQueueGroups();' +
+      ' g.keys.forEach(function(k){ (g.groups[k].houses || []).forEach(function(h){ ids.add(h.id); }); });' +
+      ' (g.timerHouses || []).concat(g.timerRemovals || []).forEach(function(h){ ids.add(h.id); });' +
+      ' whColorChangeHouses().forEach(function(h){ ids.add(h.id); });' +
+      ' var r = whRecycleGroups(); r.keys.forEach(function(k){ (r.groups[k] || []).forEach(function(h){ ids.add(h.id); }); });' +
+      ' return ids; }, badge: seasonBadgeKey, off: isOffTheSchedule};')();
+  }catch(e){ W = null; check('the three real Warehouse lists lift out of admin.html', false, String(e).slice(0, 200)); }
+  check('the three real Warehouse lists lift out of admin.html', !!W);
+  /* the day each customer is on, read the way All Customers reads it (schedulePlanBookings: a crew's sheet on an install day) */
+  const booked = function(today){
+    const out = {};
+    H.api.installDays().forEach(function(d){
+      const dt = H.api.dayDate(d); if(!dt) return;
+      const ds = H.api.isoOf(dt);
+      H.api.crewIndexes().forEach(function(i){ (H.api.crewHousesFor(i, d) || []).forEach(function(h){
+        if(h.isFix || h.isTakedown) return;
+        const c = H.api.planCustomerFor(h); if(!c) return;
+        if(h.done || ds >= today) out[c.id] = ds;
+      }); });
+    });
+    return out;
+  };
+  const neither = function(book, today){
+    const b = booked(today), lists = W.lists(book), bad = [];
+    book.forEach(function(c){
+      const k = H.api.seasonBadgeKey(c.data);
+      if((k === 'building' || k === 'colorchange') && !lists.has(c.id)) bad.push(c.id + ' (' + k + ', on no list)');
+      if(k !== 'confirmed' || c.data.completed) return;
+      if(!b[c.id] && !lists.has(c.id)) bad.push(c.id);
+    });
+    return bad;
+  };
+  const cust = function(id, extra){
+    return {id: id, data: Object.assign({name: 'N ' + id, customerNumber: String(4000 + id.length * 37 + id.charCodeAt(id.length - 1)), city: 'Lehi',
+      address: '1 ' + id + ' St', phone: '80155' + String(10000 + id.length * 37 + id.charCodeAt(id.length - 1)), lat: 40.39, lng: -111.85,
+      installPreference: 'Normal Schedule'}, YES, extra || {})};
+  };
+
+  /* 150.1 — a house missed on a day, whose customer then has no legal later day for the gone-day sweep to find */
+  if(W){
+    const book = [];
+    for(let i = 0; i < 30; i++){ const c = cust('g' + i, {installPreference: i < 3 ? 'October' : 'Normal Schedule'}); c.data.lat = 40.39 + i * 0.0005; book.push(c); }
+    H.setNow(new Date(2026, 9, 5, 7, 0)); H.load(book, {}); H.press();
+    const d0 = H.api.installDays()[0];
+    const miss = d0.houses[0], mc = H.api.planCustomerFor(miss);
+    d0.houses.forEach(function(x){ if(x !== miss){ x.done = true; const c = H.api.planCustomerFor(x); if(c) c.data.completed = true; } });
+    mc.data.awayDates = [{from: '2026-10-06', to: '2026-12-31'}];
+    H.setNow(new Date(2026, 9, 7, 6, 30)); H.load(book, {season: H.season()});
+    const t = H.tick();
+    check('150.1 the gone-day sweep really found no later day for them (the case under test)', t.goneDays.stuck.length >= 1, JSON.stringify(t.goneDays));
+    check('150.1a and the five-minute sync still puts them on a day still to come, not left on the day that has gone',
+      neither(book, '2026-10-07').length === 0, neither(book, '2026-10-07').join(', '));
+    const at = booked('2026-10-07')[mc.id] || '';
+    check('150.1b on a day after their away dates — moved later, never onto a day they are away', at > '2026-12-31', at);
+    H.setNow(new Date(2026, 9, 7, 7, 0)); H.load(book, {season: H.season()}); H.press();
+    check('150.1c and a Recalculate keeps them there', neither(book, '2026-10-07').length === 0, neither(book, '2026-10-07').join(', '));
+    let copies = 0; H.api.installDays().forEach(function(d){ d.houses.forEach(function(h){ if(h.id === miss.id) copies++; }); });
+    check('150.1d the house was MOVED, not copied — it is on exactly one day', copies === 1, String(copies));
+    check('150.1e and the missed day is remembered on it', (miss.missedDays || []).indexOf('2026-10-06') !== -1, JSON.stringify(miss.missedDays));
+  }
+
+  /* 150.2 — a timer-only flag left behind when the timer is no longer Yes is on no list, so it must not hold them */
+  if(W){
+    const y = Object.assign({}, YES);
+    const left = Object.assign({needsTimerOnly: true, outletTimer: 'No'}, y);
+    check('150.2 a timer-only flag whose timer is not Yes is on no Warehouse list (the real Timers list)', !W.lists([{id: 't1', data: left}]).has('t1'));
+    check('150.2a so it does not hold them: they read Confirmed and the schedule takes them', W.badge(left) === 'confirmed' && W.off(left) === false,
+      W.badge(left) + ' ' + W.off(left));
+    const yes = Object.assign({needsTimerOnly: true, outletTimer: 'Yes'}, y);
+    check('150.2b a timer-only house whose timer IS Yes is on the Timers list and still held (SCH-117)',
+      W.lists([{id: 't2', data: yes}]).has('t2') && W.badge(yes) === 'building' && W.off(yes) === true);
+    const out = Object.assign({needsTimerRemoved: true, outletTimer: 'No'}, y);
+    check('150.2c a timer coming out is on the Remove Timer list and still held (WH-34)',
+      W.lists([{id: 't3', data: out}]).has('t3') && W.badge(out) === 'building' && W.off(out) === true);
+  }
+
+  /* 150.3 — the schedule starts itself on every admin computer once somebody is signed in and the customers are in */
+  {
+    const iife = admin.slice(admin.indexOf('let __started=false;'), admin.indexOf('/* ============================ BLUEPRINT MAPS'));
+    const auto = iife.slice(iife.indexOf('[[SCH-150]]'));
+    const code = auto.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    check('150.3 the schedule widget starts without anybody opening Routes',
+      /function __autoStartWhenReady\(tries\)\{[\s\S]*jobAddresses\.length[\s\S]*__start\(\);/.test(code) &&
+      /setTimeout\(function\(\)\{ __autoStartWhenReady\(0\); \}, 3000\);/.test(code), code.slice(0, 120));
+    check('150.3a only while signed in, and only once the customers have landed',
+      /HU_SIGNED_OUT/.test(code) && /!jobAddresses\.length\)\{/.test(code));
+    check('150.3b and runs the same first sync a Routes click runs, once the plan has loaded',
+      /if\(!loaded\)\{[^\n]*return; \}\s*try\{ window\.scheduleSyncFromCustomers\(/.test(code));
+    check('150.3c it waits with one-shots that end once started, never a standing timer',
+      /if\(__started \|\| tries>200\) return;/.test(code) && !/setInterval\(/.test(code));
+  }
+
+  /* 150.4 — A WHOLE SEASON, CHECKED AFTER EVERY ACTION. Recalculate every working morning at 7, the five-minute sync before
+     it, at noon, after the crews come in and after the 5 PM lock; overnight the warehouse lists fill and empty, customers
+     join, say no and come back, go away, lose their pin, are pinned to tomorrow, are put on hold and change their month. */
+  if(W){
+    const TW = Object.keys(TOWNS);
+    const r = rng(150);
+    const book = [];
+    const mk = function(i, extra){
+      const town = TW[Math.floor(r() * TW.length)], c = TOWNS[town], u = r();
+      const pref = u < 0.25 ? 'October' : u < 0.45 ? 'November' : u < 0.48 ? 'November - Before Thanksgiving' : u < 0.5 ? 'After Thanksgiving' : 'Normal Schedule';
+      return {id: 's' + i, data: Object.assign({name: 'S ' + i, customerNumber: String(2000 + i), city: town, address: (200 + i) + ' Sim Ln',
+        phone: '801444' + String(1000 + i), lat: c[0] + (r() - 0.5) * 0.04, lng: c[1] + (r() - 0.5) * 0.04, installPreference: pref}, YES, extra || {})};
+    };
+    for(let i = 0; i < 140; i++) book.push(mk(i));
+    let nextId = 140, actions = 0, worst = [];
+    const ev = {};
+    const audit = function(label, today){
+      actions++;
+      const bad = neither(book, today);
+      if(bad.length && worst.length < 6) worst.push(label + ' ' + today + ': ' + bad.slice(0, 3).join(', '));
+      const fut = {};
+      H.api.installDays().forEach(function(d){ const ds = H.api.isoOf(H.api.dayDate(d)); if(ds < today) return;
+        d.houses.forEach(function(h){ if(!h.done && !h.isFix && !h.isTakedown) fut[h.id] = (fut[h.id] || 0) + 1; }); });
+      Object.keys(fut).forEach(function(id){ if(fut[id] > 1 && worst.length < 6) worst.push(label + ' ' + today + ': ' + id + ' is on two days'); });
+    };
+    const at = function(day, h, m){ return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m || 0); };
+    H.setNow(new Date(2026, 8, 30, 18, 0)); H.load(book, {}); H.press(); audit('press', '2026-09-30');
+    for(let day = new Date(2026, 9, 1); day < new Date(2026, 11, 19); day.setDate(day.getDate() + 1)){
+      if(day.getDay() === 0 || day.getDay() === 6) continue;
+      const today = H.api.isoOf(day);
+      const next = H.api.isoOf(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1));
+      /* overnight */
+      for(let n = 0; n < 3; n++){
+        const c = book[Math.floor(r() * book.length)], d = c.data;
+        if(d.completed) continue;
+        const k = Math.floor(r() * 16);
+        ev[k] = (ev[k] || 0) + 1;
+        if(k === 0){ d.needsLightBuild = true; d.lightsQueuedAt = {toMillis: function(){ return at(day, 6).getTime(); }}; }
+        else if(k === 1) d.needsColorChange = true;
+        else if(k === 2){ d.needsLightRecycle = true; d.recycleKeepingCustomer = true; }
+        else if(k === 3){ d.needsTimerOnly = true; d.outletTimer = 'Yes'; }
+        else if(k === 4){ d.needsTimerOnly = true; d.outletTimer = 'No'; }
+        else if(k === 5) d.stuckOnDate = next;
+        else if(k === 6) d.awayDates = [{from: today, to: '2026-12-31'}];
+        else if(k === 7){ delete d.lat; delete d.lng; }
+        else if(k === 8) d.maybeNextYear = !d.maybeNextYear;
+        else if(k === 9) d.rsvpStatus = d.rsvpStatus === 'no' ? 'yes' : 'no';
+        else if(k === 10) d.needsFix = true;
+        else if(k === 11) d.installPreference = '12/28';
+        else if(k === 12) d.earliestInstallDate = {toMillis: function(){ return new Date(2027, 0, 5).getTime(); }};
+        else if(k === 13) d.wantedTo = today;
+        else if(k === 14) d.rushInstall = true;
+        else { d.city = 'Nowhereville'; delete d.lat; delete d.lng; }
+      }
+      book.forEach(function(b){ const x = b.data; if(r() < 0.2){ x.needsLightBuild = false; x.needsColorChange = false; x.needsLightRecycle = false;
+        x.recycleKeepingCustomer = false; x.needsTimerOnly = false; } });
+      if(today < '2026-11-20' && r() < 0.5) book.push(mk(nextId++, {createdAt: {toMillis: function(){ return at(day, 5).getTime(); }}, chargeNewMemberFee: r() < 0.5}));
+      /* 6:30 the sync, 7:00 Recalculate everything */
+      H.setNow(at(day, 6, 30)); H.load(book, {season: H.season()}); H.tick(); audit('sync 6:30', today);
+      H.setNow(at(day, 7)); H.load(book, {season: H.season()}); H.press(); audit('press 7:00', today);
+      H.setNow(at(day, 12)); H.load(book, {season: H.season()}); H.tick(); audit('sync 12:00', today);
+      /* the crews work today's sheets and miss some */
+      H.api.installDays().filter(function(d){ return H.api.isoOf(H.api.dayDate(d)) === today; }).forEach(function(d){
+        d.houses.forEach(function(h){ if(h.done || h.isFix || h.isTakedown) return; if(r() < 0.8){ h.done = true; const c = H.api.planCustomerFor(h); if(c) c.data.completed = true; } }); });
+      H.setNow(at(day, 16)); H.load(book, {season: H.season()}); H.tick(); audit('sync 16:00', today);
+      /* the warehouse lets somebody go after the 5 PM lock */
+      const late = book.filter(function(b){ return b.data.needsLightBuild || b.data.needsColorChange; })[0];
+      if(late){ late.data.needsLightBuild = false; late.data.needsColorChange = false; }
+      H.setNow(at(day, 17, 30)); H.load(book, {season: H.season()}); H.tick(); audit('sync 17:30', today);
+    }
+    check('150.4 it really was a hard season: ' + actions + ' actions, every kind of overnight change happened',
+      actions > 250 && Object.keys(ev).length === 16, JSON.stringify(ev));
+    check('150.4a after EVERY sync and EVERY press, every Confirmed customer was on a day still to come or on a Warehouse list, and nobody was on two days',
+      worst.length === 0, worst.join(' | '));
+  }
+}
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
