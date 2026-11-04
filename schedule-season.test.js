@@ -171,7 +171,21 @@ function season(cfg){
       if(sizes.some(function(k){ return k > 24; })) add('no crew holds more than twenty-four (SCH-128)', label + ' ' + x + ': ' + sizes.join('/'));
       const assigned = crews.reduce(function(a, c){ return a + c.length; }, 0);
       if(assigned !== n) add('every house on a day is on exactly one crew (SCH-67)', label + ' ' + x + ': ' + assigned + ' of ' + n);
-      if(!locked && sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) > 3) add('two crews are never more than three apart (SCH-97)', label + ' ' + x + ': ' + sizes.join('/'));
+      /* [[SCH-154]] (2026-11-04): more than three apart is allowed when the crews work two separate areas — one crew per
+         area beats an even count. It is a fault only if a house on the bigger crew sits within five miles of the smaller
+         one, so levelling would have cost no long drive. */
+      if(!locked && sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) > 3){
+        const cs = crews.filter(function(c){ return c.length; }).sort(function(a, b){ return b.length - a.length; });
+        const SP = cs[1].map(ptOf);
+        const couldLevel = cs[0].some(function(h){ const p = ptOf(h); return p && SP.some(function(q){ return q && H.api.haversine(p.lat, p.lng, q.lat, q.lng) <= 5; }); });
+        const areasOf = function(c){ const P = c.map(ptOf), seen = P.map(function(){ return false; }); let k = 0;
+          for(let s = 0; s < P.length; s++){ if(seen[s]) continue; k++; seen[s] = true; const q = [s];
+            while(q.length){ const a = q.pop(); for(let b = 0; b < P.length; b++) if(!seen[b] && P[a] && P[b] && H.api.haversine(P[a].lat, P[a].lng, P[b].lat, P[b].lng) <= 5){ seen[b] = true; q.push(b); } } }
+          return k; };
+        let gapMi = Infinity; cs[0].forEach(function(h){ const p = ptOf(h); SP.forEach(function(q){ if(p && q) gapMi = Math.min(gapMi, H.api.haversine(p.lat, p.lng, q.lat, q.lng)); }); });
+        if(couldLevel) add('two crews are never more than three apart (SCH-97)', label + ' ' + x + ': ' + sizes.join('/') + ' areas ' + areasOf(cs[0]) + '+' + areasOf(cs[1]) + ' gap ' + gapMi.toFixed(1) + 'mi');
+        else stats.areaSplits = (stats.areaSplits || 0) + 1;
+      }
       if(!locked && x < lastDs && x < TAIL0 && sizes.some(function(k){ return k < 10; })){
         /* [[SCH-134]] (2026-10-15): an October day is never a fault for not folding into a November one — October room goes to the any-time houses first */
         const could = future.some(function(o){ if(o === d || H.api.routeDayIsLocked(ds(o))) return false; if(x.slice(5) <= '10-31' && ds(o).slice(5) > '10-31') return false; if(o.houses.filter(live).length + n > 40) return false; return mine.every(function(h){ return mayOn(h, ds(o)) && within30(h, o); }) && H.api.dayHoldsWithHouses(o, mine); });

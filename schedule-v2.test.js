@@ -2659,6 +2659,34 @@ suite('SCH-150 Every Confirmed customer is on a day still to come or on a Wareho
 }
 }
 /* ======================================================================================= */
+suite('SCH-154 One crew per area: a Sandy and Springville day is a Sandy crew and a Springville crew');
+if(H){
+  /* the owner, 2026-11-04: "it should be a crew is sandy and another crew is springville you dont have one crew do sandy
+     and one crew do springville and the rest of the sandy". Sandy and Springville are ~35 miles apart. */
+  const area = function(tag, n, lat, lng, seed){
+    const r = rng(seed), out = [];
+    for(let i = 0; i < n; i++) out.push({id: tag + i, data: Object.assign({name: tag + ' ' + i, customerNumber: String(seed + i),
+      city: tag, address: (10 + i) + ' Area Ln', phone: '80155' + String(seed + i), lat: lat + (r() - 0.5) * 0.03,
+      lng: lng + (r() - 0.5) * 0.03, installPreference: 'Normal Schedule'}, YES)});
+    return out;
+  };
+  const splitOf = function(nSandy, nSpring){
+    const book = area('Sandy', nSandy, 40.5649, -111.8389, 5100).concat(area('Springville', nSpring, 40.1652, -111.6107, 5200));
+    H.setNow(TODAY); H.load(book, {});
+    const day = {id: 'sch154', base: 40, cascade: 0, pin: null, houses: book.map(function(b){ return H.api.houseFromCustomer(b); })};
+    return H.api.dayCrewHouses(day).filter(function(c){ return c.length; }).map(function(c){
+      const t = {}; c.forEach(function(h){ t[h.city] = (t[h.city] || 0) + 1; }); return t; });
+  };
+  const oneTownEach = function(s){ return s.length === 2 && s.every(function(t){ return Object.keys(t).length === 1; }); };
+  const s1 = splitOf(24, 16);
+  check('154.1 24 Sandy + 16 Springville: each crew stays in its own town (no Sandy leftovers on the Springville crew)',
+    oneTownEach(s1), JSON.stringify(s1));
+  const s2 = splitOf(22, 18);
+  check('154.2 22 + 18 (inside the cap): still one town per crew', oneTownEach(s2), JSON.stringify(s2));
+  /* inside one area the day stays level (SCH-97): 40 Sandy houses split 20/20 */
+  const s3 = splitOf(40, 0).map(function(t){ return t.Sandy || 0; }).sort();
+  check('154.3 a day that is all one area is still split level', s3.length === 2 && Math.abs(s3[0] - s3[1]) <= 3, JSON.stringify(s3));
+}
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};
 if(require.main === module){
   process.on('exit', function(){
