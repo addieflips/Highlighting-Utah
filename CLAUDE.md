@@ -76,6 +76,15 @@ touching scheduling must know before editing anything:
 - **A new scheduling rule that should keep somebody OFF the schedule changes their badge**
   (`seasonBadgeKey`) and goes through **`isOffTheSchedule`** — never a gate in the schedule — exactly as
   the colour-change list does ([[SCH-105]]). That is the headline rule's own instruction.
+- **A plan received from another computer is never written back until somebody here changes it**
+  ([[SCH-153]], 2026-11-03). `planHeldKey` is this computer's derived view of the plan it last received and
+  `saveNow` treats it as saved. Two computers whose "today" differed (a clock hours off) re-derived the
+  locked days differently and bounced the plan for ever — 30+ saves a minute, every screen on its own
+  schedule. Every save is stamped `savedBy`/`savedAt` (outside `serialize()`, no `PLAN_SCHEMA` bump), the
+  tab says *Following the schedule live ✓ · last change by …*, an older page's save is named, and the
+  clock is compared with the server once per login (`routeSchedule/clock`). ⚠ Do not "tidy" the hold
+  into a plain `planSyncedKey` update: the received key is Firestore's truth and the held key is ours,
+  and folding them makes the author's own echo read as a change. schedule-v2.test.js suite 40 RUNS it.
 - **`schedule-v2.test.js` runs the real Recalculate offline** through `schedule-v2.harness.js`; add a
   scheduling claim there and RUN it, rather than matching source text.
 

@@ -42,6 +42,9 @@ module.exports = function makeHarness(liftDeep){
     'moveHouse', 'moveLeftover', 'planLeftoverMoves', 'laterDaysLike', 'toggleTomorrowMark', 'applyTomorrowMarks', 'tomorrowMarkActive', 'scheduleOnDate', 'scheduleOnDateTarget', 'scheduleOnDateMove', 'printCrewDayList', 'printWarehouseDayList', 'printNotDone', 'printOneStop',
     /* [[SCH-138]] a page older than the plan never saves it */
     'PLAN_SCHEMA', 'planSchemaOf', 'planIsNewerThanPage', 'planKey',
+    /* [[SCH-153]] the clock verdict and the follow line, both pure. ⚠ NOT planStamped: it names recalcWho, which names
+       auth, which the lifter follows to getAuth and dies on — suite 40 runs planStamped in its own sandbox instead. */
+    'clockSkewVerdict', 'planFollowText',
     /* the office's own hand controls, for schedule-chaos.test.js */
     'cascade', 'getDay', 'findHouse', 'setDayLimitOn', 'dayLimitOn', 'crewDaysOverTownLimit', 'unassignedHousesFor', 'oneManDays', 'houseOnWarehouseList',
     'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays'],
@@ -141,6 +144,7 @@ module.exports = function makeHarness(liftDeep){
     '        houseOnHeldCrew: houseOnHeldCrew, expireCrewHolds: expireCrewHolds, moveHouse: moveHouse, moveLeftover: moveLeftover, planLeftoverMoves: planLeftoverMoves,',
     '        toggleTomorrowMark: toggleTomorrowMark, applyTomorrowMarks: applyTomorrowMarks, tomorrowMarkActive: tomorrowMarkActive, scheduleOnDate: scheduleOnDate, scheduleOnDateTarget: scheduleOnDateTarget, scheduleOnDateMove: scheduleOnDateMove, printCrewDayList: printCrewDayList, printWarehouseDayList: printWarehouseDayList, printNotDone: printNotDone, printOneStop: printOneStop,',
     '        PLAN_SCHEMA: PLAN_SCHEMA, planSchemaOf: planSchemaOf, planIsNewerThanPage: planIsNewerThanPage, planKey: planKey,',
+    '        clockSkewVerdict: clockSkewVerdict, planFollowText: planFollowText,',
     '        cascade: cascade, getDay: getDay, findHouse: findHouse, setDayLimitOn: setDayLimitOn, dayLimitOn: dayLimitOn,',
     '        crewDaysOverTownLimit: crewDaysOverTownLimit, unassignedHousesFor: unassignedHousesFor, oneManDays: oneManDays,',
     '        lockedDates: function(){ return LOCKED_DATES; }, setPrintedOverride: function(v){ PRINTED_OVERRIDE = !!v; },',
