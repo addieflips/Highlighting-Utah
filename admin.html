@@ -78149,7 +78149,7 @@ function geoCrewSplit(day){
     return m + (home ? D(cur, home) : 0);
   };
   /* split a group of indexes into sizeA and the rest along the cheapest straight line, then tidy the edge */
-  const bisect = function(ix, sizeA){
+  const bisect = function(ix, sizeA, noTidy){
     let best = null, bestM = Infinity;
     const lat0 = ix.reduce(function(a, i){ return a + pts[i].lat; }, 0) / ix.length;
     const kx = Math.cos(lat0 * Math.PI / 180);
@@ -78164,7 +78164,7 @@ function geoCrewSplit(day){
       if(m < bestM - 1e-9){ bestM = m; best = [A, B]; }
     }
     let A = best[0], B = best[1], cur = bestM;
-    for(let pass = 0; pass < 2; pass++){
+    for(let pass = 0; pass < (noTidy ? 0 : 2); pass++){
       let moved = false;
       for(let i = 0; i < A.length; i++){
         for(let j = 0; j < B.length; j++){
@@ -78187,6 +78187,37 @@ function geoCrewSplit(day){
       const r = bisect(all, sA);
       const score = r.miles + (n - 2 * sA);
       if(!pick || score < pick.score - 1e-9) pick = {score: score, r: r};
+    }
+    /* ⭐⭐ [[SCH-154]] ONE CREW PER AREA BEATS AN EVEN COUNT (2026-11-04). The owner, reading a Sandy and Springville day:
+       "it should be a crew is sandy and another crew is springville you dont have one crew do sandy and one crew do
+       springville and the rest of the sandy cause its about where they already are." Holding the two crews within three
+       ([[SCH-97]]) cut Sandy in two whenever it held more than half the day, and the Springville crew drove forty miles
+       for the leftovers. So an uneven split is tried as well, as far as a crew may legally carry (MIN_CREW_HOUSES to
+       crewCap + CREW_OVERFLOW_HOUSES), and it wins only when the even split cannot keep the crews apart and the uneven
+       one does — no house on one crew within five miles of the other ([[SCH-131]]). Miles alone were not enough: with
+       the yard between the two towns the leftovers cost the second crew little extra driving and the even split kept
+       winning. A day that is one area (houses chained within five miles) is never touched and stays level as before.
+       ⚠ IT CANNOT GO PAST THE CAP: a day of 26 Sandy and 14 Springville still gives the Springville crew two Sandy houses,
+       because no crew carries more than 24. The builder keeps two areas within three of each other, so such a day comes
+       from a later fill rather than from Recalculate.
+       ⚠ STRAIGHT CUTS ONLY, NO SWAP PASS: the swaps are the expensive half, and two areas five miles apart are already
+       divided cleanly by a straight line, so there is no edge to tidy. */
+    /* APART = no house on one crew within five miles of any house on the other ([[SCH-131]]'s five miles): the two crews
+       are in separate areas. Only then may the count go past three apart — a lean inside one area never qualifies. */
+    const apart = function(A, B){
+      for(let i = 0; i < A.length; i++) for(let j = 0; j < B.length; j++) if(D(pts[A[i]], pts[B[j]]) <= 5) return false;
+      return true;
+    };
+    const overMax = crewMax + ((typeof CREW_OVERFLOW_HOUSES === 'number') ? CREW_OVERFLOW_HOUSES : 4);
+    if(!apart(pick.r.A, pick.r.B)){
+      let sep = null;
+      for(let sA = Math.floor((n - 4) / 2); sA >= Math.max(1, minCrew) && n - sA <= overMax; sA--){
+        const r = bisect(all, sA, true);
+        if(!apart(r.A, r.B)) continue;
+        const score = r.miles + (n - 2 * sA);
+        if(!sep || score < sep.score - 1e-9) sep = {score: score, r: r};
+      }
+      if(sep) pick = sep;
     }
     groups = [pick.r.A, pick.r.B];
   } else {
