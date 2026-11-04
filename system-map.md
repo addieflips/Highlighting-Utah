@@ -7612,6 +7612,39 @@ stale plan, and two machines do not bounce the same plan back and forth.
 1.5-second debounce), or a Recalculate is mid-press, the incoming plan is skipped with a console
 warning and the local save goes out — last write wins, exactly as before.
 
+⭐⭐ **A RECEIVED PLAN IS NEVER WRITTEN BACK UNTIL SOMEBODY HERE CHANGES IT** ([[SCH-148]], 2026-11-03).
+The office: *"My computer won't sync with other computers when someone makes a change to the
+schedule."* The listener above was already in place, and running the real hydrate/serialize on two
+simulated computers showed it settles when both have the same clock and the same customers. It
+**never settled** when their "today" differed: `hydrate` re-derives which days are anchored and locked
+from today's date ([[SCH-140]]), so each computer took the other's plan, derived a different one, and
+`renderAll`'s `scheduleSave` wrote it straight back — 12 saves in 6 rounds, for ever, each screen
+flipping to the other's version and the plan writing itself 30+ times a minute (the shape of the
+*resource-exhausted* rows of 14, 19 and 27 October). A stale customer cache does the same through
+`refreshDerivedDone`. Now `planHeldKey` is this computer's own derived view of the plan it last
+received (taken right after `renderAll`), `saveNow` treats it as already saved, and only a change made
+here — a tick, a move, a press, a sync that found work — produces a key that is neither and goes out.
+The derived view still shows on this screen. A second computer's save arriving inside the 1.5 s after
+a receive is now taken rather than refused as "unsaved changes".
+
+- **Every save is stamped** `savedBy` / `savedAt` (the server's time) by `planStamped`, outside what
+  `hydrate` reads, so `PLAN_SCHEMA` does not move; `planKey` ignores the stamp like it ignores `schema`.
+  The toast says who, and a line under the season bar (`#syncNote`, `paintSyncNote` / `planFollowText`)
+  reads *Following the schedule live ✓ · last change by … at …*.
+- **A save from an older copy of the page is named** — plan version below `PLAN_SCHEMA` — on the tab and
+  as an admin error: the fix is to reload the admin page on *that* computer. [[SCH-138]] only stops an
+  old page once a newer plan reaches it; a page from before 2026-10-09 has no listener at all.
+- **The listener dying is said on the tab** (*This computer has stopped following the schedule … reload*),
+  not only in the console.
+- **The clock is checked once per login** (`checkClockAgainstServer`): a tiny `routeSchedule/clock`
+  document is written with the server's time and read back from the server; `clockSkewVerdict` (pure)
+  calls 30 minutes or more off, on the tab with the Windows setting to fix it, and as an admin error.
+- **Gate:** schedule-v2.test.js suite 40 RUNS the real `followPlanLive` and `saveNow` against a fake
+  Firestore and fake timers and asserts which writes go out.
+
+If a computer still does not follow: read the line under the season bar first — it names the clock,
+an older page on another computer, or a dead listener — then the plan document's `savedBy`.
+
 ⚠ **NOTHING ABOUT WHO GETS PLACED CHANGED.** This is what the page READS. The rule that puts
 every confirmed customer on a day, and names any who are left off, is
 `confirmedNotOnAnyDay` on the Recalculate press ([[SCH-74]]).

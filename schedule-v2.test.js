@@ -219,7 +219,7 @@ suite('1.1 The Schedule is the only install-date authority');
     return i > 0 && j > i && body.indexOf('syncInstallStampsFromSchedule()') !== -1 && body.indexOf('clearStaleInstallBookings(') === -1;
   })());
   check('every saved plan is mirrored onto the records', /mirrorStampsSoon\(\);\}catch\(e\)/.test(noComments) &&
-    /async function saveNow\(\)\{[\s\S]*?const data=planDropUndefined\(serialize\(\)\)[\s\S]*?try\{await setDoc\(PLAN_REF\(\),data\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
+    /async function saveNow\(\)\{[\s\S]*?const data=planDropUndefined\(serialize\(\)\)[\s\S]*?try\{await setDoc\(PLAN_REF\(\),planStamped\(data\)\);[^}]*mirrorStampsSoon\(\)/.test(noComments));
   /* The plan is shared: every open Schedule follows it live, so a Recalculate on one computer
      reaches the others instead of being saved over by their stale copy. */
   check('a loaded plan follows Firestore live', /hydrate\(s\.data\(\)\);planSyncedKey=planKey\(s\.data\(\)\);[^\n]*followPlanLive\(\)/.test(noComments) &&
@@ -227,7 +227,8 @@ suite('1.1 The Schedule is the only install-date authority');
   /* 2026-10-12: "unsaved" has to mean a save is queued. The five-minute sync freezes days in memory and used to
      return without saving, so an idle computer differed for ever and refused every plan the other one sent. */
   check('another computer\'s plan is only held off by a save that is really queued',
-    /if\(\(mine!==planSyncedKey && savePending\) \|\| recalcRunning\)/.test(noComments) &&
+    /* [[SCH-148]] and this computer's own derived view of the plan it last received is not an unsaved edit either */
+    /if\(\(mine!==planSyncedKey && mine!==planHeldKey && savePending\) \|\| recalcRunning\)/.test(noComments) &&
     /function scheduleSave\(\)\{(?:if\(PLAN_PAGE_OUTDATED\)return;)?clearTimeout\(saveTimer\);savePending=true;/.test(noComments) &&
     /async function saveNow\(\)\{\s*savePending=false;/.test(noComments));
   check('a sync tick that only froze the printed days still saves them', (function(){
@@ -2246,6 +2247,131 @@ suite('SCH-134 October is filled with the people who don\'t care when, before No
     const novInOct = book.filter(function(b){ return /^(November|11\/9)/.test(b.data.installPreference) && dayOfCust(b.id) && dayOfCust(b.id) <= '2026-10-31'; });
     check('29.' + k + 'e book ' + spec[1] + ': and nobody who asked for November or a later day was pulled into October', novInOct.length === 0, String(novInOct.length));
   });
+}
+
+/* ======================================================================================= */
+/* [[SCH-148]] TWO COMPUTERS ON ONE PLAN. The office: "My computer won't sync with other computers when someone makes a change
+   to the schedule." The real followPlanLive and saveNow are RUN here against a fake Firestore, a fake hydrate/serialize
+   whose redraw derives something the other computer did not (today's anchors, a done flag from a fresher customer cache),
+   and timers that fire by hand. What is asserted is which writes go out, because that is the whole bug: a received plan,
+   re-derived and written straight back, is the bounce that kept every screen on its own schedule. */
+suite('40 [[SCH-148]] a plan received from another computer is shown here and never written back until somebody here changes it');
+{
+  let api = null, why = '';
+  try{
+    api = sandbox(['followPlanLive', 'saveNow', 'scheduleSave', 'planKey', 'planStamped', 'planFollowText', 'planWhenText', 'paintSyncNote',
+        'planDropUndefined', 'planSaveProblem', 'planSaveRunaway', 'planBytes', 'planIsNewerThanPage', 'planPageOutdated', 'planSchemaOf', 'planReloadWhenIdle'],
+      [
+        '"use strict";',
+        /* what this screen holds before anything arrives — deliberately NOT the plan the first receive brings, or that receive is
+           (correctly) read as "already have it" and the checks below prove nothing */
+        'var PLAN = {schema: 4, v: 1, days: []};',
+        'var DERIVE = function(){};   /* what renderAll works out on THIS computer */',
+        'function hydrate(o){ PLAN = JSON.parse(JSON.stringify(o)); }',
+        'function serialize(){ return JSON.parse(JSON.stringify(PLAN)); }',
+        'var TIMERS = []; function setTimeout(fn){ TIMERS.push(fn); return TIMERS.length; } function clearTimeout(){}',
+        'var LISTENER = null, LISTENER_ERR = null; function onSnapshot(ref, cb, errcb){ LISTENER = cb; LISTENER_ERR = errcb; return function(){}; }',
+        'var WRITES = []; async function setDoc(ref, data){ WRITES.push(data); }',
+        'function PLAN_REF(){ return "plan"; } function doc(){ return "x"; } var db = null;',
+        'function serverTimestamp(){ return "server-time"; } function recalcWho(){ return "b@office"; }',
+        'function mirrorStampsSoon(){} function syncTabs(){} function getDay(id){ return true; }',
+        'var TOASTS = []; function toast(t){ TOASTS.push(String(t)); }',
+        'var LOGS = []; var console = {error: function(){ LOGS.push("error: " + [].slice.call(arguments).join(" ")); }, warn: function(){ LOGS.push("warn: " + [].slice.call(arguments).join(" ")); }, log: function(){}};',
+        'var EL = {textContent: "", style: {}}; var RT = {getElementById: function(){ return EL; }};',
+        'var window = {}; var recalcRunning = false, savePending = false, saveTimer = null, PLAN_PAGE_OUTDATED = false;',
+        'var planSyncedKey = null, planLiveStop = null, planHeldKey = null, preRebuild = null, saveFailTold = false;',
+        'var selSchedule = null, selFix = null, selTake = null;',
+        'function renderAll(){ DERIVE(); scheduleSave(); }'
+      ].join('\n'),
+      [
+        'return {',
+        '  run: function(s){ return eval(s); },',
+        '  receive: function(plan){ LISTENER({exists: function(){ return true; }, metadata: {hasPendingWrites: false}, data: function(){ return JSON.parse(JSON.stringify(plan)); }}); },',
+        '  fire: async function(){ var t = TIMERS.splice(0); for(var i = 0; i < t.length; i++) await t[i](); },',
+        '  start: function(){ followPlanLive(); },',
+        '  writes: function(){ return WRITES; }, toasts: function(){ return TOASTS; }, logs: function(){ return LOGS; }, note: function(){ return EL.textContent; },',
+        '  plan: function(){ return PLAN; }, setDerive: function(f){ DERIVE = f; }, edit: function(f){ f(PLAN); scheduleSave(); },',
+        '  pending: function(){ return savePending; }, fail: function(e){ LISTENER_ERR(e); }',
+        '};'
+      ].join('\n'),
+      {provided: ['hydrate', 'serialize', 'setTimeout', 'clearTimeout', 'onSnapshot', 'setDoc', 'PLAN_REF', 'doc', 'db', 'serverTimestamp', 'recalcWho',
+        'mirrorStampsSoon', 'syncTabs', 'getDay', 'toast', 'console', 'RT', 'window', 'recalcRunning', 'savePending', 'saveTimer', 'PLAN_PAGE_OUTDATED',
+        'planSyncedKey', 'planLiveStop', 'planHeldKey', 'preRebuild', 'saveFailTold', 'selSchedule', 'selFix', 'selTake', 'renderAll',
+        'location', 'document', 'sessionStorage', 'huNoteWrite']});
+  }catch(e){ why = e.stack.split('\n').slice(0, 3).join(' | '); }
+  check('40.0 followPlanLive and saveNow lift and run against a fake Firestore', !!api, why);
+  if(api){
+    (async function(){
+      const planA = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}], savedBy: 'a@office', savedAt: 1762200000000};
+      /* this computer derives something the other one did not: an anchor from its own clock, a done flag from its own cache */
+      api.setDerive(function(){ const p = api.plan(); p.days[0].fixedOn = '2026-11-06'; if(p.days[0].houses[0]) p.days[0].houses[0].done = true; });
+      api.start();
+      api.receive(planA);
+      const p1 = api.plan();
+      check('40.1 the other computer\'s plan is taken and shown', p1.days[0].id === 'd1' && p1.days[0].fixedOn === '2026-11-06', JSON.stringify(p1));
+      check('40.2 the screen says who saved it', api.toasts().some(function(t){ return /another computer \(a@office\)/.test(t); }) && /Following the schedule live/.test(api.note()) && /a@office/.test(api.note()), api.toasts().join(' | ') + ' // ' + api.note());
+      check('40.3 the redraw queued a save, exactly as before', api.pending() === true && api.run('TIMERS.length') === 1);
+      await api.fire();
+      check('40.4 ⛔ and that save wrote NOTHING — a derived difference is not an edit', api.writes().length === 0, JSON.stringify(api.writes()[0] || null).slice(0, 200));
+      /* the same plan arriving again (their echo) is quiet: no second toast, nothing written */
+      const toastsBefore = api.toasts().length;
+      api.receive(planA); await api.fire();
+      check('40.5 the same plan arriving again changes nothing and writes nothing', api.toasts().length === toastsBefore && api.writes().length === 0);
+      /* a change made HERE goes out, carrying the stamp and the derived state with it */
+      api.edit(function(p){ p.days[0].houses.push({id: 'h2', done: false}); });
+      await api.fire();
+      const w = api.writes()[0];
+      check('40.6 a change made on this computer is written', api.writes().length === 1 && w && w.days[0].houses.length === 2, JSON.stringify(w || null).slice(0, 200));
+      check('40.7 every save says who and when (savedBy, savedAt from the server), outside what hydrate reads', w && w.savedBy === 'b@office' && w.savedAt === 'server-time' && w.schema === 4);
+      check('40.8 the stamp is not a change: planKey ignores schema, savedBy and savedAt', api.run('planKey({a:1, schema:4, savedBy:"x", savedAt:"y"}) === planKey({a:1})'));
+      /* a second computer's save arriving inside the 1.5 s after a receive is TAKEN, not refused as "unsaved changes" */
+      api.run('WRITES.length = 0; TOASTS.length = 0;');
+      const planC = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}, {id: "d2", houses: []}], savedBy: 'c@office'};
+      api.receive(planA);                   /* queued a save, key differs by the derived anchor */
+      api.receive(planC);                   /* before that save fired */
+      check('40.9 a second computer\'s save inside the debounce window is taken, not refused', api.plan().days.length === 2 && !api.logs().some(function(l){ return /keeping these/.test(l); }), api.logs().join(' | '));
+      await api.fire();
+      check('40.10 and still nothing is written back', api.writes().length === 0, JSON.stringify(api.writes()[0] || null).slice(0, 200));
+      /* a REAL unsaved edit here still wins over an incoming plan, exactly as before */
+      api.edit(function(p){ p.days[1].houses.push({id: 'h9'}); });
+      api.receive(planA);
+      check('40.11 a real unsaved edit on this computer still wins — last write wins, as always', api.plan().days.length === 2 && api.plan().days[1].houses.length === 1 && api.logs().some(function(l){ return /keeping these/.test(l); }));
+      await api.fire();
+      check('40.12 and it goes out', api.writes().length === 1 && api.writes()[0].days.length === 2);
+      /* a save from an older copy of the page is named — the fix is on THAT computer */
+      api.run('LOGS.length = 0;');
+      api.receive({schema: 2, v: 1, days: [{id: 'd1', houses: []}], savedBy: 'old@office'});
+      check('40.13 a plan saved by an older copy of the admin page is taken and SAID, naming the computer', api.plan().days.length === 1 &&
+        api.logs().some(function(l){ return /older copy of the admin page/.test(l) && /old@office/.test(l); }) && /older copy/.test(api.note()) && /old@office/.test(api.note()), api.logs().join(' | ') + ' // ' + api.note());
+      /* the listener dying is said on the tab, not only in the console */
+      api.fail({message: 'permission-denied'});
+      check('40.14 a listener that stops is said on the tab, with the way out', /stopped following the schedule/.test(api.note()) && /reload/.test(api.note()) && /permission-denied/.test(api.note()), api.note());
+    })().catch(function(e){ check('40.x the two-computer run finished', false, e.stack.split('\n').slice(0, 3).join(' | ')); });
+  }
+  /* the clock verdict, pure */
+  if(H){
+    const V = H.api.clockSkewVerdict;
+    const ahead = V(1000000, 1000000 + 2 * 3600000 + 10 * 60000 - 500, 1000000 + 2 * 3600000 + 10 * 60000 + 500);
+    check('40.15 a clock two hours ahead is called, in hours and minutes, with the Windows setting to fix', ahead.off === true && /2 h 10 min/.test(ahead.text) && /ahead/.test(ahead.text) && /Set time automatically/.test(ahead.text), ahead.text);
+    const behind = V(1000000 + 45 * 60000, 1000000, 1000400);
+    check('40.16 a clock 45 minutes behind is called the other way round', behind.off === true && /45 min/.test(behind.text) && /behind/.test(behind.text), behind.text);
+    const fine = V(1000000 + 4 * 60000, 1000000, 1000800);
+    check('40.17 a few minutes is normal and says nothing', fine.off === false && fine.text === '' && fine.skewMs === 4 * 60000 - 400, JSON.stringify(fine));
+    const bad = V(null, 1000000, 1000800);
+    check('40.18 no server time is no verdict, never a warning', bad.off === false && bad.skewMs === null);
+    check('40.19 the stamp carries who and the server\'s time and leaves the plan itself alone', !!api && api.run('(function(){ var s = planStamped({a: 1}); return s.a === 1 && s.savedBy === "b@office" && s.savedAt === "server-time" && Object.keys(s).length === 3; })()'));
+    check('40.20 the follow line names who and when, and an older page is a warning', /Following the schedule live/.test(H.api.planFollowText({savedBy: 'a@x', savedAt: 1762200000000, schema: 4})) &&
+      /a@x/.test(H.api.planFollowText({savedBy: 'a@x', schema: 4})) && /older copy/.test(H.api.planFollowText({savedBy: 'a@x', schema: 2})));
+  }
+  /* wiring: the mechanism above is only worth anything if the page calls it */
+  const nc = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('40.21 loadPlan starts following live, paints the follow line and checks the clock, in that order',
+    /followPlanLive\(\);paintSyncNote\(planFollowText\(s\.data\(\)\)[^\n]*checkClockAgainstServer\(\);/.test(nc));
+  check('40.22 the clock is measured on a document of its own, read back from the SERVER, never through the plan',
+    /doc\(db,'routeSchedule','clock'\)/.test(nc) && /getDocFromServer\(ref\)/.test(extractFn(admin, 'checkClockAgainstServer') || '') && (extractFn(admin, 'checkClockAgainstServer') || '').indexOf('PLAN_REF') === -1);
+  check('40.23 the hold is taken AFTER renderAll derives, and before the queued save can run', /syncTabs\(\); renderAll\(\);\s*planHeldKey=planKey\(serialize\(\)\);/.test(nc));
+  check('40.24 a real save clears the hold', /planSyncedKey=k; planHeldKey=null;/.test(nc));
+  check('40.25 the Schedule tab has the line to say it on', admin.indexOf('id=\\"syncNote\\"') !== -1);
 }
 /* ======================================================================================= */
 module.exports = {extractFn, lift, admin, check, suite, sandbox, liftDeep};

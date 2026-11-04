@@ -67540,7 +67540,8 @@ suite('389. A write refusal names what this tab wrote');
   /* The three writers, and the press. */
   const save = stripComments(extractFn(admin, 'saveNow') || '');
   check('S389', 'the plan save notes itself after the write lands, with its size',
-    /await setDoc\(PLAN_REF\(\),data\);[\s\S]*?window\.huNoteWrite\('plan',1,planBytes\(data\)\)/.test(save) && /function planBytes\(data\)\{try\{return JSON\.stringify\(data\)\.length;\}/.test(stripComments(admin)));
+    /* [[SCH-148]] the write carries the savedBy/savedAt stamp (planStamped); the census still counts the plan itself */
+    /await setDoc\(PLAN_REF\(\),planStamped\(data\)\);[\s\S]*?window\.huNoteWrite\('plan',1,planBytes\(data\)\)/.test(save) && /function planBytes\(data\)\{try\{return JSON\.stringify\(data\)\.length;\}/.test(stripComments(admin)));
   const mirror = stripComments(extractFn(admin, 'syncInstallStampsFromSchedule') || '');
   check('S389', 'the day mirror notes every batch it commits',
     /await batch\.commit\(\);\s*if\(typeof huNoteWrite === 'function'\) huNoteWrite\('stamps', chunk\.length, 0\);/.test(mirror));
