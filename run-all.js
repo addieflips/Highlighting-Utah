@@ -16740,7 +16740,7 @@ suite('Suite 44. The plan keeps up with the customer list');
       new Function('SEASON', 'jobAddresses', 'custByNumber', 'extractCleanCity', 'customerForHouse', 'BASE_START',
         /* the timing field now asks prefSpecificDate whether a named day is at
            stake, so it travels with the field list */
-        fn('prefSpecificDate') + keySrc + 'const SCHEDULE_SYNC_FIELDS = ' + fieldsM[1] + src +
+        fn('prefSpecificDate') + fn('custStreetOf') /* [[SCH-155]] the address field asks it */ + keySrc + 'const SCHEDULE_SYNC_FIELDS = ' + fieldsM[1] + src +
         'this.sync = syncHousesFromCustomers; this.prefKey = prefKey;'
       ).call(sb, SEASON, jobAddresses, custByNumber,
         (c) => ('' + (c || '')).split(',')[0].trim(),
@@ -26736,7 +26736,7 @@ suite('Suite 104. The Printing tab');
          the fix-only helpers above. A stub would prove the column renders and nothing
          about whether a crew sent back to a house is told the colour actually on it. */
       extractFn(admin, 'printLightColor') + extractFn(admin, 'houseLightsText') +
-      extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
+      extractFn(admin, 'printBinCount') + extractFn(admin, 'custStreetOf') /* [[SCH-155]] */ + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
@@ -57377,7 +57377,9 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         const wide = [];
         for (let i = 0; i < 20; i++) wide.push(house('Draper'));
         for (let i = 0; i < 20; i++) wide.push(house('Lehi'));
-        const seedOf = () => [{ id: 'a', base: 40, cascade: 0, pin: null, houses: wide.slice() }];
+        /* ⚠ A DAY SIXTY DAYS FROM THE REAL TODAY, NEVER A FIXED DATE (2026-11-06). This was base 40 (10 November 2026); once the real calendar reached November that day fell inside the two-scheduled-day lock, the rebuild had nothing it may move and returned before counting cold days, and the check went red on main for every branch. */
+        const aheadBase = Math.round((Date.now() - new Date(2026, 9, 1).getTime()) / 86400000) + 60;
+        const seedOf = () => [{ id: 'a', base: aheadBase, cascade: 0, pin: null, houses: wide.slice() }];
         const chilly = ctx.run(seedOf(), { Draper: 25, Lehi: 55 });
         const mild = ctx.run(seedOf(), { Draper: 55, Lehi: 55 });
         check('S300', 'the rebuild counts the freezing crew-days it could not avoid',
@@ -61972,7 +61974,7 @@ suite('Suite 316. Closest to a date the office typed');
       const sbx = {};
       new Function('SEASON', 'jobAddresses', 'BASE_START', 'customerForHouse',
         'extractCleanCity', 'isoOf', 'anyStampMillis', 'prefSpecificDate', 'prefKey',
-        listSrc + fn('syncHousesFromCustomers') + 'this.run = syncHousesFromCustomers;')
+        fn('custStreetOf') /* [[SCH-155]] */ + listSrc + fn('syncHousesFromCustomers') + 'this.run = syncHousesFromCustomers;')
         .call(sbx,
           [{ houses: [{ id: 'h1', name: 'Test', pref: 'Any', notBefore: houseNotBefore, details: 'keep me' }] }],
           [{ id: 'c1', data: custData }],

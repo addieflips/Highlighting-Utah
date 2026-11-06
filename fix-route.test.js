@@ -43,7 +43,7 @@ function mk(id, lat, lng, raised) { return {id: id, data: {name: id, needsFix: t
 
 function build(book) {
   const src = [fn('houseGeoPoint'), fn('haversine'), fn('tourMiles'), fn('reorderFlatStops'), fn('twoOptImprove'), fn('orOptImprove'), fn('openFixItems'),
-    fn('fixPointOf'), fn('fixRouteItems'), fn('fixRouteMiles'), fn('fixMapRoutes')].join('\n');
+    fn('fixPointOf'), fn('fixRouteItems'), fn('fixRouteMiles'), fn('custStreetOf') /* [[SCH-155]] */, fn('fixMapRoutes')].join('\n');
   const saves = {n: 0};
   const api = new Function('jobAddresses', 'routeHomePoint', 'scheduleSave', 'loaded', 'toJsDate', 'saidNoOrBackNextYear',
     'var FIX_ORDER = [];\n' + src + '\nreturn {fixRouteItems: fixRouteItems, fixRouteMiles: fixRouteMiles, fixMapRoutes: fixMapRoutes, ' +

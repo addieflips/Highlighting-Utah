@@ -72,7 +72,9 @@ const NEEDED = ['printFixReason', 'printCrewColumns', 'printFixPhotos', 'fixPhot
                 'houseSideCount', 'esc',
                 /* ⭐ [[FIX-07]] — the light colour printCrewRow fills alongside the fix
                    reason, and the one answer it is read from. */
-                'printLightColor', 'houseLightsText'];
+                'printLightColor', 'houseLightsText',
+                /* [[SCH-155]] — the street a moved customer lives at NOW */
+                'custStreetOf'];
 const missing = NEEDED.filter(n => !fn(n))
   .concat(columnsSrc ? [] : ['PRINT_COLUMNS'])
   .concat(fixColSrc ? [] : ['PRINT_FIX_COLUMN'])
@@ -108,6 +110,7 @@ const sb = new Function(
      row: a stub would prove the column renders and nothing about whether it is
      filled with the real colour. */
   fn('printLightColor') + fn('houseLightsText') +
+  /* [[SCH-155]] lifted, never stubbed — the whole claim is which field the address comes from */ fn('custStreetOf') +
   /* [[SCH-143]] a done house is never printed — lifted, never stubbed */ fn('printNotDone') +
   fn('printCrewColumns') + fn('printCrewRow') + fn('printFixPhotos') + fn('fixPhotosOf') +
   fn('printPhotosHtml') +
@@ -234,6 +237,33 @@ sb.load([{ id: 'h2', cu: '', address: '', city: '' }],
                 fixNote: 'bulb out over the garage', lightColors: ['Red', 'Green'] } });
 check('and it reads lightColors when there is no description',
   sb.row({ id: 'h2', cu: '', address: '', city: '' }).lights === 'Red, Green');
+
+/* ⭐ [[SCH-155]], 2026-11-06 — owner: "if somebody moves when we print the page somehow its still taking
+   their old address rather than the live one." An imported record keeps the street twice; Edit Customer
+   only ever corrected `address`, and this row read the stale `street` first. The fixture is shaped exactly
+   like that record: the plan's copy and `street` both say the old house, `address` says the new one. */
+sb.load([{ id: 'h3', cu: '', address: '9 Old Rd', city: 'Lehi' }],
+        { h3: { customerNumber: '16', name: 'Moved', street: '9 Old Rd',
+                address: '500 New Ave, Lehi, UT 84043', city: 'Lehi' } });
+check('a customer who moved prints the address they live at now',
+  sb.row({ id: 'h3', cu: '', address: '9 Old Rd', city: 'Lehi' }).address === '500 New Ave',
+  'got ' + JSON.stringify(sb.row({ id: 'h3', cu: '', address: '9 Old Rd', city: 'Lehi' }).address) +
+  ' — the stale street, which sends the van to the house they left');
+const streetOf = new Function(fn('custStreetOf') + 'return custStreetOf;')();
+check('a record with no address line still prints its street',
+  streetOf({ street: '12 Elm St' }) === '12 Elm St');
+check('and a blank-street address (", UT") falls back to the street rather than printing nothing',
+  streetOf({ street: '12 Elm St', address: ', UT' }) === '12 Elm St');
+check('the schedule\'s sync from customers reads the same rule, so the plan copy heals too',
+  /\{key:'address',[^\n]*custStreetOf\(d\)/.test(admin),
+  'the plan keeps its own copy of the street; reading `street` first there leaves it on the old house');
+/* ⚠ AND THE WRITER, scoped to the branch that runs on a move — a file-wide search finds the importers. */
+const moveBranch = (admin.split("if(newAddress && newAddress !== oldAddress){")[1] || '').split('geocodeAddress(newAddress)')[0];
+check('Edit Customer rewrites the street when the address changes',
+  /addrUpdates\.street\s*=\s*typedStreet/.test(moveBranch),
+  'without it `street` keeps the old house for every other reader of that field');
+check('and the zip, which belongs to the old house too',
+  /addrUpdates\.zip\s*=/.test(moveBranch));
 
 // ---------------------------------------------------------------------------
 // 4. THE PHOTO
