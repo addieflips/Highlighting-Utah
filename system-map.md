@@ -7136,6 +7136,17 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             `standardTemplateId` / `arrearsTemplateId` in the same write, so an armed plan sends the new
             template the next morning with no rebuild — the card and the 9 AM run can never name
             different emails. A pick that names a deleted template falls back to Automatic and says so.
+          - ⭐ **AND A PAY-YOUR-BILL WORDING CAN BE THE RSVP ([[EM-37]], 2026-11-06).** Addie: *"On RSVP I
+            cannot choose the template."* A template that opens the customer's portal — `{{pay_button}}`,
+            `{{portal_link}}`, `{{portal_button}}` or `{{view_portal_button}}` — now counts as one they can
+            answer from (the portal asks the season question itself, and somebody who owes is asked the
+            moment they pay, [[RS-40]]), so it can be picked for either half. A Venmo button alone cannot.
+            ⛔ The 9 AM run renders on the server, so `rsvpEmailBodyServer` fills those four codes, the two
+            Venmo codes (no pre-filled amount — this run has no bill in hand) and `{{message_link}}`; before
+            this it would have mailed "{{pay_button}}" as typed. The card lists in red any code a picked
+            wording carries that the morning send still cannot fill (`{{amount_due}}`, `{{houses_block}}`…),
+            and a wording that cannot be answered from is shown greyed in the dropdown with what to add,
+            never simply left off the list.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season
