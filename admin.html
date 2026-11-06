@@ -9377,6 +9377,9 @@ const CUSTOMER_FIELD_LABELS = {
    list of field names, and the census cannot tell them apart either. */
 const CUSTOMER_FIELD_QUIET = {
   updatedAt: 'the entry carries its own time',
+  /* [[SCH-155]] the split copies of the address line, rewritten from it on a move. `address` IS labelled and is the line the history shows; these would report one move three times. */
+  street: 'rewritten from address, which is labelled',
+  zip: 'rewritten from address, which is labelled',
   /* ⚠ ALL FIVE ARE THE OFFICE RETIRING A REQUEST, IN THE SAME SAVE THAT GRANTS IT. The
      customer told the portal they had moved; applying it writes the new `address`, which
      IS labelled and is the line the history shows. These clear alongside it so the banner
@@ -42409,6 +42412,21 @@ function generatePortalToken(){
   for(let i=0;i<20;i++){ out += chars.charAt(Math.floor(Math.random()*chars.length)); }
   return out;
 }
+/* ⭐ THE STREET A HOUSE IS AT NOW ([[SCH-155]], 2026-11-06). Owner: "if somebody moves when we print the
+   page somehow its still taking their old address rather than the live one."
+   ⛔ A RECORD HOLDS THE STREET TWICE AND ONLY ONE OF THEM IS EDITABLE. The importers write `street` AND
+   `address` (built from it by buildFullAddress), but Edit Customer has one Address box and saved `address`
+   alone — so after a move `street` still held the old house, and the crew sheet, the fix list and the
+   schedule's sync from customers all read `street` first. The van went to the house they had left.
+   So `address` wins: it is the field a person corrects. Its first comma part IS the street on every record
+   an importer built; `street` is only the fallback for a record with no address (or ", UT", which
+   buildFullAddress gives a blank street). Edit Customer now rewrites `street` on a move too, but a record
+   moved before that fix still carries the stale one, and this is what reads it right without a write. */
+function custStreetOf(d){
+  d = d || {};
+  const first = String(d.address || '').split(',')[0].trim();
+  return first || String(d.street || '').trim();
+}
 function buildFullAddress(street, city, zip){
   var parts = [street];
   if(city) parts.push(city);
@@ -64222,6 +64240,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     stampRecycleRequested(addrUpdates, !!item.data.needsLightRecycle);
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
+      /* ⭐ [[SCH-155]] THE SPLIT FIELDS MOVE WITH THE ADDRESS. This box writes `address` only, while the
+         importers also keep `street` and `zip`, and everything printed for the crew read `street` first — so a
+         customer who moved went on printing the house they left. Rewritten from the line just typed: the
+         street is its first comma part, the zip a trailing five digits. ⚠ A zip the new line does not carry is
+         CLEARED, not kept — the old one belongs to the old house, and a wrong zip is worse than none. */
+      const typedStreet = newAddress.split(',')[0].trim();
+      if(typedStreet) addrUpdates.street = typedStreet;
+      const zipMatch = newAddress.match(/\b(\d{5})(?:-\d{4})?\s*$/);
+      addrUpdates.zip = zipMatch ? zipMatch[1] : '';
       statusEl.textContent = 'Address changed — relocating on map…';
       try{
         const coords = await geocodeAddress(newAddress);
@@ -80085,13 +80112,13 @@ function fixMapRoutes(items){
     if(!p){ missing++; return; }
     const d = (a && a.data) || {};
     stops.push({lat: p.lat, lng: p.lng, n: k + 1, est: false,
-      title: (k + 1) + '. ' + (d.name || '') + ((d.street || d.address) ? ' — ' + (d.street || d.address) : '')});
+      title: (k + 1) + '. ' + (d.name || '') + (custStreetOf(d) ? ' — ' + custStreetOf(d) : '')});
   });
   return stops.length ? [{label: 'Fix route', spare: true, stops: stops, missing: missing, colour: '#b02a37'}] : [];
 }
 function fixListPrintRow(item){
   const d = (item && item.data) || {};
-  return {number: d.customerNumber || '', name: d.name || '', address: d.street || d.address || '',
+  return {number: d.customerNumber || '', name: d.name || '', address: custStreetOf(d),
           city: d.city || '', phone: d.phone || '', gate: printGateCode(d),
           lights: printLightColor(d), fix: printFixReason(d)};
 }
@@ -83105,7 +83132,8 @@ const SCHEDULE_SYNC_FIELDS = [
   /* [[SCH-151]] the number follows the record too. It was never synced, so a house whose customer changed number kept the
      old one for ever — and a number is recycled, so the stale one ended up naming somebody else's record. The number is what the card, the crew sheet and every number-first lookup show and ask by. */
   {key:'cu',      label:'customer number', read:function(d){ return d.customerNumber == null ? '' : String(d.customerNumber); }},
-  {key:'address', label:'address', read:function(d){ return d.street || (('' + (d.address||'')).split(',')[0]); }},
+  /* [[SCH-155]] the live address, not the street an importer stamped before they moved — see custStreetOf. */
+  {key:'address', label:'address', read:function(d){ return custStreetOf(d); }},
   {key:'phone',   label:'phone',   read:function(d){ return d.phone; },
                                    same:function(a,b){ return ('' + (a||'')).replace(/\D/g,'') === ('' + (b||'')).replace(/\D/g,''); }},
   {key:'details', label:'notes',   read:function(d){ return d.notes; }},
@@ -87718,7 +87746,7 @@ function printCrewRow(h){
   const d = printCustData(h);
   return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
           bins: printBinCount(d),
-          address: d.street || h.address || '', city: h.city || d.city || '',
+          address: custStreetOf(d) || h.address || '', city: h.city || d.city || '',
           gate: printGateCode(d), sides: printSidesCell(d),
           eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
           fix: printFixReason(d), lights: printLightColor(d),
