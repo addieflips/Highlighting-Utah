@@ -57312,21 +57312,35 @@ suite('300. The forecast, a missed day, and a customer moved up by hand');
         fn('townCentres') + fn('nearbyTowns') + fn('installPriority') +
         fn('houseMissedDays') + fn('houseMissedCount') + fn('markHouseMissed') + fn('isRushInstall') +
         admin.slice(planStart2, planEnd2) +
-        'const PIN_HONOURED_BUSINESS_DAYS=2;' + fn('pinHorizon') +
+        /* ⚠ THE CLOCK IS PINNED TO THE SEASON THE FIXTURES ARE DATED IN (2026-11-06). Every day
+           here is `base` days after 1 October 2026, while the rebuild and pinHorizon read the REAL
+           clock — so on 6 November 2026 the fixture's one day 40 days out fell inside the
+           two-business-day lock, nothing was movable, the rebuild took its "nothing to rebuild"
+           exit with no coldDays on it, and the two forecast checks went red on correct code.
+           From 11 November that day would have been in the past as well. Same pin Suite 29 uses
+           (__TODAY, 17727); a sandbox that reads the wall clock is a check that expires. */
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+        'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
+        'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
         fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') +
         fn('houseInstallPriority') +
         'function cityOf(h){return (h.city||"").trim();}' +
         'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
         'const MAX_TOWNS_PER_CREW=' + ((admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/) || [])[1] || 2) + ';' +
         fn('townsAreNeighbours') + dayLimitSrc() +
-        /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') + fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
+        /* [[SCH-112]] the rebuild names new days through uniqueDayIds — lifted, never stubbed. */ fn('uniqueDayIds') +
+        fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
         '\nthis.run=function(seed,forecast){FORECAST=forecast||{};SEASON=seed;' +
         'SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
         'var r=rebuildSeasonDays();return {r:r,seed:seed,' +
         'days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).sort(function(a,b){return a.base-b.base;})};};';
       let built = true;
-      try { new Function(src).call(ctx); } catch (err) { built = false;
+      /* 1 October 2026: the season's first day, before every fixture day and after none. */
+      try { new Function('__TODAY', src).call(ctx, new Date(2026, 9, 1)); } catch (err) { built = false;
         check('S300', 'the rebuild sandbox assembles', false, String(err && err.message)); }
+      check('S300', 'the rebuild\'s clock really was pinned (the line it pins still exists)',
+        src.indexOf('const today=new Date(__TODAY);') !== -1 && src.indexOf('const today=new Date();') === -1,
+        'the replace matched nothing, so every date check below is reading the wall clock again');
 
       if (built) {
         let n = 0;

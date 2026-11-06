@@ -500,9 +500,12 @@ if (queueState) {
    same merge — RUN here against a fake setDoc, because a regex cannot see what a write
    carries. */
 {
+  /* [[EM-37]] rsvpDripUnfillableCodes and rsvpDripTemplateOptionsHtml ride at the END of this
+     list on purpose: tplSrc[0] and tplSrc[3] are read by index below. */
   const tplSrc = ['etTemplateIsRsvp', 'etRsvpTemplateIsArrears', 'rsvpTemplatePicks',
-    'rsvpDripTemplatePickable', 'rsvpWholeTemplates'].map(function (n) { return liftFrom(admin, n); });
-  check('lifted the template resolver and its three helpers and they parse',
+    'rsvpDripTemplatePickable', 'rsvpWholeTemplates', 'rsvpDripUnfillableCodes', 'rsvpDripTemplateOptionsHtml']
+    .map(function (n) { return liftFrom(admin, n); });
+  check('lifted the template resolver and its helpers and they parse',
     tplSrc.every(function (s) { return liftOk(s); }),
     'a truncated lift answers confidently and wrongly');
   const T = {
@@ -510,9 +513,14 @@ if (queueState) {
     arr:  { id: 'tArr',  data: { name: 'Not Paid RSVP', folderName: 'RSVP', body: 'x {{rsvp_yes_button}}' } },
     warm: { id: 'tWarm', data: { name: 'Warm RSVP', folderName: 'RSVP', body: 'a friendlier one {{rsvp_yes_button}}' } },
     link: { id: 'tLink', data: { name: 'One-link RSVP', folderName: 'Misc', body: 'answer here {{rsvp_button}}' } },
-    news: { id: 'tNews', data: { name: 'Newsletter', folderName: 'Misc', body: 'nothing to answer' } }
+    news: { id: 'tNews', data: { name: 'Newsletter', folderName: 'Misc', body: 'nothing to answer' } },
+    /* [[EM-37]] the shape Addie asked for on 2026-11-06: "Last Call- Not paid last year", a
+       pay-your-bill wording carrying only {{pay_button}} (RS-85 recorded that is all it holds).
+       And the one that must NOT count: a Venmo button alone opens Venmo, never the portal. */
+    pay:   { id: 'tPay',   data: { name: 'Last Call- Not paid last year', folderName: 'Misc', body: 'Hi {{name}}, pay here {{pay_button}} and {{amount_due}}' } },
+    venmo: { id: 'tVenmo', data: { name: 'Venmo only', folderName: 'Misc', body: 'send it {{venmo_button}}' } }
   };
-  const all = [T.std, T.arr, T.warm, T.link, T.news];
+  const all = [T.std, T.arr, T.warm, T.link, T.news, T.pay, T.venmo];
   /* `rsvpDripCache` is declared INSIDE the sandbox only when a value is given, so the
      no-cache case exercises the typeof guard the run-all sandboxes depend on. */
   const resolve = function (cache) {
@@ -543,12 +551,70 @@ if (queueState) {
   check('a pick naming a deleted template falls back to the convention and says so',
     bad.arrears && bad.arrears.id === 'tArr' && bad.missing.arrears === true && bad.picked.arrears === false,
     'refusing would cost her the send over a rename; silently falling back would hide it');
+  const pickable = new Function('canonicalEmailCodes', tplSrc[0] + '\n' + tplSrc[3] + '\nreturn rsvpDripTemplatePickable;')(function (s) { return s; });
   check('rsvpDripTemplatePickable refuses a plain email and accepts the three RSVP shapes',
-    (function () {
-      const fn = new Function('canonicalEmailCodes', tplSrc[0] + '\n' + tplSrc[3] + '\nreturn rsvpDripTemplatePickable;')(function (s) { return s; });
-      return !fn(T.news) && fn(T.std) && fn(T.link) && fn({ id: 'f', data: { name: 'x', folderName: 'rsvp', body: '' } });
-    })(),
+    !pickable(T.news) && pickable(T.std) && pickable(T.link) && pickable({ id: 'f', data: { name: 'x', folderName: 'rsvp', body: '' } }),
     'the dropdown and the resolver must agree about what may be picked');
+
+  /* ==== [[EM-37]] A WORDING THAT OPENS THE PORTAL CAN BE PICKED (2026-11-06) ====
+     Addie, two days after RS-85 kept "Last Call- Not paid last year" out of these pickers:
+     "On RSVP I cannot choose the template. Can we make that possible." The portal asks the
+     season question itself, and somebody who owes is asked the moment their payment lands
+     (RS-40), so a pay button IS a way to answer. A Venmo button is not — it opens Venmo. */
+  check('EM-37: a wording carrying only {{pay_button}} can be picked — the portal it opens asks the question',
+    pickable(T.pay) === true,
+    '"On RSVP I cannot choose the template" — this is the template she meant');
+  check('EM-37: each of the four portal-opening codes is enough on its own',
+    ['{{portal_link}}', '{{portal_button}}', '{{view_portal_button}}', '{{pay_button}}'].every(function (c) {
+      return pickable({ id: 'p', data: { name: 'p', folderName: 'Misc', body: 'x ' + c } }) === true;
+    }),
+    'the office template editor offers all four and they all land on the same page');
+  check('EM-37: a Venmo button alone is still refused — Venmo opens Venmo, not the portal',
+    pickable(T.venmo) === false && pickable(T.news) === false,
+    'a wording with no route to the question is the send this must never offer');
+  const pickedPay = resolve({ pickedArrearsTemplateId: 'tPay' });
+  check('EM-37: and the resolver honours the pick, so the 9 AM run sends that wording to the owes-from-last-season half',
+    pickedPay.arrears && pickedPay.arrears.id === 'tPay' && pickedPay.picked.arrears === true && pickedPay.missing.arrears === false,
+    'a dropdown that offers what the resolver then ignores is the card naming one email while the send uses another');
+
+  /* The card names what the morning send cannot fill. The list inside rsvpDripUnfillableCodes
+     MIRRORS rsvpEmailBodyServer, and the mirror is checked both ways, money-parity's shape. */
+  const unfillable = new Function('canonicalEmailCodes', tplSrc[5] + '\nreturn rsvpDripUnfillableCodes;')(function (s) { return s; });
+  check('EM-37: rsvpDripUnfillableCodes names a code the 9 AM renderer will not fill and none that it will',
+    (function () {
+      const got = unfillable(T.pay);
+      return got.length === 1 && got[0] === '{{amount_due}}' && unfillable(T.std).length === 0
+        && unfillable({ data: { body: '{{portal_link}} {{venmo_button}} {{message_link}} {{referral_button}} {{houses_block}}' } }).join() === '{{houses_block}}';
+    })(),
+    'a code reported wrongly sends her editing a template that was fine; one missed reaches a customer as typed');
+  const srvRender = stripComments(liftFrom(fns, 'rsvpEmailBodyServer') || '');
+  const knownSrc = (liftFrom(admin, 'rsvpDripUnfillableCodes') || '').match(/const known = \[([\s\S]*?)\];/);
+  const known = knownSrc ? knownSrc[1].match(/'([a-z_]+)'/g).map(function (q) { return q.slice(1, -1); }) : [];
+  const srvFills = (srvRender.match(/split\('\{\{([a-z_]+)\}\}'\)/g) || []).map(function (m) { return m.replace(/^split\('\{\{|\}\}'\)$/g, ''); });
+  check('EM-37: every code the card calls fillable is one rsvpEmailBodyServer really splits on',
+    known.length >= 18 && known.every(function (c) { return srvFills.indexOf(c) !== -1; }),
+    'missing on the server: ' + known.filter(function (c) { return srvFills.indexOf(c) === -1; }).join(', '));
+  check('EM-37: and every code the server fills is on the card\'s list, so a new one cannot be reported as unfillable',
+    srvFills.length > 0 && srvFills.every(function (c) { return known.indexOf(c) !== -1; }),
+    'missing on the card: ' + srvFills.filter(function (c) { return known.indexOf(c) === -1; }).join(', '));
+
+  /* The dropdown itself, RUN: a refused wording is SHOWN greyed with the reason, after the
+     live ones, with no value — never simply left off, which is what read as "I cannot choose". */
+  const optionsHtml = new Function('emailTemplates', 'canonicalEmailCodes', 'esc',
+    'let rsvpDripCache = ' + JSON.stringify({ pickedArrearsTemplateId: 'tPay' }) + ';\n' + tplSrc.join('\n')
+      + '\nreturn rsvpDripTemplateOptionsHtml("arrears", rsvpWholeTemplates());')(all, function (s) { return s; }, function (s) { return String(s); });
+  check('EM-37: the picker offers the pay-your-bill wording as a live, selected option',
+    /<option value="tPay" selected>Last Call- Not paid last year<\/option>/.test(optionsHtml),
+    optionsHtml.slice(0, 300));
+  check('EM-37: a wording nobody can answer from is listed greyed, with the reason, and can never be saved',
+    /<option value="" disabled>Newsletter — can’t be answered from: add \{\{rsvp_link\}\} or \{\{pay_button\}\} to it<\/option>/.test(optionsHtml)
+      && /<option value="" disabled>Venmo only — /.test(optionsHtml)
+      && optionsHtml.indexOf('value="tNews"') === -1,
+    'a template absent from the list reads as the picker being broken');
+  check('EM-37: and the refused ones come after every live one',
+    optionsHtml.indexOf('Newsletter —') > optionsHtml.lastIndexOf('value="tPay"')
+      && optionsHtml.indexOf('Newsletter —') > optionsHtml.indexOf('value="tLink"'),
+    'the usable list stays short');
 
   /* The markup: two static selects, outside the innerHTML that rsvpDripRender rebuilds. */
   const cardAt = admin.indexOf('id="rsvpDripCard"');
@@ -567,6 +633,9 @@ if (queueState) {
   check('and never redraws a picker that has the focus',
     /active !== stdSel/.test(pickRender) && /active !== arrSel/.test(pickRender),
     'rsvpDripRender runs on every customer change');
+  check('EM-37: the note asks rsvpDripUnfillableCodes about the picked wordings, so an unfillable code is said on the card',
+    /rsvpDripUnfillableCodes\(/.test(pickRender) && /cannot fill in/.test(pickRender),
+    'the list exists for the card; a card that never asks it says nothing');
   check('each picker is wired to the save handler for its own half',
     /getElementById\('rsvpDripTplStandard'\)\?\.addEventListener\('change'[\s\S]{0,80}rsvpDripSaveTemplatePick\('standard'/.test(admin)
       && /getElementById\('rsvpDripTplArrears'\)\?\.addEventListener\('change'[\s\S]{0,80}rsvpDripSaveTemplatePick\('arrears'/.test(admin),
@@ -665,7 +734,7 @@ const runBatch = (function () {
                wording and the paid/unpaid split cannot be read off the send at all —
                which is what the first draft did, and it failed on correct code. */
             return { exists: !missing, data: function () {
-              return { name: id, body: 'Hi {{name}}\n{{rsvp_yes_button}}', subject: id };
+              return { name: id, body: o.templateBody || 'Hi {{name}}\n{{rsvp_yes_button}}', subject: id };
             } };
           } }; } };
         }
@@ -836,6 +905,29 @@ if (runBatch) {
     check('and the RSVP button is resolved, carrying that customer\'s own token',
       /tok-paid/.test(byEmail['paid@x.com'].body) &&
       byEmail['paid@x.com'].body.indexOf('{{rsvp_yes_button}}') === -1);
+  }));
+
+  /* ---- [[EM-37]] a pay-your-bill wording goes out RENDERED, not as typed ---- */
+  pending.push(runBatch({
+    book: [person('c0', { t: 'arrears' })],
+    templateBody: 'Hi {{name}}, {{pay_button}} {{portal_link}} {{venmo_button}} {{message_link}} {{view_portal_button}} {{portal_button}} {{venmo_link}}'
+  }).then(function (r) {
+    const body = (r.sent[0] && r.sent[0].body) || '';
+    check('EM-37: the 9 AM run fills {{pay_button}} with a link to that customer\'s own portal',
+      /href="https:\/\/highlightingutah\.com\/#\/payment\?token=tok-c0"[^>]*>Pay Your Invoice<\/a>/.test(body),
+      'a picked pay-your-bill wording reaching a customer as "{{pay_button}}" is the {{photo}} failure: ' + body.slice(0, 200));
+    check('EM-37: and leaves none of the portal, Venmo or message codes as typed',
+      ['{{pay_button}}', '{{portal_link}}', '{{venmo_button}}', '{{message_link}}', '{{view_portal_button}}', '{{portal_button}}', '{{venmo_link}}']
+        .every(function (c) { return body.indexOf(c) === -1; })
+        && /venmo\.com\/HighLightingUtah\?txn=pay&note=Christmas%20Lights/.test(body)
+        && /highlightingutah\.com\/#\/contact/.test(body),
+      body.slice(0, 300));
+    check('EM-37: all four portal-opening codes land on that customer\'s own #/payment address, the one resolveLinkTokens builds',
+      (body.match(/https:\/\/highlightingutah\.com\/#\/payment\?token=tok-c0/g) || []).length === 4,
+      'one of them pointing anywhere else is a button that does not sign them in: ' + body.slice(0, 300));
+    check('EM-37: the Venmo link carries no pre-filled amount — this run has no bill in hand',
+      body.indexOf('amount=') === -1,
+      'a pre-filled $0.00 is worse than none; the portal shows what they owe');
   }));
 
   /* ---- stopping ---- */

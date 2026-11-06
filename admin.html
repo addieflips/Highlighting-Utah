@@ -25025,13 +25025,48 @@ function rsvpTemplatePicks(){
   };
 }
 /* An RSVP the customer can ANSWER: the three-button tokens, the one-link token ([[RS-66]]),
-   or a template filed in the RSVP folder. A wording with none of those is an email asking
-   a question with no way to reply, which is exactly the send this must never offer. */
+   a template filed in the RSVP folder, or — [[EM-37]], 2026-11-06 — one that OPENS THEIR
+   PORTAL ({{pay_button}}, {{portal_link}}, {{portal_button}}, {{view_portal_button}}).
+   Addie, two days after [[RS-85]] had the pay-your-bill wording kept OUT of these pickers:
+   "On RSVP I cannot choose the template. Can we make that possible." The portal IS a way to
+   answer: its first block puts the season question with all three answers, and somebody
+   who owes is asked the moment their payment lands ([[RS-40]]) — RS-85's own argument,
+   read the other way round. ⚠ A VENMO BUTTON ALONE IS NOT A ROUTE: Venmo opens Venmo,
+   not the portal, so a wording carrying nothing but {{venmo_button}} is still refused.
+   A wording with none of these is an email asking a question with no way to reply, which
+   is exactly the send this must never offer. ⛔ THE 9 AM RUN RENDERS ON THE SERVER —
+   rsvpEmailBodyServer fills the portal, pay, Venmo and message codes since the same day;
+   widen this list and widen that renderer in the same push, or a real customer gets the
+   code as typed (the {{photo}} failure). rsvpDripUnfillableCodes names what it cannot fill.
+   ⚠ THE CODE LIST IS SPELLED INSIDE THE FUNCTION because the §6b sandbox lifts it by name. */
 function rsvpDripTemplatePickable(t){
   if(etTemplateIsRsvp(t)) return true;
   const d = (t && t.data) ? t.data : t;
   const body = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(String((d && d.body) || '')) : String((d && d.body) || '');
-  return /\{\{rsvp_(link|button)\}\}/.test(body);
+  if(/\{\{rsvp_(link|button)\}\}/.test(body)) return true;
+  return /\{\{(pay_button|portal_link|portal_button|view_portal_button)\}\}/.test(body);
+}
+/* ⭐ [[EM-37]] WHAT THE 9 AM SEND CANNOT FILL IN, NAMED ON THE CARD. The daily batch renders
+   through rsvpEmailBodyServer in functions/index.js, which knows the codes below and no
+   others — {{amount_due}}, {{houses_block}}, {{photo}} and the rest are filled by the
+   office's own senders and would reach the customer AS TYPED from the 9 AM run. Opening the
+   pickers to any wording that opens the portal is what makes this possible, so the card
+   says which codes a picked wording carries that the morning send will not fill.
+   ⚠ THIS LIST MIRRORS THE SERVER RENDERER. Add a code there and add it here, same push.
+   ⚠ {{name}} is filled; {{link:her words}} is a quote-email code and is not. */
+function rsvpDripUnfillableCodes(t){
+  const d = (t && t.data) ? t.data : t;
+  const body = (typeof canonicalEmailCodes === 'function') ? canonicalEmailCodes(String((d && d.body) || '')) : String((d && d.body) || '');
+  const known = ['name', 'rsvp_yes_link', 'rsvp_no_link', 'rsvp_back_link', 'rsvp_yes_button', 'rsvp_no_button',
+    'rsvp_back_button', 'rsvp_link', 'rsvp_button', 'referral_link', 'referral_button', 'portal_link',
+    'portal_button', 'pay_button', 'view_portal_button', 'venmo_link', 'venmo_button', 'message_link'];
+  const out = [];
+  body.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_\-]*)\s*\}\}/g, function(m, code){
+    const c = String(code).toLowerCase();
+    if(known.indexOf(c) === -1 && out.indexOf('{{' + c + '}}') === -1) out.push('{{' + c + '}}');
+    return m;
+  });
+  return out;
 }
 function rsvpWholeTemplates(){
   const all = Array.isArray(emailTemplates) ? emailTemplates : [];
@@ -25551,10 +25586,21 @@ function rsvpDripTemplateOptionsHtml(kind, tpl){
   const auto = tpl.auto[kind];
   const autoName = (auto && auto.data && String(auto.data.name || '').trim()) || '';
   let html = '<option value="">' + esc('— Automatic: ' + (autoName || 'no template found') + ' —') + '</option>';
-  (emailTemplates || []).forEach(function(t){
+  const list = emailTemplates || [];
+  list.forEach(function(t){
     if(!rsvpDripTemplatePickable(t)) return;
     const n = (t.data && t.data.name) || '(unnamed)';
     html += '<option value="' + esc(t.id) + '"' + (t.id === chosen ? ' selected' : '') + '>' + esc(n) + '</option>';
+  });
+  /* ⭐ [[EM-37]] A WORDING THAT CANNOT BE PICKED IS SHOWN GREYED WITH THE REASON, NEVER LEFT
+     OFF. Addie, 2026-11-06: "On RSVP I cannot choose the template." A template simply
+     absent from the list reads as the picker being broken; one that is there, disabled,
+     and says what to add is an answer ("nothing should fail quietly"). After the live
+     ones, so the usable list stays short. No value, so it can never be saved. */
+  list.forEach(function(t){
+    if(rsvpDripTemplatePickable(t)) return;
+    const n = (t.data && t.data.name) || '(unnamed)';
+    html += '<option value="" disabled>' + esc(n + ' — can’t be answered from: add {{rsvp_link}} or {{pay_button}} to it') + '</option>';
   });
   if(chosen && tpl.missing[kind]){
     html += '<option value="' + esc(chosen) + '" selected>' + esc('(not found) — the template you picked has been deleted') + '</option>';
@@ -25580,6 +25626,14 @@ function renderRsvpDripTemplatePickers(){
     if(tpl.standard && tpl.arrears && tpl.standard.id === tpl.arrears.id){
       words.push('Both halves are set to the same email, so everybody gets that one wording — fine if that is what you want.');
     }
+    /* [[EM-37]] A picked wording may carry codes the morning send does not fill — say which. */
+    [tpl.standard, tpl.arrears].forEach(function(t, i){
+      if(!t || (i === 1 && tpl.standard && tpl.standard.id === t.id)) return;
+      const codes = (typeof rsvpDripUnfillableCodes === 'function') ? rsvpDripUnfillableCodes(t) : [];
+      if(!codes.length) return;
+      words.push('“' + ((t.data && t.data.name) || '') + '” has codes the 9 AM send cannot fill in — ' + codes.join(', ')
+        + ' — so they would reach the customer as typed. Take them out of that template, or use {{pay_button}}, {{portal_link}} or {{rsvp_link}} instead.');
+    });
     note.style.color = words.length ? 'var(--ember)' : 'var(--slate)';
     note.textContent = words.join(' ') || 'This choice also decides what Send the whole RSVP and Check first send.';
   }

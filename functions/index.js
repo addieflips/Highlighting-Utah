@@ -7505,6 +7505,28 @@ async function rsvpEmailBodyServer(custId, d, templateBody) {
   body = body.split('{{rsvp_button}}').join(askUrl
     ? '<a href="' + askUrl + '" style="' + btn + ' background:#1E3B2C; color:#ffffff;">Answer here</a>'
     : '');
+  /* ⭐ [[EM-37]] A PAY-YOUR-BILL WORDING CAN BE THE RSVP (2026-11-06). Addie: "On RSVP I
+     cannot choose the template. Can we make that possible." The daily pickers in admin.html
+     (rsvpDripTemplatePickable) now offer any wording that opens the customer's portal —
+     the portal asks the season question itself, and somebody who owes is asked the moment
+     their payment lands ([[RS-40]]) — so THIS renderer, the one that actually sends the
+     9 AM batch, has to fill the portal, pay, Venmo and message codes those wordings carry.
+     Left out, a real customer gets "{{pay_button}}" as typed: the {{photo}} failure this
+     file names three times above. `base` is the same #/payment address the office's
+     resolveLinkTokens builds for these four codes, carrying the same token.
+     ⚠ VENMO CARRIES NO AMOUNT HERE. The nightly invoice pre-fills what is due because it
+     has the bill in hand; this batch does not, and a pre-filled $0.00 is worse than none.
+     The portal shows what they owe. ⚠ rsvpDripUnfillableCodes in admin.html lists the codes
+     this renderer knows and names any other on the card — widen one, widen the other. */
+  const btnGold = btn + ' background:#D89F3D; color:#1E3B2C;';
+  body = body.split('{{portal_link}}').join(base);
+  body = body.split('{{portal_button}}').join('<a href="' + base + '" style="' + btnGold + '">Log Into Your Portal</a>');
+  body = body.split('{{pay_button}}').join('<a href="' + base + '" style="' + btnGold + '">Pay Your Invoice</a>');
+  body = body.split('{{view_portal_button}}').join('<a href="' + base + '" style="' + btnGold + '">View Your Portal</a>');
+  const venmoUrl = 'https://venmo.com/HighLightingUtah?txn=pay&note=' + encodeURIComponent('Christmas Lights');
+  body = body.split('{{venmo_link}}').join(venmoUrl);
+  body = body.split('{{venmo_button}}').join('<a href="' + venmoUrl + '" style="' + btnGold + '">Pay with Venmo</a>');
+  body = body.split('{{message_link}}').join('https://highlightingutah.com/#/contact');
   /* ⭐ AND THEIR REFERRAL LINK, RENDERED HERE TOO (2026-09-04, REF-07). Both RSVP
      templates carry {{referral_button}}, and THIS is the renderer that sends them —
      so a token resolved only in admin.html would put a literal "{{referral_button}}"

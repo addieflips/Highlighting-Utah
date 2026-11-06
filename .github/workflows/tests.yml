@@ -452,12 +452,23 @@ jobs:
       # else's servers, and on 2026-10-07 it hung rather than failing — so a plain retry would never
       # have fired. `timeout 300` turns a hang into a failure, and the loop tries again; three
       # strikes is a genuine outage and the step goes red with the reason in the log.
+      # ⚠ AND THE RETRY HAS TO CLEAR UP AFTER THE TIMEOUT (2026-11-06). `timeout` kills npx, but
+      # --with-deps hands the system packages to a ROOT apt-get that outlives it — and that orphan
+      # keeps the dpkg lock, so attempts 2 and 3 failed in a second each with "Could not get lock
+      # /var/lib/dpkg/lock-frontend", on main on 2026-11-04 and on PR #646 on 2026-11-06, while the
+      # mirror that stalled attempt 1 was never tried again. Three strikes in six seconds is one
+      # strike. So a failed attempt stops the leftover apt-get and waits for the lock to go.
       - name: Install Chromium
         timeout-minutes: 20
         run: |
           for i in 1 2 3; do
             timeout 300 npx playwright install --with-deps chromium && exit 0
             echo "Chromium install attempt $i hung or failed — retrying"
+            sudo pkill -f apt-get || true
+            for w in $(seq 1 60); do
+              sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1 || break
+              sleep 2
+            done
           done
           exit 1
 
