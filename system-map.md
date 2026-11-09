@@ -7148,6 +7148,14 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             wording carries that the morning send still cannot fill (`{{amount_due}}`, `{{houses_block}}`…),
             and a wording that cannot be answered from is shown greyed in the dropdown with what to add,
             never simply left off the list.
+          - ⭐ **AND THE CARD SAYS HOW FAR THE SEND HAS GOT ([[EM-38]], 2026-11-09).** Addie: *"Can you show
+            on RSVP how many are on hold and how many RSVP's have gone out until they are all out?"* The top
+            of the card reads *Gone out so far — N of M* with a bar, then *Still to go — N (a paid up, b owe
+            from last season (on hold))*. "Gone out" is the stamp the 9 AM run writes, never the plan minus
+            the waiting, so somebody who answered before their morning came is counted as dropped rather
+            than sent. Once nobody is left waiting the bar and counts are replaced by one green *All out*
+            line and Finishes reads *done*; an empty plan never reads as finished. A template save also
+            redraws this card now, so a rename or an added pay button shows in the pickers at once.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season
