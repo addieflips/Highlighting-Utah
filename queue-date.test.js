@@ -1323,6 +1323,12 @@ check('the path still has every step in it',
       'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
       'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
       'the ones who got it (EM-04)',
+    rsvpRemindedAt: 'the spacing guard on Ask again ([[EM-40]]) — the daily RSVP re-asking ' +
+      'somebody still on hold once their last email is N days old. The same shape as ' +
+      'rsvpEmailedAt above and excused for the same reason: it records that WE wrote to them ' +
+      'again, not anything the customer did. Their side of it is still the RSVP answer, which ' +
+      'is already a step. Kept separate from rsvpEmailedAt so the FIRST ask\'s date survives ' +
+      'for Waiting on RSVP and the first-wave skip',
     /* ⚠ THE CHANGE ITSELF IS ALREADY IN THE HISTORY, and not through this field.
        `logPortalChange` writes an activity row the moment the member saves — "They changed
        it themselves in their portal — Wire colour: white → green" — so the thing that
