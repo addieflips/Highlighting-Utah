@@ -7670,14 +7670,19 @@ function rsvpStillOwedServer(d) {
   /* 'unanswered' means asked and no reply yet — not an answer (admin.html rsvpHasAnswered). */
   if ((said && said !== 'unanswered') || rec.maybeNextYear === true) return 'answered';
   if (rec.noAutomationEmails === true) return 'optedout';
-  if (!String(rec.email || '').trim()) return 'noemail';
+  /* ⭐ [[EM-39]] AN ADDRESS THAT CANNOT BE SENT TO IS "NO EMAIL" (2026-11-09). On 9 November the
+     9 AM run reached one customer whose address EmailJS called corrupted, and because a refusal
+     stops the run (below), nobody got their RSVP that morning — or the next, since he was still
+     first. The shape test is the SAME regex rsvpSendSkipReason uses in admin.html, so the card's
+     No-email list and this skip name the same people; the gate compares the two spellings. */
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(rec.email || '').trim())) return 'noemail';
   if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
   return '';
 }
 
 async function runRsvpDailyBatch(source) {
   const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '',
-                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0 };
+                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0, badAddress: 0 };
 
   const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
   const plan = planSnap.exists ? (planSnap.data() || {}) : null;
@@ -7749,6 +7754,9 @@ async function runRsvpDailyBatch(source) {
 
   const perDay = Math.max(1, Number(plan.perDay) || RSVP_DAILY_CAP);
   out.cap = perDay;
+  /* [[EM-39]] recipient-shaped refusals in a row; reset by a successful send. */
+  let refusedInARow = 0;
+  const RSVP_DRIP_REFUSALS_IN_A_ROW = 3;
 
   for (const row of plan.queue) {
     const id = row && row.id;
@@ -7770,7 +7778,18 @@ async function runRsvpDailyBatch(source) {
        a list of candidates and somebody leaving the book is an ordinary answer to it. */
     if (!snap.exists) { out.skipped++; continue; }
     const d = snap.data() || {};
-    if (rsvpStillOwedServer(d)) { out.skipped++; continue; }
+    const why = rsvpStillOwedServer(d);
+    /* ⭐ [[EM-39]] A PRESENT-BUT-UNSENDABLE ADDRESS IS NAMED, NEVER A QUIET SKIP. "No email" is an
+       ordinary skip; an address somebody TYPED that cannot be delivered is a record the office has to
+       fix, and the only place it can learn that is this list. Not stamped, so once the address is
+       corrected the next morning sends to them. */
+    if (why === 'noemail' && String(d.email || '').trim()) {
+      out.badAddress++;
+      out.errors.push((d.name || id) + ': their email address “' + String(d.email).trim() + '” cannot be sent to'
+        + ' — fix it in All Customers. They were skipped; nobody else was held back.');
+      continue;
+    }
+    if (why) { out.skipped++; continue; }
 
     const kind = (row.t === 'arrears') ? 'arrears' : 'standard';
     try {
@@ -7792,19 +7811,40 @@ async function runRsvpDailyBatch(source) {
       });
       if (!res.ok) {
         const text = (await res.text()).slice(0, 200);
-        out.errors.push((d.name || id) + ': ' + text);
         /* ⭐ A REFUSAL STOPS THE RUN RATHER THAN BURNING THE CAP (EM-02's lesson, on a
            schedule this time). Gmail's limit is on the ACCOUNT, so once it says no the
            next 199 attempts fail too — and every one of them is a real customer on a
            real error list somebody then has to read. Nothing is stamped, so tomorrow
            picks up exactly where this stopped.
-           ⚠ IT STOPS ON ANY REFUSAL, not only on one that names a rate limit. The
-           alternative is matching the wording of somebody else's error message, and the
-           cost of being wrong is 200 failures instead of one. */
+           ⛔ NARROWED 2026-11-09 ([[EM-39]]) — the line below used to read "IT STOPS ON ANY
+           REFUSAL, not only on one that names a rate limit", on the argument that matching
+           somebody else's error wording costs 200 failures when it is wrong. On 9 November
+           that rule met its own cost the other way: EmailJS refused ONE customer with "The
+           recipients address is corrupted", the run stopped at sent 0, and it would have
+           stopped at the same person every morning until somebody read the card. A refusal
+           that names the RECIPIENT is about that one address, so that person is skipped
+           (unstamped, named) and the run carries on. ⚠ THE OLD ARGUMENT STILL HOLDS FOR THE
+           WORDING WE CANNOT CLASSIFY, so anything else still stops the run — AND a recipient
+           refusal three times in a row stops it too, because three in a row is the account
+           talking whatever words it uses. That cap is what bounds the cost of a wrong guess
+           to three failures rather than two hundred. */
+        if (/recipient|corrupt|invalid (e-?mail|address)|(e-?mail|address)[^.]{0,30}(invalid|not valid|malformed)/i.test(text)) {
+          out.badAddress++;
+          refusedInARow++;
+          out.errors.push((d.name || id) + ': the mail service refused their email address “' + String(d.email || '').trim()
+            + '” (' + text + ') — fix it in All Customers. They were skipped; nobody else was held back.');
+          if (refusedInARow < RSVP_DRIP_REFUSALS_IN_A_ROW) continue;
+          out.stopped = 'The mail service refused ' + refusedInARow + ' people in a row, which is the account '
+            + 'saying no rather than one bad address — the rest of today’s batch was held back, nobody was '
+            + 'stamped, and tomorrow carries on from here. Last reason: ' + text;
+          break;
+        }
+        out.errors.push((d.name || id) + ': ' + text);
         out.stopped = 'The mail service refused a send, so the rest of today’s batch was '
           + 'held back — nobody was stamped, and tomorrow carries on from here. Reason: ' + text;
         break;
       }
+      refusedInARow = 0;
       /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS. Stamping first loses the customer for
          the whole season on one bad response from the mail service. */
       const stamp = { rsvpEmailedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -7832,6 +7872,7 @@ async function runRsvpDailyBatch(source) {
       lastSent: out.sent,
       lastSkipped: out.skipped,
       lastErrors: out.errors.slice(0, 5),
+      lastBadAddress: out.badAddress,
       lastStopped: out.stopped || ''
     }, { merge: true });
   } catch (err) {

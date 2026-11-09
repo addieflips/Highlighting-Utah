@@ -25488,6 +25488,10 @@ function rsvpDripRender(){
       + (saved.lastRunSource === 'manual' ? ' (by hand)' : '')
       + ' &mdash; sent <b>' + (Number(saved.lastSent) || 0) + '</b>, skipped '
       + (Number(saved.lastSkipped) || 0) + '.'
+      /* [[EM-39]] an address the mail service cannot deliver to is named in red, with where to fix it. */
+      + ((Number(saved.lastBadAddress) || 0)
+          ? ' <span style="color:#c0392b;"><b>' + (Number(saved.lastBadAddress) || 0) + '</b> had an email address that cannot be sent to '
+            + '&mdash; fix those in All Customers; they were skipped, nobody else was held back.</span>' : '')
       + (saved.lastStopped ? ' <span style="color:#c0392b;">' + esc(String(saved.lastStopped)) + '</span>' : '')
       + ((saved.lastErrors && saved.lastErrors.length)
           ? ' <span style="color:#c0392b;">' + esc(saved.lastErrors.slice(0,3).join('; ')) + '</span>' : '')
@@ -25855,7 +25859,10 @@ function rsvpSendSkipReason(d){
   if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(rec)) return 'new';
   if(typeof effectiveRsvpStatus === 'function' && rsvpHasAnswered(rec)) return 'answered';
   if(typeof etNoAutomationEmails === 'function' && etNoAutomationEmails(rec)) return 'optedout';
-  if(!String(rec.email || '').trim()) return 'noemail';
+  /* ⭐ [[EM-39]] AN ADDRESS THAT CANNOT BE SENT TO COUNTS AS NO EMAIL (2026-11-09), so the person
+     is on the card's No-email list by name before a morning is lost to them. The same regex as
+     rsvpStillOwedServer in functions/index.js — the gate compares the two spellings. */
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(rec.email || '').trim())) return 'noemail';
   if(rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
   return '';
 }

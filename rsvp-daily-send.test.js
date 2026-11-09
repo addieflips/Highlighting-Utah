@@ -832,7 +832,12 @@ const runBatch = (function () {
           return { ok: false, text: async function () { return 'rate limited'; } };
         }
         if (o.mailFails) return { ok: false, text: async function () { return 'nope'; } };
-        sent.push(JSON.parse(init.body).template_params);
+        /* [[EM-39]] EmailJS's own wording for a bad recipient, for the addresses the scenario names. */
+        const params = JSON.parse(init.body).template_params;
+        if (o.refuseEmails && o.refuseEmails.indexOf(params.to_email) !== -1) {
+          return { ok: false, text: async function () { return 'The recipients address is corrupted'; } };
+        }
+        sent.push(params);
         return { ok: true, text: async function () { return ''; } };
       }
     };
@@ -1069,6 +1074,64 @@ if (runBatch) {
       (r.written.season || {}).rsvpSentAt === undefined,
       'a send that failed for everybody has asked nobody');
   }));
+
+  /* ==== [[EM-39]] ONE BAD ADDRESS DOES NOT HOLD THE DAY BACK (2026-11-09) ====
+     The real 9 AM run of 9 November: EmailJS refused the first customer with "The recipients
+     address is corrupted", the run stopped at sent 0, and he was still first the next morning. */
+  pending.push(runBatch({
+    book: [person('sean', { email: 'sean dunkley@gmail' }), person('a'), person('b')],
+    plan: { perDay: 5 }
+  }).then(function (r) {
+    check('EM-39: an address that cannot be sent to is skipped and NAMED, and the rest of the batch still goes',
+      r.out.sent === 2 && r.sent.length === 2 && r.out.badAddress === 1 && !r.out.stopped
+        && r.out.errors.length === 1 && /Cust sean/.test(r.out.errors[0]) && /All Customers/.test(r.out.errors[0]),
+      JSON.stringify({ sent: r.out.sent, bad: r.out.badAddress, stopped: r.out.stopped, errors: r.out.errors }));
+    check('EM-39: the bad address spends no send and is not stamped, so a corrected address goes out next morning',
+      !r.stamped.some(function (s) { return s.id === 'sean'; }) && r.sent.every(function (s) { return s.to_email !== 'sean dunkley@gmail'; }),
+      'stamping it would lose them for the season; sending it would burn a slot on a refusal');
+    check('EM-39: the count reaches the card',
+      (r.written.rsvpSendPlan || {}).lastBadAddress === 1, JSON.stringify(r.written.rsvpSendPlan));
+  }));
+  pending.push(runBatch({
+    book: [person('a'), person('b'), person('c')],
+    refuseEmails: ['a@x.com'], plan: { perDay: 5 }
+  }).then(function (r) {
+    check('EM-39: a refusal that names the RECIPIENT skips that person and carries on — the run is not stopped',
+      r.out.sent === 2 && !r.out.stopped && r.out.badAddress === 1
+        && !r.stamped.some(function (s) { return s.id === 'a'; }) && /Cust a/.test(r.out.errors[0]),
+      JSON.stringify({ sent: r.out.sent, bad: r.out.badAddress, stopped: r.out.stopped, errors: r.out.errors }));
+  }));
+  pending.push(runBatch({
+    book: [person('a'), person('b'), person('c'), person('d')],
+    refuseEmails: ['a@x.com', 'b@x.com', 'c@x.com'], plan: { perDay: 5 }
+  }).then(function (r) {
+    check('EM-39: three recipient refusals in a row is the account talking — the run stops and names it',
+      r.out.sent === 0 && /3 people in a row/.test(r.out.stopped) && r.out.badAddress === 3
+        && !r.stamped.length,
+      'the cap is what bounds a wrong guess about the wording to three failures rather than two hundred: '
+        + JSON.stringify({ sent: r.out.sent, stopped: r.out.stopped }));
+  }));
+  /* ⚠ THREE refusals with ONE success between them: without the reset the count reaches three at
+     the fourth row and stops, with it the run finishes. Two scattered refusals could not tell the
+     two apart — the first draft of this fixture was vacuous and the red-check said so. */
+  pending.push(runBatch({
+    book: [person('a'), person('b'), person('c'), person('d'), person('e')],
+    refuseEmails: ['a@x.com', 'b@x.com', 'd@x.com'], plan: { perDay: 5 }
+  }).then(function (r) {
+    check('EM-39: a successful send resets the in-a-row count, so three bad addresses with a good one between them do not stop the day',
+      r.out.sent === 2 && !r.out.stopped && r.out.badAddress === 3,
+      JSON.stringify({ sent: r.out.sent, bad: r.out.badAddress, stopped: r.out.stopped }));
+  }));
+  /* the two spellings of the address shape, compared — the card's No-email list and the server's skip
+     must name the same people. */
+  check('EM-39: the browser skip rule and the server skip rule test the address with the same regex',
+    (function () {
+      const re = /\/\^\[\^\\s@\]\+@\[\^\\s@\]\+\\\.\[\^\\s@\]\+\$\//;
+      const a = (liftFrom(admin, 'rsvpSendSkipReason') || '').match(re);
+      const s = (liftFrom(fns, 'rsvpStillOwedServer') || '').match(re);
+      return !!a && !!s && a[0] === s[0];
+    })(),
+    'two shapes is two lists: somebody on the card as No email whom the server then tries to send to, or the reverse');
 }
 
 /* ==================================================================

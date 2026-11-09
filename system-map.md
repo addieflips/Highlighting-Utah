@@ -7156,6 +7156,15 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             than sent. Once nobody is left waiting the bar and counts are replaced by one green *All out*
             line and Finishes reads *done*; an empty plan never reads as finished. A template save also
             redraws this card now, so a rename or an added pay button shows in the pickers at once.
+          - ⭐ **ONE BAD ADDRESS DOES NOT HOLD THE DAY BACK ([[EM-39]], 2026-11-09).** The 9 AM run of
+            9 November stopped at sent 0 because the first customer's email address was malformed and
+            EmailJS refused it. A refusal still stops the run when it is the ACCOUNT saying no (Gmail's
+            limit, [[EM-02]]) — but an address that fails the shape test is *no email* on both the card
+            and the server, a present-but-unsendable one is a NAMED skip in the run's error list with
+            *fix it in All Customers*, and a refusal that names the recipient skips that person and
+            carries on. Three recipient refusals in a row still stop the run. The card prints how many
+            addresses could not be sent to, in red. Nothing is stamped for a skipped address, so a
+            corrected one goes out the next morning.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season
