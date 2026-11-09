@@ -45037,6 +45037,10 @@ document.getElementById('routeAddressForm').addEventListener('submit', addCustSu
       document.getElementById('routeAddStatus').textContent = 'Customer # should be just digits, like 1044 or 5048.';
       return;
     }
+    if(cnNumberIsRetired(customerNumber)){
+      document.getElementById('routeAddStatus').textContent = 'Customer #' + customerNumber + ' is permanently retired — pick another, or leave it blank to assign one.';
+      return;
+    }
     const taken = jobAddresses.find(function(item){ return String(item.data.customerNumber||'') === customerNumber; });
     if(taken){
       document.getElementById('routeAddStatus').textContent = 'Customer #' + customerNumber + ' already belongs to ' + (taken.data.name || 'another customer') + '.';
@@ -54124,6 +54128,29 @@ function loadWarehouseExtras(){
   });
 }
 /* ---------------- CUSTOMER NUMBERS ---------------- */
+/* ⛔ NUMBERS THAT ARE NEVER HANDED OUT, TO ANYBODY ([[CN-05]], 2026-11-06). The owner:
+   "theres a few numbers that need to be just unavailable permanetely". Retired is not the
+   same as held: a held number comes back when its customer leaves, a retired one never
+   does. So every way a number reaches a customer asks this list — the pool (cnFreePool),
+   the next-new counter (cnSkipRetired), Find Unused Numbers, Add to Available Pool, and
+   a number typed into Add or Edit Customer.
+   ⚠ A CUSTOMER WHO ALREADY HOLDS ONE KEEPS IT. Nothing here rewrites a record; the rule
+   only stops the number being GIVEN, which is the whole of "unavailable". Saving that
+   customer again with the same number is not a new assignment and is allowed.
+   ⚠ THE POOL IS FILTERED ON READ, NOT CLEANED. A retired number that is released by a
+   recycle still lands in availableCustomerNumbers like any other, and cnFreePool simply
+   never offers it — one guard at the place numbers are chosen, rather than one at each
+   of the half-dozen places they are returned. */
+const CN_RETIRED_NUMBERS = ['137', '376', '433', '514', '515', '646', '676', '980', '981', '982'];
+function cnNumberIsRetired(num){
+  const n = parseInt(String(num == null ? '' : num).trim(), 10);
+  return !isNaN(n) && CN_RETIRED_NUMBERS.indexOf(String(n)) !== -1;
+}
+/* The first number at or above n that is not retired. */
+function cnSkipRetired(n){
+  while(cnNumberIsRetired(n)) n++;
+  return n;
+}
 let availableCustomerNumbers = [];
 function loadAvailableCustomerNumbers(){
   onSnapshot(collection(db,'availableCustomerNumbers'), function(snap){
@@ -54249,12 +54276,12 @@ async function noticeCustomerNumberStuck(direction, number, who, err){
    free costs nothing but the next number up. */
 function cnFreePool(type){
   return availableCustomerNumbers
-    .filter(function(n){ return n.data.type === type && !cnNumberIsHeld(n.id); })
+    .filter(function(n){ return n.data.type === type && !cnNumberIsHeld(n.id) && !cnNumberIsRetired(n.id); })
     .sort(function(a,b){ return parseInt(a.id,10) - parseInt(b.id,10); });
 }
 function cnShadowedPool(type){
   return availableCustomerNumbers
-    .filter(function(n){ return n.data.type === type && cnNumberIsHeld(n.id); })
+    .filter(function(n){ return n.data.type === type && cnNumberIsHeld(n.id) && !cnNumberIsRetired(n.id); })
     .sort(function(a,b){ return parseInt(a.id,10) - parseInt(b.id,10); });
 }
 /* ⭐ HANDING OUT SEVERAL NUMBERS IN ONE RUN (added 2026-08-21, hole B).
@@ -54296,7 +54323,7 @@ function cnAllocator(){
       if(!num){
         /* ⚠ SKIP ANYTHING THIS RUN HAS ALREADY GIVEN OUT, including a number
            that happens to sit in the other series' pool. */
-        while(seen[String(next[t])]) next[t]++;
+        while(seen[String(next[t])] || cnNumberIsRetired(next[t])) next[t]++;
         num = String(next[t]);
         next[t]++;
       }
@@ -54324,7 +54351,7 @@ function cnAllocator(){
 function cnNextAvailable(type){
   const pooled = cnFreePool(type);
   if(pooled.length) return {number: pooled[0].id, fromPool: true};
-  return {number: String(cnHighestAssigned(type) + 1), fromPool: false};
+  return {number: String(cnSkipRetired(cnHighestAssigned(type) + 1)), fromPool: false};
 }
 function renderCustomerNumbersPanel(){
   const regList = document.getElementById('cnAvailableRegularList');
@@ -54342,9 +54369,16 @@ function renderCustomerNumbersPanel(){
         ') &mdash; a customer still holds ' + (shadow.length === 1 ? 'that number' : 'those') +
         ', so ' + (shadow.length === 1 ? 'it is' : 'they are') + ' not offered.</div>'
       : '';
+    /* Named for the same reason: a retired number missing from the list is an answer. */
+    const retired = CN_RETIRED_NUMBERS.filter(function(n){
+      return (parseInt(n, 10) >= 5000 ? 'double' : 'regular') === type;
+    });
+    const retiredNote = retired.length
+      ? '<div class="empty-note" style="margin-top:6px;">Never handed out: ' + esc(retired.join(', ')) + '.</div>'
+      : '';
     return (free.length
       ? free.map(function(n){ return '<span class="status-pill" style="margin:2px;">'+esc(n.id)+'</span>'; }).join('')
-      : '<span class="empty-note">No recycled numbers waiting &mdash; next new one auto-assigns.</span>') + note;
+      : '<span class="empty-note">No recycled numbers waiting &mdash; next new one auto-assigns.</span>') + note + retiredNote;
   };
   regList.innerHTML = poolHtml(regPooled, 'regular');
   dblList.innerHTML = poolHtml(dblPooled, 'double');
@@ -54615,7 +54649,7 @@ document.getElementById('cnFindGapsBtn').addEventListener('click', function(){
     const start = type === 'double' ? 5000 : 1;
     const out = [];
     for(let n = start; n <= Math.max.apply(null, list); n++){
-      if(!set.has(n) && !pooled[String(n)]) out.push(n);
+      if(!set.has(n) && !pooled[String(n)] && !cnNumberIsRetired(n)) out.push(n);
     }
     return out;
   }
@@ -54667,6 +54701,7 @@ function cnPoolNumberCheck(raw, type, heldBy){
   if(!/^\d+$/.test(t)) return {num: '', error: '\u201C' + t + '\u201D is not a customer number \u2014 digits only, like 1017 or 5012.'};
   const num = String(parseInt(t, 10));
   if(num === '0') return {num: '', error: 'Customer numbers start at 1.'};
+  if(cnNumberIsRetired(num)) return {num: '', error: '#' + num + ' is permanently retired — it is never handed out.'};
   const series = parseInt(num, 10) >= 5000 ? 'double' : 'regular';
   if(type && type !== series){
     return {num: '', error: '#' + num + (series === 'double'
@@ -63607,6 +63642,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newCustNumber = document.getElementById('editCustNumber').value.trim();
   if(newCustNumber && !/^\d+$/.test(newCustNumber)){
     statusEl.textContent = 'Customer # has to be a number, or blank for none.';
+    return;
+  }
+  if(newCustNumber && newCustNumber !== oldCustNumber && cnNumberIsRetired(newCustNumber)){
+    statusEl.textContent = '#' + newCustNumber + ' is permanently retired — it is never handed out. Pick another number.';
     return;
   }
   if(newCustNumber && newCustNumber !== oldCustNumber){

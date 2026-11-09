@@ -6386,6 +6386,8 @@ into six rows or move a key out from under `FIXED_ERRORS`. Asserted, not assumed
 - **The bin cutoff** (320 ft — see §2) decides regular-series (1 bin) vs 5000-series (2 or more bins). Only two series exist, so the test is "more than one bin", not "exactly two".
 - **Pool**: `availableCustomerNumbers`, one doc per free number, `{type, releasedAt, releasedFrom}`.
 - **Assign**: lowest free pooled number of the right type wins; if the pool is empty, the next number above the current highest is used.
+- **Retired numbers** ([[CN-05]], 2026-11-06): `CN_RETIRED_NUMBERS` in admin.html — 137, 376, 433, 514, 515, 646, 676, 980, 981, 982 — are never handed out by anything. The pool never offers one (`cnFreePool`), the next-new counter steps over them (`cnSkipRetired`, in `cnNextAvailable` and `cnAllocator`), Find Unused Numbers leaves them out, Add to Available Pool refuses them, and Add / Edit Customer refuse one typed in. A customer who already holds one keeps it. The panel lists them under "Never handed out". To retire another number, add it to that list (and Suite 134's copy of it).
+- **Assigned is taken**: a number a customer holds is never offered from the pool, even if its pool entry is still there (`cnNumberIsHeld`, shadowed rather than deleted — see [[CN-01]]).
 - **Release**: freeing a number (edit, removal, recycle) drops it back into the pool.
 - **Bulk assign**: a paste-in tool that matches pasted names/streets/numbers against existing customers by normalized name/street and stamps the number on — it does not touch geocoding or addresses.
 
