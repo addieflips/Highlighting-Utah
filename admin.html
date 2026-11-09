@@ -20452,6 +20452,15 @@ function loadEmailTemplates(){
        template she picked has to redraw it or the card goes on showing the old words. */
     if(typeof renderRsvpTextTemplatePicker === 'function') renderRsvpTextTemplatePicker();
     if(typeof renderRsvpTextPreview === 'function') renderRsvpTextPreview();
+    /* ⚠ AND THE DAILY SEND'S TWO RSVP PICKERS ([[EM-36]]/[[EM-37]]), for the fourth time and
+       the same reason (2026-11-09). Addie, having renamed a template and added a pay button
+       to another: "Do these not update once I change them?" They did not — rsvpDripRender runs
+       on a customer change, a plan change and a tab switch, and a template save is none of
+       those, so the card went on showing the old name and the old greyed row until something
+       else happened to redraw it. The whole card is redrawn, not only the selects: its body
+       names the two templates the morning send will use, and the note under the pickers
+       lists the codes a picked wording carries that the send cannot fill. */
+    if(typeof rsvpDripRender === 'function') rsvpDripRender();
   });
 }
 /* ⭐ THE ONE SHE EDITED LAST IS THE ONE THAT SENDS ([[EM-35]], 2026-10-15). The server's
@@ -25221,12 +25230,32 @@ function rsvpDripRanToday(last){
    the second is the only thing a rebuild fixes. Reporting one total would hide whichever
    half was the problem. */
 function rsvpDripQueueState(plan, queue){
-  const out = { queued: 0, missing: 0, missingNames: [] };
+  /* ⭐ [[EM-38]] HOW FAR THE SEND HAS GOT (2026-11-09). Addie: "Can you show on RSVP how many
+     are on hold and how many RSVP's have gone out until they are all out?" — then "Then it will
+     unmark once they are all out." `queued` is the half still waiting, split by who owes from
+     last season (her "on hold"); `sent` is the half that has actually GONE OUT, read off the
+     same two stamps the morning run writes and rsvpSendSkipReason refuses on (rsvpEmailedAt /
+     arrearsRsvpEmailAt); `dropped` is the rest — answered or left since the plan was built.
+     ⚠ "GONE OUT" IS THE STAMP, NEVER total-minus-waiting: a row that answered before its morning
+     came was never emailed, and counting it as sent overstates the send by exactly the people
+     who replied to the first one. rsvpDripProgress turns these into the lines on the card. */
+  const out = { queued: 0, queuedStandard: 0, queuedArrears: 0, sent: 0, dropped: 0, missing: 0, missingNames: [] };
   const owed = new Map();
   ((plan && plan.standard) || []).forEach(function(m){ owed.set(m.id, 'standard'); });
   ((plan && plan.arrears) || []).forEach(function(m){ owed.set(m.id, 'arrears'); });
   const inQueue = new Set((queue || []).map(function(r){ return r && r.id; }));
-  (queue || []).forEach(function(r){ if(r && owed.has(r.id)) out.queued++; });
+  const recById = new Map();
+  (jobAddresses || []).forEach(function(a){ if(a && a.id) recById.set(a.id, a.data || {}); });
+  (queue || []).forEach(function(r){
+    if(!r) return;
+    if(owed.has(r.id)){
+      out.queued++;
+      if(owed.get(r.id) === 'arrears') out.queuedArrears++; else out.queuedStandard++;
+      return;
+    }
+    const d = recById.get(r.id);
+    if(d && (d.rsvpEmailedAt || d.arrearsRsvpEmailAt)) out.sent++; else out.dropped++;
+  });
   owed.forEach(function(kind, id){
     if(inQueue.has(id)) return;
     out.missing++;
@@ -25238,6 +25267,27 @@ function rsvpDripQueueState(plan, queue){
   return out;
 }
 
+/* ⭐ [[EM-38]] THE PROGRESS LINES, AS NUMBERS. Its own function so the gate can RUN it: "all out"
+   is the one state that changes what the card shows, and a text check cannot see arithmetic.
+   `allOut` is TRUE only when there is a plan and nobody on it is still waiting — an empty plan
+   is not a finished one. The percentage is of the plan that has GONE OUT (the stamp), so a plan
+   that is half answered-since and half unsent reads 0%, which is the truth. */
+function rsvpDripProgress(state, queue){
+  const total = (queue || []).length;
+  const s = state || {};
+  const waiting = Number(s.queued) || 0;
+  const sent = Number(s.sent) || 0;
+  return {
+    total: total,
+    sent: sent,
+    waiting: waiting,
+    waitingStandard: Number(s.queuedStandard) || 0,
+    waitingArrears: Number(s.queuedArrears) || 0,
+    dropped: Math.max(0, total - waiting - sent),
+    pct: total ? Math.round(100 * sent / total) : 0,
+    allOut: total > 0 && waiting === 0
+  };
+}
 /* How many of the queue are each kind. Its own function so the card and a test read the
    same arithmetic, and so the two lines naming her templates cannot quote a total that does
    not add up to the queue. */
@@ -25369,14 +25419,34 @@ function rsvpDripRender(){
   const savedStdName = String(saved.standardTemplateName || '').trim();
   const savedArrName = String(saved.arrearsTemplateName || '').trim();
   const haveTplIds = !!(saved.standardTemplateId && saved.arrearsTemplateId);
-  let html = line('Already paid up \u2014 they get', esc(savedStdName || 'the ordinary RSVP'),
-      esc(rsvpDripKindCount(queue, 'standard') + ' people'))
+  /* ⭐ [[EM-38]] GONE OUT, STILL TO GO, AND FINISHED (2026-11-09). Addie: "Can you show on RSVP
+     how many are on hold and how many RSVP's have gone out until they are all out?" then "Then
+     it will unmark once they are all out." The bar and the two counts lead the card while
+     anybody is still waiting; once nobody is, they are replaced by one green line saying so.
+     ⚠ THE OLD "Still to send from the plan" LINE LUMPED "already done" WITH "no longer owed", so
+     she could not tell how many had actually been emailed — which is the number she asked for.
+     ⚠ "on hold" IS NAMED IN HER WORD beside the card's own, so the two readings meet. */
+  const prog = rsvpDripProgress(state, queue);
+  let html = '';
+  if(prog.allOut){
+    html += '<div style="padding:8px 10px; margin:0 0 6px; border-radius:8px; background:#e8f5ec; color:#1e6b36; font-weight:600;">'
+      + '\u2713 All out \u2014 every one of the ' + prog.total + ' on this plan has been asked'
+      + (prog.dropped ? ' (' + prog.sent + ' emailed, ' + prog.dropped + ' answered or left before their morning came)' : '')
+      + '.</div>';
+  } else {
+    html += line('Gone out so far', prog.sent + ' of ' + prog.total, esc(prog.pct + '%'))
+      + '<div style="height:6px; background:var(--line); border-radius:3px; margin:4px 0 6px; overflow:hidden;">'
+      + '<div style="height:100%; width:' + prog.pct + '%; background:var(--emerald);"></div></div>'
+      + line('Still to go', prog.waiting,
+          esc(prog.waitingStandard + ' paid up, ' + prog.waitingArrears + ' owe from last season (on hold)'
+            + (prog.dropped ? '; ' + prog.dropped + ' answered or left since the plan was built' : '')));
+  }
+  html += line('Already paid up \u2014 they get', esc(savedStdName || 'the ordinary RSVP'),
+      esc(prog.waitingStandard + ' still to go of ' + rsvpDripKindCount(queue, 'standard')))
     + line('Owes from last season \u2014 they get', esc(savedArrName || 'Not Paid RSVP'),
-      esc(rsvpDripKindCount(queue, 'arrears') + ' people'))
-    + line('Still to send from the plan', state.queued,
-      esc(queue.length + ' on the plan, ' + Math.max(0, queue.length - state.queued) + ' already done or no longer owed'))
+      esc(prog.waitingArrears + ' still to go of ' + rsvpDripKindCount(queue, 'arrears')))
     + line('A morning', per, 'at 9:00 AM Mountain')
-    + line('Finishes', esc(rsvpDripFinishWords(state.queued, per, startFrom)), '');
+    + line('Finishes', esc(prog.allOut ? 'done' : rsvpDripFinishWords(state.queued, per, startFrom)), '');
   if(!haveTplIds){
     html += '<p class="form-note" style="margin:10px 0 0; color:#c0392b;"><b>This plan does not '
       + 'say which of your RSVP emails to send.</b> It was built before that was recorded, so '

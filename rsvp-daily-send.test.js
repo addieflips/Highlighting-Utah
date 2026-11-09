@@ -84,7 +84,7 @@ function stripComments(s) {
 }
 
 const BROWSER_LIFTS = ['rsvpSendSkipReason', 'rsvpDripBuildQueue', 'rsvpDripSchedule',
-  'rsvpDripQueueState', 'rsvpDripKindCount', 'rsvpDripFinishWords', 'rsvpDripRanToday'];
+  'rsvpDripQueueState', 'rsvpDripKindCount', 'rsvpDripFinishWords', 'rsvpDripRanToday', 'rsvpDripProgress'];
 BROWSER_LIFTS.forEach(function (n) {
   check('lifted ' + n + ' from admin.html and it parses', liftOk(liftFrom(admin, n)),
     'a truncated lift answers confidently and wrongly while the suite reports green');
@@ -371,8 +371,14 @@ if (finishWords) {
    saw yesterday. */
 const queueState = (function () {
   const src = liftFrom(admin, 'rsvpDripQueueState');
+  /* [[EM-38]] the book carries one row already EMAILED ('gone') and one that answered before
+     its morning came ('left', no stamp) — the two shapes the progress lines must tell apart. */
   return src ? new Function('jobAddresses', src + '\nreturn rsvpDripQueueState;')([
-    { id: 'new1', data: { name: 'Rachel Oslund' } }
+    { id: 'new1', data: { name: 'Rachel Oslund' } },
+    { id: 'a', data: { name: 'A' } }, { id: 'b', data: { name: 'B' } },
+    { id: 'gone', data: { name: 'Gone', rsvpEmailedAt: 'ts' } },
+    { id: 'gone2', data: { name: 'Gone Two', arrearsRsvpEmailAt: 'ts' } },
+    { id: 'left', data: { name: 'Left', rsvpStatus: 'no' } }
   ]) : null;
 })();
 
@@ -419,6 +425,51 @@ if (queueState) {
       return s.queued === 1 && s.missing === 0 && s.missingNames.length === 0;
     })(),
     'a clean plan reporting a problem is how the office learns to ignore the line');
+
+  /* ==== [[EM-38]] HOW MANY HAVE GONE OUT, HOW MANY ARE ON HOLD, AND "ALL OUT" (2026-11-09) ====
+     Addie: "Can you show on RSVP how many are on hold and how many RSVP's have gone out until
+     they are all out?" then "Then it will unmark once they are all out." */
+  const progressFn = (function () {
+    const src = liftFrom(admin, 'rsvpDripProgress');
+    return src ? new Function(src + '\nreturn rsvpDripProgress;')() : null;
+  })();
+  check('EM-38: the progress helper could be lifted', !!progressFn);
+  const mixedPlan = { standard: [{ id: 'a' }], arrears: [{ id: 'b' }] };
+  const mixedQueue = [{ id: 'a', t: 'standard' }, { id: 'b', t: 'arrears' }, { id: 'gone', t: 'standard' },
+    { id: 'gone2', t: 'arrears' }, { id: 'left', t: 'standard' }];
+  const ms = queueState(mixedPlan, mixedQueue);
+  check('EM-38: the counter splits the waiting half by who owes from last season — her "on hold"',
+    ms.queued === 2 && ms.queuedStandard === 1 && ms.queuedArrears === 1,
+    'got ' + JSON.stringify(ms));
+  check('EM-38: "gone out" is read off the two stamps the morning run writes, either stamp counting',
+    ms.sent === 2,
+    'got sent=' + ms.sent + ' — a row with neither stamp was never emailed, whatever else happened to it');
+  check('EM-38: somebody who answered before their morning came is neither waiting nor sent',
+    ms.dropped === 1,
+    'counting them as sent overstates the send by exactly the people who replied to the first one');
+  if (progressFn) {
+    const p = progressFn(ms, mixedQueue);
+    check('EM-38: the progress lines read 2 of 5 gone out, 2 still to go, 1 dropped, 40%, not finished',
+      p.total === 5 && p.sent === 2 && p.waiting === 2 && p.waitingArrears === 1 && p.dropped === 1 && p.pct === 40 && p.allOut === false,
+      'got ' + JSON.stringify(p));
+    const done = progressFn(queueState({ standard: [], arrears: [] }, [{ id: 'gone', t: 'standard' }, { id: 'left', t: 'standard' }]),
+      [{ id: 'gone', t: 'standard' }, { id: 'left', t: 'standard' }]);
+    check('EM-38: with nobody left waiting the card reads ALL OUT — "it will unmark once they are all out"',
+      done.allOut === true && done.waiting === 0 && done.sent === 1 && done.dropped === 1,
+      'got ' + JSON.stringify(done));
+    check('EM-38: an EMPTY plan is not a finished one',
+      progressFn(queueState({ standard: [], arrears: [] }, []), []).allOut === false,
+      'a card that says "all out" over a plan that was never built is the on-screen lie this repo names');
+    const cardSrc = stripComments(liftFrom(admin, 'rsvpDripRender') || '');
+    check('EM-38: the card draws the progress from rsvpDripProgress and has the all-out branch',
+      /rsvpDripProgress\(state, queue\)/.test(cardSrc) && /prog\.allOut\)/.test(cardSrc)
+        && cardSrc.indexOf('Gone out so far') !== -1 && cardSrc.indexOf('Still to go') !== -1
+        && cardSrc.indexOf('All out') !== -1 && cardSrc.indexOf('(on hold)') !== -1,
+      'the helper exists for the card; a card that never asks it shows nothing');
+    check('EM-38: the old lumped "Still to send from the plan" line is gone',
+      cardSrc.indexOf('Still to send from the plan') === -1,
+      'it mixed "already emailed" with "answered since", which is the number she could not read off it');
+  }
 }
 
 /* ==================================================================
@@ -629,6 +680,14 @@ if (queueState) {
   check('rsvpDripRender fills the pickers on every draw',
     /renderRsvpDripTemplatePickers\(\)/.test(renderSrc),
     'a picker drawn once at login never learns about a template made afterwards');
+  /* [[EM-37]] follow-up, 2026-11-09: "Do these not update once I change them?" A template
+     save reaches the quote, nightly and text pickers through loadEmailTemplates and never
+     reached these two, so a rename or an added {{pay_button}} sat stale until a customer
+     changed or the tab was switched. Comments stripped — the loader's own prose names it. */
+  const loaderSrc = stripComments(liftFrom(admin, 'loadEmailTemplates') || '');
+  check('a template save redraws the Daily send card, so a rename or an added pay button shows at once',
+    loaderSrc.length > 200 && /rsvpDripRender\(\)/.test(loaderSrc),
+    'loadEmailTemplates must redraw the card when the template list changes, like the three pickers beside it');
   const pickRender = stripComments(liftFrom(admin, 'renderRsvpDripTemplatePickers'));
   check('and never redraws a picker that has the focus',
     /active !== stdSel/.test(pickRender) && /active !== arrSel/.test(pickRender),
