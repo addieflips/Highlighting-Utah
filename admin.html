@@ -4301,6 +4301,17 @@
         <label style="display:block; font-size:13px; margin:0 0 10px;">How many a day
           <input type="number" id="rsvpDripPerDay" min="1" max="2000" step="10" style="width:90px; margin-left:6px;">
         </label>
+        <!-- [[EM-40]] Ask again. Addie, 2026-11-09, on ~259 people still on hold: "on hold because they
+             haven't answered yet but also the people on hold and haven't paid". The plan asks each person
+             once; with this on, anybody still unanswered goes back on it once their last RSVP email is
+             this many days old, Not Paid wording for those who owe and the ordinary one for the rest,
+             until they answer. Saved onto the plan by Build the plan; the 9 AM run reads it from there. -->
+        <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px; margin:0 0 10px;">
+          <input type="checkbox" id="rsvpDripRemind" style="width:auto; margin:0;">
+          <span>Ask again &mdash; put everyone still on hold back on the plan once their last RSVP email is</span>
+          <input type="number" id="rsvpDripRemindDays" min="1" max="60" step="1" value="7" style="width:70px; margin:0;">
+          <span>days old (rebuild the plan after changing this)</span>
+        </label>
         <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
       </div>
       </div>
@@ -25326,6 +25337,12 @@ function rsvpDripRender(){
   const per = Math.max(1, Number(saved && saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
   if(perDayEl && document.activeElement !== perDayEl) perDayEl.value = per;
   if(onEl) onEl.checked = !!(saved && saved.enabled);
+  /* [[EM-40]] the Ask-again controls follow the saved plan, never redrawn under a hand. */
+  const remindEl = document.getElementById('rsvpDripRemind');
+  const remindDaysEl = document.getElementById('rsvpDripRemindDays');
+  const remindSaved = rsvpRemindSetting();
+  if(remindEl && document.activeElement !== remindEl) remindEl.checked = remindSaved.on;
+  if(remindDaysEl && document.activeElement !== remindDaysEl) remindDaysEl.value = remindSaved.days;
   /* [[EM-36]] The two pickers follow the template list and the saved choice. */
   if(typeof renderRsvpDripTemplatePickers === 'function') renderRsvpDripTemplatePickers();
 
@@ -25446,7 +25463,11 @@ function rsvpDripRender(){
     + line('Owes from last season \u2014 they get', esc(savedArrName || 'Not Paid RSVP'),
       esc(prog.waitingArrears + ' still to go of ' + rsvpDripKindCount(queue, 'arrears')))
     + line('A morning', per, 'at 9:00 AM Mountain')
-    + line('Finishes', esc(prog.allOut ? 'done' : rsvpDripFinishWords(state.queued, per, startFrom)), '');
+    + line('Finishes', esc(prog.allOut ? 'done' : rsvpDripFinishWords(state.queued, per, startFrom)), '')
+    /* [[EM-40]] say whether this plan asks people again, and how many of its rows are reminders. */
+    + (saved.remind === true
+        ? line('Asking again', esc(plan.reminders + ' on hold'), esc('anybody still unanswered goes back on once their last email is ' + rsvpRemindSetting().days + ' days old'))
+        : line('Asking again', 'off', 'each person is asked once — tick Ask again and rebuild to re-ask everyone still on hold'));
   if(!haveTplIds){
     html += '<p class="form-note" style="margin:10px 0 0; color:#c0392b;"><b>This plan does not '
       + 'say which of your RSVP emails to send.</b> It was built before that was recorded, so '
@@ -25535,7 +25556,11 @@ function rsvpWholeSendWarning(total){
 }
 document.getElementById('rsvpDripBuildBtn')?.addEventListener('click', async function(){
   const st = document.getElementById('rsvpDripStatus');
-  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan() : null;
+  /* [[EM-40]] the controls decide the plan being built; the saved plan decides every later draw. */
+  const remindBox = document.getElementById('rsvpDripRemind');
+  const remindDaysBox = document.getElementById('rsvpDripRemindDays');
+  const remind = rsvpRemindSetting({ on: !!(remindBox && remindBox.checked), days: remindDaysBox ? remindDaysBox.value : 7 });
+  const plan = (typeof rsvpWholePlan === 'function') ? rsvpWholePlan(remind) : null;
   if(!plan || !plan.ready){
     if(st){ st.textContent = (plan && plan.why) || 'The customer list has not loaded yet.'; st.style.color = 'var(--ember)'; }
     return;
@@ -25598,17 +25623,22 @@ document.getElementById('rsvpDripBuildBtn')?.addEventListener('click', async fun
          card showing its old name is a cosmetic staleness rather than a wrong send. */
       standardTemplateName: (tpl.standard.data && tpl.standard.data.name) || '',
       arrearsTemplateName: (tpl.arrears.data && tpl.arrears.data.name) || '',
+      /* [[EM-40]] the 9 AM run reads these off the plan, nowhere else. */
+      remind: remind.on,
+      remindAfterDays: remind.days,
       queue: queue
     }, {merge: true});
     rsvpDripCache = Object.assign({}, rsvpDripCache || {}, {
       enabled: keep, perDay: per, season: new Date().getFullYear(), queue: queue,
+      remind: remind.on, remindAfterDays: remind.days,
       standardTemplateId: tpl.standard.id, arrearsTemplateId: tpl.arrears.id,
       standardTemplateName: (tpl.standard.data && tpl.standard.data.name) || '',
       arrearsTemplateName: (tpl.arrears.data && tpl.arrears.data.name) || ''
     });
     rsvpDripRender();
     if(st){
-      st.textContent = 'Plan saved — ' + queue.length + ' to ask, '
+      st.textContent = 'Plan saved — ' + queue.length + ' to ask'
+        + (remind.on ? ' (' + plan.reminders + ' of them asked again, last emailed ' + remind.days + '+ days ago)' : '') + ', '
         + rsvpDripFinishWords(queue.length, per, new Date()) + '.'
         + (keep ? ' It is switched on, so the first batch goes at 9:00 AM.'
                 : ' Nothing is sent until you switch it on or press Send today’s batch now.');
@@ -25866,13 +25896,55 @@ function rsvpSendSkipReason(d){
   if(rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
   return '';
 }
+/* ⭐ [[EM-40]] ASK AGAIN (2026-11-09). Addie, on the ~259 people the All Customers list badges
+   ON HOLD: "No like on hold because they haven't answered yet but also the people on hold and
+   haven't paid." The plan asks each person ONCE — rsvpSendSkipReason's 'emailed' — which is
+   right for the first wave and leaves the whole on-hold list untouchable afterwards. With
+   Ask again on, somebody still unanswered goes back on the plan once their LAST RSVP email is
+   at least `days` old; the same two templates apply (owes from last season → Not Paid), the
+   daily cap still applies, and a reminder stamps rsvpRemindedAt so the same `days` rule
+   spaces the next one. ⚠ THE SETTING LIVES ON THE PLAN (remind / remindAfterDays), saved by
+   Build the plan and read by the 9 AM run — a card-only setting would show a queue the
+   server then refuses, EM-16's card-says-one-thing failure. rsvpWholePlan reads it from
+   rsvpDripCache unless the builder hands it the controls' values.
+   ⚠ "LAST ASK" IS THE LATEST OF THREE STAMPS, read without depending on toJsDate so the
+   sandboxes that lift this alone still run: rsvpEmailedAt, arrearsRsvpEmailAt, rsvpRemindedAt.
+   The server's rsvpStillOwedServer spells the same reading out. */
+function rsvpLastAskMillis(d){
+  const rec = d || {};
+  const ms = function(v){
+    if(!v) return 0;
+    if(typeof v.toDate === 'function'){ const t = v.toDate(); return isNaN(t.getTime()) ? 0 : t.getTime(); }
+    if(typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+    const t = new Date(v); return isNaN(t.getTime()) ? 0 : t.getTime();
+  };
+  return Math.max(ms(rec.rsvpEmailedAt), ms(rec.arrearsRsvpEmailAt), ms(rec.rsvpRemindedAt));
+}
+function rsvpRemindSetting(override){
+  const src = (override && typeof override === 'object') ? override
+    : ((typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? { on: rsvpDripCache.remind === true, days: rsvpDripCache.remindAfterDays } : { on: false });
+  const days = Math.max(1, Math.min(60, Math.round(Number(src.days) || 7)));
+  return { on: src.on === true, days: days };
+}
+/* Due for a reminder: already asked, and the last ask is at least `days` old. Never due when
+   there is no stamp to measure from — that person is a first ask, not a reminder. */
+function rsvpRemindDue(d, remind, nowMs){
+  if(!remind || remind.on !== true) return false;
+  const last = rsvpLastAskMillis(d);
+  if(!(last > 0)) return false;
+  const now = (typeof nowMs === 'number') ? nowMs : Date.now();
+  return (now - last) >= remind.days * 86400000;
+}
 /* ⚠ ONE PLAN, READ BY BOTH BUTTONS. What "Check first" shows has to be what Send does,
    or the preview is a second opinion — the same reasoning the Preview & Send preview and
    its send loop already share a renderer for. */
-function rsvpWholePlan(){
+function rsvpWholePlan(remindOpt){
   const out = { standard: [], arrears: [], noEmail: [], optedOut: [], alreadyEmailed: [],
                 answered: 0, newThisYear: 0, answeredList: [], newThisYearList: [],
-                ready: false, why: '' };
+                reminders: 0, remind: null, ready: false, why: '' };
+  /* [[EM-40]] lifted alone in some sandboxes, so the reminder rule is asked through typeof. */
+  const remind = (typeof rsvpRemindSetting === 'function') ? rsvpRemindSetting(remindOpt) : { on: false, days: 7 };
+  out.remind = remind;
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
     out.why = 'The customer list has not loaded yet.'; return out;
   }
@@ -25897,7 +25969,11 @@ function rsvpWholePlan(){
     if(why === 'answered'){ out.answered++; out.answeredList.push(item); return; }
     if(why === 'optedout'){ out.optedOut.push(item); return; }
     if(why === 'noemail'){ out.noEmail.push(item); return; }
-    if(why === 'emailed'){ out.alreadyEmailed.push(item); return; }
+    if(why === 'emailed'){
+      /* [[EM-40]] still on hold and asked long enough ago: back on the plan as a reminder. */
+      if(!(typeof rsvpRemindDue === 'function' && rsvpRemindDue(d, remind))){ out.alreadyEmailed.push(item); return; }
+      out.reminders++;
+    }
     if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
     else out.standard.push(item);
   });
@@ -25938,7 +26014,12 @@ function rsvpWholeRenderBreakdown(plan){
     /* ⭐ EM-04. This line is the answer to "the people that have already got the email
        should not get it again", and it is worth SEEING rather than merely trusting:
        before a re-send it is the count of everybody the last run actually reached. */
-    row('Already emailed this season', plan.alreadyEmailed.length, 'they have it — not sent again') +
+    row('Already emailed this season', plan.alreadyEmailed.length,
+      (plan.remind && plan.remind.on)
+        /* ⚠ no "again (" here: the reliability suite reads any "name(" in the main app as a call, and the
+           schedule widget has a helper called again. */
+        ? (plan.reminders + ' more were asked again, last emailed ' + plan.remind.days + '+ days ago and still on hold; these are too recent')
+        : 'they have it — not sent again') +
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
     '<p class="form-note" style="margin:10px 0 0;">Nobody appears in more than one line above.</p>';

@@ -810,7 +810,7 @@ const runBatch = (function () {
     };
     const sandbox = {
       db: db,
-      admin: { firestore: { FieldValue: { serverTimestamp: function () { return 'now'; } } } },
+      admin: { firestore: { FieldValue: { serverTimestamp: function () { return 'now'; }, increment: function (n) { return 'inc' + n; } } } },
       templateSubjectOr: function (t, f) { return (t && t.subject) || f; },
       properNameServer: function (n) { return String(n || '').split(/\s+/)[0]; },
       digitsOnly: function (v) { return String(v || '').replace(/\D/g, ''); },
@@ -1122,6 +1122,92 @@ if (runBatch) {
       r.out.sent === 2 && !r.out.stopped && r.out.badAddress === 3,
       JSON.stringify({ sent: r.out.sent, bad: r.out.badAddress, stopped: r.out.stopped }));
   }));
+  /* ==== [[EM-40]] ASK AGAIN (2026-11-09) ====
+     Addie, on ~259 people the All Customers list badges ON HOLD: "No like on hold because they
+     haven't answered yet but also the people on hold and haven't paid." Each person is asked once
+     unless the plan says to ask again; then anybody still unanswered is re-asked once their last
+     RSVP email is `remindAfterDays` old, the daily cap still applying. */
+  const DAY = 86400000;
+  pending.push(runBatch({
+    book: [person('old', { rsvpEmailedAt: 1 }), person('fresh', { rsvpEmailedAt: Date.now() - 2 * DAY }),
+      person('twice', { rsvpEmailedAt: 1, rsvpRemindedAt: Date.now() - 1 * DAY }), person('never')],
+    plan: { perDay: 5, remind: true, remindAfterDays: 7 }
+  }).then(function (r) {
+    const stampOf = function (id) { const s = r.stamped.find(function (x) { return x.id === id; }); return s && s.u; };
+    check('EM-40: with Ask again on, somebody emailed long ago and still unanswered is asked again, and a first ask still goes',
+      r.out.sent === 2 && r.sent.some(function (s) { return s.to_email === 'old@x.com'; }) && r.sent.some(function (s) { return s.to_email === 'never@x.com'; }),
+      JSON.stringify({ sent: r.out.sent, to: r.sent.map(function (s) { return s.to_email; }) }));
+    check('EM-40: somebody emailed two days ago is too soon and is skipped, not re-asked',
+      !r.sent.some(function (s) { return s.to_email === 'fresh@x.com'; }),
+      'the days rule is what stops a reminder landing on top of the first email');
+    check('EM-40: a reminder sent yesterday also counts as the last ask, so they are not asked a third time today',
+      !r.sent.some(function (s) { return s.to_email === 'twice@x.com'; }),
+      'rsvpRemindedAt must be read as a last ask, or the reminders go out every single morning');
+    check('EM-40: the reminder stamps rsvpRemindedAt and bumps rsvpRemindCount, and leaves rsvpEmailedAt alone',
+      !!stampOf('old') && stampOf('old').rsvpRemindedAt === 'now' && stampOf('old').rsvpRemindCount === 'inc1' && stampOf('old').rsvpEmailedAt === undefined,
+      JSON.stringify(stampOf('old')) + ' — the first-ask date is what Waiting on RSVP and the first-wave skip read');
+    check('EM-40: a first ask still stamps rsvpEmailedAt and nothing about reminders',
+      !!stampOf('never') && stampOf('never').rsvpEmailedAt === 'now' && stampOf('never').rsvpRemindedAt === undefined,
+      JSON.stringify(stampOf('never')));
+    check('EM-40: the run counts its reminders for the card',
+      r.out.reminded === 1 && (r.written.rsvpSendPlan || {}).lastReminded === 1,
+      JSON.stringify({ reminded: r.out.reminded, written: r.written.rsvpSendPlan }));
+  }));
+  pending.push(runBatch({
+    book: [person('old', { rsvpEmailedAt: 1 }), person('never')],
+    plan: { perDay: 5 }
+  }).then(function (r) {
+    check('EM-40: with Ask again OFF the old behaviour holds exactly — once asked, never asked again',
+      r.out.sent === 1 && r.sent[0].to_email === 'never@x.com' && r.out.skipped === 1,
+      JSON.stringify({ sent: r.out.sent, to: r.sent.map(function (s) { return s.to_email; }), skipped: r.out.skipped }));
+  }));
+  /* the browser half: the same three stamps, the same days rule. */
+  const remindFns = (function () {
+    const src = [liftFrom(admin, 'rsvpLastAskMillis'), liftFrom(admin, 'rsvpRemindSetting'), liftFrom(admin, 'rsvpRemindDue')];
+    if (!src.every(Boolean)) return null;
+    return new Function(src.join('\n') + '\nreturn { last: rsvpLastAskMillis, setting: rsvpRemindSetting, due: rsvpRemindDue };')();
+  })();
+  check('EM-40: the browser reminder helpers could be lifted', !!remindFns);
+  if (remindFns) {
+    const now = Date.now();
+    check('EM-40: the browser reads the last ask as the latest of the three stamps, in any of the shapes Firestore hands back',
+      remindFns.last({ rsvpEmailedAt: 1000, rsvpRemindedAt: { seconds: 5 } }) === 5000
+        && remindFns.last({ arrearsRsvpEmailAt: { toDate: function () { return new Date(7000); } } }) === 7000
+        && remindFns.last({}) === 0,
+      'a stamp read in only one shape is a reminder that goes out every morning for everybody stamped in the other');
+    check('EM-40: due means on, stamped, and old enough — never due with nothing to measure from',
+      remindFns.due({ rsvpEmailedAt: now - 8 * DAY }, { on: true, days: 7 }, now) === true
+        && remindFns.due({ rsvpEmailedAt: now - 6 * DAY }, { on: true, days: 7 }, now) === false
+        && remindFns.due({ rsvpEmailedAt: now - 8 * DAY }, { on: false, days: 7 }, now) === false
+        && remindFns.due({}, { on: true, days: 7 }, now) === false,
+      'an unstamped person is a first ask, not a reminder');
+    check('EM-40: the days setting is clamped to a sane range and defaults to a week',
+      remindFns.setting({ on: true, days: 0 }).days === 7 && remindFns.setting({ on: true, days: -3 }).days === 1
+        && remindFns.setting({ on: true, days: 400 }).days === 60
+        && remindFns.setting({ on: true }).days === 7 && remindFns.setting({ on: 'yes' }).on === false,
+      'a blank or absurd box must not re-ask the whole book tomorrow');
+    const gateServer = new Function('digitsOnly', (liftFrom(fns, 'rsvpStillOwedServer') || '') + '\nreturn rsvpStillOwedServer;')(function (v) { return String(v || '').replace(/\D/g, ''); });
+    check('EM-40: the browser and the server agree about who is due a reminder, day for day',
+      [6, 7, 8].every(function (daysAgo) {
+        const rec = { email: 'a@x.com', rsvpEmailedAt: now - daysAgo * DAY };
+        const browser = remindFns.due(rec, { on: true, days: 7 }, now);
+        const server = gateServer(rec, { afterDays: 7, now: now }) === '';
+        return browser === server;
+      }) && gateServer({ email: 'a@x.com', rsvpEmailedAt: 1 }) === 'emailed',
+      'two readings of "a week" is the card promising a reminder the server then refuses, or the reverse');
+  }
+  const planSrc = stripComments(liftFrom(admin, 'rsvpWholePlan') || '');
+  const buildSrc = stripComments(admin.slice(admin.indexOf("getElementById('rsvpDripBuildBtn')?.addEventListener('click'"), admin.indexOf("getElementById('rsvpDripEnabled')?.addEventListener('change'")));
+  /* ⚠ THE WRITE ITSELF, not the whole handler: the cache assignment two lines below spells the same
+     two fields, so a handler-wide match stayed green with them deleted from the setDoc — the
+     red-check said so. */
+  const writeSrc = buildSrc.slice(buildSrc.indexOf("setDoc(doc(db,'settings','rsvpSendPlan')"), buildSrc.indexOf('{merge: true}', buildSrc.indexOf("setDoc(doc(db,'settings','rsvpSendPlan')")));
+  check('EM-40: the plan builder asks the reminder rule for everybody already emailed, and Build the plan WRITES the setting the 9 AM run reads',
+    /rsvpRemindDue\(d, remind\)/.test(planSrc) && /out\.reminders\+\+/.test(planSrc)
+      && writeSrc.length > 50 && /remind:\s*remind\.on/.test(writeSrc) && /remindAfterDays:\s*remind\.days/.test(writeSrc) && /rsvpWholePlan\(remind\)/.test(buildSrc)
+      && admin.indexOf('id="rsvpDripRemind"') !== -1 && admin.indexOf('id="rsvpDripRemindDays"') !== -1,
+    'a setting on the card that never reaches the plan is a queue the server refuses — EM-16 again');
+
   /* the two spellings of the address shape, compared — the card's No-email list and the server's skip
      must name the same people. */
   check('EM-39: the browser skip rule and the server skip rule test the address with the same regex',

@@ -66949,8 +66949,21 @@ suite('363. A payment toward this season approves them; Unanswered is still pend
   const serverGate = stripComments(extractFn(fnsSrc, 'rsvpStillOwedServer') || '');
   check('S363', 'the server\'s 200-a-day gate reads Unanswered the same way',
     /\(said && said !== 'unanswered'\) \|\| rec\.maybeNextYear === true/.test(serverGate));
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-11-09, [[EM-40]]). This matched the server guard's literal
+     `if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';` — where the rule SAT. Ask
+     again turned that line into a block (a plan may say to re-ask once the last email is N days
+     old), so the literal failed on correct code: §7's slow fuse. The guarantee EM-04 cares about
+     is unchanged and is RUN now: with no remind setting handed in, an emailed record is still
+     'emailed', so the first-wave run can never mail anybody twice. The browser rule never
+     changed shape and is still matched as text. */
+  const serverGateFn = (function(){
+    try { return new Function('digitsOnly', serverGate + '\nreturn rsvpStillOwedServer;')(function(v){ return String(v || '').replace(/\D/g, ''); }); }
+    catch(err){ return null; }
+  })();
   check('S363', 'and the already-emailed guard is untouched — nobody gets the RSVP twice (EM-04)',
-    /if \(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(serverGate) &&
+    !!serverGateFn && serverGateFn({ email: 'a@x.com', rsvpEmailedAt: 1 }) === 'emailed'
+      && serverGateFn({ email: 'a@x.com', arrearsRsvpEmailAt: 1 }) === 'emailed'
+      && serverGateFn({ email: 'a@x.com', rsvpEmailedAt: 1 }, null) === 'emailed' &&
     /if\(rec\.rsvpEmailedAt \|\| rec\.arrearsRsvpEmailAt\) return 'emailed';/.test(stripComments(extractFn(admin, 'rsvpSendSkipReason') || '')));
 }
 
