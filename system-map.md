@@ -7167,6 +7167,17 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             carries on. Three recipient refusals in a row still stop the run. The card prints how many
             addresses could not be sent to, in red. Nothing is stamped for a skipped address, so a
             corrected one goes out the next morning.
+          - ⭐ **ASK AGAIN ([[EM-40]], 2026-11-09).** The plan asks each person once, which left ~259
+            people still on hold (unanswered, some also unpaid from 2025) with nothing left to send them.
+            Tick *Ask again* on the Daily send card, set how many days old the last email must be
+            (default 7), and rebuild: everyone still unanswered goes back on the plan, Not Paid wording
+            for those who owe and the ordinary one for the rest, 200 a morning, until they answer. The
+            setting is saved on the plan (`remind`, `remindAfterDays`) and the 9 AM run reads it there.
+            A reminder stamps `rsvpRemindedAt` and `rsvpRemindCount`, never `rsvpEmailedAt`, and the
+            latest of the three stamps is what the days rule measures from. The card says how many on
+            the plan are reminders. ⚠ Off, the old rule holds: once asked, never asked again.
+            [[EM-41]] records the next step she asked for and which is not built yet: three automatic
+            waves (early September, early October, 1 November), each its own template, unanswered only.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season

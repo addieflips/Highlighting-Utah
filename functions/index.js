@@ -7658,7 +7658,7 @@ const RSVP_DAILY_CAP = 200;
  * ⚠ AND THE ORDER MATCHES THE BROWSER'S, so the reason written into the run record is
  * the same word the office reads on screen for the same customer.
  */
-function rsvpStillOwedServer(d) {
+function rsvpStillOwedServer(d, remind) {
   const rec = d || {};
   /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE, so this is not housekeeping — it is
      the difference between a drip and mailing the owner her own RSVP every morning.
@@ -7676,13 +7676,31 @@ function rsvpStillOwedServer(d) {
      first. The shape test is the SAME regex rsvpSendSkipReason uses in admin.html, so the card's
      No-email list and this skip name the same people; the gate compares the two spellings. */
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(rec.email || '').trim())) return 'noemail';
-  if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) return 'emailed';
+  if (rec.rsvpEmailedAt || rec.arrearsRsvpEmailAt) {
+    /* ⭐ [[EM-40]] ASK AGAIN (2026-11-09). Without `remind` this is the first-wave rule and
+       somebody already emailed is never emailed again. With it — `{ afterDays }` read off the
+       plan by runRsvpDailyBatch — they are owed a reminder once their LAST ask (the latest of
+       rsvpEmailedAt, arrearsRsvpEmailAt and rsvpRemindedAt) is that many days old. The same
+       reading as admin.html's rsvpLastAskMillis, spelled out here because the gate lifts this
+       function alone. A send stamps rsvpRemindedAt, so the same rule spaces the next one. */
+    if (!remind || !(Number(remind.afterDays) > 0)) return 'emailed';
+    const ms = function (v) {
+      if (!v) return 0;
+      if (typeof v.toDate === 'function') { const t = v.toDate(); return isNaN(t.getTime()) ? 0 : t.getTime(); }
+      if (typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+      const t = new Date(v); return isNaN(t.getTime()) ? 0 : t.getTime();
+    };
+    const last = Math.max(ms(rec.rsvpEmailedAt), ms(rec.arrearsRsvpEmailAt), ms(rec.rsvpRemindedAt));
+    if (!(last > 0)) return 'emailed';
+    const now = (typeof remind.now === 'number') ? remind.now : Date.now();
+    return (now - last) >= Number(remind.afterDays) * 86400000 ? '' : 'emailed';
+  }
   return '';
 }
 
 async function runRsvpDailyBatch(source) {
   const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '',
-                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0, badAddress: 0 };
+                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0, badAddress: 0, reminded: 0 };
 
   const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
   const plan = planSnap.exists ? (planSnap.data() || {}) : null;
@@ -7757,6 +7775,8 @@ async function runRsvpDailyBatch(source) {
   /* [[EM-39]] recipient-shaped refusals in a row; reset by a successful send. */
   let refusedInARow = 0;
   const RSVP_DRIP_REFUSALS_IN_A_ROW = 3;
+  /* [[EM-40]] Ask again, read off the plan: off unless Build the plan saved it on. */
+  const remind = plan.remind === true ? { afterDays: Math.max(1, Math.min(60, Math.round(Number(plan.remindAfterDays) || 7))) } : null;
 
   for (const row of plan.queue) {
     const id = row && row.id;
@@ -7778,7 +7798,7 @@ async function runRsvpDailyBatch(source) {
        a list of candidates and somebody leaving the book is an ordinary answer to it. */
     if (!snap.exists) { out.skipped++; continue; }
     const d = snap.data() || {};
-    const why = rsvpStillOwedServer(d);
+    const why = rsvpStillOwedServer(d, remind);
     /* ⭐ [[EM-39]] A PRESENT-BUT-UNSENDABLE ADDRESS IS NAMED, NEVER A QUIET SKIP. "No email" is an
        ordinary skip; an address somebody TYPED that cannot be delivered is a record the office has to
        fix, and the only place it can learn that is this list. Not stamped, so once the address is
@@ -7847,7 +7867,15 @@ async function runRsvpDailyBatch(source) {
       refusedInARow = 0;
       /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS. Stamping first loses the customer for
          the whole season on one bad response from the mail service. */
-      const stamp = { rsvpEmailedAt: admin.firestore.FieldValue.serverTimestamp() };
+      /* ⭐ [[EM-40]] A REMINDER STAMPS rsvpRemindedAt AND LEAVES THE FIRST-ASK STAMPS ALONE.
+         rsvpEmailedAt is the record that they were asked this season (Schedule › Waiting on
+         RSVP, the No-email list, the first-wave skip all read it) and must keep its first
+         date; the reminder's own stamp is what the `days` rule spaces the next one from, and
+         rsvpRemindCount says how many times they have been asked again. */
+      const again = !!(d.rsvpEmailedAt || d.arrearsRsvpEmailAt);
+      const stamp = again
+        ? { rsvpRemindedAt: admin.firestore.FieldValue.serverTimestamp(), rsvpRemindCount: admin.firestore.FieldValue.increment(1) }
+        : { rsvpEmailedAt: admin.firestore.FieldValue.serverTimestamp() };
       /* ⚠ THE ARREARS HALF IS STAMPED TWICE, ON PURPOSE. `runArrearsRsvpBatch` is a
          separate schedule reading `arrearsRsvpEmailAt`, and somebody who has just had
          the Not Paid RSVP from here must not get the identical email from there an hour
@@ -7857,6 +7885,7 @@ async function runRsvpDailyBatch(source) {
       await snap.ref.update(stamp);
       out.sent++;
       out[kind]++;
+      if (again) out.reminded++;
     } catch (err) {
       out.errors.push((d.name || id) + ': ' + ((err && err.message) || err));
     }
@@ -7873,6 +7902,7 @@ async function runRsvpDailyBatch(source) {
       lastSkipped: out.skipped,
       lastErrors: out.errors.slice(0, 5),
       lastBadAddress: out.badAddress,
+      lastReminded: out.reminded,
       lastStopped: out.stopped || ''
     }, { merge: true });
   } catch (err) {
