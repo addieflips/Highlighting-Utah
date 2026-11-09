@@ -24854,6 +24854,9 @@ suite('Suite 95. The pool never offers a number somebody is holding');
     const build = function (pool, customers) {
       return new Function('availableCustomerNumbers', 'jobAddresses',
         extractFn(admin, 'cnNumberIsHeld') + extractFn(admin, 'cnHighestAssigned') +
+        /* [[CN-05]]: the retired list, lifted, never stubbed. */
+        (admin.match(/const CN_RETIRED_NUMBERS = \[[^\]]*\];/) || [''])[0] + '\n' +
+        extractFn(admin, 'cnNumberIsRetired') + '\n' + extractFn(admin, 'cnSkipRetired') + '\n' +
         src + extractFn(admin, 'cnShadowedPool') + extractFn(admin, 'cnNextAvailable') +
         'return {free: cnFreePool, shadowed: cnShadowedPool, next: cnNextAvailable};')
         (pool, customers);
@@ -24863,20 +24866,20 @@ suite('Suite 95. The pool never offers a number somebody is holding');
 
     /* Her book, in miniature: 376 was genuinely released, 479 was not — Rachel
        Oslund still holds it. */
-    const pool = [p('376', 'regular'), p('479', 'regular'), p('5012', 'double')];
+    const pool = [p('377', 'regular'), p('479', 'regular'), p('5012', 'double')];
     const book = [c('Rachel Oslund', '479'), c('Somebody Else', '812')];
     const api = build(pool, book);
     const ids = (list) => list.map(x => x.id).join(',');
 
     check('S95', 'a number a customer holds is not offered as free',
-      ids(api.free('regular')) === '376',
+      ids(api.free('regular')) === '377',
       'got ' + ids(api.free('regular')) + ' — 479 is on a customer record, so the ' +
       'pool entry beside it is a second bin with the same label');
     check('S95', 'and it is reported as shadowed rather than vanishing',
       ids(api.shadowed('regular')) === '479',
       '\'479 has disappeared\' is a bug report; \'479 is held by a customer\' is an answer');
     check('S95', 'the next number assigned skips it too',
-      api.next('regular').number === '376' && api.next('regular').fromPool === true);
+      api.next('regular').number === '377' && api.next('regular').fromPool === true);
 
     /* ⚠ THE LIST AND THE NEXT-ASSIGNED LINE MUST READ THE SAME RULE. They did not,
        which is the entire bug: cnNextAvailable filtered, the list beside it did not,
@@ -24895,7 +24898,7 @@ suite('Suite 95. The pool never offers a number somebody is holding');
        moment costs the next number up. */
     const loading = build(pool, []);
     check('S95', 'with the customer list still empty nothing is hidden',
-      ids(loading.free('regular')) === '376,479' && loading.shadowed('regular').length === 0,
+      ids(loading.free('regular')) === '377,479' && loading.shadowed('regular').length === 0,
       'and it must fail in that direction, not the other one');
 
     /* ⚠ EVERY POOLED NUMBER HELD = FALL BACK TO A NEW ONE. Returning nothing, or
@@ -40970,9 +40973,15 @@ suite('Suite 134. Everyone added from the sheet gets a number and a build');
   if (allocSrc) {
     /* Seeded through the same two helpers the real one uses, stubbed only as
        DATA SOURCES — the allocation logic itself is the shipped code. */
+    /* [[CN-05]]: the allocator asks the retired list too. Lifted, never stubbed. */
+    const retiredSrc = (admin.match(/const CN_RETIRED_NUMBERS = \[[^\]]*\];/) || [''])[0] + '\n' +
+      (extractFn(admin, 'cnNumberIsRetired') || '') + '\n' + (extractFn(admin, 'cnSkipRetired') || '');
+    check('S134', 'the retired-number rule is findable', /CN_RETIRED_NUMBERS/.test(retiredSrc) &&
+      /function cnNumberIsRetired/.test(retiredSrc) && /function cnSkipRetired/.test(retiredSrc),
+      'CN_RETIRED_NUMBERS / cnNumberIsRetired / cnSkipRetired moved or renamed');
     const mk = (poolReg, poolDbl, highReg, highDbl) => new Function(
       'cnFreePool', 'cnHighestAssigned',
-      allocSrc + ';return cnAllocator();')(
+      retiredSrc + '\n' + allocSrc + ';return cnAllocator();')(
       (t) => (t === 'double' ? poolDbl : poolReg).map(id => ({ id: String(id) })),
       (t) => (t === 'double' ? highDbl : highReg));
 
@@ -41002,6 +41011,44 @@ suite('Suite 134. Everyone added from the sheet gets a number and a build');
       check('S134', 'and each pooled number is handed out only once',
         new Set(got).size === 3);
     }
+    /* [[CN-05]] — a retired number is never minted. 513 → 514 and 515 are retired. */
+    {
+      const a = mk([], [], 513, 5100);
+      const got = [a.take('regular').number, a.take('regular').number];
+      check('S134', 'a new number steps over the retired ones (513 then 516, never 514/515)',
+        got.join() === '516,517', 'got ' + JSON.stringify(got));
+    }
+  /* [[CN-05]] — the other doors. RUN, not matched. */
+  {
+    const src = (admin.match(/const CN_RETIRED_NUMBERS = \[[^\]]*\];/) || [''])[0] + '\n' +
+      extractFn(admin, 'cnNumberIsRetired') + '\n' + extractFn(admin, 'cnSkipRetired') + '\n' +
+      extractFn(admin, 'cnFreePool') + '\n' + extractFn(admin, 'cnNextAvailable') + '\n' +
+      extractFn(admin, 'cnPoolNumberCheck');
+    const sb = new Function('availableCustomerNumbers', 'cnNumberIsHeld', 'cnHighestAssigned',
+      src + ';return {cnFreePool, cnNextAvailable, cnPoolNumberCheck, cnNumberIsRetired, CN_RETIRED_NUMBERS};')(
+      [{id: '514', data: {type: 'regular'}}, {id: '700', data: {type: 'regular'}}],
+      function(){ return false; }, function(){ return 979; });
+    check('S134', 'the ten retired numbers are the owner\'s list',
+      sb.CN_RETIRED_NUMBERS.slice().sort().join() === ['137','376','433','514','515','646','676','980','981','982'].sort().join());
+    check('S134', 'a retired number sitting in the pool is never offered',
+      sb.cnFreePool('regular').map(function(n){ return n.id; }).join() === '700');
+    const emptied = new Function('availableCustomerNumbers', 'cnNumberIsHeld', 'cnHighestAssigned',
+      src + ';return cnNextAvailable;')([], function(){ return false; }, function(){ return 979; });
+    check('S134', 'the next new number skips 980, 981 and 982', emptied('regular').number === '983',
+      'got ' + emptied('regular').number);
+    check('S134', 'Add to Available Pool refuses a retired number',
+      /retired/.test(sb.cnPoolNumberCheck('646', 'regular', '').error));
+    check('S134', 'and still accepts an ordinary one', sb.cnPoolNumberCheck('647', 'regular', '').num === '647');
+    check('S134', 'a typed number is matched however it is written', sb.cnNumberIsRetired(' 0137 ') && !sb.cnNumberIsRetired('1370'));
+    const addSave = admin.slice(admin.indexOf("let customerNumber = document.getElementById('addCustNumber').value.trim();"));
+    check('S134', 'Add Customer refuses a typed retired number',
+      /cnNumberIsRetired\(customerNumber\)/.test(addSave.slice(0, addSave.indexOf('findExistingAddressMatch'))));
+    const editSave = admin.slice(admin.indexOf("const newCustNumber = document.getElementById('editCustNumber').value.trim();"));
+    check('S134', 'Edit Customer refuses CHANGING to a retired number, and lets a holder keep theirs',
+      /newCustNumber !== oldCustNumber && cnNumberIsRetired\(newCustNumber\)/.test(editSave.slice(0, editSave.indexOf('newOneTimeNote'))));
+    check('S134', 'Find Unused Numbers leaves retired ones out',
+      /!pooled\[String\(n\)\] && !cnNumberIsRetired\(n\)/.test(admin));
+  }
     {
       /* ⚠ THE TWO SERIES ARE SEPARATE, and a two-bin house must take a
          5000-series number. `>= 2`, never `=== 2`. */
@@ -69173,7 +69220,8 @@ suite('394. Customer Numbers: the pool takes real numbers only, and Assign is on
      "7abc", "1e3", " 0099 " became pool ids and the next assign handed out #1e3 — plus "-5",
      and 5600 typed as Regular (a two-bin label filed for a one-bin house). And two quick
      presses on Assign Next Available gave two customers #1001. RUNS the rule. */
-  const chk = new Function(extractFn(admin, 'cnPoolNumberCheck') + 'return cnPoolNumberCheck;')();
+  const chk = new Function((admin.match(/const CN_RETIRED_NUMBERS = \[[^\]]*\];/) || [''])[0] + '\n' +
+    extractFn(admin, 'cnNumberIsRetired') + '\n' + extractFn(admin, 'cnPoolNumberCheck') + 'return cnPoolNumberCheck;')();
   check('S394', 'the pool refuses 7abc, 1e3, -5, 2.5 and 0, saying why',
     ['7abc', '1e3', '-5', '2.5', '0', ''].every(v => chk(v, 'regular').num === '' && !!chk(v, 'regular').error),
     JSON.stringify(['7abc', '1e3', '-5', '2.5', '0'].map(v => chk(v, 'regular'))));
