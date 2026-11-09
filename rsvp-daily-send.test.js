@@ -629,6 +629,14 @@ if (queueState) {
   check('rsvpDripRender fills the pickers on every draw',
     /renderRsvpDripTemplatePickers\(\)/.test(renderSrc),
     'a picker drawn once at login never learns about a template made afterwards');
+  /* [[EM-37]] follow-up, 2026-11-09: "Do these not update once I change them?" A template
+     save reaches the quote, nightly and text pickers through loadEmailTemplates and never
+     reached these two, so a rename or an added {{pay_button}} sat stale until a customer
+     changed or the tab was switched. Comments stripped — the loader's own prose names it. */
+  const loaderSrc = stripComments(liftFrom(admin, 'loadEmailTemplates') || '');
+  check('a template save redraws the Daily send card, so a rename or an added pay button shows at once',
+    loaderSrc.length > 200 && /rsvpDripRender\(\)/.test(loaderSrc),
+    'loadEmailTemplates must redraw the card when the template list changes, like the three pickers beside it');
   const pickRender = stripComments(liftFrom(admin, 'renderRsvpDripTemplatePickers'));
   check('and never redraws a picker that has the focus',
     /active !== stdSel/.test(pickRender) && /active !== arrSel/.test(pickRender),

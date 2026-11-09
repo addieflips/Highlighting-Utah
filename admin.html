@@ -20452,6 +20452,15 @@ function loadEmailTemplates(){
        template she picked has to redraw it or the card goes on showing the old words. */
     if(typeof renderRsvpTextTemplatePicker === 'function') renderRsvpTextTemplatePicker();
     if(typeof renderRsvpTextPreview === 'function') renderRsvpTextPreview();
+    /* ⚠ AND THE DAILY SEND'S TWO RSVP PICKERS ([[EM-36]]/[[EM-37]]), for the fourth time and
+       the same reason (2026-11-09). Addie, having renamed a template and added a pay button
+       to another: "Do these not update once I change them?" They did not — rsvpDripRender runs
+       on a customer change, a plan change and a tab switch, and a template save is none of
+       those, so the card went on showing the old name and the old greyed row until something
+       else happened to redraw it. The whole card is redrawn, not only the selects: its body
+       names the two templates the morning send will use, and the note under the pickers
+       lists the codes a picked wording carries that the send cannot fill. */
+    if(typeof rsvpDripRender === 'function') rsvpDripRender();
   });
 }
 /* ⭐ THE ONE SHE EDITED LAST IS THE ONE THAT SENDS ([[EM-35]], 2026-10-15). The server's
