@@ -26016,7 +26016,9 @@ function rsvpWholeRenderBreakdown(plan){
        before a re-send it is the count of everybody the last run actually reached. */
     row('Already emailed this season', plan.alreadyEmailed.length,
       (plan.remind && plan.remind.on)
-        ? (plan.reminders + ' more were asked again (last emailed ' + plan.remind.days + '+ days ago, still on hold); these are too recent')
+        /* ⚠ no "again (" here: the reliability suite reads any "name(" in the main app as a call, and the
+           schedule widget has a helper called again. */
+        ? (plan.reminders + ' more were asked again, last emailed ' + plan.remind.days + '+ days ago and still on hold; these are too recent')
         : 'they have it — not sent again') +
     row('Already answered', plan.answered, 'not asked again') +
     row('New this year', plan.newThisYear, 'never had lights \u2014 never asked') +
