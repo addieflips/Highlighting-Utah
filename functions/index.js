@@ -7700,7 +7700,8 @@ function rsvpStillOwedServer(d, remind) {
 
 async function runRsvpDailyBatch(source) {
   const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '',
-                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0, badAddress: 0, reminded: 0 };
+                cap: RSVP_DAILY_CAP, remaining: 0, standard: 0, arrears: 0, badAddress: 0, reminded: 0,
+                doneThisRound: 0, finished: false };
 
   const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
   const plan = planSnap.exists ? (planSnap.data() || {}) : null;
@@ -7777,6 +7778,18 @@ async function runRsvpDailyBatch(source) {
   const RSVP_DRIP_REFUSALS_IN_A_ROW = 3;
   /* [[EM-40]] Ask again, read off the plan: off unless Build the plan saved it on. */
   const remind = plan.remind === true ? { afterDays: Math.max(1, Math.min(60, Math.round(Number(plan.remindAfterDays) || 7))) } : null;
+  /* ⭐ [[EM-42]] ONE ROUND PER BUILD (2026-11-10). Addie: "can we make it so after all are sent it
+     automatically unticks until we tick it again". A plan is one round: anybody already asked
+     SINCE THE PLAN WAS BUILT is done for this round, whatever the Ask-again days say — without
+     this, days = 1 re-reaches the first rows of a multi-morning queue before the last rows are
+     ever sent. A plan saved before builtAt existed has no floor and behaves as it always did. */
+  const askMs = function (v) {
+    if (!v) return 0;
+    if (typeof v.toDate === 'function') { const t = v.toDate(); return isNaN(t.getTime()) ? 0 : t.getTime(); }
+    if (typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+    const t = new Date(v); return isNaN(t.getTime()) ? 0 : t.getTime();
+  };
+  const builtAtMs = askMs(plan.builtAt);
 
   for (const row of plan.queue) {
     const id = row && row.id;
@@ -7798,6 +7811,9 @@ async function runRsvpDailyBatch(source) {
        a list of candidates and somebody leaving the book is an ordinary answer to it. */
     if (!snap.exists) { out.skipped++; continue; }
     const d = snap.data() || {};
+    if (builtAtMs > 0 && Math.max(askMs(d.rsvpEmailedAt), askMs(d.arrearsRsvpEmailAt), askMs(d.rsvpRemindedAt)) >= builtAtMs) {
+      out.skipped++; out.doneThisRound++; continue;
+    }
     const why = rsvpStillOwedServer(d, remind);
     /* ⭐ [[EM-39]] A PRESENT-BUT-UNSENDABLE ADDRESS IS NAMED, NEVER A QUIET SKIP. "No email" is an
        ordinary skip; an address somebody TYPED that cannot be delivered is a record the office has to
@@ -7894,8 +7910,15 @@ async function runRsvpDailyBatch(source) {
   /* ⭐ WHAT THE RUN DID, WRITTEN WHERE THE CARD READS IT. A schedule nobody watches has
      to leave a record, or the only way to know whether it ran is that emails arrived —
      and the failure worth catching is the one where it ran and sent nothing. */
+  /* ⭐ [[EM-42]] THE ROUND IS FINISHED WHEN THE RUN WALKED THE WHOLE LIST — nobody left over for
+     tomorrow, the run did not stop early, and no send failed for a reason other than a named bad
+     address (those stay on the card to fix and must not keep the drip running for ever). Then the
+     9 AM switch turns ITSELF off and stays off until somebody ticks it again. */
+  out.finished = !out.stopped && out.remaining === 0 && (out.errors.length - out.badAddress) <= 0;
   try {
     await planSnap.ref.set({
+      ...(out.finished ? { enabled: false, autoOffAt: admin.firestore.FieldValue.serverTimestamp() } : {}),
+      lastFinished: out.finished,
       lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
       lastRunSource: source,
       lastSent: out.sent,

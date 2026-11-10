@@ -1323,6 +1323,8 @@ check('the path still has every step in it',
       'the RSVP answer, which is already a step. It exists because nothing recorded who ' +
       'the send had reached, so 392 customers Gmail refused could not be told apart from ' +
       'the ones who got it (EM-04)',
+    autoOffAt: 'when the daily RSVP plan switched its own 9 AM send off at the end of a round ' +
+      '([[EM-42]]). It is written on settings/rsvpSendPlan, not on any customer, so it is no stage of anybody\'s journey.',
     rsvpRemindedAt: 'the spacing guard on Ask again ([[EM-40]]) — the daily RSVP re-asking ' +
       'somebody still on hold once their last email is N days old. The same shape as ' +
       'rsvpEmailedAt above and excused for the same reason: it records that WE wrote to them ' +

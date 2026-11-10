@@ -25514,6 +25514,10 @@ function rsvpDripRender(){
           ? ' <span style="color:#c0392b;"><b>' + (Number(saved.lastBadAddress) || 0) + '</b> had an email address that cannot be sent to '
             + '&mdash; fix those in All Customers; they were skipped, nobody else was held back.</span>' : '')
       + (saved.lastStopped ? ' <span style="color:#c0392b;">' + esc(String(saved.lastStopped)) + '</span>' : '')
+      /* [[EM-42]] the round reached the end of its list and switched the 9 AM send off by itself. */
+      + (saved.lastFinished === true
+          ? ' <b>Everyone on this plan has been sent</b> &mdash; sending at 9:00 AM turned itself off. '
+            + 'Rebuild the plan and tick it again to send another round.' : '')
       + ((saved.lastErrors && saved.lastErrors.length)
           ? ' <span style="color:#c0392b;">' + esc(saved.lastErrors.slice(0,3).join('; ')) + '</span>' : '')
       + '</p>';
@@ -25831,7 +25835,8 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
         st.textContent = res.sent + ' sent (' + (res.arrears || 0) + ' Not Paid, '
           + (res.standard || 0) + ' ordinary), ' + (res.skipped || 0) + ' skipped'
           + (errs ? ', ' + errs + ' failed: ' + res.errors.slice(0,3).join('; ') : '')
-          + (res.stopped ? ' — ' + res.stopped : '');
+          + (res.stopped ? ' — ' + res.stopped : '')
+          + (res.finished ? ' — everyone on this plan has been sent, so sending at 9:00 AM turned itself off.' : '');
         st.style.color = (errs || res.stopped) ? 'var(--ember)' : 'var(--emerald)';
       }
     }
