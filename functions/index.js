@@ -7683,7 +7683,14 @@ function rsvpStillOwedServer(d, remind) {
        rsvpEmailedAt, arrearsRsvpEmailAt and rsvpRemindedAt) is that many days old. The same
        reading as admin.html's rsvpLastAskMillis, spelled out here because the gate lifts this
        function alone. A send stamps rsvpRemindedAt, so the same rule spaces the next one. */
-    if (!remind || !(Number(remind.afterDays) > 0)) return 'emailed';
+    /* ⭐ [[EM-41]] A WAVE OF THE SEASON CALENDAR (2026-11-10) hands `{ since }` instead — the
+       millisecond the wave started — and then somebody is owed this wave's email until their
+       last ask is ON OR AFTER that moment. One field, two readings, so a wave asks each person
+       exactly once however many mornings it takes, and the browser's rsvpRemindDue reads the
+       same two keys. */
+    const sinceMs = Number(remind && remind.since) || 0;
+    const afterDays = Number(remind && remind.afterDays) || 0;
+    if (!(sinceMs > 0) && !(afterDays > 0)) return 'emailed';
     const ms = function (v) {
       if (!v) return 0;
       if (typeof v.toDate === 'function') { const t = v.toDate(); return isNaN(t.getTime()) ? 0 : t.getTime(); }
@@ -7692,10 +7699,63 @@ function rsvpStillOwedServer(d, remind) {
     };
     const last = Math.max(ms(rec.rsvpEmailedAt), ms(rec.arrearsRsvpEmailAt), ms(rec.rsvpRemindedAt));
     if (!(last > 0)) return 'emailed';
+    if (sinceMs > 0) return last < sinceMs ? '' : 'emailed';
     const now = (typeof remind.now === 'number') ? remind.now : Date.now();
-    return (now - last) >= Number(remind.afterDays) * 86400000 ? '' : 'emailed';
+    return (now - last) >= afterDays * 86400000 ? '' : 'emailed';
   }
   return '';
+}
+
+/* ⭐ [[EM-41]] THE SEASON'S RSVP CALENDAR — WHICH WAVE IS RUNNING (2026-11-10). Addie: "It should
+ * send an email to everyone the first week of september than another email the first week of
+ * October and then one more final call email the first of November. These are three seperate
+ * emails with different Templates. And only to people who have not responded with Yes, no
+ * back next year." Then: "Can you get september and october set up for RSVP".
+ *
+ * ⭐ THE BROWSER STILL DECIDES WHO, THIS STILL ONLY SENDS. The calendar does not change the
+ * design above: admin.html writes `waves` (a start date and a template per wave) and
+ * `waveQueue` (everybody a wave MAY email — the browser-only exclusions applied, the
+ * first-year customers and the test record left off, who-owes decided per row) onto
+ * settings/rsvpSendPlan, and brings that list up to date every time the card is opened. What
+ * this side adds is the CLOCK: on a morning when a wave has started, the run walks the wave
+ * list instead of the hand-built plan, with `{ since: the wave's start }` as the already-
+ * emailed rule — so anybody whose last RSVP email predates the wave is owed this one, and
+ * anybody asked since it began is not. Answered, opted out and no-email are refused on the
+ * morning itself by rsvpStillOwedServer, which is why a list built weeks ahead is safe: the
+ * server never re-asks somebody who has since said Yes.
+ *
+ * ⚠ THE LATEST WAVE THAT HAS STARTED IS THE ACTIVE ONE, and it stays active until the next
+ * begins. 200 a morning from the 1st puts a whole book of ~960 through inside the first week —
+ * her "first week" — and after that the run finds nobody owed and sends nothing until the
+ * next date. ⚠ THESE THREE HELPERS ARE SPELLED IDENTICALLY IN admin.html (rsvpWaveStartMillis,
+ * rsvpTodayKey, rsvpActiveWave): the card's "started / starts" words and this morning's
+ * choice must be the same decision, and rsvp-daily-send.test.js compares the bodies.
+ * ⚠ MOUNTAIN TIME, STANDARD OFFSET, ON PURPOSE: a wave starts at midnight Mountain and the
+ * run is at 9 AM, so an hour of daylight-saving slop can never move a send across a day. */
+function rsvpWaveStartMillisServer(start) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(start || ''))) return 0;
+  const t = Date.parse(String(start) + 'T00:00:00-07:00');
+  return isNaN(t) ? 0 : t;
+}
+function rsvpTodayKeyServer(now) {
+  const d = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+}
+function rsvpActiveWaveServer(waves, todayKey) {
+  let best = null;
+  (Array.isArray(waves) ? waves : []).forEach(function (w) {
+    if (!w || !/^\d{4}-\d{2}-\d{2}$/.test(String(w.start || ''))) return;
+    if (String(w.start) > String(todayKey)) return;
+    if (!best || String(w.start) > String(best.start)) best = w;
+  });
+  return best;
+}
+/* The calendar is armed on a morning when it is switched on AND a wave has started. Used by
+   the 9 AM schedule beside the plan's own `enabled`, so a calendar that is on but whose first
+   wave is weeks away never runs the hand-built plan by accident. */
+function rsvpCalendarArmedServer(plan, todayKey) {
+  if (!plan || plan.calendarOn !== true) return false;
+  return !!rsvpActiveWaveServer(plan.waves, todayKey || rsvpTodayKeyServer());
 }
 
 async function runRsvpDailyBatch(source) {
@@ -7704,19 +7764,34 @@ async function runRsvpDailyBatch(source) {
 
   const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
   const plan = planSnap.exists ? (planSnap.data() || {}) : null;
-  if (!plan || !Array.isArray(plan.queue) || !plan.queue.length) {
-    out.stopped = 'There is no RSVP send plan. Build one from Automation Emails > Send the RSVP 200 a day.';
+  /* ⭐ [[EM-41]] A WAVE THAT HAS STARTED TAKES THE MORNING. With the calendar on, the run walks
+     the wave's list (the browser's candidates) under the wave's templates and the wave's
+     start as the already-asked rule; the hand-built plan below is what runs the rest of the
+     year, and when the calendar is off. See rsvpActiveWaveServer. */
+  const wave = (plan && plan.calendarOn === true) ? rsvpActiveWaveServer(plan.waves, rsvpTodayKeyServer()) : null;
+  out.wave = wave ? String(wave.key || '') : '';
+  const rows = wave ? (Array.isArray(plan.waveQueue) ? plan.waveQueue : []) : ((plan && Array.isArray(plan.queue)) ? plan.queue : []);
+  if (!plan || !rows.length) {
+    out.stopped = wave
+      ? ('The RSVP calendar’s ' + (wave.label || wave.key) + ' email has started but its list of people is empty. '
+         + 'Open Automation Emails > RSVP once so the list can be built, then this run sends it.')
+      : 'There is no RSVP send plan. Build one from Automation Emails > Send the RSVP 200 a day.';
     return out;
   }
   /* ⚠ A PLAN FROM LAST SEASON SENDS NOTHING. Start New Season clears every
      `rsvpEmailedAt`, so a plan left behind would read the whole book as unstamped and
      re-send last year's RSVP to everybody on it, using last year's split between who
      owed money and who did not. The year is written when the plan is built and must
-     match; a plan with no year at all is refused rather than assumed to be current. */
+     match; a plan with no year at all is refused rather than assumed to be current.
+     [[EM-41]] A wave is dated, so its own year is the season it belongs to. */
   const thisYear = new Date().getFullYear();
-  if (Number(plan.season) !== thisYear) {
-    out.stopped = 'The saved RSVP plan is for ' + (plan.season || 'an unknown season')
-      + ' and this is ' + thisYear + '. Build it again so it uses this season’s customers.';
+  const planYear = wave ? Number(String(wave.start).slice(0, 4)) : Number(plan.season);
+  if (planYear !== thisYear) {
+    out.stopped = wave
+      ? ('The RSVP calendar’s ' + (wave.label || wave.key) + ' email is dated ' + wave.start + ' and this is '
+         + thisYear + '. Set this season’s dates on the calendar.')
+      : ('The saved RSVP plan is for ' + (plan.season || 'an unknown season')
+         + ' and this is ' + thisYear + '. Build it again so it uses this season’s customers.');
     return out;
   }
 
@@ -7744,11 +7819,18 @@ async function runRsvpDailyBatch(source) {
      ⚠ A PLAN FROM BEFORE THE IDS EXISTED IS REFUSED RATHER THAN GUESSED AT. Falling back
      to the old name lookup here would quietly restore the disagreement for exactly the
      plans most likely to have it, and the fix is one press of Build the plan. */
-  const tplIds = { standard: String(plan.standardTemplateId || ''), arrears: String(plan.arrearsTemplateId || '') };
+  /* [[EM-41]] a wave names its own email; its owes-from-last-season email is optional and
+     falls back to the same wording, so "both templates or neither" below still holds. */
+  const tplIds = wave
+    ? { standard: String(wave.templateId || ''), arrears: String(wave.arrearsTemplateId || wave.templateId || '') }
+    : { standard: String(plan.standardTemplateId || ''), arrears: String(plan.arrearsTemplateId || '') };
   if (!tplIds.standard || !tplIds.arrears) {
-    out.stopped = 'This plan does not say which of your RSVP emails to send. Press Build '
-      + 'the plan again — it records the two templates by name and id so this run sends '
-      + 'exactly the ones the card shows you.';
+    out.stopped = wave
+      ? ('The RSVP calendar’s ' + (wave.label || wave.key) + ' email has no template picked. '
+         + 'Pick one on Automation Emails > RSVP and save the calendar.')
+      : ('This plan does not say which of your RSVP emails to send. Press Build '
+         + 'the plan again — it records the two templates by name and id so this run sends '
+         + 'exactly the ones the card shows you.');
     return out;
   }
   const tpls = {};
@@ -7776,9 +7858,12 @@ async function runRsvpDailyBatch(source) {
   let refusedInARow = 0;
   const RSVP_DRIP_REFUSALS_IN_A_ROW = 3;
   /* [[EM-40]] Ask again, read off the plan: off unless Build the plan saved it on. */
-  const remind = plan.remind === true ? { afterDays: Math.max(1, Math.min(60, Math.round(Number(plan.remindAfterDays) || 7))) } : null;
+  const remind = wave
+    /* [[EM-41]] this wave's email is owed by anybody not asked since it began. */
+    ? { since: rsvpWaveStartMillisServer(wave.start) }
+    : (plan.remind === true ? { afterDays: Math.max(1, Math.min(60, Math.round(Number(plan.remindAfterDays) || 7))) } : null);
 
-  for (const row of plan.queue) {
+  for (const row of rows) {
     const id = row && row.id;
     if (!id) { out.skipped++; continue; }
     /* ⚠ THE CAP IS COUNTED IN SENDS, NEVER IN ROWS WALKED. Counting rows would make a
@@ -7898,6 +7983,8 @@ async function runRsvpDailyBatch(source) {
     await planSnap.ref.set({
       lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
       lastRunSource: source,
+      /* [[EM-41]] which wave of the calendar this morning was, '' for the hand-built plan. */
+      lastWave: out.wave || '',
       lastSent: out.sent,
       lastSkipped: out.skipped,
       lastErrors: out.errors.slice(0, 5),
@@ -8230,7 +8317,8 @@ exports.sendRsvpDaily = onSchedule(
   { schedule: '0 9 * * *', timeZone: 'America/Denver', memory: '512MiB', timeoutSeconds: 540 },
   async () => {
     const planSnap = await db.collection('settings').doc('rsvpSendPlan').get();
-    if (!planSnap.exists || !planSnap.data().enabled) {
+    /* [[EM-41]] the calendar arms the morning on its own once a wave has started. */
+    if (!planSnap.exists || (!planSnap.data().enabled && !rsvpCalendarArmedServer(planSnap.data()))) {
       return; // off — and off is the shipped state. See the block above.
     }
     const res = await runRsvpDailyBatch('schedule');

@@ -7176,8 +7176,23 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             A reminder stamps `rsvpRemindedAt` and `rsvpRemindCount`, never `rsvpEmailedAt`, and the
             latest of the three stamps is what the days rule measures from. The card says how many on
             the plan are reminders. ⚠ Off, the old rule holds: once asked, never asked again.
-            [[EM-41]] records the next step she asked for and which is not built yet: three automatic
-            waves (early September, early October, 1 November), each its own template, unanswered only.
+          - ⭐ **THE SEASON'S RSVP CALENDAR ([[EM-41]], 2026-11-10).** Addie: *"It should send an email to
+            everyone the first week of september than another email the first week of October and then one
+            more final call email the first of November. These are three seperate emails with different
+            Templates. And only to people who have not responded with Yes, no back next year."* Three rows
+            on the Daily send card — First email, Second email, Final call — each with a start date (1 Sept,
+            1 Oct, 1 Nov of the coming season by default), an email picked from the RSVP folder (the other
+            answerable wordings follow, the rest are greyed with the reason) and, optionally, a second email
+            for those who owe from last season. One *On* switch, one *Save the calendar*. From a wave's date
+            the 9 AM run sends THAT wave, *How many a day* at a time, to everyone still unanswered who has
+            not been asked since the wave began — so each wave asks each person once, and 200 a morning from
+            the 1st reaches the whole book inside the first week. Anyone who answers in between is left
+            alone. The latest wave that has started is the one running; it stays the morning's send until
+            the next date. ⚠ **THE LIST IS BUILT ON THE CARD AND REFRESHED WHENEVER THE CARD IS OPENED**,
+            once per page load, only when it changed — the first-year and who-owes rules live only in the
+            browser, so the list is written there and the server refuses the answered on the morning itself.
+            ⚠ While the calendar is on, the hand-built plan is not sent; the card shows the wave instead.
+            ⚠ It does not put the book on Unanswered — the Dashboard reset is still pressed first.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season

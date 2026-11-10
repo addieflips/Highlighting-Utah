@@ -89,7 +89,9 @@ BROWSER_LIFTS.forEach(function (n) {
   check('lifted ' + n + ' from admin.html and it parses', liftOk(liftFrom(admin, n)),
     'a truncated lift answers confidently and wrongly while the suite reports green');
 });
-const SERVER_LIFTS = ['rsvpStillOwedServer', 'runRsvpDailyBatch', 'rsvpEmailBodyServer'];
+const SERVER_LIFTS = ['rsvpStillOwedServer', 'runRsvpDailyBatch', 'rsvpEmailBodyServer',
+  /* [[EM-41]] the calendar's clock */
+  'rsvpWaveStartMillisServer', 'rsvpTodayKeyServer', 'rsvpActiveWaveServer', 'rsvpCalendarArmedServer'];
 SERVER_LIFTS.forEach(function (n) {
   check('lifted ' + n + ' from functions/index.js and it parses', liftOk(liftFrom(fns, n)),
     'a truncated lift answers confidently and wrongly while the suite reports green');
@@ -755,7 +757,10 @@ const runBatch = (function () {
     (liftFrom(fns, 'canonicalEmailCodesServer') || '') + '\n' + (liftFrom(fns, 'rsvpEmailBodyServer') || '');
   const batchSrc = liftFrom(fns, 'runRsvpDailyBatch');
   const gateSrc = liftFrom(fns, 'rsvpStillOwedServer');
-  if (!bodySrc || !batchSrc || !gateSrc) return null;
+  /* [[EM-41]] the wave helpers are LIFTED, never stubbed — which wave a morning belongs to is the
+     claim. Only "today" is handed in (o.today, 'YYYY-MM-DD'), so a scenario can stand on any date. */
+  const waveSrc = (liftFrom(fns, 'rsvpWaveStartMillisServer') || '') + '\n' + (liftFrom(fns, 'rsvpActiveWaveServer') || '');
+  if (!bodySrc || !batchSrc || !gateSrc || !waveSrc.trim()) return null;
   return function (opts) {
     const o = opts || {};
     const book = o.book;
@@ -819,6 +824,7 @@ const runBatch = (function () {
       referralShareBoxHtmlServer: function (a, b) { return '<i>' + a + '|' + b + '</i>'; },
       console: { error: function () {}, warn: function () {}, log: function () {} },
       RSVP_DAILY_CAP: 200,
+      rsvpTodayKeyServer: function () { return o.today || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }); },
       /* ⚠ THE REFUSAL IS ONE-SHOT, AND THE RED-CHECK IS WHY. A sticky failure — one that
          keeps refusing once it has started — cannot tell `break` from `continue`: with
          nothing more being sent, `sent.length` never moves past the failing index, so the
@@ -847,7 +853,7 @@ const runBatch = (function () {
        here gives `async async function`, a parse error that kills the whole file as one
        unattributable crash. §7's anchor rule, in the opposite direction. */
     const fn = new Function(...names,
-      bodySrc + '\n' + gateSrc + '\n' + batchSrc + '\nreturn runRsvpDailyBatch;')(
+      bodySrc + '\n' + gateSrc + '\n' + waveSrc + '\n' + batchSrc + '\nreturn runRsvpDailyBatch;')(
       ...names.map(function (k) { return sandbox[k]; }));
     /* ⚠ A THROW BECOMES A NAMED FAILURE, NOT A DEAD RUN. `runRsvpDailyBatch` calling a name
        this sandbox was never given is the extraction-list trap, and CLAUDE.md's rule for it
@@ -1451,6 +1457,275 @@ if (runBatch) {
     '{{rsvp_yes_button}} in their inbox');
   check('and the renderer itself is declared once',
     (fns.match(/function rsvpEmailBodyServer\(/g) || []).length === 1);
+}
+
+/* ==================================================================
+   9. [[EM-41]] THE SEASON'S RSVP CALENDAR — three dated waves, a template each.
+   ==================================================================
+   Addie: "It should send an email to everyone the first week of september than another
+   email the first week of October and then one more final call email the first of
+   November. These are three seperate emails with different Templates. And only to people
+   who have not responded with Yes, no back next year." — "I want to make it so I can select
+   which template from the RSVP Folder." — "Can you get september and october set up for RSVP".
+
+   ⭐ THE CLAIM THAT EARNS THE SECTION: on a morning after a wave's date the run sends THAT
+   wave's template to everyone still unanswered who has not been asked since the wave began,
+   and to nobody else — and the browser's words about which wave is running are the server's
+   choice, spelled once on each side and compared here. */
+{
+  const DAY2 = 86400000;
+  /* ---- the clock, both sides ---- */
+  const browserCal = (function () {
+    const names = ['rsvpCalendarSeasonYear', 'rsvpWaveDefaults', 'rsvpWaveStartMillis', 'rsvpTodayKey', 'rsvpActiveWave'];
+    const src = names.map(function (n) { return liftFrom(admin, n); });
+    if (!src.every(Boolean)) return null;
+    const wavesConst = admin.slice(admin.indexOf('const RSVP_WAVES = ['), admin.indexOf('];', admin.indexOf('const RSVP_WAVES = [')) + 2);
+    return new Function(wavesConst + '\n' + src.join('\n') + '\nreturn { year: rsvpCalendarSeasonYear, defaults: rsvpWaveDefaults, since: rsvpWaveStartMillis, today: rsvpTodayKey, active: rsvpActiveWave };')();
+  })();
+  check('EM-41: the browser calendar helpers could be lifted', !!browserCal);
+  const serverCal = (function () {
+    const src = ['rsvpWaveStartMillisServer', 'rsvpTodayKeyServer', 'rsvpActiveWaveServer', 'rsvpCalendarArmedServer'].map(function (n) { return liftFrom(fns, n); });
+    if (!src.every(Boolean)) return null;
+    return new Function(src.join('\n') + '\nreturn { since: rsvpWaveStartMillisServer, today: rsvpTodayKeyServer, active: rsvpActiveWaveServer, armed: rsvpCalendarArmedServer };')();
+  })();
+  check('EM-41: the server calendar helpers could be lifted', !!serverCal);
+  if (browserCal) {
+    const nov10 = new Date(2026, 10, 10);
+    const defs = browserCal.defaults(nov10);
+    check('EM-41: asked on 10 November 2026 the calendar is for NEXT season — 1 Sept, 1 Oct, 1 Nov 2027',
+      browserCal.year(nov10) === 2027 && defs.length === 3
+        && defs.map(function (w) { return w.key + ':' + w.start; }).join(' ') === 'sep:2027-09-01 oct:2027-10-01 nov:2027-11-01',
+      JSON.stringify(defs));
+    check('EM-41: asked in June, or on the final call\'s own date, it is still THIS season',
+      browserCal.year(new Date(2027, 5, 1)) === 2027 && browserCal.year(new Date(2027, 10, 1)) === 2027,
+      'rolling the year on 1 November would move the final call out from under the run on its own morning');
+    check('EM-41: the latest wave that has started is the active one, and none before the first',
+      browserCal.active(defs, '2027-08-31') === null
+        && browserCal.active(defs, '2027-09-01').key === 'sep'
+        && browserCal.active(defs, '2027-09-20').key === 'sep'
+        && browserCal.active(defs, '2027-10-01').key === 'oct'
+        && browserCal.active(defs, '2027-12-25').key === 'nov',
+      'the September wave stays the morning\'s send until October begins');
+    check('EM-41: a wave with a broken or missing date is ignored, never read as "started"',
+      browserCal.active([{ key: 'x', start: '' }, { key: 'y', start: 'next week' }], '2027-09-01') === null
+        && browserCal.since('') === 0 && browserCal.since('2027-9-1') === 0 && browserCal.since('2027-09-01') > 0,
+      'a half-typed date that reads as started would send a wave today');
+    check('EM-41: the start is midnight Mountain and the date key is Mountain too',
+      browserCal.since('2027-09-01') === Date.parse('2027-09-01T07:00:00Z')
+        && browserCal.today(new Date('2027-09-01T05:30:00Z')) === '2027-08-31'
+        && browserCal.today(new Date('2027-09-01T07:30:00Z')) === '2027-09-01',
+      'a UTC date key would start the September wave the evening before, Mountain time');
+  }
+  if (browserCal && serverCal) {
+    const norm = function (src, name) {
+      /* spacing normalised around punctuation only — the two files keep their own brace style on
+         purpose (houseLightsText's rule) and the claim is that they DECIDE the same wave */
+      return stripComments(String(src || '')).replace(new RegExp(name + 'Server', 'g'), name)
+        .replace(/\s*([(){}\[\],;=<>!|&+\-*\/?:])\s*/g, '$1').replace(/\s+/g, ' ').trim();
+    };
+    ['rsvpWaveStartMillis', 'rsvpTodayKey', 'rsvpActiveWave'].forEach(function (n) {
+      check('EM-41: ' + n + ' is the same code on both sides',
+        norm(liftFrom(admin, n), n) === norm(liftFrom(fns, n + 'Server'), n),
+        'the card saying "running since 1 Sept" while the server picks a different wave is EM-16\'s card-says-one-thing failure');
+    });
+    const defs = browserCal.defaults(new Date(2026, 10, 10));
+    check('EM-41: the calendar arms the morning only when it is ON and a wave has started',
+      serverCal.armed({ calendarOn: true, waves: defs }, '2027-09-01') === true
+        && serverCal.armed({ calendarOn: true, waves: defs }, '2027-08-31') === false
+        && serverCal.armed({ calendarOn: false, waves: defs }, '2027-09-01') === false
+        && serverCal.armed(null, '2027-09-01') === false,
+      'armed before the first date would run the hand-built plan with enabled off');
+  }
+  /* ---- the since-mode gate: owed until asked on or after the wave began ---- */
+  {
+    const gate = new Function('digitsOnly', (liftFrom(fns, 'rsvpStillOwedServer') || '') + '\nreturn rsvpStillOwedServer;')(function (v) { return String(v || '').replace(/\D/g, ''); });
+    const since = Date.parse('2027-09-01T07:00:00Z');
+    check('EM-41: with { since } somebody asked BEFORE the wave is owed it, somebody asked since is not, somebody never asked is',
+      gate({ email: 'a@x.com', rsvpEmailedAt: since - 30 * DAY2 }, { since: since }) === ''
+        && gate({ email: 'a@x.com', rsvpEmailedAt: since - 30 * DAY2, rsvpRemindedAt: since + DAY2 }, { since: since }) === 'emailed'
+        && gate({ email: 'a@x.com', arrearsRsvpEmailAt: since + 3 * 3600000 }, { since: since }) === 'emailed'
+        && gate({ email: 'a@x.com' }, { since: since }) === '',
+      'the wave rule: each person once per wave, however many mornings it takes');
+    check('EM-41: and an answer, an opt-out or a bad address still refuse inside a wave',
+      gate({ email: 'a@x.com', rsvpStatus: 'yes', rsvpRespondedAt: 1 }, { since: since }) === 'answered'
+        && gate({ email: 'a@x.com', maybeNextYear: true }, { since: since }) === 'answered'
+        && gate({ email: 'a@x.com', noAutomationEmails: true }, { since: since }) === 'optedout'
+        && gate({ email: 'nope', rsvpEmailedAt: 1 }, { since: since }) === 'noemail',
+      'the list is built weeks ahead; these are the reasons that have to be decided on the morning');
+  }
+  /* ---- the run, on a wave morning ---- */
+  if (runBatch) {
+    const since = Date.parse('2027-09-01T07:00:00Z');
+    const waves = [{ key: 'sep', label: 'First email', start: '2027-09-01', templateId: 'tplSep', arrearsTemplateId: 'tplSepArr' },
+                   { key: 'oct', label: 'Second email', start: '2027-10-01', templateId: 'tplOct', arrearsTemplateId: '' },
+                   { key: 'nov', label: 'Final call', start: '2027-11-01', templateId: 'tplNov', arrearsTemplateId: '' }];
+    const person = function (id, extra) { return Object.assign({ id: id, name: 'Cust ' + id, email: id + '@x.com' }, extra || {}); };
+    const yr = new Date().getFullYear();
+    /* the wave's dates are in the year the run happens in, because the run refuses another year */
+    const thisYearWaves = waves.map(function (w) { return Object.assign({}, w, { start: String(yr) + w.start.slice(4) }); });
+    const sinceThisYear = Date.parse(String(yr) + '-09-01T07:00:00Z');
+    pending.push(runBatch({
+      book: [person('old', { rsvpEmailedAt: sinceThisYear - 20 * DAY2 }), person('fresh', { rsvpEmailedAt: sinceThisYear + DAY2 }),
+             person('never'), person('said', { rsvpStatus: 'no', rsvpRespondedAt: 1 }), person('owes', { t: 'arrears', rsvpEmailedAt: sinceThisYear - 5 * DAY2 }),
+             person('notOnList')],
+      plan: { enabled: false, calendarOn: true, waves: thisYearWaves,
+              waveQueue: [{ id: 'owes', t: 'arrears' }, { id: 'old', t: 'standard' }, { id: 'fresh', t: 'standard' }, { id: 'never', t: 'standard' }, { id: 'said', t: 'standard' }],
+              queue: [{ id: 'notOnList', t: 'standard' }], standardTemplateId: 'tplS', arrearsTemplateId: 'tplA' },
+      today: String(yr) + '-09-03'
+    }).then(function (r) {
+      const to = r.sent.map(function (x) { return x.to_email; }).sort().join(',');
+      check('EM-41: on a wave morning the run walks the WAVE list — asked-before-the-wave and never-asked go, asked-since and answered do not, the hand-built plan is not touched',
+        r.out.wave === 'sep' && to === 'never@x.com,old@x.com,owes@x.com' && r.out.skipped === 2 && r.out.sent === 3,
+        JSON.stringify({ wave: r.out.wave, to: to, skipped: r.out.skipped, stopped: r.out.stopped, errors: r.out.errors }));
+      check('EM-41: it sends the WAVE\'s template, and the wave\'s owes-from-last-season one to those who owe',
+        r.sent.every(function (x) { return x.to_email === 'owes@x.com' ? x.subject === 'tplSepArr' : x.subject === 'tplSep'; }),
+        JSON.stringify(r.sent.map(function (x) { return x.to_email + ':' + x.subject; })));
+      check('EM-41: a wave stamps the way Ask again does — a first ask gets rsvpEmailedAt, a re-ask gets rsvpRemindedAt and the count',
+        r.stamped.some(function (s) { return s.id === 'never' && s.u.rsvpEmailedAt === 'now' && !('rsvpRemindedAt' in s.u); })
+          && r.stamped.some(function (s) { return s.id === 'old' && s.u.rsvpRemindedAt === 'now' && s.u.rsvpRemindCount === 'inc1' && !('rsvpEmailedAt' in s.u); })
+          && r.stamped.some(function (s) { return s.id === 'owes' && s.u.arrearsRsvpEmailAt === 'now'; }),
+        JSON.stringify(r.stamped));
+      check('EM-41: the run record names the wave', r.written.rsvpSendPlan && r.written.rsvpSendPlan.lastWave === 'sep',
+        JSON.stringify(r.written.rsvpSendPlan));
+    }));
+    pending.push(runBatch({
+      book: [person('a', { rsvpEmailedAt: sinceThisYear - 60 * DAY2, t: 'arrears' })],
+      plan: { calendarOn: true, waves: thisYearWaves, waveQueue: [{ id: 'a', t: 'arrears' }], queue: [], standardTemplateId: '', arrearsTemplateId: '' },
+      today: String(yr) + '-10-15'
+    }).then(function (r) {
+      check('EM-41: in October the second wave is the morning\'s send, and a wave with no owes-from-last-season email sends its one email to everybody',
+        r.out.wave === 'oct' && r.out.sent === 1 && r.sent[0].subject === 'tplOct',
+        JSON.stringify({ wave: r.out.wave, sent: r.out.sent, subj: r.sent.map(function (x) { return x.subject; }), stopped: r.out.stopped }));
+    }));
+    pending.push(runBatch({
+      book: [person('a'), person('b')],
+      plan: { calendarOn: true, waves: thisYearWaves, waveQueue: [{ id: 'b', t: 'standard' }], queue: [{ id: 'a', t: 'standard' }] },
+      today: String(yr) + '-08-20'
+    }).then(function (r) {
+      check('EM-41: before the first date the calendar changes nothing — the hand-built plan is what runs',
+        r.out.wave === '' && r.out.sent === 1 && r.sent[0].to_email === 'a@x.com',
+        JSON.stringify({ wave: r.out.wave, to: r.sent.map(function (x) { return x.to_email; }) }));
+    }));
+    pending.push(runBatch({
+      book: [person('a'), person('b')],
+      plan: { calendarOn: false, waves: thisYearWaves, waveQueue: [{ id: 'b', t: 'standard' }], queue: [{ id: 'a', t: 'standard' }] },
+      today: String(yr) + '-09-03'
+    }).then(function (r) {
+      check('EM-41: with the calendar OFF a started wave is ignored and the hand-built plan runs',
+        r.out.wave === '' && r.out.sent === 1 && r.sent[0].to_email === 'a@x.com',
+        JSON.stringify({ wave: r.out.wave, to: r.sent.map(function (x) { return x.to_email; }) }));
+    }));
+    pending.push(runBatch({
+      book: [person('a')],
+      plan: { calendarOn: true, waves: thisYearWaves, waveQueue: [], queue: [{ id: 'a', t: 'standard' }] },
+      today: String(yr) + '-09-03'
+    }).then(function (r) {
+      check('EM-41: a started wave with an EMPTY list stops and names the wave, rather than falling back to the plan',
+        r.out.sent === 0 && /First email/.test(r.out.stopped) && /list of people is empty/.test(r.out.stopped),
+        JSON.stringify({ sent: r.out.sent, stopped: r.out.stopped }));
+    }));
+    pending.push(runBatch({
+      book: [person('a')],
+      plan: { calendarOn: true, waves: waves.map(function (w) { return Object.assign({}, w, { start: String(yr - 1) + w.start.slice(4) }); }), waveQueue: [{ id: 'a', t: 'standard' }] },
+      today: String(yr) + '-09-03'
+    }).then(function (r) {
+      check('EM-41: a wave dated another year is refused, like a plan from another season',
+        r.out.sent === 0 && /dated/.test(r.out.stopped),
+        JSON.stringify({ sent: r.out.sent, stopped: r.out.stopped }));
+    }));
+    pending.push(runBatch({
+      book: [person('a')],
+      plan: { calendarOn: true, waves: thisYearWaves.map(function (w) { return Object.assign({}, w, { templateId: '' }); }), waveQueue: [{ id: 'a', t: 'standard' }] },
+      today: String(yr) + '-09-03'
+    }).then(function (r) {
+      check('EM-41: a started wave with no template picked stops and says so',
+        r.out.sent === 0 && /no template picked/.test(r.out.stopped),
+        JSON.stringify({ sent: r.out.sent, stopped: r.out.stopped }));
+    }));
+    pending.push(runBatch({
+      book: Array.from({ length: 5 }, function (_, i) { return person('p' + i); }),
+      plan: { calendarOn: true, waves: thisYearWaves, perDay: 2, waveQueue: Array.from({ length: 5 }, function (_, i) { return { id: 'p' + i, t: 'standard' }; }) },
+      today: String(yr) + '-09-01'
+    }).then(function (r) {
+      check('EM-41: a wave is paced by How many a day like the plan — 200 a morning from the 1st is the first week',
+        r.out.sent === 2 && r.out.remaining === 3, JSON.stringify({ sent: r.out.sent, remaining: r.out.remaining }));
+    }));
+  }
+  /* ---- the 9 AM switch ---- */
+  {
+    const sched = stripComments(fns.slice(fns.indexOf('exports.sendRsvpDaily = onSchedule('), fns.indexOf('exports.runRsvpDailyNow')));
+    check('EM-41: the 9 AM schedule runs when the plan is on OR the calendar is armed, and nothing else reads calendarOn there',
+      /!planSnap\.data\(\)\.enabled && !rsvpCalendarArmedServer\(planSnap\.data\(\)\)/.test(sched),
+      'a calendar that is on but unarmed must not run the hand-built plan with enabled off');
+  }
+  /* ---- the browser list and the wave progress ---- */
+  {
+    const src = ['rsvpWaveQueue', 'rsvpWaveProgress', 'rsvpLastAskMillis', 'rsvpWaveStartMillis', 'rsvpSendSkipReason', 'rsvpHasAnswered'].map(function (n) { return liftFrom(admin, n); });
+    check('EM-41: the browser list builder and progress reader could be lifted', src.every(Boolean));
+    if (src.every(Boolean)) {
+      const sinceMs = Date.parse('2027-09-01T07:00:00Z');
+      const book = [
+        { id: 'new1', data: { name: 'New', email: 'n@x.com', isNew: true } },
+        { id: 'test1', data: { name: 'Test', email: 't@x.com', isTestRecord: true } },
+        { id: 'said', data: { name: 'Said', email: 's@x.com', rsvpStatus: 'yes', rsvpRespondedAt: 1 } },
+        { id: 'asked', data: { name: 'Asked', email: 'a@x.com', rsvpEmailedAt: sinceMs - 10 * DAY2 } },
+        { id: 'owes', data: { name: 'Owes', email: 'o@x.com', owes: true } },
+        { id: 'noemail', data: { name: 'No', email: '' } },
+        { id: 'out', data: { name: 'Out', email: 'x@x.com', noAutomationEmails: true } },
+        { id: 'since', data: { name: 'Since', email: 'z@x.com', rsvpEmailedAt: sinceMs + DAY2 } }
+      ];
+      const fn = new Function('jobAddresses', 'audienceHasLastSeason', 'isTestRecordData', 'audienceNeverAsked', 'effectiveRsvpStatus', 'etNoAutomationEmails', 'houseOwesFromLastSeason',
+        src.join('\n') + '\nreturn { queue: rsvpWaveQueue, progress: rsvpWaveProgress };')(
+        book, function () { return true; }, function (d) { return d.isTestRecord === true; }, function (d) { return d.isNew === true; },
+        function (d) { return d.rsvpStatus; }, function (d) { return d.noAutomationEmails === true; }, function (d) { return d.owes === true; });
+      const q = fn.queue();
+      const ids = q.standard.concat(q.arrears).map(function (m) { return m.id; }).sort().join(',');
+      check('EM-41: the wave list leaves off first-year, test, opted-out and no-email, and KEEPS the answered and the already-asked for the morning to decide',
+        q.ready && ids === 'asked,owes,said,since' && q.arrears.length === 1 && q.arrears[0].id === 'owes',
+        'got ' + ids + ' — a list that dropped the answered would carry THIS season\'s answers into next season\'s wave');
+      const rows = [{ id: 'owes', t: 'arrears' }, { id: 'asked', t: 'standard' }, { id: 'said', t: 'standard' }, { id: 'since', t: 'standard' }, { id: 'gone', t: 'standard' }];
+      const p = fn.progress({ start: '2027-09-01' }, rows);
+      check('EM-41: progress reads the stamps the way the server does — asked since the wave is "gone out", unanswered-not-yet is "still to go", answered or left is neither',
+        p.total === 5 && p.sent === 1 && p.waiting === 2 && p.waitingArrears === 1 && p.waitingStandard === 1 && p.dropped === 2,
+        JSON.stringify(p));
+    }
+  }
+  /* ---- the wiring ---- */
+  {
+    const plain = stripComments(admin);
+    ['rsvpCalendar', 'rsvpCalendarOn', 'rsvpCalendarWaves', 'rsvpCalendarSaveBtn', 'rsvpCalendarStatus'].forEach(function (id) {
+      check('EM-41: the markup carries #' + id, admin.indexOf('id="' + id + '"') !== -1);
+    });
+    const render = stripComments(liftFrom(admin, 'rsvpDripRender') || '');
+    check('EM-41: the card draws the calendar rows, refreshes the list, and shows the WAVE while one is running',
+      /renderRsvpCalendar\(\)/.test(render) && /rsvpCalendarRefreshQueue\(\)/.test(render)
+        && (render.match(/rsvpCalendarBodyHtml\(saved, calWave, per, ranToday, line\)/g) || []).length === 2,
+      'a running wave with the card still describing the hand-built plan is the card promising a send that is not happening');
+    const saveSrc = plain.slice(plain.indexOf("getElementById('rsvpCalendarSaveBtn')?.addEventListener('click'"), plain.indexOf("getElementById('rsvpCalendarOn')?.addEventListener('change'"));
+    check('EM-41: Save the calendar writes the waves, the list and the switch onto the plan document, refusing a wave with no date or no email and dates out of order',
+      saveSrc.length > 200 && /waves: waves,/.test(saveSrc) && /calendarOn: on,/.test(saveSrc) && /waveQueue: rows,/.test(saveSrc)
+        && /needs a date/.test(saveSrc) && /Pick an email for the/.test(saveSrc) && /must start after the/.test(saveSrc)
+        && /setDoc\(doc\(db,'settings','rsvpSendPlan'\), write, \{merge: true\}\)/.test(saveSrc),
+      'a calendar saved without its list is a wave the server stops on, on a morning nobody is watching');
+    const refresh = stripComments(liftFrom(admin, 'rsvpCalendarRefreshQueue') || '');
+    check('EM-41: the automatic refresh is once per page load, compares before writing, and writes only the list',
+      /if\(rsvpCalendarRefreshed\) return false;/.test(refresh) && /rsvpCalendarRefreshed = true;/.test(refresh)
+        && /JSON\.stringify\(rows\) === JSON\.stringify\(c\.waveQueue \|\| \[\]\)/.test(refresh)
+        && /waveQueue: rows/.test(refresh) && !/calendarOn/.test(refresh) && !/waves:/.test(refresh),
+      'a write per render is the plan-bounce SCH-153 closed; a refresh that touched the switch could arm a calendar by drawing a card');
+    const picks = stripComments(liftFrom(admin, 'rsvpCalendarTemplateOptionsHtml') || '');
+    check('EM-41: the wave pickers list the RSVP folder first, then the other answerable wordings, and grey out the rest with the reason',
+      /folderName/.test(picks) && /rsvpDripTemplatePickable\(t\)/.test(picks) && /not in the RSVP folder/.test(picks) && /disabled/.test(picks),
+      'her words: "select which template from the RSVP Folder"');
+    const onSrc = plain.slice(plain.indexOf("getElementById('rsvpCalendarOn')?.addEventListener('change'"));
+    check('EM-41: the switch refuses to arm a calendar whose rows are not all saved with a date and an email',
+      /this\.checked = false;/.test(onSrc.slice(0, 1200)) && /every\(function\(w\)\{ return w && w\.templateId && rsvpWaveStartMillis\(w\.start\); \}\)/.test(onSrc),
+      'on with nothing to send is a card that looks armed and a morning that sends nothing');
+    const sendNow = stripComments(admin.slice(admin.indexOf("getElementById('rsvpDripSendNowBtn')?.addEventListener('click'"), admin.indexOf('function rsvpSendSkipReason(')));
+    check('EM-41: Send today\'s batch now is allowed while a wave is running even with no hand-built plan, and names the wave in its result',
+      /!calWave && \(!saved \|\| !Array\.isArray\(saved\.queue\)/.test(sendNow) && /res\.wave/.test(sendNow),
+      'the button refusing during a wave would say "no plan" about a send that is happening every morning');
+  }
 }
 
 /* ------------------------------------------------------------------

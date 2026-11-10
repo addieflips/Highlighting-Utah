@@ -4312,6 +4312,32 @@
           <input type="number" id="rsvpDripRemindDays" min="1" max="60" step="1" value="7" style="width:70px; margin:0;">
           <span>days old (rebuild the plan after changing this)</span>
         </label>
+        <!-- ⭐ [[EM-41]] THE SEASON'S RSVP CALENDAR (2026-11-10). Addie: "It should send an email to
+             everyone the first week of september than another email the first week of October and then
+             one more final call email the first of November. These are three seperate emails with
+             different Templates. And only to people who have not responded with Yes, no back next
+             year." Then: "I want to make it so I can select which template from the RSVP Folder." and
+             "Can you get september and october set up for RSVP". Three dated waves, a template each
+             (picked from the RSVP folder and the other answerable wordings), switched on once. On a
+             morning after a wave's date the 9 AM run sends that wave, 200 a day, to everyone still
+             unanswered who has not been asked since the wave began — so 200 a day from the 1st is the
+             first week. The rows are drawn by renderRsvpCalendar; the controls are never redrawn while
+             one has the focus or an unsaved edit ([[MSG-15]]'s editor lesson). -->
+        <div id="rsvpCalendar" style="border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 10px; background:var(--snow);">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+            <b style="font-size:13px;">The season&rsquo;s RSVP calendar</b>
+            <label style="display:flex; align-items:center; gap:6px; margin:0 0 0 auto; font-size:13px;">
+              <input type="checkbox" id="rsvpCalendarOn" style="width:auto; margin:0;">
+              <span>On &mdash; the 9:00 AM run follows this calendar</span>
+            </label>
+          </div>
+          <p class="form-note" style="margin:0 0 8px;">Three emails a season, each to <b>everyone who has not answered Yes, No or Back Next Year</b> by then, and each person once per email. From the date you set, <b>How many a day</b> go out each morning until everyone has had it &mdash; 200 a day from the 1st reaches the whole book inside the first week. Anyone who answers in between is left alone. Those who owe from last season get the second email on the row if you pick one, otherwise the same one as everybody else.</p>
+          <div id="rsvpCalendarWaves" style="display:grid; grid-template-columns:auto auto minmax(170px, 1fr) minmax(170px, 1fr); gap:6px 10px; align-items:center; font-size:13px;"></div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+            <button type="button" class="btn btn-outline btn-sm" id="rsvpCalendarSaveBtn">Save the calendar</button>
+            <span id="rsvpCalendarStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+        </div>
         <div id="rsvpDripStatus" style="font-size:13px; color:var(--slate);"></div>
       </div>
       </div>
@@ -25345,6 +25371,8 @@ function rsvpDripRender(){
   if(remindDaysEl && document.activeElement !== remindDaysEl) remindDaysEl.value = remindSaved.days;
   /* [[EM-36]] The two pickers follow the template list and the saved choice. */
   if(typeof renderRsvpDripTemplatePickers === 'function') renderRsvpDripTemplatePickers();
+  /* [[EM-41]] the calendar's three rows follow the saved waves and the template list. */
+  if(typeof renderRsvpCalendar === 'function') renderRsvpCalendar();
 
   /* ⭐ THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF THIS SILENTLY DO NOTHING,
      so it is checked before anything else is drawn. The browser sends with the PUBLIC key
@@ -25385,6 +25413,9 @@ function rsvpDripRender(){
   const ranToday = rsvpDripRanToday(saved && saved.lastRunAt);
   const thisYear = new Date().getFullYear();
   const wrongSeason = queue && Number(saved.season) !== thisYear;
+  /* [[EM-41]] the calendar's list is brought up to date whenever the card can see the book. */
+  if(typeof rsvpCalendarRefreshQueue === 'function') rsvpCalendarRefreshQueue();
+  const calWave = (typeof rsvpCalendarActiveWave === 'function') ? rsvpCalendarActiveWave() : null;
 
   const line = function(label, value, note){
     return '<div style="display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line);">'
@@ -25394,6 +25425,12 @@ function rsvpDripRender(){
   };
 
   if(!queue || !queue.length){
+    if(calWave){
+      /* [[EM-41]] no hand-built plan, but a wave of the calendar is running: that is the send. */
+      rsvpDripSetButtons(true, per);
+      box.innerHTML = rsvpCalendarBodyHtml(saved, calWave, per, ranToday, line);
+      return;
+    }
     rsvpDripSetButtons(false, per);
     /* ⚠ THE TWO EMAILS ARE NAMED BEFORE A PLAN EXISTS, not only after. "It will use your
        RSVP templates" is a claim; the names are the proof, and this is the moment she can
@@ -25422,6 +25459,14 @@ function rsvpDripRender(){
   }
 
   rsvpDripSetButtons(true, per);
+  if(calWave){
+    /* ⭐ [[EM-41]] WHILE A WAVE IS RUNNING THE CARD SHOWS THE WAVE, NOT THE HAND-BUILT PLAN. The
+       9 AM run is walking the wave's list under the wave's template, so the plan's own progress
+       and finish date would be the card promising a send that is not the one happening — EM-16's
+       card-says-one-thing failure. The plan is kept and comes back the moment the calendar is off. */
+    box.innerHTML = rsvpCalendarBodyHtml(saved, calWave, per, ranToday, line);
+    return;
+  }
   /* ⚠ THE FIRST BATCH IS TOMORROW ONCE TODAY'S HAS GONE — see rsvpDripSchedule. */
   const startFrom = new Date();
   if(ranToday) startFrom.setDate(startFrom.getDate() + 1);
@@ -25798,14 +25843,382 @@ async function rsvpDripSaveTemplatePick(kind, id){
 document.getElementById('rsvpDripTplStandard')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('standard', this.value); });
 document.getElementById('rsvpDripTplArrears')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('arrears', this.value); });
 
+/* ============================================================================
+   ⭐ [[EM-41]] THE SEASON'S RSVP CALENDAR (2026-11-10)
+
+   Addie: "If we could make this automatic in the future that would be amazing. It should
+   send an email to everyone the first week of september than another email the first week
+   of October and then one more final call email the first of November. These are three
+   seperate emails with different Templates. And only to people who have not responded with
+   Yes, no back next year." — "I want to make it so I can select which template from the
+   RSVP Folder." — "Can you get september and october set up for RSVP".
+
+   ⭐ THREE DATED WAVES, A TEMPLATE EACH, ONE SWITCH. The waves live on settings/rsvpSendPlan
+   as `waves` (key, label, start 'YYYY-MM-DD', templateId, arrearsTemplateId) beside the
+   hand-built plan, and `calendarOn` arms them. On a morning on or after a wave's date the 9 AM
+   run (runRsvpDailyBatch) walks `waveQueue` under that wave's template, How-many-a-day at a
+   time, with the wave's START as the already-asked rule: anybody still unanswered whose last
+   RSVP email predates the wave is owed it, anybody asked since the wave began is not. So each
+   wave asks each person once, 200 a morning from the 1st reaches the whole book inside the
+   first week — her "first week" — and then the run finds nobody owed until the next date.
+
+   ⭐ THE BROWSER STILL DECIDES WHO (EM-16), AND THAT IS WHY THERE IS A LIST AT ALL. The six
+   audience rules — who is in their first year and must never be asked "again", who owes from
+   last season — live only in this file, three of them on quotesCache and one on every invoice.
+   So `waveQueue` is built HERE: everybody a wave may email, with the first-year customers and
+   the test record left off and who-owes decided per row. ⚠ ANSWERED AND ALREADY-EMAILED ARE
+   LEFT IN. A list built in November for a September wave would otherwise carry this season's
+   answers into next season; the server refuses an answered person on the MORNING ITSELF
+   (rsvpStillOwedServer), which is the half that must be decided late, and the two browser-only
+   rules are the half that can be decided early and refreshed.
+
+   ⚠ AND IT IS REFRESHED WHENEVER THE CARD CAN SEE THE BOOK, once per page load, only when the
+   list actually changed (rsvpCalendarRefreshQueue). A list built today is wrong by next
+   September in two quiet ways — this year's new customers become returning ones, and who owes
+   changes as last season's bills are paid — and she is in this screen all summer pricing quotes.
+   ⚠ ONE WRITE PER LOAD, COMPARED FIRST: a write on every render is the plan-bounce [[SCH-153]]
+   closed, and this document is read once (getDoc), never listened to, so nothing can echo it.
+
+   ⚠ WHAT THIS DOES NOT DO: it does not put the book on Unanswered — that is the reset button on
+   the Dashboard, pressed before the first wave as it always was ([[RS-14]]); and it is the 9 AM
+   run that sends, so the private key has to be on the server (the warning at the top of the card).
+   ============================================================================ */
+const RSVP_WAVES = [
+  { key: 'sep', label: 'First email', month: 9, day: 1 },
+  { key: 'oct', label: 'Second email', month: 10, day: 1 },
+  { key: 'nov', label: 'Final call', month: 11, day: 1 }
+];
+function rsvpWaveLabel(key){
+  const w = RSVP_WAVES.find(function(x){ return x.key === key; });
+  return w ? w.label : '';
+}
+/* The season a FRESH calendar is for: this year until the final call's date has gone, then next. */
+function rsvpCalendarSeasonYear(now){
+  const d = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
+  const last = RSVP_WAVES[RSVP_WAVES.length - 1];
+  const past = d.getMonth() + 1 > last.month || (d.getMonth() + 1 === last.month && d.getDate() > last.day);
+  return d.getFullYear() + (past ? 1 : 0);
+}
+function rsvpWaveDefaults(now){
+  const y = rsvpCalendarSeasonYear(now);
+  const two = function(n){ return (n < 10 ? '0' : '') + n; };
+  return RSVP_WAVES.map(function(w){
+    return { key: w.key, label: w.label, start: y + '-' + two(w.month) + '-' + two(w.day), templateId: '', arrearsTemplateId: '' };
+  });
+}
+/* The saved waves, each filled in over its default so a row saved without a field still draws. */
+function rsvpCalendarWaves(now){
+  const c = (typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? rsvpDripCache : null;
+  const saved = (c && Array.isArray(c.waves)) ? c.waves : null;
+  return rsvpWaveDefaults(now).map(function(def){
+    const s = saved && saved.find(function(x){ return x && x.key === def.key; });
+    return s ? Object.assign({}, def, s, { label: def.label }) : def;
+  });
+}
+/* ⚠ SPELLED THE SAME AS rsvpWaveStartMillisServer / rsvpTodayKeyServer / rsvpActiveWaveServer in
+   functions/index.js — the gate compares the bodies. Midnight Mountain, standard offset: the run is
+   at 9 AM, so an hour of daylight-saving slop cannot move a send across a day. */
+function rsvpWaveStartMillis(start){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(start || ''))) return 0;
+  const t = Date.parse(String(start) + 'T00:00:00-07:00');
+  return isNaN(t) ? 0 : t;
+}
+function rsvpTodayKey(now){
+  const d = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+}
+function rsvpActiveWave(waves, todayKey){
+  let best = null;
+  (Array.isArray(waves) ? waves : []).forEach(function(w){
+    if(!w || !/^\d{4}-\d{2}-\d{2}$/.test(String(w.start || ''))) return;
+    if(String(w.start) > String(todayKey)) return;
+    if(!best || String(w.start) > String(best.start)) best = w;
+  });
+  return best;
+}
+/* The wave the 9 AM run is following right now, or null: the calendar must be on, the wave must
+   have started, and it must have a template — a wave with none is one the server refuses. */
+function rsvpCalendarActiveWave(now){
+  const c = (typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? rsvpDripCache : null;
+  if(!c || c.calendarOn !== true) return null;
+  const w = rsvpActiveWave(rsvpCalendarWaves(now), rsvpTodayKey(now));
+  return (w && w.templateId) ? w : null;
+}
+/* ⭐ EVERYBODY A WAVE MAY EMAIL — the browser-only exclusions applied, the rest left to the morning.
+   Test and first-year ('new') are decided here because only this file can; opted-out and no-email
+   are left off because they are stored fields the server refuses anyway and a list of people who
+   can actually be emailed is the one the card can count. Answered and already-emailed stay IN:
+   the server decides those on the day, against the wave's own start (see the header). */
+function rsvpWaveQueue(){
+  const out = { standard: [], arrears: [], ready: false, why: '' };
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)){
+    out.why = 'The customer list has not loaded yet.'; return out;
+  }
+  if(typeof audienceHasLastSeason === 'function' && !audienceHasLastSeason()){
+    out.why = 'The invoices have not loaded yet, so who owes from last season cannot be worked out. Open the Invoices tab once, then try again.';
+    return out;
+  }
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return;
+    const why = rsvpSendSkipReason(d);
+    if(why === 'test' || why === 'new' || why === 'optedout' || why === 'noemail') return;
+    if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) out.arrears.push(item);
+    else out.standard.push(item);
+  });
+  out.ready = true;
+  return out;
+}
+/* How far a wave has got, read off the stamps the way the server reads them: gone out = last ask on
+   or after the wave began; still to go = not yet, and still unanswered; the rest answered or left. */
+function rsvpWaveProgress(wave, waveQueue){
+  const out = { total: 0, sent: 0, waiting: 0, waitingStandard: 0, waitingArrears: 0, dropped: 0 };
+  const since = rsvpWaveStartMillis(wave && wave.start);
+  const recById = new Map();
+  (typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses) ? jobAddresses : []).forEach(function(a){ if(a && a.id) recById.set(a.id, a.data || {}); });
+  (Array.isArray(waveQueue) ? waveQueue : []).forEach(function(r){
+    if(!r || !r.id) return;
+    out.total++;
+    const d = recById.get(r.id);
+    if(!d){ out.dropped++; return; }
+    const last = rsvpLastAskMillis(d);
+    if(since > 0 && last >= since){ out.sent++; return; }
+    const why = rsvpSendSkipReason(d);
+    if(why === '' || why === 'emailed'){
+      out.waiting++;
+      if(r.t === 'arrears') out.waitingArrears++; else out.waitingStandard++;
+      return;
+    }
+    out.dropped++;
+  });
+  return out;
+}
+function rsvpWaveTemplateName(id){
+  const t = (Array.isArray(emailTemplates) ? emailTemplates : []).find(function(x){ return x && x.id === id; });
+  return (t && t.data && String(t.data.name || '').trim()) || '';
+}
+/* The wave pickers: the RSVP folder first — her words — then every other wording a customer can
+   answer from (rsvpDripTemplatePickable), then the refused ones greyed with the reason ([[EM-37]]). */
+function rsvpCalendarTemplateOptionsHtml(chosen, firstLabel){
+  const list = Array.isArray(emailTemplates) ? emailTemplates : [];
+  const inFolder = function(t){ return String((t && t.data && t.data.folderName) || '').trim().toLowerCase() === 'rsvp'; };
+  let html = '<option value="">' + esc(firstLabel) + '</option>';
+  const live = list.filter(function(t){ return rsvpDripTemplatePickable(t); });
+  live.filter(inFolder).concat(live.filter(function(t){ return !inFolder(t); })).forEach(function(t){
+    const n = (t.data && t.data.name) || '(unnamed)';
+    html += '<option value="' + esc(t.id) + '"' + (t.id === chosen ? ' selected' : '') + '>' + esc(n + (inFolder(t) ? '' : ' (not in the RSVP folder)')) + '</option>';
+  });
+  list.forEach(function(t){
+    if(rsvpDripTemplatePickable(t)) return;
+    html += '<option value="" disabled>' + esc(((t.data && t.data.name) || '(unnamed)') + ' — can’t be answered from: add {{rsvp_link}} or {{pay_button}} to it') + '</option>';
+  });
+  if(chosen && !list.some(function(t){ return t && t.id === chosen; })){
+    html += '<option value="' + esc(chosen) + '" selected>' + esc('(not found) — the template you picked has been deleted') + '</option>';
+  }
+  return html;
+}
+/* Set by any edit to a row; cleared by Save. While it is set the controls are never redrawn, so a
+   half-filled calendar survives the customer-change redraw that runs under it. */
+let rsvpCalendarDirty = false;
+function renderRsvpCalendar(){
+  const grid = document.getElementById('rsvpCalendarWaves');
+  const onEl = document.getElementById('rsvpCalendarOn');
+  if(!grid) return;
+  const c = (typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? rsvpDripCache : null;
+  if(onEl && document.activeElement !== onEl) onEl.checked = !!(c && c.calendarOn === true);
+  const waves = rsvpCalendarWaves();
+  const active = document.activeElement;
+  const holdControls = rsvpCalendarDirty || (active && grid.contains(active));
+  if(!holdControls || !grid.children.length){
+    grid.innerHTML = '<div style="color:var(--slate);"></div><div style="color:var(--slate);">Starts</div>'
+      + '<div style="color:var(--slate);">Email</div><div style="color:var(--slate);">Owes from last season</div>'
+      + waves.map(function(w){
+          return '<label for="rsvpCalStart-' + esc(w.key) + '" style="margin:0; font-weight:600;">' + esc(w.label) + '</label>'
+            + '<input type="date" id="rsvpCalStart-' + esc(w.key) + '" data-calkey="' + esc(w.key) + '" value="' + esc(w.start) + '" style="margin:0; width:150px;">'
+            + '<select id="rsvpCalTpl-' + esc(w.key) + '" data-calkey="' + esc(w.key) + '" style="margin:0;">' + rsvpCalendarTemplateOptionsHtml(w.templateId, '— pick one —') + '</select>'
+            + '<select id="rsvpCalArr-' + esc(w.key) + '" data-calkey="' + esc(w.key) + '" style="margin:0;">' + rsvpCalendarTemplateOptionsHtml(w.arrearsTemplateId, '— the same email —') + '</select>'
+            + '<div id="rsvpCalStatus-' + esc(w.key) + '" style="grid-column:1 / -1; color:var(--slate); padding:0 0 4px;"></div>';
+        }).join('');
+    grid.querySelectorAll('input, select').forEach(function(el){
+      el.addEventListener('input', function(){ rsvpCalendarDirty = true; });
+      el.addEventListener('change', function(){ rsvpCalendarDirty = true; });
+    });
+  }
+  /* the status lines are the card's own words about each wave and are redrawn every time */
+  const q = (c && Array.isArray(c.waveQueue)) ? c.waveQueue : [];
+  const today = rsvpTodayKey();
+  const activeWave = rsvpActiveWave(waves, today);
+  const per = Math.max(1, Number(c && c.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+  const canCount = Array.isArray(jobAddresses) && jobAddresses.length > 0;
+  waves.forEach(function(w){
+    const el = document.getElementById('rsvpCalStatus-' + w.key);
+    if(!el) return;
+    const when = new Date(rsvpWaveStartMillis(w.start) || Date.now()).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Denver' });
+    const name = w.templateId ? (rsvpWaveTemplateName(w.templateId) || '(deleted template)') : '';
+    const saved = !!(c && Array.isArray(c.waves) && c.waves.some(function(x){ return x && x.key === w.key; }));
+    let words;
+    if(!saved) words = 'not saved yet — pick an email and press Save the calendar';
+    else if(!w.templateId) words = 'no email picked — the run will refuse this one';
+    else if(!c || c.calendarOn !== true) words = 'saved, calendar off — nothing goes out until you switch it on';
+    else if(!canCount) words = 'saved';
+    else if(w.start > today){
+      const p = rsvpWaveProgress(w, q);
+      words = 'starts ' + when + ' — ' + p.waiting + ' would be asked as things stand (' + p.waitingArrears + ' owe from last season), '
+        + rsvpDripFinishWords(p.waiting, per, new Date(rsvpWaveStartMillis(w.start)));
+    } else if(activeWave && activeWave.key === w.key){
+      const p = rsvpWaveProgress(w, q);
+      words = (p.waiting ? ('running since ' + when + ' — ' + p.sent + ' gone out, ' + p.waiting + ' still to go')
+                         : ('✓ started ' + when + ' — all ' + p.sent + ' out' + (p.dropped ? ', ' + p.dropped + ' answered or left' : '')));
+    } else {
+      const p = rsvpWaveProgress(w, q);
+      words = 'finished — ' + p.sent + ' went out from ' + when;
+    }
+    el.textContent = (name ? '“' + name + '” · ' : '') + words;
+  });
+}
+/* ⭐ THE CARD'S BODY WHILE A WAVE IS RUNNING — the wave, not the hand-built plan (rsvpDripRender). */
+function rsvpCalendarBodyHtml(saved, wave, per, ranToday, line){
+  const q = (saved && Array.isArray(saved.waveQueue)) ? saved.waveQueue : [];
+  const p = rsvpWaveProgress(wave, q);
+  const startFrom = new Date();
+  if(ranToday) startFrom.setDate(startFrom.getDate() + 1);
+  const name = rsvpWaveTemplateName(wave.templateId) || '(deleted template)';
+  const arrName = wave.arrearsTemplateId ? (rsvpWaveTemplateName(wave.arrearsTemplateId) || '(deleted template)') : name;
+  let html = line('Following the calendar', esc(wave.label), esc('since ' + new Date(rsvpWaveStartMillis(wave.start)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Denver' })));
+  if(p.total && !p.waiting){
+    html += '<div style="padding:8px 10px; margin:6px 0; border-radius:8px; background:#e8f5ec; color:#1e6b36; font-weight:600;">'
+      + '\u2713 All out \u2014 the ' + esc(wave.label) + ' has reached everyone: ' + p.sent + ' emailed'
+      + (p.dropped ? ', ' + p.dropped + ' answered or left before their morning came' : '') + '.</div>';
+  } else {
+    const pct = p.total ? Math.round(100 * p.sent / p.total) : 0;
+    html += line('Gone out so far', p.sent + ' of ' + p.total, esc(pct + '%'))
+      + '<div style="height:6px; background:var(--line); border-radius:3px; margin:4px 0 6px; overflow:hidden;">'
+      + '<div style="height:100%; width:' + pct + '%; background:var(--emerald);"></div></div>'
+      + line('Still to go', p.waiting, esc(p.waitingStandard + ' paid up, ' + p.waitingArrears + ' owe from last season (on hold)'
+          + (p.dropped ? '; ' + p.dropped + ' answered or left' : '')));
+  }
+  html += line('They get', esc(name), esc(arrName !== name ? ('owes from last season: ' + arrName) : 'everyone the same'))
+    + line('A morning', per, 'at 9:00 AM Mountain')
+    + line('Finishes', esc(p.waiting ? rsvpDripFinishWords(p.waiting, per, startFrom) : 'done'), '')
+    + '<p class="form-note" style="margin:10px 0 0;">The hand-built plan below the calendar is not being sent while the calendar is on; switch the calendar off to go back to it.</p>';
+  if(saved && saved.lastRunAt){
+    const when = (typeof saved.lastRunAt.toDate === 'function') ? saved.lastRunAt.toDate() : new Date(saved.lastRunAt);
+    html += '<p class="form-note" style="margin:10px 0 0;">Last run ' + (isNaN(when.getTime()) ? 'at an unreadable time' : esc(when.toLocaleString()))
+      + (saved.lastRunSource === 'manual' ? ' (by hand)' : '')
+      + ' &mdash; sent <b>' + (Number(saved.lastSent) || 0) + '</b>, skipped ' + (Number(saved.lastSkipped) || 0) + '.'
+      + ((Number(saved.lastBadAddress) || 0) ? ' <span style="color:#c0392b;"><b>' + (Number(saved.lastBadAddress) || 0) + '</b> had an email address that cannot be sent to &mdash; fix those in All Customers.</span>' : '')
+      + (saved.lastStopped ? ' <span style="color:#c0392b;">' + esc(String(saved.lastStopped)) + '</span>' : '')
+      + ((saved.lastErrors && saved.lastErrors.length) ? ' <span style="color:#c0392b;">' + esc(saved.lastErrors.slice(0,3).join('; ')) + '</span>' : '')
+      + '</p>';
+  } else {
+    html += '<p class="form-note" style="margin:10px 0 0;">It has not run yet.</p>';
+  }
+  return html;
+}
+/* ⭐ THE LIST IS KEPT UP TO DATE WHENEVER THE CARD CAN SEE THE BOOK — once per page load, and only
+   when it has changed. See the header for why a list built months ahead goes stale in two quiet
+   ways, and why one compared write per load is safe where a write per render is not. */
+let rsvpCalendarRefreshed = false;
+function rsvpCalendarRefreshQueue(){
+  if(rsvpCalendarRefreshed) return false;
+  const c = (typeof rsvpDripCache !== 'undefined' && rsvpDripCache) ? rsvpDripCache : null;
+  if(!c || !Array.isArray(c.waves) || !c.waves.length) return false;
+  const built = rsvpWaveQueue();
+  if(!built.ready) return false;
+  const rows = rsvpDripBuildQueue(built);
+  rsvpCalendarRefreshed = true;
+  if(JSON.stringify(rows) === JSON.stringify(c.waveQueue || [])) return false;
+  const write = { waveQueue: rows, waveQueueBuiltAt: serverTimestamp(), waveQueueBuiltBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : '' };
+  rsvpDripCache = Object.assign({}, c, { waveQueue: rows });
+  setDoc(doc(db,'settings','rsvpSendPlan'), write, {merge: true}).catch(function(err){
+    /* said, never swallowed — and the cache is put back so the card does not claim a list the database does not hold */
+    console.error('[HU] could not refresh the RSVP calendar list:', err);
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, { waveQueue: c.waveQueue || [] });
+  });
+  return true;
+}
+/* Save the calendar: the three rows, validated, plus a fresh list of who each wave may email. */
+document.getElementById('rsvpCalendarSaveBtn')?.addEventListener('click', async function(){
+  const st = document.getElementById('rsvpCalendarStatus');
+  const say = function(t, bad){ if(st){ st.textContent = t; st.style.color = bad ? 'var(--ember)' : (bad === false ? 'var(--emerald)' : 'var(--slate)'); } };
+  const waves = rsvpCalendarWaves().map(function(w){
+    const start = (document.getElementById('rsvpCalStart-' + w.key) || {}).value || '';
+    const tpl = (document.getElementById('rsvpCalTpl-' + w.key) || {}).value || '';
+    const arr = (document.getElementById('rsvpCalArr-' + w.key) || {}).value || '';
+    return { key: w.key, label: w.label, start: String(start).trim(), templateId: String(tpl).trim(), arrearsTemplateId: String(arr).trim() };
+  });
+  /* ⚠ REFUSED HERE RATHER THAN AT 9 AM: a wave with no date or no email is one the run refuses
+     on a morning nobody is watching, and the three must be in order or "the latest wave that has
+     started" skips one for good. */
+  for(const w of waves){
+    if(!rsvpWaveStartMillis(w.start)){ say('The ' + w.label + ' needs a date.', true); return; }
+    if(!w.templateId){ say('Pick an email for the ' + w.label + ' — that is the one it sends.', true); return; }
+  }
+  for(let i = 1; i < waves.length; i++){
+    if(waves[i].start <= waves[i - 1].start){ say('The ' + waves[i].label + ' must start after the ' + waves[i - 1].label + '.', true); return; }
+  }
+  const built = rsvpWaveQueue();
+  if(!built.ready){ say(built.why, true); return; }
+  const rows = rsvpDripBuildQueue(built);
+  const on = !!(document.getElementById('rsvpCalendarOn') || {}).checked;
+  this.disabled = true;
+  say('Saving the calendar…');
+  try{
+    const write = {
+      waves: waves,
+      calendarOn: on,
+      waveQueue: rows,
+      waveQueueBuiltAt: serverTimestamp(),
+      waveQueueBuiltBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+    };
+    await setDoc(doc(db,'settings','rsvpSendPlan'), write, {merge: true});
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, { waves: waves, calendarOn: on, waveQueue: rows });
+    rsvpCalendarDirty = false;
+    rsvpDripRender();
+    const first = waves[0];
+    say('✓ Saved. ' + rows.length + ' people are on the list (' + built.arrears.length + ' owe from last season); the list is brought up to date each time this screen is opened. '
+      + (on ? ('The ' + first.label + ' goes out from ' + first.start + ' at 9:00 AM, ' + Math.max(1, Number(rsvpDripCache.perDay) || RSVP_DRIP_DEFAULT_PER_DAY) + ' a morning.')
+            : 'The calendar is OFF — tick On when you want the dates to send.'), false);
+  }catch(err){
+    console.error('[HU] could not save the RSVP calendar:', err);
+    say('✗ Could not save the calendar — ' + ((err && err.message) || 'try again'), true);
+  }
+  this.disabled = false;
+});
+document.getElementById('rsvpCalendarOn')?.addEventListener('change', async function(){
+  const st = document.getElementById('rsvpCalendarStatus');
+  const on = this.checked;
+  const c = rsvpDripCache;
+  /* ⚠ SWITCHING ON A CALENDAR THAT HAS NEVER BEEN SAVED WOULD LOOK ARMED AND SEND NOTHING. */
+  if(on && !(c && Array.isArray(c.waves) && c.waves.length && c.waves.every(function(w){ return w && w.templateId && rsvpWaveStartMillis(w.start); }))){
+    this.checked = false;
+    if(st){ st.textContent = 'Pick an email for each row and press Save the calendar first.'; st.style.color = 'var(--ember)'; }
+    return;
+  }
+  try{
+    await setDoc(doc(db,'settings','rsvpSendPlan'), { calendarOn: on }, {merge: true});
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, { calendarOn: on });
+    rsvpDripRender();
+    if(st){
+      st.textContent = on ? '✓ On — each email goes out from its date at 9:00 AM Mountain.' : 'Off — the dates send nothing. The hand-built plan, if it is on, runs again.';
+      st.style.color = on ? 'var(--emerald)' : 'var(--slate)';
+    }
+  }catch(err){
+    this.checked = !on;
+    if(st){ st.textContent = '✗ Couldn’t save that — try again'; st.style.color = 'var(--ember)'; }
+  }
+});
+
 document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async function(){
   const st = document.getElementById('rsvpDripStatus');
   const saved = rsvpDripCache;
-  if(!saved || !Array.isArray(saved.queue) || !saved.queue.length){
+  /* [[EM-41]] a wave of the calendar that has started is a plan the server will send. */
+  const calWave = (typeof rsvpCalendarActiveWave === 'function') ? rsvpCalendarActiveWave() : null;
+  if(!calWave && (!saved || !Array.isArray(saved.queue) || !saved.queue.length)){
     if(st){ st.textContent = 'There is no plan to send. Press Build the plan first.'; st.style.color = 'var(--ember)'; }
     return;
   }
-  const per = Math.max(1, Number(saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+  const per = Math.max(1, Number(saved && saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
   /* ⚠ THE CONFIRM NAMES THE CAP, NOT THE WHOLE QUEUE, because that is what one press
      actually sends — a dialog quoting the queue length would read as "this sends all 955"
      and is exactly the press she is trying to stop making. */
@@ -25827,6 +26240,7 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
       if(st){
         st.textContent = res.sent + ' sent (' + (res.arrears || 0) + ' Not Paid, '
           + (res.standard || 0) + ' ordinary), ' + (res.skipped || 0) + ' skipped'
+          + (res.wave ? ' — the calendar’s ' + (rsvpWaveLabel(res.wave) || res.wave) + ' email' : '')
           + (errs ? ', ' + errs + ' failed: ' + res.errors.slice(0,3).join('; ') : '')
           + (res.stopped ? ' — ' + res.stopped : '');
         st.style.color = (errs || res.stopped) ? 'var(--ember)' : 'var(--emerald)';

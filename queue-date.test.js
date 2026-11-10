@@ -1437,6 +1437,10 @@ check('the path still has every step in it',
     rsvpSentAt: 'when the season\'s RSVP started going out, on settings/season — one date ' +
       'for the whole book, so on a path it would stamp the same row on every customer ' +
       'including everybody not yet emailed',
+    waveQueueBuiltAt: 'when the office\'s screen last refreshed the RSVP calendar\'s list of who each ' +
+      'wave may email, on settings/rsvpSendPlan ([[EM-41]]) — a document about the send, not ' +
+      'about any customer, exactly like builtAt above; the per-customer dates are rsvpEmailedAt ' +
+      'and rsvpRemindedAt when their own email actually goes',
 
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +

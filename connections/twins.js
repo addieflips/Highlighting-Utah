@@ -49,6 +49,10 @@ const TWINS = [
   T('invoiceEmailNumber', 'invoiceEmailNumberServer', 'invoice-email.test.js', 'the invoice number printed in the email',
     { byBlock: true }),
   /* --- the warehouse --- */
+  /* --- the RSVP calendar ([[EM-41]]): the clock that picks the morning's wave, spelled on both sides. --- */
+  T('rsvpWaveStartMillis', 'rsvpWaveStartMillisServer', 'rsvp-daily-send.test.js', 'the moment an RSVP calendar wave begins (midnight Mountain on its date)'),
+  T('rsvpTodayKey', 'rsvpTodayKeyServer', 'rsvp-daily-send.test.js', 'what day it is, in Mountain time, for the RSVP calendar'),
+  T('rsvpActiveWave', 'rsvpActiveWaveServer', 'rsvp-daily-send.test.js', 'which wave of the RSVP calendar a morning belongs to — the latest that has started'),
   T('houseLightsText', 'houseLightsTextServer', 'warehouse-colours.test.js', 'what colours a house has, from both fields'),
   T('whTimerCameOff', 'whTimerCameOffServer', 'run-all.js', 'a timer being switched off, so Remove Timer is raised'),
   T('stampBuildQueued', 'stampBuildQueuedServer', 'queue-date.test.js', 'when a house was sent to the warehouse'),
