@@ -69258,3 +69258,77 @@ suite('394. Customer Numbers: the pool takes real numbers only, and Assign is on
     assign.indexOf("}, function(){ return document.getElementById('cnAssignBtn'); }));") > 0,
     'cnNextAvailable reads the cache; a second press before the first write lands gets the same number');
 }
+/* =====================================================================
+ * Suite 433. Send today's now waits as long as the server may run
+ * (2026-11-10). Addie saw "Couldn't run that — deadline-exceeded" while
+ * the server was still sending: the browser's callable default is 70s.
+ * ===================================================================== */
+suite('433. The RSVP send-now button waits for the server');
+{
+  const i = admin.indexOf("getElementById('rsvpDripSendNowBtn')?.addEventListener('click'");
+  const j = i === -1 ? -1 : admin.indexOf('/* ⭐ WHY SOMEBODY IS NOT IN THE RSVP SEND', i);
+  const body = (i !== -1 && j !== -1) ? stripComments(admin.slice(i, j)) : '';
+  check('S433', 'the send-now handler was found', body.length > 500);
+  const m = body.match(/httpsCallable\(fbFunctions, 'runRsvpDailyNow', \{ timeout: (\d+) \}\)/);
+  const srv = fnsSrc.match(/exports\.runRsvpDailyNow = onCall\(\{[^}]*timeoutSeconds: (\d+)/);
+  check('S433', 'the browser waits at least as long as the server is allowed to run',
+    !!(m && srv) && Number(m[1]) >= Number(srv[1]) * 1000, m && srv ? m[1] + 'ms vs ' + srv[1] + 's' : 'not found');
+  check('S433', 'a timeout says to wait and not press again, and returns before the failure line',
+    /if\(timedOut\)\{[\s\S]*?Do NOT press again[\s\S]*?return;[\s\S]*?\}[\s\S]*could not run the RSVP drip/.test(body));
+}
+/* =====================================================================
+ * Suite 434. The September and October RSVP sends (2026-11-10, EM-43).
+ * Addie: "can we add the October and September sends to this with an
+ * option to pick template? in same format and same spot"; they start on
+ * the first weekday of the month, the first time admin is opened. RUNS
+ * the date rule, the due rule and the write a start makes.
+ * ===================================================================== */
+suite('434. The September and October RSVP sends start themselves');
+{
+  const a = admin.indexOf('const RSVP_WAVES = [');
+  const b = a === -1 ? -1 : admin.indexOf('function rsvpWaveStartDate(', a);
+  const constSrc = (a !== -1 && b !== -1) ? admin.slice(a, b) : '';
+  const names = ['rsvpWaveStartDate', 'rsvpWaveDue', 'rsvpWaveTemplate', 'rsvpWaveStartWrite'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S434', 'the calendar rules were found', !!constSrc && srcs.every(Boolean), names.filter((n, i) => !srcs[i]).join(', '));
+  if (constSrc && srcs.every(Boolean)) {
+    const tpls = [{ id: 'ts', data: { name: 'Sept paid' } }, { id: 'ta', data: { name: 'Sept owes' } }];
+    const F = new Function('emailTemplates', 'rsvpDripTemplatePickable', 'serverTimestamp',
+      constSrc + srcs.join('\n') + ';return { RSVP_WAVES, rsvpWaveStartDate, rsvpWaveDue, rsvpWaveStartWrite };')(
+      tpls, () => true, () => 'now');
+    const ymd = d => d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    check('S434', 'a send starts on the first weekday of its month, never a Saturday or Sunday',
+      ymd(F.rsvpWaveStartDate(8, 2027)) === '2027-9-1' && ymd(F.rsvpWaveStartDate(8, 2029)) === '2029-9-3' &&
+      ymd(F.rsvpWaveStartDate(9, 2027)) === '2027-10-1' && ymd(F.rsvpWaveStartDate(9, 2028)) === '2028-10-2',
+      [8, 9].map(m => ymd(F.rsvpWaveStartDate(m, 2028))).join(' '));
+    const due = (w, d) => { const r = F.rsvpWaveDue(w, d); return r ? r.key : null; };
+    check('S434', 'nothing is due outside September and October — not the November day this ships',
+      due({}, new Date(2026, 10, 10)) === null && due({}, new Date(2027, 7, 31)) === null);
+    check('S434', 'September is due from its first weekday, October from its own',
+      due({}, new Date(2029, 8, 2)) === null && due({}, new Date(2029, 8, 3)) === 'sep' &&
+      due({}, new Date(2027, 9, 1)) === 'oct' && due({}, new Date(2027, 8, 20)) === 'sep');
+    check('S434', 'a send already started this year is not started again, but last year\'s start does not count',
+      due({ sep: { startedFor: 2027 } }, new Date(2027, 8, 5)) === null &&
+      due({ sep: { startedFor: 2026 } }, new Date(2027, 8, 5)) === 'sep');
+    const w = F.RSVP_WAVES.find(x => x.key === 'oct');
+    const write = F.rsvpWaveStartWrite(w, { standardTemplateId: 'ts', arrearsTemplateId: 'ta' }, {}, [{ id: 'c1' }, { id: 'c2' }], 200, 2027);
+    check('S434', 'a start builds a new round with the send\'s two emails and turns the 9 AM send on',
+      write.enabled === true && write.builtAt === 'now' && write.queue.length === 2 &&
+      write.standardTemplateId === 'ts' && write.arrearsTemplateId === 'ta' && write.remind === true && write.remindAfterDays === 1);
+    check('S434', 'and marks itself, and the earlier send, done for the year so neither starts again',
+      write.waves.oct.startedFor === 2027 && write.waves.oct.skipped === false &&
+      write.waves.sep && write.waves.sep.startedFor === 2027 && write.waves.sep.skipped === true);
+    check('S434', 'a start with nobody to ask does not switch the 9 AM send on',
+      F.rsvpWaveStartWrite(w, { standardTemplateId: 'ts', arrearsTemplateId: 'ta' }, {}, [], 200, 2027).enabled === false);
+  }
+  const stripped = stripComments(admin);
+  const tick = stripComments(extractFn(admin, 'rsvpWaveTick') || '');
+  check('S434', 'the start runs off the login-and-every-ten-minutes tick',
+    /rsvpWaveTick\(\)\.catch\(/.test(stripComments(extractFn(admin, 'runHealthCheckAuto') || '')));
+  check('S434', 'and refuses without both of the send\'s emails, and builds the list the way Build the plan does',
+    /if\(!rsvpWaveTemplate\(wv\.standardTemplateId\) \|\| !rsvpWaveTemplate\(wv\.arrearsTemplateId\)\) return;/.test(tick) &&
+    /rsvpWholePlan\(\{ on: true, days: 1 \}\)/.test(tick) && /rsvpDripBuildQueue\(plan\)/.test(tick));
+  check('S434', 'the four pickers save what they show',
+    /\['rsvpWaveSepStandard', 'rsvpWaveSepArrears', 'rsvpWaveOctStandard', 'rsvpWaveOctArrears'\]\.forEach/.test(stripped) &&
+    /rsvpWaveSavePick\(this\.dataset\.wave, this\.dataset\.kind, this\.value\)/.test(stripped));
+}

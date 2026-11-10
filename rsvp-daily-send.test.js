@@ -1457,6 +1457,41 @@ if (runBatch) {
    Summary. Async checks are awaited before anything is printed — a check that
    scores after the summary can never fail the build (CLAUDE.md §3).
    ------------------------------------------------------------------ */
+/* ---- [[EM-42]] one round per build, and the 9 AM switch turns itself off at the end ---- */
+if (runBatch) {
+  const p42 = function (id, extra) { return Object.assign({ id: id, name: 'Cust ' + id, email: id + '@x.com' }, extra || {}); };
+  pending.push(runBatch({ book: [p42('a'), p42('b'), p42('c')] }).then(function (r) {
+    check('EM-42: a run that reaches the end of the list says it finished',
+      r.out.finished === true && r.out.sent === 3, JSON.stringify({ f: r.out.finished, s: r.out.sent }));
+    check('EM-42: and switches the 9 AM send off by itself',
+      r.written.rsvpSendPlan && r.written.rsvpSendPlan.enabled === false && r.written.rsvpSendPlan.lastFinished === true);
+  }));
+  pending.push(runBatch({ book: [p42('a'), p42('b'), p42('c')], plan: { perDay: 2 } }).then(function (r) {
+    check('EM-42: a run with people left for tomorrow does NOT switch itself off',
+      r.out.finished === false && r.out.remaining === 1 && !(r.written.rsvpSendPlan && r.written.rsvpSendPlan.enabled === false));
+  }));
+  pending.push(runBatch({ book: [p42('a'), p42('b')], mailFails: true }).then(function (r) {
+    check('EM-42: a run the mail service stopped does NOT switch itself off',
+      !!r.out.stopped && r.out.finished === false && !(r.written.rsvpSendPlan && r.written.rsvpSendPlan.enabled === false));
+  }));
+  pending.push(runBatch({ book: [p42('a'), p42('bad', { email: 'nope@x.com' })], refuseEmails: ['nope@x.com'] }).then(function (r) {
+    check('EM-42: a named bad address does not keep the drip running for ever',
+      r.out.badAddress === 1 && r.out.finished === true && r.written.rsvpSendPlan.enabled === false);
+  }));
+  const built = Date.UTC(2026, 10, 10, 16, 0, 0);
+  pending.push(runBatch({
+    book: [
+      p42('again', { rsvpEmailedAt: built - 30 * 86400000, rsvpRemindedAt: built + 3600000 }),
+      p42('due', { rsvpEmailedAt: built - 30 * 86400000 })
+    ],
+    plan: { builtAt: built, remind: true, remindAfterDays: 1 }
+  }).then(function (r) {
+    const to = r.sent.map(function (x) { return x.to_email; });
+    check('EM-42: somebody already asked since the plan was built is not asked again this round, even at 1 day',
+      to.indexOf('again@x.com') === -1 && r.out.doneThisRound === 1, to.join(','));
+    check('EM-42: while somebody still due this round is sent', to.indexOf('due@x.com') !== -1, to.join(','));
+  }));
+}
 Promise.all(pending).then(function () {
   console.log('');
   console.log('The RSVP, a few hundred a morning');

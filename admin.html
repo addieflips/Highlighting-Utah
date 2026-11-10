@@ -4281,6 +4281,29 @@
           <select id="rsvpDripTplArrears" style="margin:0;"></select>
           <div id="rsvpDripTplNote" style="grid-column:1 / -1; color:var(--slate);"></div>
         </div>
+        <!-- ⭐ [[EM-43]] THE SEPTEMBER AND OCTOBER SENDS (2026-11-10). Addie: "can we add the October and
+             September sends to this with an option to pick template? in same format and same spot". The
+             same two pickers per send, static markup like the pair above. Each send starts on the first
+             weekday of its month — the first time admin is opened that day or later in the month — by
+             building a fresh plan for everyone still on hold and turning the 9 AM send on; it switches
+             itself off at the end of the list ([[EM-42]]). -->
+        <div id="rsvpWaveBox" style="border-top:1px solid var(--line); padding-top:10px; margin-bottom:10px;">
+          <div style="font-size:13px; font-weight:600; margin-bottom:4px;">Season calendar &mdash; starts by itself</div>
+          <div id="rsvpWaveIntro" class="form-note" style="margin:0 0 8px;">On the first weekday of September and of October, the first time admin is opened that day or later that month, a new plan is built for everyone still on hold with the emails picked here, and sending at 9:00 AM turns on. It turns itself off when everyone has been sent. Leave a send on &ldquo;&mdash; not this year &mdash;&rdquo; to skip it.</div>
+          <div style="display:grid; grid-template-columns:auto minmax(180px, 360px); gap:6px 10px; align-items:center; font-size:13px;">
+            <div id="rsvpWaveSepWhen" style="grid-column:1 / -1; font-weight:600; margin-top:4px;">September</div>
+            <label for="rsvpWaveSepStandard" style="margin:0;">Already paid up &mdash; send</label>
+            <select id="rsvpWaveSepStandard" data-wave="sep" data-kind="standard" style="margin:0;"></select>
+            <label for="rsvpWaveSepArrears" style="margin:0;">Owes from last season &mdash; send</label>
+            <select id="rsvpWaveSepArrears" data-wave="sep" data-kind="arrears" style="margin:0;"></select>
+            <div id="rsvpWaveOctWhen" style="grid-column:1 / -1; font-weight:600; margin-top:8px;">October</div>
+            <label for="rsvpWaveOctStandard" style="margin:0;">Already paid up &mdash; send</label>
+            <select id="rsvpWaveOctStandard" data-wave="oct" data-kind="standard" style="margin:0;"></select>
+            <label for="rsvpWaveOctArrears" style="margin:0;">Owes from last season &mdash; send</label>
+            <select id="rsvpWaveOctArrears" data-wave="oct" data-kind="arrears" style="margin:0;"></select>
+            <div id="rsvpWaveNote" style="grid-column:1 / -1; color:var(--slate);"></div>
+          </div>
+        </div>
         <p class="form-note" style="margin:0 0 12px;">The <b>Send the whole RSVP</b> button on the <b>Templates</b> tab is still there and still sends everybody at once. This is the same send, paced.</p>
         <div id="rsvpDripKeyWarn" hidden style="font-size:13px; background:var(--paper); border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:10px;"></div>
         <div id="rsvpDripBody" style="font-size:13px; margin-bottom:10px;"></div>
@@ -25345,6 +25368,7 @@ function rsvpDripRender(){
   if(remindDaysEl && document.activeElement !== remindDaysEl) remindDaysEl.value = remindSaved.days;
   /* [[EM-36]] The two pickers follow the template list and the saved choice. */
   if(typeof renderRsvpDripTemplatePickers === 'function') renderRsvpDripTemplatePickers();
+  if(typeof renderRsvpWavePickers === 'function') renderRsvpWavePickers();
 
   /* ⭐ THE PRIVATE KEY IS THE ONE THING THAT CAN MAKE ALL OF THIS SILENTLY DO NOTHING,
      so it is checked before anything else is drawn. The browser sends with the PUBLIC key
@@ -25514,6 +25538,10 @@ function rsvpDripRender(){
           ? ' <span style="color:#c0392b;"><b>' + (Number(saved.lastBadAddress) || 0) + '</b> had an email address that cannot be sent to '
             + '&mdash; fix those in All Customers; they were skipped, nobody else was held back.</span>' : '')
       + (saved.lastStopped ? ' <span style="color:#c0392b;">' + esc(String(saved.lastStopped)) + '</span>' : '')
+      /* [[EM-42]] the round reached the end of its list and switched the 9 AM send off by itself. */
+      + (saved.lastFinished === true
+          ? ' <b>Everyone on this plan has been sent</b> &mdash; sending at 9:00 AM turned itself off. '
+            + 'Rebuild the plan and tick it again to send another round.' : '')
       + ((saved.lastErrors && saved.lastErrors.length)
           ? ' <span style="color:#c0392b;">' + esc(saved.lastErrors.slice(0,3).join('; ')) + '</span>' : '')
       + '</p>';
@@ -25796,6 +25824,159 @@ async function rsvpDripSaveTemplatePick(kind, id){
   }
 }
 document.getElementById('rsvpDripTplStandard')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('standard', this.value); });
+
+/* ⭐ [[EM-43]] THE SEPTEMBER AND OCTOBER SENDS (2026-11-10). Addie: "can we add the October and
+   September sends to this with an option to pick template? in same format and same spot", then,
+   asked: they start on the FIRST WEEKDAY of the month, and the first time admin is opened on or
+   after that day. This is [[EM-41]]'s calendar for the two waves before the final call; the final
+   call itself stays the card above, sent by hand.
+   ⚠ THE LIST IS DECIDED HERE, NOT ON THE SERVER — EM-16's rule: who is still owed rests on rules
+   that live only in this file. So a wave starts when admin is opened, from runHealthCheckAuto's
+   login-and-every-ten-minutes tick, and builds the plan exactly as Build the plan does.
+   ⚠ ONLY INSIDE ITS OWN MONTH. A September send that admin never saw in September does not fire
+   in October, and nothing fires the day this ships in November.
+   ⚠ A LATER WAVE MARKS THE EARLIER ONE DONE, so October never starts September after it.
+   ⚠ BOTH TEMPLATES OR NOTHING — a send with one half unpicked is skipped and says so, the same
+   rule Build the plan has. */
+const RSVP_WAVES = [
+  { key: 'sep', month: 8, label: 'September', ids: { when: 'rsvpWaveSepWhen', standard: 'rsvpWaveSepStandard', arrears: 'rsvpWaveSepArrears' } },
+  { key: 'oct', month: 9, label: 'October', ids: { when: 'rsvpWaveOctWhen', standard: 'rsvpWaveOctStandard', arrears: 'rsvpWaveOctArrears' } }
+];
+function rsvpWaveStartDate(month, year){
+  const d = new Date(year, month, 1);
+  while(d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d;
+}
+/* The wave that should be running now and has not been started this year, or null. */
+function rsvpWaveDue(waves, now){
+  const y = now.getFullYear();
+  for(let i = RSVP_WAVES.length - 1; i >= 0; i--){
+    const w = RSVP_WAVES[i];
+    if(now.getMonth() !== w.month) continue;
+    const start = rsvpWaveStartDate(w.month, y);
+    if(now < start) continue;
+    const started = Number(((waves || {})[w.key] || {}).startedFor) || 0;
+    return started === y ? null : w;
+  }
+  return null;
+}
+function rsvpWaveTemplate(id){
+  const all = Array.isArray(emailTemplates) ? emailTemplates : [];
+  return (id && all.find(function(t){ return t && t.id === id && rsvpDripTemplatePickable(t); })) || null;
+}
+function rsvpWaveOptionsHtml(chosen){
+  const list = emailTemplates || [];
+  let html = '<option value="">' + esc('— not this year —') + '</option>';
+  list.forEach(function(t){
+    if(!rsvpDripTemplatePickable(t)) return;
+    html += '<option value="' + esc(t.id) + '"' + (t.id === chosen ? ' selected' : '') + '>' + esc((t.data && t.data.name) || '(unnamed)') + '</option>';
+  });
+  if(chosen && !rsvpWaveTemplate(chosen)){
+    html += '<option value="' + esc(chosen) + '" selected>' + esc('(not found) — the template you picked has been deleted') + '</option>';
+  }
+  return html;
+}
+function renderRsvpWavePickers(){
+  const waves = (rsvpDripCache && rsvpDripCache.waves) || {};
+  const y = new Date().getFullYear();
+  const active = (typeof document !== 'undefined') ? document.activeElement : null;
+  const words = [];
+  RSVP_WAVES.forEach(function(w){
+    const wv = waves[w.key] || {};
+    ['standard', 'arrears'].forEach(function(kind){
+      const sel = document.getElementById(w.ids[kind]);
+      if(sel && active !== sel) sel.innerHTML = rsvpWaveOptionsHtml(String(wv[kind + 'TemplateId'] || ''));
+    });
+    const when = document.getElementById(w.ids.when);
+    const now = new Date();
+    const yr = now.getMonth() > w.month ? y + 1 : y;
+    const start = rsvpWaveStartDate(w.month, yr);
+    if(when) when.textContent = w.label + ' — starts ' + start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      + (Number(wv.startedFor) === y ? (wv.skipped ? ' (skipped this year)' : ' (started this year)') : '');
+    const s = rsvpWaveTemplate(wv.standardTemplateId), a = rsvpWaveTemplate(wv.arrearsTemplateId);
+    if(!wv.standardTemplateId && !wv.arrearsTemplateId) words.push('The ' + w.label + ' send is off — nothing is picked.');
+    else if(!s || !a) words.push('The ' + w.label + ' send will NOT start until both of its emails are picked.');
+  });
+  const note = document.getElementById('rsvpWaveNote');
+  if(note && !note.dataset.hold){
+    note.style.color = words.some(function(t){ return /NOT/.test(t); }) ? 'var(--ember)' : 'var(--slate)';
+    note.textContent = words.join(' ') || 'Both sends are set.';
+  }
+}
+async function rsvpWaveSavePick(wave, kind, id){
+  const note = document.getElementById('rsvpWaveNote');
+  const patch = { waves: {} };
+  patch.waves[wave] = {};
+  patch.waves[wave][kind + 'TemplateId'] = String(id || '');
+  try{
+    await setDoc(doc(db,'settings','rsvpSendPlan'), patch, {merge: true});
+    const waves = Object.assign({}, (rsvpDripCache && rsvpDripCache.waves) || {});
+    waves[wave] = Object.assign({}, waves[wave] || {}, patch.waves[wave]);
+    rsvpDripCache = Object.assign({}, rsvpDripCache || {}, { waves: waves });
+    renderRsvpWavePickers();
+    if(note){ note.style.color = 'var(--emerald)'; note.textContent = '✓ Saved.'; note.dataset.hold = '1';
+      setTimeout(function(){ delete note.dataset.hold; renderRsvpWavePickers(); }, 4000); }
+  }catch(err){
+    console.error('[HU] could not save the RSVP season-calendar pick:', err);
+    renderRsvpWavePickers();
+    if(note){ note.style.color = 'var(--ember)'; note.textContent = '✗ Could not save that choice — try again.'; }
+  }
+}
+['rsvpWaveSepStandard', 'rsvpWaveSepArrears', 'rsvpWaveOctStandard', 'rsvpWaveOctArrears'].forEach(function(id){
+  document.getElementById(id)?.addEventListener('change', function(){ rsvpWaveSavePick(this.dataset.wave, this.dataset.kind, this.value); });
+});
+/* The start itself: everything Build the plan writes, with the wave's two emails, Ask again on
+   at one day so the people the September send reached are asked again in October, and the 9 AM
+   send switched on. Marked started for this year in the same write, and every EARLIER wave too. */
+function rsvpWaveStartWrite(w, wv, plan, queue, perDay, year){
+  const s = rsvpWaveTemplate(wv.standardTemplateId), a = rsvpWaveTemplate(wv.arrearsTemplateId);
+  const waves = {};
+  RSVP_WAVES.forEach(function(x){
+    if(x.month < w.month) waves[x.key] = { startedFor: year, skipped: true };
+  });
+  waves[w.key] = { startedFor: year, skipped: false, startedQueue: queue.length };
+  return {
+    enabled: queue.length > 0,
+    perDay: perDay,
+    season: year,
+    builtAt: serverTimestamp(),
+    builtBy: 'the ' + w.label + ' send',
+    standardTemplateId: s.id, arrearsTemplateId: a.id,
+    standardTemplateName: (s.data && s.data.name) || '', arrearsTemplateName: (a.data && a.data.name) || '',
+    remind: true, remindAfterDays: 1,
+    queue: queue,
+    waves: waves
+  };
+}
+let rsvpWaveBusy = false;
+async function rsvpWaveTick(){
+  if(rsvpWaveBusy) return;
+  if(!(typeof etTemplatesLoaded !== 'undefined' && etTemplatesLoaded)) return;
+  if(!(Array.isArray(jobAddresses) && jobAddresses.length) || !audienceHasLastSeason()) return;
+  const now = new Date();
+  /* Cheap before the read: nothing can be due outside September and October. */
+  if(!RSVP_WAVES.some(function(w){ return w.month === now.getMonth(); })) return;
+  rsvpWaveBusy = true;
+  try{
+    const snap = await getDoc(doc(db,'settings','rsvpSendPlan'));
+    const saved = snap.exists() ? (snap.data() || {}) : {};
+    const w = rsvpWaveDue(saved.waves, now);
+    if(!w) return;
+    const wv = (saved.waves || {})[w.key] || {};
+    if(!rsvpWaveTemplate(wv.standardTemplateId) || !rsvpWaveTemplate(wv.arrearsTemplateId)) return;
+    const plan = rsvpWholePlan({ on: true, days: 1 });
+    if(!plan || !plan.ready) return;
+    const queue = rsvpDripBuildQueue(plan);
+    const per = Math.max(1, Number(saved.perDay) || RSVP_DRIP_DEFAULT_PER_DAY);
+    await setDoc(doc(db,'settings','rsvpSendPlan'), rsvpWaveStartWrite(w, wv, plan, queue, per, now.getFullYear()), {merge: true});
+    toast('The ' + w.label + ' RSVP send has started — ' + queue.length + ' to ask, ' + per + ' a morning from 9:00 AM.');
+    if(typeof loadRsvpDripPlan === 'function') loadRsvpDripPlan();
+  }catch(err){
+    console.error('[HU] could not start the RSVP season-calendar send:', err);
+  }finally{
+    rsvpWaveBusy = false;
+  }
+}
 document.getElementById('rsvpDripTplArrears')?.addEventListener('change', function(){ rsvpDripSaveTemplatePick('arrears', this.value); });
 
 document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async function(){
@@ -25815,7 +25996,10 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
   this.disabled = true;
   if(st){ st.textContent = 'Working… this can take a few minutes.'; st.style.color = 'var(--slate)'; }
   try{
-    const run = httpsCallable(fbFunctions, 'runRsvpDailyNow');
+    /* ⚠ WAIT AS LONG AS THE SERVER MAY RUN (2026-11-10). The browser's default is 70
+       seconds; 200 sends take minutes, so the press reported "deadline-exceeded" while the
+       server carried on sending. runRsvpDailyNow allows 540s — this waits a little longer. */
+    const run = httpsCallable(fbFunctions, 'runRsvpDailyNow', { timeout: 560000 });
     const res = (await run({})).data || {};
     /* ⚠ A STOPPED RUN IS NOT A QUIET ZERO. "0 sent" on its own reads as "everybody has
        been asked", when it may be a missing template, a missing private key or a stale
@@ -25828,7 +26012,8 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
         st.textContent = res.sent + ' sent (' + (res.arrears || 0) + ' Not Paid, '
           + (res.standard || 0) + ' ordinary), ' + (res.skipped || 0) + ' skipped'
           + (errs ? ', ' + errs + ' failed: ' + res.errors.slice(0,3).join('; ') : '')
-          + (res.stopped ? ' — ' + res.stopped : '');
+          + (res.stopped ? ' — ' + res.stopped : '')
+          + (res.finished ? ' — everyone on this plan has been sent, so sending at 9:00 AM turned itself off.' : '');
         st.style.color = (errs || res.stopped) ? 'var(--ember)' : 'var(--emerald)';
       }
     }
@@ -25836,6 +26021,16 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
        card's whole job is to show what actually happened rather than what we asked for. */
     await loadRsvpDripPlan();
   }catch(err){
+    /* ⚠ A TIMEOUT IS NOT A FAILURE: the browser stopped waiting, the server did not stop
+       sending. Pressing again would start a second run on people not yet stamped, so the
+       message says to wait and read Last run instead. */
+    const timedOut = /deadline-exceeded/i.test(String((err && (err.code || err.message)) || ''));
+    if(timedOut){
+      console.warn('[HU] RSVP send-now: the browser stopped waiting; the server carries on.', err);
+      if(st){ st.textContent = 'Still sending on the server — the page stopped waiting, the emails did not. Do NOT press again: refresh in a few minutes and read Last run.'; st.style.color = 'var(--ember)'; }
+      this.disabled = false;
+      return;
+    }
     console.error('[HU] could not run the RSVP drip:', err);
     if(st){ st.textContent = '✗ Couldn’t run that — ' + ((err && err.message) || 'try again'); st.style.color = 'var(--ember)'; }
   }
@@ -26728,6 +26923,8 @@ function errorAlreadyReported(topic, key){
    floating write in the file that a signed-in person can be refused. */
 const FIXED_ERROR_MIN_MATCH = 12;
 const FIXED_ERRORS = [
+  { match: 'could not run the rsvp drip', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-11-10',
+    note: 'Admin. Send today\u2019s now gave up after the browser\u2019s 70-second default while the server went on sending (deadline-exceeded). It waits 560s now and a timeout says to wait, not to press again.' },
   { match: 'Wire sweep could not look', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-17',
     note: 'Admin. The sweep refused outright on a computer with no master sheet; since 9/17 (eeb54d1) the sheet is optional and only the comparison is skipped.' },
   { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',
@@ -75846,6 +76043,8 @@ function runHealthCheckAuto(){
     hcLastChecks = hcRunChecks();
     hcRender();          // this is what writes the sidebar badge
     bgJobOk('healthCheck');
+    /* [[EM-43]] the September / October RSVP send starts the first time admin is open on or after its day. */
+    if(typeof rsvpWaveTick === 'function') rsvpWaveTick().catch(function(err){ console.error('[HU] RSVP season calendar:', err); });
     renderActivityToday().catch(function(){ /* quiet on purpose: the Activity list redraws on the next customer write and on the next ten-minute tick. It reports nothing the checks above have not already scored. */ });
     /* Behind the check that just found the problems, and never in front of it:
        the sync leans on hcInvoiceGroups, and a failure here must not stop the badge
