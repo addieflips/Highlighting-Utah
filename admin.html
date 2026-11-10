@@ -25815,7 +25815,10 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
   this.disabled = true;
   if(st){ st.textContent = 'Working… this can take a few minutes.'; st.style.color = 'var(--slate)'; }
   try{
-    const run = httpsCallable(fbFunctions, 'runRsvpDailyNow');
+    /* ⚠ WAIT AS LONG AS THE SERVER MAY RUN (2026-11-10). The browser's default is 70
+       seconds; 200 sends take minutes, so the press reported "deadline-exceeded" while the
+       server carried on sending. runRsvpDailyNow allows 540s — this waits a little longer. */
+    const run = httpsCallable(fbFunctions, 'runRsvpDailyNow', { timeout: 560000 });
     const res = (await run({})).data || {};
     /* ⚠ A STOPPED RUN IS NOT A QUIET ZERO. "0 sent" on its own reads as "everybody has
        been asked", when it may be a missing template, a missing private key or a stale
@@ -25836,6 +25839,16 @@ document.getElementById('rsvpDripSendNowBtn')?.addEventListener('click', async f
        card's whole job is to show what actually happened rather than what we asked for. */
     await loadRsvpDripPlan();
   }catch(err){
+    /* ⚠ A TIMEOUT IS NOT A FAILURE: the browser stopped waiting, the server did not stop
+       sending. Pressing again would start a second run on people not yet stamped, so the
+       message says to wait and read Last run instead. */
+    const timedOut = /deadline-exceeded/i.test(String((err && (err.code || err.message)) || ''));
+    if(timedOut){
+      console.warn('[HU] RSVP send-now: the browser stopped waiting; the server carries on.', err);
+      if(st){ st.textContent = 'Still sending on the server — the page stopped waiting, the emails did not. Do NOT press again: refresh in a few minutes and read Last run.'; st.style.color = 'var(--ember)'; }
+      this.disabled = false;
+      return;
+    }
     console.error('[HU] could not run the RSVP drip:', err);
     if(st){ st.textContent = '✗ Couldn’t run that — ' + ((err && err.message) || 'try again'); st.style.color = 'var(--ember)'; }
   }
@@ -26728,6 +26741,8 @@ function errorAlreadyReported(topic, key){
    floating write in the file that a signed-in person can be refused. */
 const FIXED_ERROR_MIN_MATCH = 12;
 const FIXED_ERRORS = [
+  { match: 'could not run the rsvp drip', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-11-10',
+    note: 'Admin. Send today\u2019s now gave up after the browser\u2019s 70-second default while the server went on sending (deadline-exceeded). It waits 560s now and a timeout says to wait, not to press again.' },
   { match: 'Wire sweep could not look', topic: ADMIN_ERROR_TOPIC, fixedOn: '2026-09-17',
     note: 'Admin. The sweep refused outright on a computer with no master sheet; since 9/17 (eeb54d1) the sheet is optional and only the comparison is skipped.' },
   { match: 'renderFolderSidebar is not defined', fixedOn: '2026-09-09',

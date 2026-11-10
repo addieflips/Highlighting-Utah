@@ -7178,6 +7178,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
             the plan are reminders. ⚠ Off, the old rule holds: once asked, never asked again.
             [[EM-41]] records the next step she asked for and which is not built yet: three automatic
             waves (early September, early October, 1 November), each its own template, unanswered only.
+          - ⚠ **SEND TODAY'S NOW WAITS FOR THE SERVER (2026-11-10).** The button called `runRsvpDailyNow` with the browser's 70-second default, so a 200-email press said *deadline-exceeded* while the server (allowed 540s) went on sending. It waits 560s now, and a timeout says the emails are still going and NOT to press again — a second press could start a second run on people not yet stamped. run-all Suite 433.
           - ⚠ **9 AM, NOT 10.** The unpaid chase and the quote nudges are both on 10:00, and three
             batches on one Gmail account is the limit this exists to stay under.
           - ⚠ **NOT A BROWSER TIMER.** A drip that stalls because nobody opened a tab is a season

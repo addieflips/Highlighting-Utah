@@ -69258,3 +69258,21 @@ suite('394. Customer Numbers: the pool takes real numbers only, and Assign is on
     assign.indexOf("}, function(){ return document.getElementById('cnAssignBtn'); }));") > 0,
     'cnNextAvailable reads the cache; a second press before the first write lands gets the same number');
 }
+/* =====================================================================
+ * Suite 433. Send today's now waits as long as the server may run
+ * (2026-11-10). Addie saw "Couldn't run that — deadline-exceeded" while
+ * the server was still sending: the browser's callable default is 70s.
+ * ===================================================================== */
+suite('433. The RSVP send-now button waits for the server');
+{
+  const i = admin.indexOf("getElementById('rsvpDripSendNowBtn')?.addEventListener('click'");
+  const j = i === -1 ? -1 : admin.indexOf('/* ⭐ WHY SOMEBODY IS NOT IN THE RSVP SEND', i);
+  const body = (i !== -1 && j !== -1) ? stripComments(admin.slice(i, j)) : '';
+  check('S433', 'the send-now handler was found', body.length > 500);
+  const m = body.match(/httpsCallable\(fbFunctions, 'runRsvpDailyNow', \{ timeout: (\d+) \}\)/);
+  const srv = fnsSrc.match(/exports\.runRsvpDailyNow = onCall\(\{[^}]*timeoutSeconds: (\d+)/);
+  check('S433', 'the browser waits at least as long as the server is allowed to run',
+    !!(m && srv) && Number(m[1]) >= Number(srv[1]) * 1000, m && srv ? m[1] + 'ms vs ' + srv[1] + 's' : 'not found');
+  check('S433', 'a timeout says to wait and not press again, and returns before the failure line',
+    /if\(timedOut\)\{[\s\S]*?Do NOT press again[\s\S]*?return;[\s\S]*?\}[\s\S]*could not run the RSVP drip/.test(body));
+}
