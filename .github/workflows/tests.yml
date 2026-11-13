@@ -99,6 +99,12 @@ jobs:
       - name: What the crew is told is wrong (fix sheet)
         run: npm run test:fix
 
+      # SCH-156, 2026-11-13: a customer who moved kept showing — and syncing to the master
+      # sheet — the house they left, because readers took the stale `street` copy before the
+      # address line the office edits. Named separately: "old address again" is its own hunt.
+      - name: A moved customer is shown at the new house (address truth)
+        run: npm run test:address
+
       # Addie, 2026-09-18: a quote nobody answers is chased on a ladder — we are told to
       # text them, then one automatic email, then it is archived. Named separately because
       # "the nudge ladder" is a thing to go and look at, and because rung one is a REFUSAL:
