@@ -9403,6 +9403,7 @@ const CUSTOMER_FIELD_LABELS = {
   buildBundleOverride: {label: 'Bundles to build', kind: 'number'},
   binLabelNumber: 'Number painted on their bin',
   requoteKind: 'Why they were re-quoted',
+  requoteAppliedBuild: 'What the warehouse was told to do about their re-quote',
   scheduled: {label: 'On a day', kind: 'yesno'},
   scheduledDate: {label: 'Day they are booked for', kind: 'date'},
   assignedCrew: 'Crew'
@@ -64491,11 +64492,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ CLEARED WHETHER IT WORKED OR NOT. It is a module-level variable, so leaving
        it set would apply this re-quote's answer to the next customer whose record gets
        saved — which would put somebody who never moved on the recycle list. */
+    /* ⭐ [[SCH-156]] WHAT THE OFFICE ANSWERED IS STAMPED, because "Nothing" is the one answer that
+       says this re-quote changed no house — and until it was written down, nothing anywhere could
+       tell a no-change re-quote from an addition once the popup closed. 'none' | 'topup' | 'recycle',
+       the popup's own words; written to the customer here and to the quote where it is closed below,
+       so closedQuoteFor and printIsNewHang read the same answer. A blank writes nothing. */
+    let requoteAppliedBuild = '';
     if(requoteBuildChoice){
       const choice = requoteBuildChoice;
       requoteBuildChoice = null;
       requoteLightsPattern = '';
       requoteColorsSnapshot = null;
+      requoteAppliedBuild = String(choice.mode || '').trim();
+      if(requoteAppliedBuild) addrUpdates.requoteAppliedBuild = requoteAppliedBuild;
       /* ⚠ 'none' TOUCHES NEITHER QUEUE, and that is the whole point of it. It is not the
          same as no choice at all: the office was asked and said the house had not
          changed, so the existing flags stay exactly as they are. */
@@ -65071,10 +65080,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       requoteBeingConverted = null;
       requoteRestoreSaveLabel();
       try{
-        await updateDoc(doc(db,'quotes', answeredQuoteId), {
+        const closeWrite = {
           status: 'closed', convertedToCustomerAt: serverTimestamp(),
           convertedToCustomerId: savingCustomerId
-        });
+        };
+        /* [[SCH-156]] the warehouse answer rides on the quote too — closedQuoteFor reads quotes. */
+        if(requoteAppliedBuild) closeWrite.requoteAppliedBuild = requoteAppliedBuild;
+        await updateDoc(doc(db,'quotes', answeredQuoteId), closeWrite);
       } catch(err){
         console.error('Saved the customer but could not close the re-quote:', err);
         toast((newName || 'They') + ' were updated, but their re-quote card is still open \u2014 close it by hand.');
@@ -77954,6 +77966,28 @@ function dayIsoById(dayId){
    answer. A spare photo on a crew sheet costs nothing; a new hang printed with NO
    photo is the failure the badge exists to prevent (see printIsNewHang, and Ashley
    Wray, who is the reason it looks at quotes at all). */
+/* ⭐ [[SCH-156]] A RE-QUOTE THAT CHANGED NOTHING IS NOT A NEW HANG (2026-11-12). Addie, on a
+   customer re-quoted with nothing changed who came out wearing the New Hang tag, asked whether
+   such a re-quote should stop badging them: "Yes, fix it." closedQuoteFor finds an applied
+   re-quote by existingCustomerId before anything else, so EVERY applied re-quote badged — the
+   tag, the Schedule's NEW, the crew sheet's NEW and a photo of a house the crew has hung before.
+   Dax's rule that a re-quote counts (the comment above printIsNewHang) was about an addition or
+   a move, where the crew really does meet a house in a shape it has not seen.
+
+   TWO THINGS SAY THE HOUSE DID NOT CHANGE, and either is enough: the kind asked when the
+   re-quote was RAISED ("Just the price" — requoteKind 'price', on the quote and copied onto the
+   customer at apply), and the answer given when it was APPLIED ("Nothing" for the warehouse —
+   requoteAppliedBuild 'none', stamped on the quote and the customer in the same save).
+   ⚠ A BLANK IS NEITHER. A re-quote with no kind and no apply answer keeps the old answer: this
+   fails towards badging, exactly as closedQuoteFor does, because a spare photo costs nothing and
+   a new hang printed with none is the failure the badge exists to prevent.
+   ⚠ READS A QUOTE OR A CUSTOMER ALIKE — both carry the same two names — so the badge
+   (closedQuoteFor) and the paper (printIsNewHang) cannot answer differently about one house. */
+function requoteChangedNothing(x){
+  if(!x) return false;
+  if(String(x.requoteKind || '').trim().toLowerCase() === 'price') return true;
+  return String(x.requoteAppliedBuild || '').trim().toLowerCase() === 'none';
+}
 function closedQuoteFor(h){
   /* ⭐ [[SCH-107]] THE QUOTE THAT NAMES THIS CUSTOMER WINS, before any phone matching. A converted
      quote now records the customer it created (convertedToCustomerId), a re-quote names its customer
@@ -77962,7 +77996,7 @@ function closedQuoteFor(h){
   const own = (typeof hlxResolvePlanHouse === 'function') ? hlxResolvePlanHouse(h) : null;
   if(own && own.id && typeof quotesCache !== 'undefined'){
     const named = quotesCache.find(function(q){
-      return q.data && q.data.status === 'closed' &&
+      return q.data && q.data.status === 'closed' && !requoteChangedNothing(q.data) &&
         String(q.data.convertedToCustomerId || q.data.existingCustomerId || '') === String(own.id);
     });
     if(named) return named;
@@ -77983,7 +78017,8 @@ function closedQuoteFor(h){
     return st ? st + '|' + n(city) : '';
   };
   const mineKey = cd ? keyOf(cd.street, cd.address, cd.city) : '';
-  const closed = (typeof quotesCache !== 'undefined' ? quotesCache : []).filter(q => q.data && q.data.status === 'closed');
+  /* [[SCH-156]] a re-quote that changed nothing is not a closed quote this rule can see. */
+  const closed = (typeof quotesCache !== 'undefined' ? quotesCache : []).filter(q => q.data && q.data.status === 'closed' && !requoteChangedNothing(q.data));
   const qKey = q => keyOf(q.data.street, q.data.address, q.data.city);
   const sameHouse = q => !mineKey || !qKey(q) || qKey(q) === mineKey;
   if(mineKey){
@@ -88286,7 +88321,8 @@ function printIsNewHang(d, h){
     try{ if(isNewMemberHouse(h)) return true; }catch(err){ /* no quotes loaded yet — the rules below still answer */ }
   }
   if(d && d.lightsChangedAt) return false;
-  if(d && (d.chargeNewMemberFee === true || d.requoteAppliedAt)) return true;
+  /* [[SCH-156]] an applied re-quote counts only when it changed the house — requoteChangedNothing. */
+  if(d && (d.chargeNewMemberFee === true || (d.requoteAppliedAt && !requoteChangedNothing(d)))) return true;
   /* ⭐ AND THE SCHEDULE'S OWN NEW BADGE COUNTS TOO (added 2026-08-20). Owner, asked
      for a draft sheet: "do it with ashley wrays house because shes a new hang."
 
