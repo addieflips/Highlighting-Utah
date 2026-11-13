@@ -707,6 +707,8 @@ function realNewHangTest(quotes, customers) {
   return real('isNewMemberHouse', {
     closedQuoteFor: real('closedQuoteFor', {
       quotesCache: quotes || [],
+      /* [[SCH-156]] the no-change re-quote rule — lifted, never stubbed. */
+      requoteChangedNothing: real('requoteChangedNothing'),
       quoteMatchAddress: real('quoteMatchAddress'),
       hlxResolvePlanHouse: real('hlxResolvePlanHouse', {
         jobAddresses: list,
@@ -26457,7 +26459,7 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the new-hang rule is there', !!nhSrc);
 
   if (nhSrc) {
-    const isNew = (d) => new Function('d', nhSrc + 'return printIsNewHang(d);')(d);
+    const isNew = (d) => new Function('d', nhSrc + extractFn(admin, 'requoteChangedNothing') + 'return printIsNewHang(d);')(d);
     check('S104', 'a first-time customer is a new hang',
       isNew({chargeNewMemberFee: true}) === true);
     check('S104', 'a requote counts as one too',
@@ -26648,7 +26650,7 @@ suite('Suite 104. The Printing tab');
     'const crewHousesFor = function(){ return houses; };' +
     'const customerForHouse = function(h){ return custs[h.id] ? {data: custs[h.id]} : null; };' +
     'const customerPhotoList = function(d){ return d.housePhotos || []; };' +
-    extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
+    extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') + extractFn(admin, 'requoteChangedNothing') +
     extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos({}, 0);')(houses, custs);
 
   const threeShots = photosOf([{id: 'a'}], {a: {name: 'Alice', customerNumber: '101',
@@ -26742,7 +26744,7 @@ suite('Suite 104. The Printing tab');
       extractFn(admin, 'printBinCount') + extractFn(admin, 'custStreetOf') /* [[SCH-155]] */ + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
-      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
+      extractFn(admin, 'printIsNewHang') + extractFn(admin, 'requoteChangedNothing') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
       extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') + extractFn(admin, 'printTableHtml') +
       /* [[SCH-107]] the line naming a new hang with no photo — lifted, never stubbed. */
@@ -26962,7 +26964,7 @@ suite('Suite 104. The Printing tab');
       admin.slice(admin.indexOf('const SCHED_DAY_COLUMNS=['),
                   admin.indexOf('function schedSheetTable(')) +
       extractFn(admin, 'schedSheetTable') +
-      extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
+      extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') + extractFn(admin, 'requoteChangedNothing') +
       extractFn(admin, 'printNotDone') + extractFn(admin, 'printNewHangPhotoList') + extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printBackSideHtml') +
       extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
       'printWholePlan();')(days, out);
@@ -28841,14 +28843,21 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
     check('S118', 'the block that carries the choice out was found', !!blk);
     if (blk) {
+      /* [[SCH-156]] the stamp's declaration sits above the anchor, so the slice is handed one. */
       const apply = new Function('requoteBuildChoice', 'addrUpdates', 'serverTimestamp',
-        blk + 'return requoteBuildChoice;');
+        'let requoteAppliedBuild = "";' + blk + 'return requoteBuildChoice;');
       const up = {};
       const left = apply({mode: 'none'}, up, function(){ return 'NOW'; });
+      /* ⚠ REPOINTED, NOT WEAKENED (2026-11-12, [[SCH-156]]). This asserted that NOTHING was
+         written, when its own message says what it guards: the two queues. Nothing now stamps
+         what the office answered (requoteAppliedBuild) — the one field the new-hang rule reads —
+         and the queues are still untouched; both halves are asserted. */
+      const QUEUE_FIELDS = ['needsLightBuild', 'needsLightRecycle', 'buildTopUpFromFeet', 'recycleKeepingCustomer'];
       check('S118', 'nothing means neither queue is written to',
-        Object.keys(up).length === 0,
+        QUEUE_FIELDS.every(k => !(k in up)) &&
+        Object.keys(up).every(k => k === 'requoteAppliedBuild') && up.requoteAppliedBuild === 'none',
         'building or recycling for a price change puts a real bundle on a real shelf ' +
-        'for no reason');
+        'for no reason; wrote: ' + Object.keys(up).join(', '));
       check('S118', 'and the choice is still cleared afterwards',
         left === null,
         'left set, the next customer saved would inherit it');
@@ -46394,7 +46403,7 @@ suite('251. The corners, offered rather than hunted');
 suite('252. The NEW badge is this house, not just this phone number');
 {
   const NEED = ['closedQuoteFor', 'isNewMemberHouse', 'quoteMatchAddress',
-                'hlxResolvePlanHouse', 'customerForHouse'];
+                'hlxResolvePlanHouse', 'customerForHouse', 'requoteChangedNothing'];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
   check('S252', 'every function this suite runs was found in admin.html',
@@ -67515,7 +67524,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
  * --------------------------------------------------------------------------- */
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
-  const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
+  const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'requoteChangedNothing', 'printCustData', 'printIsNewHang',
                   'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml', 'printNotDone']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
@@ -67601,7 +67610,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
     'const custById = new Map(custs.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return custById.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
     'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
-    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hook +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'requoteChangedNothing') + extractFn(admin, 'isNewMemberHouse') + hook +
     extractFn(admin, 'newHangChip') +
     'return {tag: window.customerIsNewHang, chip: function(item){ return newHangChip(item); },' +
     '  house: isNewMemberHouse};')(quotes, custs);
@@ -67682,7 +67691,7 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
     'const quotesCache = quotes;' +
     'const byId = new Map(custs.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return byId.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
-    extractFn(admin, 'closedQuoteFor') + 'return closedQuoteFor;')(quotes, custs);
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'requoteChangedNothing') + 'return closedQuoteFor;')(quotes, custs);
   const bill = {id: 'bill', data: {street: '9943 n 6180 w', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '', email: 'billtitera@gmail.com'}};
   const marina = {id: 'mar', data: {street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs, UT 84045', phone: '3852331077', email: ''}};
   const parent = {id: 'par', data: {street: '1 Old St', city: 'Lehi', address: '1 Old St, Lehi, UT 84043', phone: '3852331077', email: 'billtitera@gmail.com'}};
@@ -67742,7 +67751,7 @@ suite('370. The set-up fee box makes a new customer, everywhere');
     'const window = {}; let jobAddresses = list; const quotesCache = quotes;' +
     'const byId = () => new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return byId().get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
-    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hooks +
+    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'requoteChangedNothing') + extractFn(admin, 'isNewMemberHouse') + hooks +
     'return {byData: window.customerIsNewHangData, set: function(l){ jobAddresses = l; }};')(list, quotes);
   const fee = {id: 'f', data: {name: 'Fee', street: '1 A', city: 'X', chargeNewMemberFee: true}};
   const plain = {id: 'p', data: {name: 'Plain', street: '2 B', city: 'X'}};
@@ -69331,4 +69340,107 @@ suite('434. The September and October RSVP sends start themselves');
   check('S434', 'the four pickers save what they show',
     /\['rsvpWaveSepStandard', 'rsvpWaveSepArrears', 'rsvpWaveOctStandard', 'rsvpWaveOctArrears'\]\.forEach/.test(stripped) &&
     /rsvpWaveSavePick\(this\.dataset\.wave, this\.dataset\.kind, this\.value\)/.test(stripped));
+}
+
+/* ==========================================================================
+   435. A RE-QUOTE THAT CHANGED NOTHING IS NOT A NEW HANG ([[SCH-156]], 2026-11-12)
+   ----------------------------------------------------------------------------
+   Addie, on a customer re-quoted with nothing changed who came out wearing the New Hang
+   tag: "Yes, fix it." closedQuoteFor found an applied re-quote by existingCustomerId before
+   anything else, so every applied re-quote badged — and the crew sheet printed a photo of a
+   house the crew had hung before. Two things now say the house did not change, and either
+   is enough: requoteKind 'price' (asked when the re-quote was raised) and requoteAppliedBuild
+   'none' (the office picking Nothing for the warehouse when it was applied). A re-quote with
+   neither keeps the old answer — it fails towards badging.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about what a lookup RESOLVES TO; the functions are
+   the real ones out of admin.html, lifted with their deps as arguments (S252's shape).
+   ========================================================================== */
+suite('435. A re-quote that changed nothing is not a new hang');
+{
+  const NEED = ['closedQuoteFor', 'isNewMemberHouse', 'quoteMatchAddress',
+                'hlxResolvePlanHouse', 'customerForHouse', 'requoteChangedNothing', 'printIsNewHang'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S435', 'every function this suite runs was found in admin.html',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+  if (!missing.length) {
+    const PHONE = '(801) 555-0100';
+    const ADDR = '300 Pine Ct, Lehi, UT';
+    const build = (quotes, custExtra) => {
+      const jobAddresses = [
+        { id: 'c1', data: Object.assign({ name: 'Returning', address: ADDR, street: '300 Pine Ct', city: 'Lehi',
+          phone: PHONE, customerNumber: '31' }, custExtra || {}) },
+      ];
+      const custById = new Map(jobAddresses.map(c => [c.id, c]));
+      const custByNumber = new Map(jobAddresses.map(c => [c.data.customerNumber, c]));
+      const custByPhoneDigits = new Map([['8015550100', jobAddresses[0]]]);
+      return new Function('quotesCache', 'jobAddresses', 'custById', 'custByNumber', 'custByPhoneDigits',
+        parts.join('\n') + '\nreturn {closedQuoteFor, isNewMemberHouse, printIsNewHang, requoteChangedNothing};')(
+        quotes, jobAddresses, custById, custByNumber, custByPhoneDigits);
+    };
+    const house = { id: 'cust-c1', name: 'Returning', phone: PHONE, cu: '31' };
+    let seq = 0;
+    const rq = extra => ({ id: 'q' + (++seq),
+      data: Object.assign({ status: 'closed', existingCustomerId: 'c1', phone: '8015550100', address: ADDR }, extra) });
+
+    check('S435', 'a re-quote raised as "Just the price" does not make them a new hang',
+      build([rq({ requoteKind: 'price' })]).isNewMemberHouse(house) === false);
+    check('S435', 'a re-quote applied with "Nothing" for the warehouse does not either, whatever kind it was raised as',
+      build([rq({ requoteAppliedBuild: 'none' })]).isNewMemberHouse(house) === false &&
+      build([rq({ requoteKind: 'addition', requoteAppliedBuild: 'none' })]).isNewMemberHouse(house) === false);
+    check('S435', 'an addition still does — the crew meets a house in a shape it has not seen',
+      build([rq({ requoteKind: 'addition', requoteAppliedBuild: 'topup' })]).isNewMemberHouse(house) === true);
+    check('S435', 'and so does a move',
+      build([rq({ requoteKind: 'address', requoteAppliedBuild: 'recycle' })]).isNewMemberHouse(house) === true);
+    check('S435', 'a re-quote with no kind and no apply answer keeps the old answer — it fails towards badging',
+      build([rq({})]).isNewMemberHouse(house) === true);
+    check('S435', 'the $30 box still makes them a new hang over a price-only re-quote',
+      build([rq({ requoteKind: 'price' })], { chargeNewMemberFee: true }).isNewMemberHouse(house) === true);
+    check('S435', 'the quote they were converted from still counts when a price re-quote follows it',
+      build([{ id: 'qNew', data: { status: 'closed', convertedToCustomerId: 'c1', address: ADDR } }, rq({ requoteKind: 'price' })])
+        .isNewMemberHouse(house) === true);
+    /* The street, email and phone branches read the same filtered list — a no-change re-quote
+       that names nobody is still invisible to all of them. */
+    check('S435', 'a price-only re-quote at the same street or phone is not found by the fallback branches either',
+      build([{ id: 'qS', data: { status: 'closed', address: ADDR, street: '300 Pine Ct', city: 'Lehi', phone: '8015550100',
+        requoteCount: 1, requoteKind: 'price' } }]).closedQuoteFor(house) === null);
+    check('S435', 'the right quote comes back when a house has both an addition and a price re-quote',
+      (build([rq({ requoteKind: 'price' }), { id: 'qAdd', data: { status: 'closed', existingCustomerId: 'c1', requoteKind: 'addition' } }])
+        .closedQuoteFor(house) || {}).id === 'qAdd');
+
+    /* The paper reads the customer's own copy of the two names. */
+    const app = build([]);
+    const paper = d => app.printIsNewHang(d, null);
+    check('S435', 'the crew sheet prints no photo for a price-only or Nothing re-quote',
+      paper({ requoteAppliedAt: 1, requoteKind: 'price' }) === false &&
+      paper({ requoteAppliedAt: 1, requoteAppliedBuild: 'none' }) === false);
+    check('S435', 'but still does for an addition, a move, or a re-quote nobody answered for',
+      paper({ requoteAppliedAt: 1, requoteKind: 'addition' }) === true &&
+      paper({ requoteAppliedAt: 1, requoteKind: 'address', requoteAppliedBuild: 'recycle' }) === true &&
+      paper({ requoteAppliedAt: 1 }) === true);
+    check('S435', 'the $30 box and the colour-change rule on paper are untouched',
+      paper({ chargeNewMemberFee: true, requoteKind: 'price' }) === true &&
+      paper({ lightsChangedAt: 1, requoteAppliedAt: 1, requoteKind: 'addition' }) === false);
+    check('S435', 'the helper itself: price or none, nothing else, never a blank',
+      app.requoteChangedNothing({ requoteKind: 'price' }) === true &&
+      app.requoteChangedNothing({ requoteAppliedBuild: 'none' }) === true &&
+      app.requoteChangedNothing({ requoteKind: 'addition', requoteAppliedBuild: 'topup' }) === false &&
+      app.requoteChangedNothing({}) === false && app.requoteChangedNothing(null) === false);
+  }
+  /* The answer has to be WRITTEN or the rule reads a field nothing fills — the writer-with-no-reader
+     trap pointing the other way. The Edit Customer save stamps it on the customer when the popup's
+     choice is applied and on the quote when it is closed; the popup still produces 'none'. */
+  const save = stripComments(admin);
+  check('S435', 'the save stamps the warehouse answer on the customer record',
+    /requoteAppliedBuild = String\(choice\.mode \|\| ''\)\.trim\(\);/.test(save) &&
+    /if\(requoteAppliedBuild\) addrUpdates\.requoteAppliedBuild = requoteAppliedBuild;/.test(save));
+  check('S435', 'and on the quote it closes, in the same write that closes it',
+    /if\(requoteAppliedBuild\) closeWrite\.requoteAppliedBuild = requoteAppliedBuild;/.test(save) &&
+    /updateDoc\(doc\(db,'quotes', answeredQuoteId\), closeWrite\)/.test(save) &&
+    /status: 'closed', convertedToCustomerAt: serverTimestamp\(\),\s*convertedToCustomerId: savingCustomerId\s*\};/.test(save));
+  check('S435', "the apply popup's Nothing choice is still the mode the stamp reads",
+    /requoteBuildChoice = wantsNothing\s*\?\s*\{mode: 'none'\}/.test(save));
+  check('S435', 'the history knows the new field by name',
+    /requoteAppliedBuild: 'What the warehouse was told to do about their re-quote'/.test(save));
 }
