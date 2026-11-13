@@ -21651,7 +21651,7 @@ function rsvpNoPhoneRows(targets){
   }).map(function(item){
     const d = item.data || {};
     return rsvpSheetCell(d.name) + '\t' + rsvpSheetCell(d.email || d.email2) +
-      '\t' + rsvpSheetCell(d.street || d.address);
+      '\t' + rsvpSheetCell(custStreetOf(d) || d.address);
   });
 }
 /* ⭐ HOW MANY AT A TIME, AND A BOX YOU CAN SEE (2026-09-24, [[RS-69]]). Addie: "I copy
@@ -30115,7 +30115,7 @@ function renderMessagesList(){
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
-        const where = cust.data.street || (cust.data.address||'').split(',')[0] || '';
+        const where = custStreetOf(cust.data);
         labelEl.value = num + (cust.data.name || '') + (where ? ' \u2014 ' + where : '');
       } else {
         labelEl.value = d.name || '';
@@ -42782,6 +42782,33 @@ function custStreetOf(d){
   const first = String(d.address || '').split(',')[0].trim();
   return first || String(d.street || '').trim();
 }
+/* ⭐ AND THE ZIP, BY THE SAME RULE ([[SCH-156]], 2026-11-13). A record moved before SCH-155 kept the old
+   house's zip as well as its street. The address line's own trailing five digits win; the stored `zip`
+   only when the line carries none — and then only if the line's street is the stored street, because a
+   zip belongs to a house and a moved line with no zip must not inherit the old one. */
+function custZipOf(d){
+  d = d || {};
+  const line = String(d.address || '').trim();
+  const m = line.match(/\b(\d{5})(?:-\d{4})?\s*$/);
+  if(m) return m[1];
+  const stored = String(d.zip || '').trim();
+  if(!line) return stored;
+  return normalizeStreetForMatch(custStreetOf(d)) === normalizeStreetForMatch(String(d.street || '')) ? stored : '';
+}
+/* ⭐ WHAT A STALE RECORD NEEDS WRITTEN TO AGREE WITH ITSELF ([[SCH-156]]). Owner, 2026-11-13: "when people
+   move or something it uses their old address rather than their new one ... make sure it doesnt happen
+   again." Empty when the record already agrees. Every save that touches a customer can add this, so a record
+   moved before SCH-155 heals the next time anybody saves it. */
+function custAddressHeal(d){
+  d = d || {};
+  const out = {};
+  if(!String(d.address || '').split(',')[0].trim()) return out;
+  const st = custStreetOf(d);
+  if(st && st !== String(d.street || '').trim()) out.street = st;
+  const z = custZipOf(d);
+  if(z !== String(d.zip || '').trim()) out.zip = z;
+  return out;
+}
 function buildFullAddress(street, city, zip){
   var parts = [street];
   if(city) parts.push(city);
@@ -49254,9 +49281,9 @@ function rbCustomerToSheetRow(d){
   return [
     String(c.customerNumber == null ? '' : c.customerNumber).trim(),
     rbNameForSheet(c.name),
-    String(c.street || '').trim(),
+    custStreetOf(c),
     String(c.city || '').trim(),
-    String(c.zip || '').trim(),
+    custZipOf(c),
     String(c.phone || '').replace(/\D/g, ''),
     String(c.email || '').trim(),
     notesOut,
@@ -49480,7 +49507,7 @@ function rbCollectMissingCustomers(){
       RB_SYNC_FIELDS.forEach(function(f){
         const theirs = f.read(i);
         if(theirs === null || theirs === undefined || String(theirs).trim() === '') return;
-        const mine = d[f.key];
+        const mine = f.key === 'street' ? custStreetOf(d) : f.key === 'zip' ? custZipOf(d) : d[f.key];
         /* hit is passed so a field can compare against what we WOULD WRITE rather than
            the raw value — see the Notes rule. */
         if(f.same(mine, theirs, hit)) return;
@@ -49579,7 +49606,7 @@ function rbCollectMissingCustomers(){
   }
   const onlyOnSite = jobAddresses.filter(function(c){ return !matched[c.id]; }).map(function(c){
     const d = c.data || {};
-    const street = String(d.street || '').trim();
+    const street = custStreetOf(d);
     const town = extractCleanCity(d.city) || '';
     return {
       id: c.id,
@@ -50157,6 +50184,27 @@ function rbWireDiffButtons(report, statusEl){
        one update, not six. */
     const byCust = {};
     list.forEach(function(x){ (byCust[x.id] = byCust[x.id] || {})[x.key] = x.write; });
+    /* ⭐ [[SCH-156]] A STREET TAKEN FROM THE SHEET MOVES THE ADDRESS LINE AND THE PIN WITH IT. This wrote `street`
+       alone, and every reader goes by the address line (custStreetOf), so a correction ticked here changed
+       nothing anybody sees — and left the record disagreeing with itself, the shape that sent crews to old
+       houses. The line is rebuilt from the merged street, town and zip, and re-pinned. */
+    for(const cid of Object.keys(byCust)){
+      const u = byCust[cid];
+      if(!('street' in u) && !('city' in u) && !('zip' in u)) continue;
+      const rec = jobAddresses.find(function(it){ return it.id === cid; });
+      const cur = (rec && rec.data) || {};
+      const st = 'street' in u ? String(u.street || '').trim() : custStreetOf(cur);
+      if(!st) continue;
+      const line = buildFullAddress(st, 'city' in u ? u.city : extractCleanCity(cur.city), 'zip' in u ? u.zip : custZipOf(cur));
+      if(line === String(cur.address || '')) continue;
+      u.address = line;
+      u.street = st;
+      try{
+        const coords = await geocodeAddress(line);
+        if(coords && coords.lat != null){ u.lat = coords.lat; u.lng = coords.lng; u.needsGeocode = false; }
+        else u.needsGeocode = true;
+      } catch(geoErr){ u.needsGeocode = true; /* no pin is said by the Needs Pin filter, never a lost sync */ }
+    }
     const ids = Object.keys(byCust);
     let done = 0, failed = 0, fields = 0;
     for(let i = 0; i < ids.length; i++){
@@ -50307,7 +50355,7 @@ function dupNormName(v){
     .replace(/[^a-z0-9]+/g, ' ')
     .split(' ').filter(Boolean).sort().join('');
 }
-function dupStreetOf(d){ return normalizeStreetForMatch(d.street || String(d.address || '').split(',')[0]); }
+function dupStreetOf(d){ return normalizeStreetForMatch(custStreetOf(d)); }
 /* What this record carries that would be lost with it. Anything in here makes
    a record a candidate for keeping, and a record holding something the other
    does NOT hold is what makes a pair unsafe to decide automatically. */
@@ -50572,7 +50620,7 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
   const toDelete = found.ready.reduce(function(n, g){ return n + g.losers.length; }, 0);
   dupPending = found.ready;
   const nameOf = function(c){ return (c.data && c.data.name) || '(no name)'; };
-  const whereOf = function(c){ const d = c.data || {}; return [d.street || '', extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address'; };
+  const whereOf = function(c){ const d = c.data || {}; return [custStreetOf(d), extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address'; };
   const assetsOf = function(a){ const k = Object.keys(a); return k.length ? k.join(', ') : 'nothing on it'; };
   statusEl.textContent = found.ready.length + ' duplicate group(s), ' + toDelete + ' record(s) would go. ' +
     (found.review.length ? found.review.length + ' need you to decide.' : '');
@@ -50701,7 +50749,7 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
   const nameOf = function(c){ return (c.data && c.data.name) || '(no name)'; };
   const whereOf = function(c){
     const d = c.data || {};
-    return [d.street || '', extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address';
+    return [custStreetOf(d), extractCleanCity(d.city) || ''].filter(Boolean).join(', ') || 'no address';
   };
   statusEl.textContent = found.ready.length + ' name(s) listed twice, ' + toDelete + ' record(s) would be merged away.' +
     (found.review.length ? ' ' + found.review.length + ' need you to decide.' : '');
@@ -51779,10 +51827,10 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
          a customer we have never seen, one with no pin yet, or one whose
          address on this row is not the address on file. Same address plus an
          existing pin means the call would hand back the pin we already have. */
-      const onFileStreet = existing ? (existing.data.street || String(existing.data.address || '').split(',')[0]) : '';
+      const onFileStreet = existing ? custStreetOf(existing.data) : '';
       const sameStreet = existing && normalizeStreetForMatch(onFileStreet) === normalizeStreetForMatch(street);
       const sameTown = existing && extractCleanCity(String(existing.data.city || '')) === (extractCleanCity(city) || city);
-      const sameZip = existing && String(existing.data.zip || '') === String(zip || '');
+      const sameZip = existing && custZipOf(existing.data) === String(zip || '');
       const hasPin = existing && existing.data.lat != null && existing.data.lng != null;
       const pinIsGood = !!(hasPin && sameStreet && sameTown && sameZip);
       let coords = null;
@@ -54773,14 +54821,14 @@ function cnBulkAnalyze(){
     const heldBy = jobAddresses.find(function(item){ return String(item.data.customerNumber||'') === num; });
     const nName = cnNormName(nm), nStreet = cnNormStreet(st);
     let match = null;
-    if(nName && nStreet) match = jobAddresses.find(function(it){ return cnNormName(it.data.name) === nName && cnNormStreet(it.data.street || (it.data.address||'').split(',')[0]) === nStreet; });
+    if(nName && nStreet) match = jobAddresses.find(function(it){ return cnNormName(it.data.name) === nName && cnNormStreet(custStreetOf(it.data)) === nStreet; });
     if(!match && nName){
       const byName = jobAddresses.filter(function(it){ return cnNormName(it.data.name) === nName; });
       if(byName.length === 1) match = byName[0];
       else if(byName.length > 1){ unmatched.push('Row ' + rowNo + ': #' + num + ' — "' + (nm||st) + '" matches ' + byName.length + ' customers, so I left it alone.'); continue; }
     }
     if(!match && nStreet){
-      const byStreet = jobAddresses.filter(function(it){ return cnNormStreet(it.data.street || (it.data.address||'').split(',')[0]) === nStreet; });
+      const byStreet = jobAddresses.filter(function(it){ return cnNormStreet(custStreetOf(it.data)) === nStreet; });
       if(byStreet.length === 1) match = byStreet[0];
     }
     if(!match){ unmatched.push('Row ' + rowNo + ': #' + num + ' — no customer found for "' + (nm || st) + '".'); continue; }
@@ -58274,7 +58322,7 @@ function whRefreshCustomerList(){
   }).map(function(item){
     const d = item.data;
     const num = d.customerNumber ? '#' + d.customerNumber + ' \u2014 ' : '';
-    const where = d.street || (d.address||'').split(',')[0] || '';
+    const where = custStreetOf(d);
     return '<option value="'+esc(num + (d.name||'(no name)') + (where ? ' \u2014 ' + where : ''))+'"></option>';
   }).join('');
 }
@@ -58284,7 +58332,7 @@ function whFindCustomerByLabel(label){
   return jobAddresses.find(function(item){
     const d = item.data;
     const num = d.customerNumber ? '#' + d.customerNumber + ' \u2014 ' : '';
-    const where = d.street || (d.address||'').split(',')[0] || '';
+    const where = custStreetOf(d);
     return (num + (d.name||'(no name)') + (where ? ' \u2014 ' + where : '')).toLowerCase() === norm;
   }) || null;
 }
@@ -59837,7 +59885,7 @@ function findExistingAddressMatch(street, phone, city, zip, custNumber){
   const normStreetEarly = normalizeStreetForMatch(street);
   const digitsEarly = (phone || '').replace(/\D/g,'');
   const streetOf = function(it){
-    return normalizeStreetForMatch(it.data.street || (it.data.address || '').split(',')[0]);
+    return normalizeStreetForMatch(custStreetOf(it.data));
   };
   if(normStreetEarly){
     if(digitsEarly){
@@ -59905,7 +59953,7 @@ function findAddressMatchByTown(street, phone, city, zip){
   const normZip = (zip||'').replace(/\D/g,'').slice(0,5);
   const phoneDigits = (phone||'').replace(/\D/g,'');
   return jobAddresses.find(function(item){
-    const existingStreet = normalizeStreetForMatch(item.data.street || (item.data.address||'').split(',')[0]);
+    const existingStreet = normalizeStreetForMatch(custStreetOf(item.data));
     if(!existingStreet || existingStreet !== normStreet) return false;
     // Street matches — now confirm it's really the same house.
     const existingCity = normalizeStreetForMatch(item.data.city);
@@ -64651,6 +64699,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       } catch(geoErr){
         geocodeFailed = true;
       }
+    } else if(newAddress){
+      /* ⭐ [[SCH-156]] AND A RECORD MOVED BEFORE THAT FIX HEALS ON ITS NEXT SAVE. Its address line is the new
+         house and its `street`/`zip` still the old one; nothing re-typed the address, so the branch above never
+         ran for it. Same rule as the move itself, read off the line already on file. */
+      Object.assign(addrUpdates, custAddressHeal({address: newAddress, street: item.data.street, zip: item.data.zip}));
     }
     /* Their bin in the warehouse is physically labelled with this number, so a
        change is flagged rather than made silently. */
@@ -73554,7 +73607,7 @@ function systemNoticeWireRows(list){
       const labelEl = document.getElementById('whExtraLabel');
       if(cust){
         const num = cust.data.customerNumber ? '#' + cust.data.customerNumber + ' \u2014 ' : '';
-        const where = cust.data.street || (cust.data.address||'').split(',')[0] || '';
+        const where = custStreetOf(cust.data);
         labelEl.value = num + (cust.data.name || '') + (where ? ' \u2014 ' + where : '');
       } else {
         labelEl.value = d.name || '';
@@ -73865,7 +73918,7 @@ document.getElementById('memberExportBtn').addEventListener('click', function(){
     const d = item.data;
     return {
       Name: d.name || '', Phone: d.phone || '', Email: d.email || '', 'Customer #': d.customerNumber || '',
-      Street: d.street || '', City: d.city || '', State: d.state || '', ZIP: d.zip || '',
+      Street: custStreetOf(d), City: d.city || '', State: d.state || '', ZIP: custZipOf(d),
       'Date Added': memberExportDateAdded(d), Status: memberExportStatus(d),
       Route: d.scheduledDate || '', Crew: d.assignedCrew ? ('Crew ' + d.assignedCrew) : '',
       Notes: d.notes || ''
@@ -74696,7 +74749,7 @@ function hcRunChecks(){
       return !String((c.data || {}).customerNumber || '').trim();
     }).map(function(c){
       const d = c.data || {};
-      const street = String(d.street || '').trim();
+      const street = custStreetOf(d);
       const town = extractCleanCity(d.city) || '';
       const price = Number(d.housePrice) || 0;
       const bits = [];
@@ -77982,7 +78035,7 @@ function closedQuoteFor(h){
     const st = n(street || String(address || '').split(',')[0]);
     return st ? st + '|' + n(city) : '';
   };
-  const mineKey = cd ? keyOf(cd.street, cd.address, cd.city) : '';
+  const mineKey = cd ? keyOf(custStreetOf(cd), '', cd.city) : '';
   const closed = (typeof quotesCache !== 'undefined' ? quotesCache : []).filter(q => q.data && q.data.status === 'closed');
   const qKey = q => keyOf(q.data.street, q.data.address, q.data.city);
   const sameHouse = q => !mineKey || !qKey(q) || qKey(q) === mineKey;
@@ -80568,7 +80621,7 @@ function renderFixTray(){
     const photos = fixPhotosOf(d);
     return '<div class="newrow"><div><div class="who"><span class="fixstop" title="Stop on the fix route">' + stopNo.get(a.id) + '</span> ' + esc(d.name || '(no name)') + '<span class="fixbadge">FIX</span>' +
         (d.customerNumber ? ' <span class="meta">#' + esc(String(d.customerNumber)) + '</span>' : '') + '</div>' +
-        '<div class="meta">' + esc(d.street || d.address || '') + (d.city ? ', ' + esc(d.city) : '') + (d.phone ? ' · ' + esc(d.phone) : '') + '</div>' +
+        '<div class="meta">' + esc(custStreetOf(d) || d.address || '') + (d.city ? ', ' + esc(d.city) : '') + (d.phone ? ' · ' + esc(d.phone) : '') + '</div>' +
         (raised ? '<div class="meta">raised ' + esc(dlabel(raised).full) + '</div>' : '') + '</div>' +
       '<div><div class="meta" style="color:var(--ink)">' + esc((d.fixNote || '').trim() || 'No note yet — press Edit fix to add what is wrong') + '</div>' +
         (photos.length ? '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">' + photos.map(function(u){

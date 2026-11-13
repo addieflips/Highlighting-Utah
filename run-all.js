@@ -708,6 +708,8 @@ function realNewHangTest(quotes, customers) {
     closedQuoteFor: real('closedQuoteFor', {
       quotesCache: quotes || [],
       quoteMatchAddress: real('quoteMatchAddress'),
+      /* [[SCH-156]] the customer's side of the same-house key is read through the rule. Real, never a stub. */
+      custStreetOf: real('custStreetOf'),
       hlxResolvePlanHouse: real('hlxResolvePlanHouse', {
         jobAddresses: list,
         custById: new Map(list.map(c => [c.id, c])),
@@ -4548,6 +4550,10 @@ console.log('\n=== 7. Health check engine ===');
          and the screen start disagreeing about whose bill is held while this stayed
          green. */
       extractFn(admin, 'custBillHeld'),
+      /* ⚠ LIFTED 2026-11-13 WITH [[SCH-156]]: the no-customer-number row reads the street through
+         custStreetOf, so a moved customer is named at the house they live at now. Real one, never a stub —
+         which copy of the street is the customer's is exactly the claim a stub would decide. */
+      extractFn(admin, 'custStreetOf'),
       extractFn(admin, 'toDateStr')
     ].filter(Boolean).join('\n') + '\n';
   let hc;
@@ -14217,7 +14223,7 @@ suite('Suite 31. A corrected town still finds its customer');
     }
     return null;
   };
-  const need = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch'];
+  const need = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch', 'custStreetOf' /* [[SCH-156]] */];
   check('S31', 'the matcher and its parts are findable', need.every(n => !!fn(n)));
 
   if (need.every(n => !!fn(n))) {
@@ -14407,7 +14413,7 @@ suite('Suite 32. Customer number as identifier, and flipped names');
     /nameChanges/.test(admin) && /oldName/.test(admin));
 
   // ---- customer number as the identifier ----
-  const matchSrc = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch'];
+  const matchSrc = ['normalizeStreetForMatch', 'extractCleanCity', 'findAddressMatchByTown', 'findExistingAddressMatch', 'custStreetOf' /* [[SCH-156]] */];
   if (matchSrc.every(n => !!fn(n))) {
     const book = [
       { id: 'A', data: { name: 'Cattani Julie', street: '6037 W 11860 N', city: 'Draper', phone: '8015550001', customerNumber: '555' } },
@@ -16941,7 +16947,7 @@ suite('Suite 45. Deleting duplicate customers');
     const build = (jobAddresses) => {
       const sb = {};
       new Function('jobAddresses', 'custInvoiceKey', 'normalizeStreetForMatch',
-        fn('dupNormName') + fn('dupStreetOf') + fn('dupAssets') +
+        fn('dupNormName') + fn('custStreetOf') /* [[SCH-156]] */ + fn('dupStreetOf') + fn('dupAssets') +
         'const DUP_ASSET_WEIGHT = ' + weightM[1] + ';' + fn('dupScore') + findSrc +
         'this.find = findDuplicateCustomers;'
       ).call(sb, jobAddresses,
@@ -19841,7 +19847,7 @@ suite('Suite 57. A record with no street could never be found again');
     const run = (book, row) => {
       const ctx = {};
       new Function('jobAddresses', 'normalizeStreetForMatch',
-        byTown + src + 'this.f = findExistingAddressMatch;'
+        fn('custStreetOf') /* [[SCH-156]] lifted, never stubbed */ + byTown + src + 'this.f = findExistingAddressMatch;'
       ).call(ctx, book,
         (v) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
       return ctx.f(row.street || '', row.phone || '', row.city || '', row.zip || '', row.cn || '');
@@ -20004,6 +20010,8 @@ suite('Suite 58. The sheet against the book, both ways round');
         fn('rbCompareFindCustomer') +
         fn('rbNotesLooksLikeColors') +
         fn('extractCleanCity') +
+        /* [[SCH-156]] the book's side of the street and zip is read through the rule — lifted, never stubbed */
+        fn('custStreetOf') + fn('custZipOf') +
         fn('dupNormName') + fn('rbNormalizeInstallPref') + fn('rbNormalizeFeet') +
         fn('rbNormalizeWire') + fn('rbNormalizeYesNo') + fn('rbNormalizeMoney') +
         'const RB_INSTALL_PREF_OPTIONS = [];' +
@@ -23698,6 +23706,8 @@ suite('Suite 69. A customer as a row of the master sheet');
   if (hdrM && rowSrc && nameSrc) {
     const sb = {};
     new Function(hdrM[0] + nameSrc + rowSrc +
+      /* [[SCH-156]] the row reads street and zip through the rule — lifted, never stubbed */
+      extractFn(admin, "custStreetOf") + extractFn(admin, "custZipOf") + extractFn(admin, "normalizeStreetForMatch") +
       "this.row = rbCustomerToSheetRow; this.name = rbNameForSheet; this.hdr = RB_SHEET_HEADERS;").call(sb);
 
     /* ⚠ THE ORDER MUST MATCH THE REAL WORKBOOK. Getting this wrong writes every value
@@ -30476,6 +30486,10 @@ suite('Suite 108. The Edit Customer save, actually run');
         'return ' + extractFn(admin, 'stampBuildQueued') + ';stampBuildQueued')(() => 'NOW'),
       stampRecycleRequested: new Function('serverTimestamp',
         'return ' + extractFn(admin, 'stampRecycleRequested') + ';stampRecycleRequested')(() => 'NOW'),
+      /* ⭐ [[SCH-156]] every save heals a record whose street disagrees with its address line. Lifted with
+         the rule it applies — a stub would decide which copy of the street is the customer's. */
+      custAddressHeal: new Function(extractFn(admin, 'normalizeStreetForMatch') + extractFn(admin, 'custStreetOf') +
+        extractFn(admin, 'custZipOf') + 'return ' + extractFn(admin, 'custAddressHeal') + ';custAddressHeal')(),
       /* ⭐ AND THE CHANGE LOG THE SAVE NOW WRITES (2026-08-28). The diff and the
          sentence are LIFTED, because what they say is the point; logActivity is
          stubbed, because it is a Firestore write and the checks below only need to
@@ -46394,7 +46408,7 @@ suite('251. The corners, offered rather than hunted');
 suite('252. The NEW badge is this house, not just this phone number');
 {
   const NEED = ['closedQuoteFor', 'isNewMemberHouse', 'quoteMatchAddress',
-                'hlxResolvePlanHouse', 'customerForHouse'];
+                'hlxResolvePlanHouse', 'customerForHouse', 'custStreetOf' /* [[SCH-156]] */];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
   check('S252', 'every function this suite runs was found in admin.html',
@@ -65935,6 +65949,8 @@ suite('350. The numbers on their own, and the people who have none');
 
   if (digitsFn && listFn && noneFn && cellFn) {
     const run = new Function(cellFn + '\n' + digitsFn + '\n' + listFn + '\n' + noneFn +
+      /* [[SCH-156]] the no-number list names the street through the rule — lifted, never stubbed */
+      '\n' + extractFn(admin, 'custStreetOf') +
       '\nreturn {rsvpPhoneDigits, rsvpPhoneListRows, rsvpNoPhoneRows};')();
 
     check('S350', 'a formatted number and a plain one come out the same',
@@ -67515,7 +67531,7 @@ suite('365. The crews on a day are even, and a house out of the way is done on t
  * --------------------------------------------------------------------------- */
 suite('366. New hangs are found by their own record, and printed with their pictures');
 {
-  const lifted = ['closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
+  const lifted = ['custStreetOf' /* [[SCH-156]] */, 'closedQuoteFor', 'isNewMemberHouse', 'printCustData', 'printIsNewHang',
                   'printCrewPhotos', 'printNewHangPhotoList', 'printCrewPhotoGaps', 'printPhotoGapsHtml', 'printNotDone']
     .map(n => extractFn(admin, n));
   check('S366', 'the new-hang and photo functions are findable', lifted.every(Boolean));
@@ -67601,6 +67617,7 @@ suite('367. Every new hang wears a New hang tag, on All Customers and on the Sch
     'const custById = new Map(custs.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return custById.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
     'function quoteMatchAddress(a){ return String(a || "").toLowerCase().trim(); }' +
+    extractFn(admin, 'custStreetOf') /* [[SCH-156]] lifted, never stubbed */ +
     extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hook +
     extractFn(admin, 'newHangChip') +
     'return {tag: window.customerIsNewHang, chip: function(item){ return newHangChip(item); },' +
@@ -67682,7 +67699,7 @@ suite('369. New hangs are found by house, email or phone, and are not scheduled 
     'const quotesCache = quotes;' +
     'const byId = new Map(custs.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return byId.get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
-    extractFn(admin, 'closedQuoteFor') + 'return closedQuoteFor;')(quotes, custs);
+    extractFn(admin, 'custStreetOf') /* [[SCH-156]] */ + extractFn(admin, 'closedQuoteFor') + 'return closedQuoteFor;')(quotes, custs);
   const bill = {id: 'bill', data: {street: '9943 n 6180 w', city: 'Highland', address: '9943 N 6180 W, Highland, UT 84003', phone: '', email: 'billtitera@gmail.com'}};
   const marina = {id: 'mar', data: {street: '503 W Tea Rose Ct', city: 'Saratoga Springs', address: '503 W Tea Rose Ct, Saratoga Springs, UT 84045', phone: '3852331077', email: ''}};
   const parent = {id: 'par', data: {street: '1 Old St', city: 'Lehi', address: '1 Old St, Lehi, UT 84043', phone: '3852331077', email: 'billtitera@gmail.com'}};
@@ -67742,7 +67759,7 @@ suite('370. The set-up fee box makes a new customer, everywhere');
     'const window = {}; let jobAddresses = list; const quotesCache = quotes;' +
     'const byId = () => new Map(jobAddresses.map(function(c){ return [c.id, c]; }));' +
     'function hlxResolvePlanHouse(h){ return byId().get(String(h.id || "").replace(/^cust-/, "")) || null; }' +
-    extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hooks +
+    extractFn(admin, 'custStreetOf') /* [[SCH-156]] */ + extractFn(admin, 'closedQuoteFor') + extractFn(admin, 'isNewMemberHouse') + hooks +
     'return {byData: window.customerIsNewHangData, set: function(l){ jobAddresses = l; }};')(list, quotes);
   const fee = {id: 'f', data: {name: 'Fee', street: '1 A', city: 'X', chargeNewMemberFee: true}};
   const plain = {id: 'p', data: {name: 'Plain', street: '2 B', city: 'X'}};
