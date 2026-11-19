@@ -69349,3 +69349,72 @@ suite('434. The September and October RSVP sends start themselves');
     /\['rsvpWaveSepStandard', 'rsvpWaveSepArrears', 'rsvpWaveOctStandard', 'rsvpWaveOctArrears'\]\.forEach/.test(stripped) &&
     /rsvpWaveSavePick\(this\.dataset\.wave, this\.dataset\.kind, this\.value\)/.test(stripped));
 }
+suite('435. Their own calendar dates show on the Schedule row and the All Customers row');
+{
+  /* [[SCH-157]], 2026-11-18. Addie: "For these do they save. Cause I update this and nothing is showing." They
+     saved; nothing said so. One rule (calendarFlags) draws the away dates, the window and the pin on BOTH rows.
+     RUN, not matched: every claim here is about words on a row. */
+  const names = ['calendarDayLabel', 'calendarRangeLabel', 'calendarFlags', 'calendarChipsHtml', 'awayListToKey', 'awayKeyToList'];
+  const srcs = names.map(n => extractFn(admin, n));
+  const consts = (admin.match(/const AWAY_MAX_RANGES = [^;]+;/) || [''])[0] + (admin.match(/const AWAY_ISO_DAY = [^;]+;/) || [''])[0];
+  check('S435', 'the rule and its helpers were found', srcs.every(Boolean) && /AWAY_MAX_RANGES/.test(consts) && /AWAY_ISO_DAY/.test(consts),
+    names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean)) {
+    const F = new Function('esc', consts + srcs.join('\n') + ';return {flags: calendarFlags, chips: calendarChipsHtml};')(s => String(s).replace(/</g, '&lt;'));
+    const T = { today: '2026-11-18' };
+    const rec = { awayDates: [{ from: '2026-11-20', to: '2026-11-24' }], wantedFrom: '2026-11-21', wantedTo: '2026-12-05', stuckOnDate: '' };
+    const f = F.flags(rec, null, T);
+    const by = k => f.find(x => x.kind === k);
+    check('S435', 'RUN: an away range reads as AWAY with both days', by('away') && by('away').text === 'AWAY Nov 20–24', JSON.stringify(f));
+    check('S435', 'RUN: Don’t hang before and after read as NOT BEFORE / NOT AFTER', by('before') && by('before').text === 'NOT BEFORE Nov 21' &&
+      by('after') && by('after').text === 'NOT AFTER Dec 5');
+    check('S435', 'RUN: no pin, no pin badge', !by('pinned') && f.length === 3);
+    check('S435', 'RUN: a customer with none of them draws nothing at all — not a chip on ~960 rows',
+      F.flags({}, null, T).length === 0 && F.chips({}) === '' && F.flags(null, {}, T).length === 0);
+    const two = F.flags({ awayDates: [{ from: '2026-12-20', to: '2026-12-27' }, { from: '2026-11-28', to: '2026-12-02' }] }, null, T);
+    check('S435', 'RUN: two ranges count the second, and a range across a month names both months',
+      two.length === 1 && two[0].text === 'AWAY Nov 28–Dec 2 +1' && /Nov 28–Dec 2, Dec 20–27/.test(two[0].title), JSON.stringify(two));
+    check('S435', 'RUN: the record wins over the plan’s copy, and a copy that differs is said to be waiting for the sync',
+      (() => {
+        const g = F.flags(rec, { away: '2026-12-01..2026-12-03', wantFrom: '2026-11-10', wantTo: '2026-12-05' }, T);
+        const b = g.find(x => x.kind === 'before'), a = g.find(x => x.kind === 'away'), aft = g.find(x => x.kind === 'after');
+        return b.text === 'NOT BEFORE Nov 21' && b.pending === true && /picks it up/.test(b.title) && a.text === 'AWAY Nov 20–24' &&
+               a.pending === true && aft.pending === false && !/picks it up/.test(aft.title);
+      })());
+    check('S435', 'RUN: a copy that agrees with the record is not called pending',
+      F.flags(rec, { away: '2026-11-20..2026-11-24', wantFrom: '2026-11-21', wantTo: '2026-12-05' }, T).every(x => x.pending === false));
+    check('S435', 'RUN: a half-typed away row (one end) draws no badge, as the save would not have kept it',
+      F.flags({ awayDates: [{ from: '2026-11-20', to: '' }] }, null, T).length === 0);
+    const pin = F.flags({ stuckOnDate: '2026-11-27' }, null, T), old = F.flags({ stuckOnDate: '2026-11-01' }, null, T);
+    check('S435', 'RUN: a pin reads STUCK with its day; one to a day that has gone says so, since the schedule no longer holds them to it',
+      pin.length === 1 && pin[0].text === 'STUCK Nov 27' && /nothing moves them off/.test(pin[0].title) &&
+      old.length === 1 && old[0].text === 'STUCK Nov 1 (passed)' && /has passed/.test(old[0].title));
+    const html = F.chips(rec);
+    check('S435', 'RUN: the All Customers chips carry all three texts, each with its title, under a line break',
+      /^<br>/.test(html) && /AWAY Nov 20–24/.test(html) && /NOT BEFORE Nov 21/.test(html) && /NOT AFTER Dec 5/.test(html) &&
+      (html.match(/title="/g) || []).length === 3);
+    check('S435', 'RUN: the chips go through esc — a title cannot open a tag',
+      /&lt;/.test(F.chips({ wantedFrom: '2026-11-21<b>' })) && !/<b>/.test(F.chips({ wantedFrom: '2026-11-21<b>' })));
+    /* the Schedule row's own renderer, run with the real rule beside it */
+    const sfb = extractFn(admin, 'stopFlagBadges');
+    check('S435', 'stopFlagBadges was found', !!sfb);
+    if (sfb) {
+      const run = new Function('esc', 'planCustomerFor', consts + srcs.join('\n') + '\n' + sfb + ';return stopFlagBadges;')(
+        s => String(s), h => (h.id === 'cust-1' ? { data: rec } : null));
+      const out = run({ id: 'cust-1', name: 'X' });
+      check('S435', 'RUN: a Schedule row whose family is away wears AWAY and the window beside the other badges',
+        /class="awaybadge"[^>]*>AWAY Nov 20–24</.test(out) && /class="windowbadge"[^>]*>NOT BEFORE Nov 21</.test(out) &&
+        /class="windowbadge"[^>]*>NOT AFTER Dec 5</.test(out), out);
+      check('S435', 'RUN: and the pin stays with the STUCK badge it already had — not drawn twice',
+        (run({ id: 'cust-1', name: 'X', stuck: '2026-11-27' }).match(/STUCK/g) || []).length === 0);
+      check('S435', 'RUN: a takedown row and a fix row carry none of them', run({ id: 'cust-1', isTakedown: true }) === '' && run({ id: 'cust-1', isFix: true }) === '');
+      check('S435', 'RUN: a house the plan cannot match reads its own copy', /AWAY Nov 20–24/.test(run({ id: 'csv-9', away: '2026-11-20..2026-11-24' })));
+    }
+  }
+  const stripped = stripComments(admin);
+  check('S435', 'the All Customers route cell carries the chips under the hang day',
+    /\(visitChip \? '<br>'\+visitChip : ''\)\+calendarChipsHtml\(r\.d\)\+approvedOnJoinBadge\(r\.d\)/.test(stripped));
+  check('S435', 'both badge styles are in the Schedule’s stylesheet',
+    /\.awaybadge\{display:inline-block;background:#fbefd9/.test(admin) && /\.windowbadge\{display:inline-block;background:#eef1f5/.test(admin));
+  check('S435', 'the Schedule row leaves the pin to its STUCK badge', /if\(f\.kind==='pinned'\)return;/.test(stripped));
+}
