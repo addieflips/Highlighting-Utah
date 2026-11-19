@@ -3430,6 +3430,14 @@ puts the house on the next day that suits. Ruling **SCH-98**.
   as "gone from then on" it would silently block the rest of that customer's season, and the
   first anybody would know is a crew at an empty house.
 - Both named days count as away — somebody gone "the 10th to the 20th" means both of them.
+- **All four dates are SAID on the rows they decide** (ruling **SCH-157**, 2026-11-18). The Schedule row wears
+  `AWAY Nov 20–24`, `NOT BEFORE Nov 21`, `NOT AFTER Dec 5` beside its STUCK badge, and the All Customers
+  row carries the same chips (plus `STUCK Nov 27`) under the hang-day pill. One rule, `calendarFlags`, for both.
+  It reads the customer record first and the plan's copy second, and where the two differ the chip's title says
+  the schedule has not picked it up yet. A pin to a day that has gone reads `(passed)`. Nothing is drawn for a
+  customer with none. Until then a saved window looked exactly like an unsaved one — Addie: *"I update this and
+  nothing is showing"* — because the only visible effect was the house moving, and that waits for the sync,
+  never touches the next two scheduled days, and never moves a house already hung. Suite 435.
 
 **2. When they want it done.** A from/until pair (`wantedFrom` / `wantedTo`). We never hang them
 before the first date and the schedule aims to have them done by the second. Ruling **SCH-99**.
