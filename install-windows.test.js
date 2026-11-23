@@ -393,6 +393,59 @@ suite('SCH-163 The window shows in the back office: All Customers, Edit Customer
 }
 
 /* ================================================================================================================== */
+suite('SCH-168 The install day in its own column, and a date card in the portal once confirmed');
+{
+  /* The owner, shown the draw-up: "how do we make it more obvious of the day of install?" — "Do both." The column must
+     read the SAME answer as the pill in Route (nextVisitFor → planHangDateFor, the Schedule — [[SCH-86]]), so it is lifted
+     with those two and run against a plan that disagrees with the crew-routes stamp. */
+  let api = null;
+  try{
+    const src = admin.slice(admin.indexOf('function planHangDateFor('), admin.indexOf('function allCustRouteStatus'));
+    api = new Function('"use strict"; function esc(s){ return String(s).replace(/</g, "&lt;"); } ' +
+      'function toDateStr(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); } ' +
+      'function scheduledDayIsReal(){ return null; } ' +
+      'function calendarFlags(d){ return (d && d.installWindowStart) ? [{kind:"window", text:"WINDOW Nov 10–14 · texted", title:"t"}] : []; } ' +
+      'var window = {schedulePlanBookings: function(){ return PLAN; }}; var PLAN = arguments[0];\n' +
+      src + '\nreturn {cell: installDayCellHtml, key: installDaySortKey, label: installDayLabel, setPlan: function(p){ PLAN = p; planHangDateFor._armed = false; planHangDateFor._plan = null; }};')({});
+  }catch(e){ check('the install-day column lifts beside the pill helpers', false, e.message); }
+  if(api){
+    const iso = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const today = new Date(), tom = new Date(); tom.setDate(tom.getDate() + 1);
+    const far = new Date(); far.setDate(far.getDate() + 9);
+    const STAMP = {scheduled: true, scheduledDate: '2026-10-16'};
+    api.setPlan({c1: {date: iso(far)}, c2: {date: iso(today)}, c3: {date: iso(tom)}});
+    const c1 = api.cell(STAMP, 'c1');
+    check('the column shows the Schedule\'s day, never the crew-routes stamp', c1.indexOf(api.label(iso(far))) !== -1 && !/Oct 16/.test(c1), c1);
+    check('the date is set large', /font-size:15px; font-weight:700/.test(c1));
+    check('an ordinary day is not tinted', !/TODAY|TOMORROW|PASSED/.test(c1) && !/#E6F2EA/.test(c1));
+    check('today is tinted green and says TODAY', /TODAY/.test(api.cell(STAMP, 'c2')) && /#E6F2EA/.test(api.cell(STAMP, 'c2')));
+    check('tomorrow is tinted green and says TOMORROW', /TOMORROW/.test(api.cell(STAMP, 'c3')));
+    api.setPlan({c4: {date: '2026-01-05'}});
+    check('a day that has passed and is still not done is amber and says PASSED', /PASSED/.test(api.cell({}, 'c4')) && /#FDEBD3/.test(api.cell({}, 'c4')));
+    check('a customer the Schedule does not hold reads No day yet, whatever the stamp says', /No day yet/.test(api.cell(STAMP, 'nobody')));
+    check('an installed house reads Installed with its day', /Installed/.test(api.cell({completed: true, scheduledDate: '2026-11-12'}, 'nobody')) && /Nov 12/.test(api.cell({completed: true, scheduledDate: '2026-11-12'}, 'nobody')));
+    check('the WINDOW chip rides under the date, from the same calendar rule', /WINDOW Nov 10–14/.test(api.cell(Object.assign({installWindowStart: '2026-11-10'}, STAMP), 'nobody')));
+    api.setPlan({a: {date: '2026-11-20'}, b: {date: '2026-11-03'}});
+    const keys = [api.key({}, 'a'), api.key({}, 'b'), api.key({completed: true}, 'a'), api.key({}, 'nobody')];
+    check('sorting puts booked days in date order, then installed, then unbooked', keys[1] < keys[0] && keys[0] < keys[2] && keys[2] < keys[3], JSON.stringify(keys));
+  }
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  const head = admin.slice(admin.indexOf('id="allCustTable"'), admin.indexOf('</thead>', admin.indexOf('id="allCustTable"')));
+  check('the header has an Install day column between Route and Timing, and it sorts', /Route<\/th>[\s\S]{0,200}data-sortcol="install"[^>]*>Install day<\/th>[\s\S]{0,100}Timing<\/th>/.test(head), head.slice(0, 400));
+  const render = code.slice(code.indexOf('function renderAllCustomersTable()'), code.indexOf('function renderAllCustomersTable()') + 60000);
+  check('every row carries the cell, right after the Route cell', /\+routeCell\+'<\/td>'\+\s*'<td[^>]*>'\+installDayCellHtml\(r\.d, r\.item\.id\)\+'<\/td>'/.test(render));
+  check('and the sort comparator knows the column', /allCustSortCol === 'install'[\s\S]{0,40}installDaySortKey\(a\.d, a\.item\.id\)/.test(render));
+  check('the pill in Route stays — the column is a second view of one answer, not a replacement', /visitChip = nextVisitChip\(/.test(code) || /nextVisitChip\(r\.d, r\.item\.id\)/.test(render));
+
+  /* the portal: the confirmed branch is a card — big date, same words; nothing is shown before confirmation */
+  const idx = read('index.html');
+  const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
+  check('the confirmed day is a card with the date set large', /card = '<div[\s\S]{0,400}font-size:26px; font-weight:700[\s\S]{0,80}portalNiceDate\(rec\.scheduledDate\)/.test(strip), 'the card is the one place the day is set large');
+  check('the card is only drawn on the confirmed branch', strip.indexOf("card = '<div") > strip.indexOf('portalConfirmedDay(rec)') && strip.indexOf("card = '<div") < strip.indexOf('portalWindowText(rec)') && (strip.match(/card = '<div/g) || []).length === 1);
+  check('and the plain text and the card say the same thing', /Confirmed for/.test(strip.slice(strip.indexOf("card = '<div"), strip.indexOf("card = '<div") + 300)) && /if\(card\) strip\.innerHTML = card; else strip\.textContent = text;/.test(strip));
+}
+
+/* ================================================================================================================== */
 suite('What cannot be run is read: the whitelist, the reset, the mirror, the markup');
 {
   const fns = read('functions/index.js');

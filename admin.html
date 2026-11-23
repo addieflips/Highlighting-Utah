@@ -2485,6 +2485,7 @@
                   <th style="padding:8px 10px; cursor:pointer;" data-sortcol="name">Name &amp; Address</th>
                   <th style="padding:8px 10px; cursor:pointer;" data-sortcol="enrolled">Enrolled</th>
                   <th style="padding:8px 10px;">Route</th>
+                  <th style="padding:8px 10px; cursor:pointer;" data-sortcol="install" title="The day the Schedule has them on. Sorts by it; unbooked houses last.">Install day</th>
                   <th style="padding:8px 10px;">Timing</th>
                   <th style="padding:8px 10px;">Invoice</th>
                   <!-- Deliberately unheaded: it only ever holds the Maybe Next
@@ -60750,6 +60751,51 @@ function nextVisitChip(d, custId){
     ((orphan || v.overdue) ? '&#9888; ' : '') + esc(v.kind) + ' ' + esc(when) +
     (orphan ? ' &mdash; not on the schedule' : '') + '</span>';
 }
+/* ⭐ THE INSTALL DAY IN ITS OWN COLUMN (2026-11-23). The owner, shown the draw-up of the back
+   office: "how do we make it more obvious of the day of install?" — "Do both" (this column and
+   the portal's date card). The day was one small pill inside the Route column, under the
+   difficulty badge and beside AWAY and WINDOW chips. It is a column now: the date large, the
+   window chip under it, today and tomorrow tinted. ⚠ IT READS THE SAME SOURCE AS THE PILL —
+   nextVisitFor → planHangDateFor, the Schedule ([[SCH-86]]) — and the pill in Route stays.
+   Two columns drawn from one answer cannot disagree; a second lookup here could. ⚠ Nothing
+   here writes. */
+function installDayLabel(dateStr){
+  const p = String(dateStr || '').split('-').map(Number);
+  if(p.length !== 3 || !p[0]) return '';
+  return new Date(p[0], p[1]-1, p[2]).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+}
+function installDaySortKey(d, custId){
+  if(d && d.completed) return '9998';          // done: after every booked day, before the unbooked
+  const v = nextVisitFor(d, null, custId);
+  return (v && v.kind === 'Hang') ? v.date : '9999';
+}
+function installDayCellHtml(d, custId){
+  const today = toDateStr(new Date());
+  const t = new Date(); t.setDate(t.getDate() + 1); const tomorrow = toDateStr(t);
+  const windowChip = (function(){
+    const f = (typeof calendarFlags === 'function' ? calendarFlags(d, null) : []).filter(function(x){ return x.kind === 'window'; })[0];
+    if(!f) return '';
+    return '<div style="margin-top:4px;"><span title="' + esc(f.title) + '" style="display:inline-block; border:1px solid #B8D9C2; border-radius:999px; ' +
+      'padding:1px 8px; font-size:10.5px; font-weight:700; cursor:default; white-space:nowrap; background:#E6F2EA; color:#2E6B3E;">' + esc(f.text) + '</span></div>';
+  })();
+  if(d && d.completed){
+    return '<div style="font-size:12px; font-weight:700; color:#2E6B3E;">&#10003; Installed' + (d.scheduledDate ? ' ' + esc(installDayLabel(d.scheduledDate)) : '') + '</div>' + windowChip;
+  }
+  const v = nextVisitFor(d, null, custId);
+  if(!v || v.kind !== 'Hang'){
+    return '<div style="font-size:12px; color:#7A8794;">No day yet</div>' + windowChip;
+  }
+  const isToday = v.date === today, isTomorrow = v.date === tomorrow;
+  const tag = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : (v.overdue ? 'PASSED' : '');
+  const color = v.overdue ? '#B45309' : (isToday || isTomorrow) ? '#1F5A2E' : 'var(--ink)';
+  const box = (isToday || isTomorrow)
+    ? 'background:#E6F2EA; border:1px solid #B8D9C2; border-radius:8px; padding:4px 8px; display:inline-block;'
+    : (v.overdue ? 'background:#FDEBD3; border:1px solid #F0D5B6; border-radius:8px; padding:4px 8px; display:inline-block;' : '');
+  return '<div style="' + box + '">' +
+    (tag ? '<div style="font-size:10px; letter-spacing:.06em; font-weight:700; color:' + color + ';">' + tag + '</div>' : '') +
+    '<div style="font-size:15px; font-weight:700; line-height:1.2; white-space:nowrap; color:' + color + ';">' + esc(installDayLabel(v.date)) + '</div>' +
+    '</div>' + windowChip;
+}
 /* ⭐ SCHEDULED MEANS "ON A DAY IN THE SCHEDULE" ([[SCH-80]], 2026-09-16). The pill under
    this status already read the plan since [[SCH-77]], but the word above it — and the
    Route Status filter — still read the crew-routes stamp. So one row could say
@@ -61081,13 +61127,14 @@ function renderAllCustomersTable(){
   rows.sort(function(a,b){
     let av, bv;
     if(allCustSortCol === 'enrolled'){ av = a.enrolled||''; bv = b.enrolled||''; }
+    else if(allCustSortCol === 'install'){ av = installDaySortKey(a.d, a.item.id); bv = installDaySortKey(b.d, b.item.id); }
     else { av = (a.d.name||'').toLowerCase(); bv = (b.d.name||'').toLowerCase(); }
     if(av < bv) return -1*allCustSortDir;
     if(av > bv) return 1*allCustSortDir;
     return 0;
   });
   document.getElementById('allCustCount').textContent = rows.length + ' customer' + (rows.length===1?'':'s') + ' shown.';
-  if(!rows.length){ body.innerHTML = '<tr><td colspan="8" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
+  if(!rows.length){ body.innerHTML = '<tr><td colspan="9" style="padding:16px; color:var(--slate);">No customers match this view.</td></tr>'; return; }
   body.innerHTML = rows.map(function(r){
     /* Only look this up when there IS a bill-to. This used to run for every
        row whether or not the field was set — and when it was empty it compared
@@ -61253,6 +61300,7 @@ function renderAllCustomersTable(){
       '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+newHangChip(r.item)+binBadge+custSheetChips(r.d)+'<br>'+(r.d.address ? '<a class="address-link-btn" style="font-size:12px; font-weight:500;" href="'+esc(mapsLinkFor(r.d.address))+'" target="_blank" rel="noopener" title="Open this address in Google Maps">'+esc(r.d.address)+'</a>' : '<span style="font-size:12px; color:var(--slate);"></span>')+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
+      '<td style="padding:8px 10px; vertical-align:top;">'+installDayCellHtml(r.d, r.item.id)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
       '<td style="padding:8px 10px;">'+invCell+'</td>'+
       '<td style="padding:8px 10px;">'+maybeCell+'</td>'+
@@ -78254,7 +78302,7 @@ async function stampTexted(group){
 /* How full each timing option is: houses asking for it against the crew-days inside it (working days × crews × a
    crew's day). The blueprint caps signups at 85% of this and keeps the rest for weather; the RSVP form does not read
    this yet ([[SCH-162]] — decided, not built), so it is shown here for the office to watch. */
-const SEASON_FILL_CAP_PCT = 85;
+const SEASON_FILL_CAP_PCT = 95;   // [[SCH-169]] the owner, 2026-11-23: "Stop at 95%" — it was the blueprint's 85
 function seasonFillRows(){
   const yr = BASE_START.getFullYear();
   const tg = thanksgivingDate(yr);

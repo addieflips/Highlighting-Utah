@@ -3251,6 +3251,12 @@ forecast itself and marks a weather day the way the button does — a downpour (
 (yesterday's wet and a low of 28) or a high under 35; light snow and frost are worked; a tire warning
 pulls the bench houses rather than the day; only within three days out; a cleared day is offered back.
 High-altitude houses get a 15 November deadline once the record holds an elevation (cutoff open, Q-038).
+**The install day has its own column** ([[SCH-168]], 2026-11-23). All Customers › Install day sits
+between Route and Timing: the Schedule's day large (`installDayCellHtml`, through `nextVisitFor` →
+`planHangDateFor`, the same answer as the pill, which stays), TODAY / TOMORROW tinted, a passed day
+amber, the WINDOW chip under it, Installed once done, No day yet otherwise; the header sorts by it
+(`installDaySortKey`, unbooked last). In the portal the confirmed strip is a date card — the weekday
+and date set large over the same sentence — and nothing is shown earlier than confirmation.
 
 ⚠ **The strip is redrawn once the customer record lands** (fixed 2026-11-23, the same day). The
 account page fires the customer lookup without waiting for it and drew the strip a few lines
@@ -3296,7 +3302,7 @@ tomorrow's confirmations (`installConfirmedFor`, the day's own `dayTextMessage`)
 houses (`missedTextedFor`), and every window new or moved since last texted
 (`installWindowTextedFor` = `start|end`; wording by reason). Under them: **At risk** (after the last
 allowed day, past the 12/23 cutoff, past the window told, Confirmed on no day), **Season fill** (houses
-asking for each timing option against the crew-days inside it, the 85% line drawn) and **This
+asking for each timing option against the crew-days inside it, the full line drawn at `SEASON_FILL_CAP_PCT`, 95% since [[SCH-169]]) and **This
 season's reschedules** (window changes, missed house-days by town, weather days, texts marked).
 **Start New Season** clears all eight new fields. Tier 2 of the blueprint is decided and not built
 ([[SCH-162]], Q-037).
