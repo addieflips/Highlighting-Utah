@@ -2540,8 +2540,31 @@ turns on something only the owner can decide:
    places a customer, which on a September Recalculate is every customer at once, December ones
    included. Publish only inside N weeks of the day instead?
 
+7. **Weather read by the Schedule itself — DECIDED 2026-11-23, not built.** [[SCH-164]]–[[SCH-166]]:
+   a downpour (not drizzle — [[SCH-167]]), 2 in of snow, ice (precipitation the day before and a low of 28 or under) or a high
+   under 35 loses the day; light snow and frost are worked; a tire warning pulls the bench houses only;
+   automatic within three days out, a warning beyond; a cleared day is offered back, never reopened
+   itself; high-altitude houses carry a 15 November deadline. The one number still open is the
+   altitude cutoff — Q-038.
+
 **Why it is not built:** every item is a business number or a policy; a default taken here would
 reach the RSVP form, the invoice or the customer's phone. Tier 1 does not depend on any of them.
 
 **Resulting map change:** [[SCH-162]] records the blueprint's own Tier 2 ruling (decided, not
-built) and points here.
+built) and points here; item 7 is [[SCH-164]], [[SCH-165]], [[SCH-166]] and [[SCH-167]].
+
+---
+
+## Q-038 · intent · OPEN · raised 2026-11-23
+**How high is a "high-altitude house"?** [[SCH-166]] decides that houses above a cutoff are hung first,
+with a deadline of 15 November, because at 6,000 ft the cold and ice start in late October while the
+valley (4,500–4,800 ft) holds until late November. The owner named the rule, not the altitude.
+
+**Named default, not a decision:** 5,500 ft — above the Draper, Alpine and Cottonwood benches, below
+Suncrest. Nothing is built on it yet; the record holds no elevation at all, so the first job is a
+one-time lookup per house, and the cutoff can be set when that number exists.
+
+**Why it is not built:** the deadline moves real customers into October, and a cutoff 500 ft too low
+would pull a few hundred bench houses ahead of the people who asked for October.
+
+**Resulting map change:** none yet — the rule is [[SCH-166]]; this is its one open number.
