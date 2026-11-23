@@ -422,6 +422,13 @@ jobs:
       - name: No office action breaks a schedule rule
         run: npm run test:chaos
 
+      # ⭐ [[SCH-158]] / [[SCH-159]] (2026-11-23) THE WINDOW A CUSTOMER WAS TOLD, HELD THROUGH EVERY PRESS, AND A DAY LOST TO
+      # WEATHER. Runs the real press over a seeded book, publishes every window, presses again and requires that NOBODY's
+      # window moved; then loses a day and requires that only who had to move did, every one marked weather. Its own named
+      # step because "a promised week moved for no reason" is a customer phone call, not a generic npm test failure.
+      - name: A promised install window holds, and a lost day moves only who it must
+        run: npm run test:windows
+
       - name: Run the fast suite
         run: npm test
 

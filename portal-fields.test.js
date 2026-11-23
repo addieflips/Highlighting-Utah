@@ -480,6 +480,8 @@ check('and neither notice asks the customer to chase us',
     {
       const dom = new JSDOM('<div id="portalScheduleStrip" style="display:none"></div>');
       const fn = new Function('document', 'portalNiceDate',
+        /* [[SCH-160]] the strip reads the window and the confirmed day through four helpers of its own — lifted, never stubbed */
+        lift('portalConfirmedDay') + lift('portalWindowLabel') + lift('portalWindowText') + lift('portalWeekMondayOf') +
         lift('renderScheduleStrip') + '\nreturn renderScheduleStrip;'
       )(dom.window.document, v => String(v));
       const el = dom.window.document.getElementById('portalScheduleStrip');
@@ -494,11 +496,36 @@ check('and neither notice asks the customer to chase us',
         /Nothing needed from you/i.test(el.textContent),
         'nobody has asked them for anything — somebody in the office has to decide');
 
+      /* [[SCH-160]] (2026-11-23) REPOINTED, NOT WEAKENED. This used to require the exact date on the strip. The owner's
+         2027 blueprint says customers see an estimated WINDOW and the exact day only once it is confirmed the evening
+         before, so a date in hand is still told about — as the week it falls in — and the "working it out" line still
+         must not appear. 18 November 2026 is a Wednesday; its Monday is the 16th. The two branches that give the day
+         itself are checked just below. */
       fn({ askSameAsLastYear: true, scheduledDate: '2026-11-18' });
-      check('but a house with a date is told its date, flag or no flag',
-        /2026-11-18/.test(el.textContent) && !/last year/i.test(el.textContent),
+      check('but a house with a date is told its install week, flag or no flag',
+        /week of 2026-11-16/.test(el.textContent) && !/2026-11-18/.test(el.textContent) && !/last year/i.test(el.textContent),
         'a date in hand means it was decided in practice; still saying we are working it ' +
-        'out is the same contradiction pointing the other way');
+        'out is the same contradiction pointing the other way — and the day itself waits for the confirmation text. got: ' + JSON.stringify(el.textContent.slice(0, 110)));
+      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked', installWindowSetAt: '2026-11-01' });
+      check('a published window is what the customer reads, with the day it was set, never the day itself',
+        /Nov 16\u201320/.test(el.textContent) && !/2026-11-18/.test(el.textContent) && /on track/i.test(el.textContent) && /2026-11-01/.test(el.textContent),
+        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'weather' });
+      check('and a window moved by weather says so',
+        /weather/i.test(el.textContent) && !/on track/i.test(el.textContent),
+        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      {
+        const far = new Date(); far.setDate(far.getDate() + 3);
+        const farIso = far.getFullYear() + '-' + String(far.getMonth() + 1).padStart(2, '0') + '-' + String(far.getDate()).padStart(2, '0');
+        fn({ scheduledDate: farIso, installConfirmedFor: farIso, installWindowStart: farIso, installWindowEnd: farIso });
+        check('the exact day appears once the office has texted it as confirmed for that day',
+          /Confirmed for/.test(el.textContent) && el.textContent.indexOf(farIso) !== -1,
+          'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+        fn({ scheduledDate: farIso, installConfirmedFor: '2026-01-05', installWindowStart: farIso, installWindowEnd: farIso });
+        check('but a confirmation for a different day is not a confirmation',
+          !/Confirmed for/.test(el.textContent),
+          'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      }
 
       fn({ askSameAsLastYear: true, completed: true });
       check('and an installed house is told it is installed',

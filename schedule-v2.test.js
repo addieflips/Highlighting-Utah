@@ -213,7 +213,9 @@ suite('1.1 The Schedule is the only install-date authority');
   check('adding a customer no longer stamps a crew-routes day', /const AUTO_ROUTE_NEW_CUSTOMERS = false;/.test(admin) &&
     /if\(!AUTO_ROUTE_NEW_CUSTOMERS\)\{\s*return \{done:false/.test(noComments));
   check('Recalculate everything mirrors the Schedule onto the records, and no longer clears against crew routes', (function(){
-    const i = noComments.indexOf('const routes=generateAllRoutes(');
+    /* [[SCH-159]] (2026-11-23) the routes are generated inside recalculateCore (the press in memory, declared after the
+       press in the same listener); the mirror still runs in the press itself, after that call and before Undo's copy is kept */
+    const i = noComments.indexOf('const core=recalculateCore();');
     const j = noComments.indexOf('preRebuild=before;', i);
     const body = noComments.slice(i, j);
     return i > 0 && j > i && body.indexOf('syncInstallStampsFromSchedule()') !== -1 && body.indexOf('clearStaleInstallBookings(') === -1;
@@ -1783,8 +1785,8 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
   /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
      older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
-  const RECORDED = {schema: 4,
-    top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
+  const RECORDED = {schema: 5,
+    top: 'baseStart,crews,dayLimits,days,daysOff,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
     day: 'base,cascade,crewHeld,fixedOn,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
   const top = Object.keys(out).sort().join(',');
   const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });
@@ -2366,7 +2368,8 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
         '"use strict";',
         /* what this screen holds before anything arrives — deliberately NOT the plan the first receive brings, or that receive is
            (correctly) read as "already have it" and the checks below prove nothing */
-        'var PLAN = {schema: 4, v: 1, days: []};',
+        /* [[SCH-159]] the CURRENT version, read off the page: a literal here read as an older copy the day PLAN_SCHEMA moved */
+        'var PLAN = {schema: ' + H.api.PLAN_SCHEMA + ', v: 1, days: []};',
         'var DERIVE = function(){};   /* what renderAll works out on THIS computer */',
         'function hydrate(o){ PLAN = JSON.parse(JSON.stringify(o)); }',
         'function serialize(){ return JSON.parse(JSON.stringify(PLAN)); }',
@@ -2403,7 +2406,7 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
   check('40.0 followPlanLive and saveNow lift and run against a fake Firestore', !!api, why);
   if(api){
     (async function(){
-      const planA = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}], savedBy: 'a@office', savedAt: 1762200000000};
+      const planA = {schema: H.api.PLAN_SCHEMA, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}], savedBy: 'a@office', savedAt: 1762200000000};
       /* this computer derives something the other one did not: an anchor from its own clock, a done flag from its own cache */
       api.setDerive(function(){ const p = api.plan(); p.days[0].fixedOn = '2026-11-06'; if(p.days[0].houses[0]) p.days[0].houses[0].done = true; });
       api.start();
@@ -2423,11 +2426,11 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
       await api.fire();
       const w = api.writes()[0];
       check('40.6 a change made on this computer is written', api.writes().length === 1 && w && w.days[0].houses.length === 2, JSON.stringify(w || null).slice(0, 200));
-      check('40.7 every save says who and when (savedBy, savedAt from the server), outside what hydrate reads', w && w.savedBy === 'b@office' && w.savedAt === 'server-time' && w.schema === 4);
+      check('40.7 every save says who and when (savedBy, savedAt from the server), outside what hydrate reads', w && w.savedBy === 'b@office' && w.savedAt === 'server-time' && w.schema === H.api.PLAN_SCHEMA);
       check('40.8 the stamp is not a change: planKey ignores schema, savedBy and savedAt', api.run('planKey({a:1, schema:4, savedBy:"x", savedAt:"y"}) === planKey({a:1})'));
       /* a second computer's save arriving inside the 1.5 s after a receive is TAKEN, not refused as "unsaved changes" */
       api.run('WRITES.length = 0; TOASTS.length = 0;');
-      const planC = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}, {id: "d2", houses: []}], savedBy: 'c@office'};
+      const planC = {schema: H.api.PLAN_SCHEMA, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}, {id: "d2", houses: []}], savedBy: 'c@office'};
       api.receive(planA);                   /* queued a save, key differs by the derived anchor */
       api.receive(planC);                   /* before that save fired */
       check('40.9 a second computer\'s save inside the debounce window is taken, not refused', api.plan().days.length === 2 && !api.logs().some(function(l){ return /keeping these/.test(l); }), api.logs().join(' | '));
@@ -2461,8 +2464,8 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
     const bad = V(null, 1000000, 1000800);
     check('40.18 no server time is no verdict, never a warning', bad.off === false && bad.skewMs === null);
     check('40.19 the stamp carries who and the server\'s time and leaves the plan itself alone', !!api && api.run('(function(){ var s = planStamped({a: 1}); return s.a === 1 && s.savedBy === "b@office" && s.savedAt === "server-time" && Object.keys(s).length === 3; })()'));
-    check('40.20 the follow line names who and when, and an older page is a warning', /Following the schedule live/.test(H.api.planFollowText({savedBy: 'a@x', savedAt: 1762200000000, schema: 4})) &&
-      /a@x/.test(H.api.planFollowText({savedBy: 'a@x', schema: 4})) && /older copy/.test(H.api.planFollowText({savedBy: 'a@x', schema: 2})));
+    check('40.20 the follow line names who and when, and an older page is a warning', /Following the schedule live/.test(H.api.planFollowText({savedBy: 'a@x', savedAt: 1762200000000, schema: H.api.PLAN_SCHEMA})) &&
+      /a@x/.test(H.api.planFollowText({savedBy: 'a@x', schema: H.api.PLAN_SCHEMA})) && /older copy/.test(H.api.planFollowText({savedBy: 'a@x', schema: 2})));
   }
   /* wiring: the mechanism above is only worth anything if the page calls it */
   const nc = admin.replace(/\/\*[\s\S]*?\*\//g, '');

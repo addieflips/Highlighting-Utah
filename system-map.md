@@ -3226,6 +3226,74 @@ printed day is still judged, with "ring them" on the line, because it cannot be 
 20, 100 and 952 houses on real Utah towns, an adversarial season, every invariant broken on
 purpose, and the priority and colour-change cases.
 
+### Install windows, the weather delay and the texts (2026-11-23)
+
+Rulings [[SCH-158]] to [[SCH-162]], from the owner's *Install Scheduling System Blueprint* for the
+2027 season. Built ON Schedule V2: the day builder, the priority ladder, the lock and the crew split
+are unchanged; what changed is what a customer is TOLD, and that the planner then keeps it.
+
+**The customer is told a week, not a day.** Every customer on a coming install day carries a
+window on their record — `installWindowStart` / `installWindowEnd` (plain YYYY-MM-DD),
+`installWindowSetAt` (the day it was published), `installWindowReason` (`booked` the first time,
+then `weather`, `missed` or `rescheduled`) and `installWindowChanges` (how many times it moved
+after the first text). It is two working days either side of the day the Schedule has them on
+(`installWindowFor`), clipped to the days they may be hung at all (their month, the office date,
+their own calendar — asked WITHOUT the window itself, or it could never be re-centred), never
+before tomorrow, and its edges step inwards off a weekend. Written by `syncInstallWindowsFromSchedule`
+through the same door and right after the mirror that writes `scheduledDate`
+(`syncInstallStampsFromSchedule`, on every plan save and every Recalculate), as a diff
+(`installWindowDiffs`, pure): inside the window — nothing; outside it or no window yet — a new one;
+on no coming day — cleared, unless the lights are up. The portal reads the window
+(`PORTAL_READ_FIELDS`) and says **Confirmed for <day>** only once `installConfirmedFor` matches the
+day the plan has them on ([[SCH-160]]); never a queue number, a crew or a stop order.
+
+**And the planner keeps it.** The window rides back onto the house as `winFrom` / `winTo`
+(`SCHEDULE_SYNC_FIELDS`, blank clears) and `houseAllowedFrom` / `houseDeadline` read them as a floor
+and a ceiling — below the office date and the customer's own wanted-until, above the month, the
+tighter always winning, a pin still beating both ([[SCH-100]]), and a window end before the floor
+ignored as a contradiction. So `houseMayGoOn` refuses a day outside the week the customer was texted,
+and every mover already asks it. A window moves only when the planner had no day inside it: a lost
+weather day, a crew that fell behind (the house carries `missedDays`), a pin. `install-windows.test.js`
+presses twice over a seeded book and requires that nobody's window moved, adds fifteen customers and
+requires the same, then loses a day.
+
+**And the office sees it on the customer** ([[SCH-163]]). The owner: *"i want it to show in there back office."* The
+window is a chip beside AWAY / NOT BEFORE / NOT AFTER / STUCK — the same `calendarFlags` rule, kind `window` — on the All
+Customers row (under the hang-day pill, which stays the Schedule's own day per [[SCH-86]]), on the Schedule stop
+(`stopFlagBadges`), and as a read-only line under Their Own Calendar on Edit Customer (`installWindowReadHtml`). It reads
+`WINDOW Nov 10–14 · not texted yet`, `· texted`, or `· CONFIRMED Nov 12`, and adds `· weather` / `· missed` / `· moved`
+when the window has moved; the title carries when it was set and how many times it has moved. Record first, the plan's
+`winFrom`/`winTo` second, pending when they differ. Nothing on these screens writes it.
+
+**🌨 Weather delay** (season bar, [[SCH-159]]): pick the day(s), lost or half, a reason; **Preview**
+runs the real press on a snapshot (`recalculateCore` — the press lifted into its own function beside
+`runRecalculateEverything`, inside the same listener — then `hydrate` puts the plan back) and shows
+who moves, whose window changes and who is at risk; **Apply** marks the days, presses ⚙ Recalculate
+everything and the mirror publishes the moved windows as `weather`. The days live on the plan as
+`daysOff` (`DAYS_OFF`, PLAN_SCHEMA 5): a **lost** day is not a working day anywhere — `isWorkingDay`
+reads it through `window.scheduleDaysOff`, so the 72-hour hold and every working-day count skip it
+too — is never one of the locked next two days, and a lost TODAY is over before it began
+(`scheduleDayIsOver`), so the 6 am press puts its houses back in the pool. A **half** day stays a
+working day held to one crew (`dayLimits`, lifted again only if the half day set it).
+
+**💬 Texts & windows** (its own Schedule tab, [[SCH-161]]). There is no texting service ([[QT-48]]);
+each group is the numbers (the 📱 rules: one per phone, STOP honoured and named, no number named) and
+ONE message for the bulk tool, and **Mark as texted** stamps the customer so nobody is listed twice:
+tomorrow's confirmations (`installConfirmedFor`, the day's own `dayTextMessage`), today's missed
+houses (`missedTextedFor`), and every window new or moved since last texted
+(`installWindowTextedFor` = `start|end`; wording by reason). Under them: **At risk** (after the last
+allowed day, past the 12/23 cutoff, past the window told, Confirmed on no day), **Season fill** (houses
+asking for each timing option against the crew-days inside it, the 85% line drawn) and **This
+season's reschedules** (window changes, missed house-days by town, weather days, texts marked).
+**Start New Season** clears all eight new fields. Tier 2 of the blueprint is decided and not built
+([[SCH-162]], Q-037).
+
+*If X isn't working, check Y:* a customer's window never appears → the mirror has not run (the plan
+saves and Recalculate both call it) or they are on no coming day; a window moved with nothing having
+happened → `winFrom`/`winTo` did not reach the house (`SCHEDULE_SYNC_FIELDS`) or a hand move/pin; the
+weather preview says "the press is not available" → `weatherAction` was not handed `recalculateCore`
+from the listener; a lost day still shows houses → `isWorkingDay` cannot see `window.scheduleDaysOff`.
+
 ### New hangs on the printed sheets — found by their own record, printed with every photo (2026-10-01)
 
 [[SCH-107]]. Dax: *"we also need to ensure that we can detect new hangs, and that when new hangs are printed it prints them with their house picture/s"*.

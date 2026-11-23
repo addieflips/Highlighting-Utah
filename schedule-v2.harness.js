@@ -47,7 +47,10 @@ module.exports = function makeHarness(liftDeep){
     'clockSkewVerdict', 'planFollowText',
     /* the office's own hand controls, for schedule-chaos.test.js */
     'cascade', 'getDay', 'findHouse', 'setDayLimitOn', 'dayLimitOn', 'crewDaysOverTownLimit', 'unassignedHousesFor', 'oneManDays', 'houseOnWarehouseList',
-    'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays'],
+    'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays',
+    /* [[SCH-158]] / [[SCH-159]] the weather days, the install windows and the press in memory, for install-windows.test.js */
+    'DAYS_OFF', 'DAY_OFF_KINDS', 'normalizeDaysOff', 'dayOffOn', 'setDayOff', 'isWeatherDayLost', 'installWindowFor', 'installWindowDiffs', 'applyInstallWindowDiffsLocally',
+    'comingInstallByCustomer', 'atRiskHouses', 'fmtWindowLabel', 'installWindowTextMessage', 'missedTextMessage', 'textRowsPhones', 'seasonFillRows', 'rescheduleReport', 'planDatesByCustomer', 'textGroups'],
     {provided: Array.from(CUT)});
 
   const gridSrc = fs.readFileSync(path.join(__dirname, 'js', 'grid.js'), 'utf8')
@@ -89,6 +92,8 @@ module.exports = function makeHarness(liftDeep){
   const post = [
     /* the Mountain clock is pinned to the same "today" */
     'window.scheduleHangDay = function(r){ return hangDayOn(r); };',
+    /* [[SCH-159]] the lost weather days reach isWorkingDay through the window, as on the page */
+    'window.scheduleDaysOff = function(){ return DAYS_OFF; };',
     'mtnNowParts = function(){ var d = new __RealDate(__NOW); return {date: toDateStr(d), hour: d.getHours(), minute: d.getMinutes()}; };',
     'return {',
     '  setNow: function(d){ __NOW = d.getTime(); },',
@@ -151,7 +156,11 @@ module.exports = function makeHarness(liftDeep){
     '        setGlobalDelta: function(n){ globalDelta = n; computeDates(); }, getGlobalDelta: function(){ return globalDelta; }, getBaseStart: function(){ return BASE_START; },',
     '        houseOnWarehouseList: houseOnWarehouseList, isWorkingDay: isWorkingDay,',
     '        forceDayDateByHand: forceDayDateByHand, setSeasonStartByHand: setSeasonStartByHand, setHangDayByHand: setHangDayByHand, settleAfterHandChange: settleAfterHandChange,',
-    '        freezePrintedDays: freezePrintedDays, installDayOnDate: installDayOnDate, foldShortCrewDays: foldShortCrewDays, keepEveryHouseLegal: keepEveryHouseLegal}',
+    '        freezePrintedDays: freezePrintedDays, installDayOnDate: installDayOnDate, foldShortCrewDays: foldShortCrewDays, keepEveryHouseLegal: keepEveryHouseLegal,',
+    '        daysOff: function(){ return DAYS_OFF; }, setDayOff: setDayOff, dayOffOn: dayOffOn, normalizeDaysOff: normalizeDaysOff, isWeatherDayLost: isWeatherDayLost,',
+    '        installWindowFor: installWindowFor, installWindowDiffs: installWindowDiffs, applyInstallWindowDiffsLocally: applyInstallWindowDiffsLocally, comingInstallByCustomer: comingInstallByCustomer,',
+    '        atRiskHouses: atRiskHouses, fmtWindowLabel: fmtWindowLabel, installWindowTextMessage: installWindowTextMessage, missedTextMessage: missedTextMessage, textRowsPhones: textRowsPhones,',
+    '        seasonFillRows: seasonFillRows, rescheduleReport: rescheduleReport, planDatesByCustomer: planDatesByCustomer, textGroups: textGroups, isWorkingDay: isWorkingDay, houseAllowedFrom: houseAllowedFrom}',
     '};'
   ].join('\n');
 

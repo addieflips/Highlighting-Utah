@@ -88,6 +88,35 @@ touching scheduling must know before editing anything:
 - **`schedule-v2.test.js` runs the real Recalculate offline** through `schedule-v2.harness.js`; add a
   scheduling claim there and RUN it, rather than matching source text.
 
+## ⭐ INSTALL WINDOWS (2026-11-23) — THE CUSTOMER IS TOLD A WEEK, AND THE PLANNER KEEPS IT
+
+[[SCH-158]]–[[SCH-162]], from the owner's 2027 *Install Scheduling System Blueprint*; full account in
+`system-map.md` §5, *Install windows, the weather delay and the texts*. Built on Schedule V2, not beside it.
+
+- **The portal shows a window, never the day** until it is confirmed: `installWindowStart/End/SetAt/Reason/Changes`
+  on the customer, written by `syncInstallWindowsFromSchedule` right after the `scheduledDate` mirror, read by
+  `PORTAL_READ_FIELDS`; **Confirmed for <day>** only when `installConfirmedFor` matches the plan's day. No queue number.
+- **A published window is a floor and a ceiling** — `winFrom`/`winTo` on the house (`SCHEDULE_SYNC_FIELDS`), read by
+  `houseAllowedFrom` and `houseDeadline`, so every mover keeps the week the customer was texted. It moves only when the
+  planner had no day inside it, and every move is counted. ⛔ Do not relax it to "a preference": the whole promise is
+  that new bookings and the October fill never push a texted customer.
+- **🌨 Weather delay** marks `daysOff` on the plan (PLAN_SCHEMA 5): a lost day is not a working day anywhere
+  (`isWorkingDay` reads `window.scheduleDaysOff`), is never locked, and a lost today is over at once. **Preview runs
+  the real press on a snapshot** through `recalculateCore` — the press body lifted into its own function, declared
+  AFTER `runRecalculateEverything` inside the same listener (run-all Suites 26 and 351 and schedule-v2 1.x read that
+  slice; move it and they go red for the right reason).
+- **The office sees the window on the customer** ([[SCH-163]]): a `window` kind in `calendarFlags`, so it is a chip on the
+  All Customers row, a badge on the Schedule stop and a read-only line on Edit Customer (`installWindowReadHtml`). It sits
+  beside the hang-day pill and never replaces it ([[SCH-86]]).
+- **The texts are lists for the bulk tool** (Schedule › 💬 Texts & windows), never a sender — [[QT-48]] stands. **Mark
+  as texted** stamps `installConfirmedFor` / `missedTextedFor` / `installWindowTextedFor`; that is the duplicates log.
+- **Gate:** `install-windows.test.js` (`npm run test:windows`, its own CI step) runs the real press and requires that a
+  second press moves nobody's window and a lost day moves only who it must. Fix the change, never the suite.
+- ⚠ **admin.html is CRLF.** A script that reads it with universal newlines and writes `\n` back rewrites every line of
+  a 5.8 MB file; this session did exactly that and had to put the carriage returns back. Open it with `newline=''`.
+
+---
+
 ## ⭐ R-023 — write the ruling down, in the same change
 
 **If Addie answers a question during this session, add a row to `claude/questions-map.md`
