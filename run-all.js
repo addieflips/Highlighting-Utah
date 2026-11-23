@@ -5393,9 +5393,17 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'All Customers shows the Maybe Next Year badge',
     /maybeNextYear\s*\?[\s\S]{0,200}Maybe Next Year/.test(admin),
     'the office would have no way to see who is sitting out');
+  /* ⚠ REPOINTED 2026-11-23: it was pinned to the literal colspan="8" and went red the day the
+     Install day column was added. The claim is that the header and the empty-state row AGREE,
+     so both numbers are counted off the page rather than typed here. */
   check('quoteresp', 'the badge column has a matching empty header',
     (admin.match(/<th style="padding:8px 10px;"><\/th>/g) || []).length >= 2 &&
-    /colspan="8"/.test(admin),
+    (function(){
+      const head = admin.slice(admin.indexOf('id="allCustTable"'), admin.indexOf('</thead>', admin.indexOf('id="allCustTable"')));
+      const ths = (head.match(/<th\b/g) || []).length;
+      const m = /colspan="(\d+)" style="padding:16px; color:var\(--slate\);">No customers match this view/.exec(admin);
+      return ths > 0 && !!m && Number(m[1]) === ths;
+    })(),
     'header and body would disagree and the table would render misaligned');
   // Sliced to the next real statement rather than a fixed window — a character
   // count here goes stale the moment the cell grows (see CLAUDE.md §7).
@@ -68524,7 +68532,12 @@ suite('385. Add a fix from All Customers');
   const render = stripComments(sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()')));
   check('S385', 'every row carries the fix cell', /allCustFixCell\(r\.item\.id, r\.d\)/.test(render));
   check('S385', 'the button opens the shared fix popup', /\[data-addfix\][^]*?showAddFixPopup\(btn\.dataset\.addfix/.test(render));
-  check('S385', 'the empty-state row still spans the same eight columns', /colspan="8"/.test(render));
+  /* ⚠ REPOINTED 2026-11-23 from the literal 8: the empty-state row spans however many <th> the head has. */
+  check('S385', 'the empty-state row still spans every column in the head', (function(){
+    const head = admin.slice(admin.indexOf('id="allCustTable"'), admin.indexOf('</thead>', admin.indexOf('id="allCustTable"')));
+    const ths = (head.match(/<th\b/g) || []).length; const m = /colspan="(\d+)"/.exec(render);
+    return ths > 0 && !!m && Number(m[1]) === ths;
+  })());
   check('S385', 'nothing on the row writes the fix flag itself', !/needsFix\s*[:=][^=]/.test(stripComments(cellSrc || '')));
 }
 

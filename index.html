@@ -5576,7 +5576,7 @@ function renderScheduleStrip(rec){
   if(!rec){ strip.style.display = 'none'; return; }
 
   var when = rec.scheduledDate ? portalNiceDate(rec.scheduledDate) : '';
-  var text = '', bg = '#EAF1FA', bd = '#C3D8EC', fg = '#2B5C8A';
+  var text = '', card = '', bg = '#EAF1FA', bd = '#C3D8EC', fg = '#2B5C8A';
 
   if(rec.removalDone){
     text = '🎄 All done for this season — your lights have been taken down. Thank you!';
@@ -5587,6 +5587,13 @@ function renderScheduleStrip(rec){
   } else if(portalConfirmedDay(rec)){
     /* [[SCH-160]] the exact day, only once the office has texted it the evening before */
     text = '\u2705 Confirmed for ' + portalNiceDate(rec.scheduledDate) + '. Please make sure our crew can reach your outlets and the yard \u2014 you don\'t need to be home.';
+    /* ⭐ A DATE CARD, NOT A LINE (2026-11-23). The owner, asked how to make the day of install more
+       obvious: "Do both." Once the day is confirmed it is the one thing on this page they came for,
+       so it is set large; the sentence under it is the same one. The plain `text` above is kept and
+       is what the card says, so a reader of the text (and the gate that checks it) sees the same words. */
+    card = '<div style="font-size:12px; letter-spacing:.06em; text-transform:uppercase; opacity:.85;">\u2705 Confirmed for</div>' +
+      '<div style="font-size:26px; font-weight:700; line-height:1.15; margin:4px 0 8px;">' + portalNiceDate(rec.scheduledDate) + '</div>' +
+      '<div style="font-weight:500;">Please make sure our crew can reach your outlets and the yard \u2014 you don\'t need to be home.</div>';
     bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
   } else if(portalWindowText(rec)){
     /* \u2b50 THE WINDOW, NOT THE DAY ([[SCH-158]] / [[SCH-160]], 2026-11-23). The owner's 2027 blueprint: "Customers get an
@@ -5634,7 +5641,7 @@ function renderScheduleStrip(rec){
   strip.style.background = bg;
   strip.style.border = '1px solid ' + bd;
   strip.style.color = fg;
-  strip.textContent = text;
+  if(card) strip.innerHTML = card; else strip.textContent = text;
   strip.style.display = 'block';
 }
 

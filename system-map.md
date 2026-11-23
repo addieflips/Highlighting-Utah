@@ -3246,6 +3246,13 @@ through the same door and right after the mirror that writes `scheduledDate`
 on no coming day — cleared, unless the lights are up. The portal reads the window
 (`PORTAL_READ_FIELDS`) and says **Confirmed for <day>** only once `installConfirmedFor` matches the
 day the plan has them on ([[SCH-160]]); never a queue number, a crew or a stop order.
+**The install day has its own column** ([[SCH-168]], 2026-11-23). All Customers › Install day sits
+between Route and Timing: the Schedule's day large (`installDayCellHtml`, through `nextVisitFor` →
+`planHangDateFor`, the same answer as the pill, which stays), TODAY / TOMORROW tinted, a passed day
+amber, the WINDOW chip under it, Installed once done, No day yet otherwise; the header sorts by it
+(`installDaySortKey`, unbooked last). In the portal the confirmed strip is a date card — the weekday
+and date set large over the same sentence — and nothing is shown earlier than confirmation.
+
 ⚠ **The strip is redrawn once the customer record lands** (fixed 2026-11-23, the same day). The
 account page fires the customer lookup without waiting for it and drew the strip a few lines
 later from the INVOICE record, which carries no `scheduledDate`, no `completed` and no window — so
