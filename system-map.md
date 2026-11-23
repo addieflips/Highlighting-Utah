@@ -3246,6 +3246,12 @@ through the same door and right after the mirror that writes `scheduledDate`
 on no coming day — cleared, unless the lights are up. The portal reads the window
 (`PORTAL_READ_FIELDS`) and says **Confirmed for <day>** only once `installConfirmedFor` matches the
 day the plan has them on ([[SCH-160]]); never a queue number, a crew or a stop order.
+**Decided for 2027, not built** ([[SCH-164]]–[[SCH-167]], 2026-11-23): the Schedule reads the
+forecast itself and marks a weather day the way the button does — a downpour (drizzle is worked, [[SCH-167]]), 2 in of snow, ice
+(yesterday's wet and a low of 28) or a high under 35; light snow and frost are worked; a tire warning
+pulls the bench houses rather than the day; only within three days out; a cleared day is offered back.
+High-altitude houses get a 15 November deadline once the record holds an elevation (cutoff open, Q-038).
+
 ⚠ **The strip is redrawn once the customer record lands** (fixed 2026-11-23, the same day). The
 account page fires the customer lookup without waiting for it and drew the strip a few lines
 later from the INVOICE record, which carries no `scheduledDate`, no `completed` and no window — so
