@@ -2368,7 +2368,8 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
         '"use strict";',
         /* what this screen holds before anything arrives — deliberately NOT the plan the first receive brings, or that receive is
            (correctly) read as "already have it" and the checks below prove nothing */
-        'var PLAN = {schema: 4, v: 1, days: []};',
+        /* [[SCH-159]] the CURRENT version, read off the page: a literal here read as an older copy the day PLAN_SCHEMA moved */
+        'var PLAN = {schema: ' + H.api.PLAN_SCHEMA + ', v: 1, days: []};',
         'var DERIVE = function(){};   /* what renderAll works out on THIS computer */',
         'function hydrate(o){ PLAN = JSON.parse(JSON.stringify(o)); }',
         'function serialize(){ return JSON.parse(JSON.stringify(PLAN)); }',
@@ -2405,7 +2406,7 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
   check('40.0 followPlanLive and saveNow lift and run against a fake Firestore', !!api, why);
   if(api){
     (async function(){
-      const planA = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}], savedBy: 'a@office', savedAt: 1762200000000};
+      const planA = {schema: H.api.PLAN_SCHEMA, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}], savedBy: 'a@office', savedAt: 1762200000000};
       /* this computer derives something the other one did not: an anchor from its own clock, a done flag from its own cache */
       api.setDerive(function(){ const p = api.plan(); p.days[0].fixedOn = '2026-11-06'; if(p.days[0].houses[0]) p.days[0].houses[0].done = true; });
       api.start();
@@ -2429,7 +2430,7 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
       check('40.8 the stamp is not a change: planKey ignores schema, savedBy and savedAt', api.run('planKey({a:1, schema:4, savedBy:"x", savedAt:"y"}) === planKey({a:1})'));
       /* a second computer's save arriving inside the 1.5 s after a receive is TAKEN, not refused as "unsaved changes" */
       api.run('WRITES.length = 0; TOASTS.length = 0;');
-      const planC = {schema: 4, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}, {id: "d2", houses: []}], savedBy: 'c@office'};
+      const planC = {schema: H.api.PLAN_SCHEMA, v: 1, days: [{id: "d1", houses: [{id: "h1", done: false}]}, {id: "d2", houses: []}], savedBy: 'c@office'};
       api.receive(planA);                   /* queued a save, key differs by the derived anchor */
       api.receive(planC);                   /* before that save fired */
       check('40.9 a second computer\'s save inside the debounce window is taken, not refused', api.plan().days.length === 2 && !api.logs().some(function(l){ return /keeping these/.test(l); }), api.logs().join(' | '));
@@ -2463,8 +2464,8 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
     const bad = V(null, 1000000, 1000800);
     check('40.18 no server time is no verdict, never a warning', bad.off === false && bad.skewMs === null);
     check('40.19 the stamp carries who and the server\'s time and leaves the plan itself alone', !!api && api.run('(function(){ var s = planStamped({a: 1}); return s.a === 1 && s.savedBy === "b@office" && s.savedAt === "server-time" && Object.keys(s).length === 3; })()'));
-    check('40.20 the follow line names who and when, and an older page is a warning', /Following the schedule live/.test(H.api.planFollowText({savedBy: 'a@x', savedAt: 1762200000000, schema: 4})) &&
-      /a@x/.test(H.api.planFollowText({savedBy: 'a@x', schema: 4})) && /older copy/.test(H.api.planFollowText({savedBy: 'a@x', schema: 2})));
+    check('40.20 the follow line names who and when, and an older page is a warning', /Following the schedule live/.test(H.api.planFollowText({savedBy: 'a@x', savedAt: 1762200000000, schema: H.api.PLAN_SCHEMA})) &&
+      /a@x/.test(H.api.planFollowText({savedBy: 'a@x', schema: H.api.PLAN_SCHEMA})) && /older copy/.test(H.api.planFollowText({savedBy: 'a@x', schema: 2})));
   }
   /* wiring: the mechanism above is only worth anything if the page calls it */
   const nc = admin.replace(/\/\*[\s\S]*?\*\//g, '');
