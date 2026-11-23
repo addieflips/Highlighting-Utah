@@ -2541,7 +2541,7 @@ turns on something only the owner can decide:
    included. Publish only inside N weeks of the day instead?
 
 7. **Weather read by the Schedule itself — DECIDED 2026-11-23, not built.** [[SCH-164]]–[[SCH-166]]:
-   rain (0.05 in), 2 in of snow, ice (precipitation the day before and a low of 28 or under) or a high
+   a downpour (not drizzle — [[SCH-167]]), 2 in of snow, ice (precipitation the day before and a low of 28 or under) or a high
    under 35 loses the day; light snow and frost are worked; a tire warning pulls the bench houses only;
    automatic within three days out, a warning beyond; a cleared day is offered back, never reopened
    itself; high-altitude houses carry a 15 November deadline. The one number still open is the
@@ -2551,7 +2551,7 @@ turns on something only the owner can decide:
 reach the RSVP form, the invoice or the customer's phone. Tier 1 does not depend on any of them.
 
 **Resulting map change:** [[SCH-162]] records the blueprint's own Tier 2 ruling (decided, not
-built) and points here; item 7 is [[SCH-164]], [[SCH-165]] and [[SCH-166]].
+built) and points here; item 7 is [[SCH-164]], [[SCH-165]], [[SCH-166]] and [[SCH-167]].
 
 ---
 
