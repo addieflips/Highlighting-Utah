@@ -2426,7 +2426,7 @@ suite('40 [[SCH-153]] a plan received from another computer is shown here and ne
       await api.fire();
       const w = api.writes()[0];
       check('40.6 a change made on this computer is written', api.writes().length === 1 && w && w.days[0].houses.length === 2, JSON.stringify(w || null).slice(0, 200));
-      check('40.7 every save says who and when (savedBy, savedAt from the server), outside what hydrate reads', w && w.savedBy === 'b@office' && w.savedAt === 'server-time' && w.schema === 4);
+      check('40.7 every save says who and when (savedBy, savedAt from the server), outside what hydrate reads', w && w.savedBy === 'b@office' && w.savedAt === 'server-time' && w.schema === H.api.PLAN_SCHEMA);
       check('40.8 the stamp is not a change: planKey ignores schema, savedBy and savedAt', api.run('planKey({a:1, schema:4, savedBy:"x", savedAt:"y"}) === planKey({a:1})'));
       /* a second computer's save arriving inside the 1.5 s after a receive is TAKEN, not refused as "unsaved changes" */
       api.run('WRITES.length = 0; TOASTS.length = 0;');
