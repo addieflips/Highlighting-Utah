@@ -83,6 +83,34 @@ test.describe('Member Portal', () => {
     stub.assertNoRealCalls();
   });
 
+  /* ---- the schedule strip reads the CUSTOMER record, not the invoice ---------
+   * Found 2026-11-23 while screenshotting the install window ([[SCH-158]]). The strip
+   * was drawn from `currentJobAddressData || currentLookupRecord` a few lines after
+   * the house lookup was fired WITHOUT being awaited, so at that instant it only had
+   * the invoice record (INVOICE_READ_FIELDS: no scheduledDate, no completed, no
+   * window) and every customer read "You're on the list". The jsdom gate hands
+   * renderScheduleStrip a record directly and could not see it; only a browser can. */
+  test('the schedule strip shows the installed day once the customer record lands', async ({ page }) => {
+    const cust = CUSTOMERS.standard; // completed on 2026-11-12 in the fixture
+    await open(page, `/index.html#/payment?token=${cust.token}`);
+    const strip = page.locator('#portalScheduleStrip');
+    await expect(strip).toContainText(/Installed on Thursday, November 12/);
+    await expect(strip).not.toContainText(/on the list for this season/);
+  });
+
+  test('the schedule strip shows the promised install window, never the day', async ({ page }) => {
+    const cust = JSON.parse(JSON.stringify(CUSTOMERS.standard));
+    Object.assign(cust.record, {
+      completed: false, scheduledDate: '2026-11-18',
+      installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20',
+      installWindowReason: 'booked', installWindowSetAt: '2026-11-10'
+    });
+    await open(page, `/index.html#/payment?token=${cust.token}`, { customers: { standard: cust } });
+    const strip = page.locator('#portalScheduleStrip');
+    await expect(strip).toContainText(/Estimated install window: Nov 16–20/);
+    await expect(strip).not.toContainText(/Nov 18/);
+  });
+
   /* ---- t11 — paying by card ---------------------------------------------
    * KNOWN FAILURE: "Only a Venmo link — no PayPal button."
    * index.html reads paymentProvider and falls back to 'venmo'. This runs the

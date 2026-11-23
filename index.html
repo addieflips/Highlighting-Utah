@@ -4833,6 +4833,19 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     var addrDoc = lookupRes.record || {};
     currentJobAddressId = lookupRes.id;
     currentJobAddressData = addrDoc;
+    /* ⚠ THE STRIP IS DRAWN BEFORE THIS CALL RETURNS (fixed 2026-11-23). renderPortalAccount fires
+       this lookup without awaiting it, nulls currentJobAddressData on the way in, and a few lines
+       later draws the schedule strip from `currentJobAddressData || currentLookupRecord` — which
+       at that instant is the INVOICE record, carrying none of scheduledDate / completed / the
+       install window (INVOICE_READ_FIELDS). So every customer read "You're on the list" whatever
+       the Schedule said. Found by driving the stubbed portal for a screenshot of the window
+       ([[SCH-158]]); the jsdom gate hands renderScheduleStrip the record directly and could not
+       see it. Redrawn here, once the customer record is in hand. Same for the no-email notice,
+       which reads cannotBillNoEmail off this record for the same reason. */
+    try{ renderScheduleStrip(currentJobAddressData || currentLookupRecord); }
+    catch(err){ console.error('[HU] renderScheduleStrip failed', err); }
+    try{ renderNoEmailNotice(currentJobAddressData || currentLookupRecord); }
+    catch(err){ console.error('[HU] renderNoEmailNotice failed', err); }
     if(lookupRes.token){
       addrDoc.portalToken = lookupRes.token;
       savePortalLogin(lookupRes.token);
