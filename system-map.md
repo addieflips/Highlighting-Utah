@@ -3297,7 +3297,7 @@ tomorrow's confirmations (`installConfirmedFor`, the day's own `dayTextMessage`)
 houses (`missedTextedFor`), and every window new or moved since last texted
 (`installWindowTextedFor` = `start|end`; wording by reason). Under them: **At risk** (after the last
 allowed day, past the 12/23 cutoff, past the window told, Confirmed on no day), **Season fill** (houses
-asking for each timing option against the crew-days inside it, the 85% line drawn) and **This
+asking for each timing option against the crew-days inside it, the full line drawn at `SEASON_FILL_CAP_PCT`, 95% since [[SCH-169]]) and **This
 season's reschedules** (window changes, missed house-days by town, weather days, texts marked).
 **Start New Season** clears all eight new fields. Tier 2 of the blueprint is decided and not built
 ([[SCH-162]], Q-037).

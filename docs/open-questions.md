@@ -2518,8 +2518,8 @@ missed-house texts as lists for the bulk tool, the at-risk list and the reschedu
 blueprint's own plan puts the rest in Tier 2 ("if time allows, otherwise 2028"), and each piece
 turns on something only the owner can decide:
 
-1. **Signup capacity caps (85%).** The blueprint greys a timing option out on the RSVP form when
-   its window is 85% booked. The RSVP form offers no timing choice today — Installation Timing is
+1. **Signup capacity caps (95% — [[SCH-169]], was the blueprint's 85%).** The blueprint greys a timing option out on the RSVP form when
+   its window is full. The RSVP form offers no timing choice today — Installation Timing is
    set by the office, and [[SCH-23]] keeps the two Thanksgiving options admin-only. Should the
    form start asking (which options, and does a returning customer's last answer pre-fill)? Until
    then the fill is shown on Schedule › Texts & windows for the office to watch.

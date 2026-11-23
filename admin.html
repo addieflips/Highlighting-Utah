@@ -78302,7 +78302,7 @@ async function stampTexted(group){
 /* How full each timing option is: houses asking for it against the crew-days inside it (working days × crews × a
    crew's day). The blueprint caps signups at 85% of this and keeps the rest for weather; the RSVP form does not read
    this yet ([[SCH-162]] — decided, not built), so it is shown here for the office to watch. */
-const SEASON_FILL_CAP_PCT = 85;
+const SEASON_FILL_CAP_PCT = 95;   // [[SCH-169]] the owner, 2026-11-23: "Stop at 95%" — it was the blueprint's 85
 function seasonFillRows(){
   const yr = BASE_START.getFullYear();
   const tg = thanksgivingDate(yr);
