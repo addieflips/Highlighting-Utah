@@ -17711,8 +17711,10 @@ suite('Suite 48. Days within two working days are set');
     /PIN_HONOURED_BUSINESS_DAYS=2;/.test(admin) &&
     /while\(isDayOff\(d\)\)d=addDays\(d,1\);/.test(fn('pinHorizon')),
     'a Friday rebuild must not quietly set Saturday and Sunday and leave Monday loose');
+  /* [[SCH-159]] (2026-11-23) REPOINTED: a day the office marked lost to weather is not a working day either, read through
+     isWeatherDayLost and guarded so a sandbox that lifts isDayOff alone (Suite 25) answers as it always did. */
   check('S48', 'and a working day is a weekday that is not the holiday',
-    /function isDayOff\(dt\)\{ return isWeekend\(dt\)\|\|isThanksgiving\(dt\); \}/.test(admin),
+    /function isDayOff\(dt\)\{ return isWeekend\(dt\)\|\|isThanksgiving\(dt\)\|\|\(typeof isWeatherDayLost==='function'&&isWeatherDayLost\(dt\)\); \}/.test(admin),
     'nobody works Thanksgiving, so it cannot be one of the two business days either');
 
   check('S48', 'the rebuild reports how many it left alone',
@@ -66241,7 +66243,10 @@ suite('351. Takedown days are built from the customers, busiest town first');
 
   const strippedA = stripComments(admin);
   const recalc = strippedA.indexOf('function runRecalculateEverything(');
-  const body = recalc === -1 ? '' : strippedA.slice(recalc, strippedA.indexOf('\n  }', recalc));
+  /* [[SCH-159]] (2026-11-23) the in-memory half of the press is recalculateCore, declared right after it inside the same
+     listener (so the 🌨 Weather delay preview can run the real press on a snapshot); the slice reads both. */
+  const coreAt = strippedA.indexOf('function recalculateCore(', recalc);
+  const body = recalc === -1 ? '' : strippedA.slice(recalc, strippedA.indexOf('\n  }', coreAt === -1 ? recalc : coreAt));
   check('S351', 'Recalculate everything rebuilds the takedowns before it generates the routes',
     body.indexOf('rebuildTakedownDays()') !== -1 && body.indexOf('rebuildTakedownDays()') < body.indexOf('generateAllRoutes('),
     'without this the builder exists and nothing ever calls it');

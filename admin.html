@@ -12180,6 +12180,11 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              actively damages the new plan. The expiry rule [[MON-07]] and audienceNeverAsked
              both point the same way. */
           stuckOnDate: null,
+          /* [[SCH-158]] THE INSTALL WINDOW IS THIS SEASON'S TOO, and so are the texts logged against it. A window texted for
+             last Christmas is not a promise about next; left standing it would hold the house to a week that has gone,
+             and the stamps would stop this season's first texts being listed. */
+          installWindowStart: null, installWindowEnd: null, installWindowSetAt: null, installWindowReason: null, installWindowChanges: 0,
+          installWindowTextedFor: null, installConfirmedFor: null, missedTextedFor: null,
           /* ⭐ THEY ARE NOT A NEW CUSTOMER ANY MORE. Owner: "if someone came from
              quotes this year but we are in 2027 than they are no longer a new
              costumer." Nothing else in the app has ever cleared this, while the
@@ -66515,7 +66520,21 @@ function isThanksgivingDay(dt){
 function isWorkingDay(dt){
   const w = dt.getDay();
   if(w === 0 || w === 6) return false;
-  return !isThanksgivingDay(dt);
+  if(isThanksgivingDay(dt)) return false;
+  /* ⭐ A DAY LOST TO WEATHER IS NOT A WORKING DAY ([[SCH-159]], 2026-11-23). The Schedule's 🌨 Weather delay button
+     records the lost dates (DAYS_OFF, saved with the plan as `daysOff`), and this is the ONE place the calendar is
+     walked — so a lost day drops out of the plan, the rebuild, every floor and ceiling counted in working days and
+     the 72-hour hold, exactly as Thanksgiving does. Asked through the window the way the lock is (scheduleLockedDates),
+     because this function lives in the main app and the plan lives in the Schedule widget. A half day stays a working
+     day; it is held to one crew through dayLimits instead. */
+  if(typeof window !== 'undefined' && window && typeof window.scheduleDaysOff === 'function'){
+    const off = window.scheduleDaysOff();
+    if(off){
+      const ds = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+      if(off[ds] && off[ds].kind === 'lost') return false;
+    }
+  }
+  return true;
 }
 /* ⭐ THE SCHEDULE HOLD — 72 HOURS, WEEKENDS AND THANKSGIVING DO NOT COUNT
    (added 2026-08-31). Addie: "requote is same thing if requoted than it should be
@@ -69756,6 +69775,12 @@ function scheduleDayIsOver(nowParts){
   const p = nowParts || ((typeof mtnNowParts === 'function') ? mtnNowParts() : null);
   if(!p || typeof p.hour !== 'number') return false;
   if(typeof scheduleTodayStr === 'function' && scheduleTodayStr() !== p.date) return false;
+  /* [[SCH-159]] today lost to weather is over before it began: the houses on it go back in the pool on the press that
+     follows the 6 am weather call, not at 5 pm. Read through the window like isWorkingDay, for the same reason. */
+  if(typeof window !== 'undefined' && window && typeof window.scheduleDaysOff === 'function'){
+    const off = window.scheduleDaysOff();
+    if(off && off[p.date] && off[p.date].kind === 'lost') return true;
+  }
   return p.hour >= SCHEDULE_DAY_OVER_HOUR;
 }
 /* The working day after `dateStr` (weekends and Thanksgiving skipped), as a plain YYYY-MM-DD. */
@@ -70864,6 +70889,10 @@ async function syncInstallStampsFromSchedule(){
         }
       }
     } while(installStampSyncAgain);
+    /* [[SCH-158]] the install windows follow the stamps, through the same door and after them, so a window is never
+       published for a day the record does not yet carry */
+    try{ if(typeof window !== 'undefined' && window && typeof window.scheduleSyncInstallWindows === 'function') await window.scheduleSyncInstallWindows(); }
+    catch(err){ console.error('[HU] could not publish the install windows', err); }
     return written;
   })();
   try{ return await installStampSyncInFlight; }
@@ -77361,7 +77390,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn.soon{border-color:#bfe0cb;background:#e8f4ec;color:#2b6b45}\n.qbtn.late{border-color:#e3d3ef;background:#f3ecf8;color:#5b3a86}\n.qbtn.on{outline:2px solid currentColor}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixstop{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;border-radius:7px;background:var(--red);color:#fff;font-size:12px;font-weight:750;margin-right:4px;font-variant-numeric:tabular-nums}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n.rushbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.missbadge{display:inline-block;background:#efe6fb;color:#5b3a86;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stuckbadge{display:inline-block;background:#e7f0ff;color:#2a4d8f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.awaybadge{display:inline-block;background:#fbefd9;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.windowbadge{display:inline-block;background:#eef1f5;color:#48566a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.qbtn.stuck{border-color:#c5d8f4;background:#eef4fd;color:#25548f}\n.qbtn.prio{border-color:#ecd9a8;background:#fdf7e8;color:#8a6414}.qbtn.prio.on{background:#c99a2e;color:#fff;border-color:#c99a2e}\n.why{margin-top:4px;font-size:11.5px;color:var(--muted)}.why summary{cursor:pointer}.why ul{margin:4px 0 0 16px;padding:0}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <div class=\"fld\" title=\"When the crews are behind, pick the day whose sheet they are hanging today. That day and the next two days with work are locked, and nothing from it on counts as already gone.\"><label for=\"hangDayInput\">Crew is hanging</label><input type=\"date\" id=\"hangDayInput\"></div><button class=\"mini\" id=\"hangDayClear\" style=\"display:none\" title=\"The crews have caught up — go back to today's date\">On today's date</button>\n        <div class=\"read\" id=\"hangDayRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\" title=\"Never touches the next two scheduled days\">⚙ Recalculate everything</button><button class=\"mini\" id=\"recalcAllBtn\" title=\"Also re-lays the next two scheduled days — only if they have not been printed\">⚙ Recalculate including the next two days</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div><div class=\"wknote\" id=\"lastRecalcNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"syncNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\" style=\"display:none\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button><button class=\"tab\" data-tab=\"owes\">\ud83d\udcb5 Owes from last year</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button><button class=\"tab\" data-tab=\"texts\">💬 Texts &amp; windows</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <div class=\"fld\" title=\"When the crews are behind, pick the day whose sheet they are hanging today. That day and the next two days with work are locked, and nothing from it on counts as already gone.\"><label for=\"hangDayInput\">Crew is hanging</label><input type=\"date\" id=\"hangDayInput\"></div><button class=\"mini\" id=\"hangDayClear\" style=\"display:none\" title=\"The crews have caught up — go back to today's date\">On today's date</button>\n        <div class=\"read\" id=\"hangDayRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\" title=\"Never touches the next two scheduled days\">⚙ Recalculate everything</button><button class=\"mini\" id=\"recalcAllBtn\" title=\"Also re-lays the next two scheduled days — only if they have not been printed\">⚙ Recalculate including the next two days</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button><button class=\"mini warn\" id=\"weatherBtn\" title=\"A day lost to weather: pick the day, see who moves, then apply and send the texts\">🌨 Weather delay</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div><div class=\"wknote\" id=\"lastRecalcNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"syncNote\" style=\"display:none\"></div>\n        <div class=\"wknote\" id=\"fcNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"fixQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"fixClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\" style=\"display:none\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-owes\" hidden><div class=\"tray\" id=\"owesLastYearPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-texts\" hidden><div class=\"tray\" id=\"textsPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"takeQ\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"takeClearBtn\" style=\"display:none\">Clear</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"lmodal hide\" id=\"weatherModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -77393,9 +77422,17 @@ function isWeekend(dt){const g=dt.getDay();return g===0||g===6;}
 function isThanksgiving(dt){
   return typeof isThanksgivingDay==='function' ? isThanksgivingDay(dt) : false;
 }
-function isDayOff(dt){ return isWeekend(dt)||isThanksgiving(dt); }
+/* [[SCH-159]] guarded, because run-all Suite 25 lifts isDayOff alone: a sandbox without the weather days answers as it did */
+function isDayOff(dt){ return isWeekend(dt)||isThanksgiving(dt)||(typeof isWeatherDayLost==='function'&&isWeatherDayLost(dt)); }
 function dayOffName(dt){
-  return isThanksgiving(dt) ? 'Thanksgiving' : (isWeekend(dt) ? 'weekend' : '');
+  return isThanksgiving(dt) ? 'Thanksgiving' : (isWeekend(dt) ? 'weekend' : ((typeof isWeatherDayLost==='function'&&isWeatherDayLost(dt)) ? 'weather' : ''));
+}
+/* [[SCH-159]] a date the office marked lost to weather — see DAYS_OFF below. Guarded, so the suites that lift the
+   calendar helpers alone answer exactly as they did. */
+function isWeatherDayLost(dt){
+  if(!dt||typeof dt.getFullYear!=='function'||typeof dayOffOn!=='function') return false;
+  const o=dayOffOn(isoOf(dt));
+  return !!(o&&o.kind==='lost');
 }
 function dlabel(dt){return{wd:WD[dt.getDay()],full:MO[dt.getMonth()+1]+' '+dt.getDate()};}
 function isoOf(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
@@ -77749,6 +77786,9 @@ function computeLockedDatesOnce(releaseFrozen){
     if(!dt) return;
     const ds = isoOf(dt);
     if(ds <= today) return;
+    /* [[SCH-159]] a day lost to weather holds nobody: it is not one of the next two days of work, a printed sheet for it
+       is void, and a crew checked for it is not going out — so it is never locked, and the press re-places its houses */
+    if(typeof dayOffOn === 'function' && dayOffOn(ds) && dayOffOn(ds).kind === 'lost') return;
     /* [[SCH-120]] a day that has been PRINTED stays locked for good — even "Recalculate including the next two days",
        whose own tooltip has always said "only if they have not been printed", leaves it alone. */
     /* [[SCH-135]] a crew checked for tomorrow holds its day exactly like a printed one, override included. */
@@ -77887,6 +77927,525 @@ function recalcWho(){
   try{ const u=(typeof auth!=='undefined')&&auth&&auth.currentUser; return u?String(u.email||u.displayName||''):''; }
   catch(e){ return ''; /* the line just leaves the name off */ }
 }
+/* ====================================================================================================================
+   ⭐⭐ INSTALL WINDOWS, THE WEATHER DELAY AND THE TEXTS ([[SCH-158]] – [[SCH-162]], 2026-11-23)
+   The owner's 2027 blueprint, built on top of Schedule V2 rather than beside it: "Customers get an estimated one-week
+   window, not a fixed date, and the exact day is confirmed by text the evening before. Once your window is set, it only
+   moves for weather. New bookings never push existing customers back. Tell people before they ask."
+   - The WINDOW is ±INSTALL_WINDOW_HALF_DAYS working days around the day the Schedule has them on, clipped to the days they
+     may be hung at all (their month, the office date, their own calendar), never before tomorrow. It is written onto
+     the customer (installWindowStart/End/SetAt/Reason/Changes) by the same mirror that writes scheduledDate, and read
+     back onto the house as winFrom / winTo, where houseAllowedFrom and houseDeadline hold the planner inside it.
+   - It MOVES only when the planner had no day inside it (a lost weather day, a crew that fell behind, a pin), and every
+     move is counted and listed under \U0001f4ac Texts & windows with the text to send.
+   - THERE IS NO TEXTING SERVICE ([[QT-48]]: "we dont use twillo at all"). Every text here is a list of numbers and ONE
+     message to paste into the bulk tool, exactly like the \U0001f4f1 Numbers buttons on a day; "Mark as texted" stamps the
+     customer so nobody is listed twice. A sender can be added later without changing what is listed.
+   ==================================================================================================================== */
+const INSTALL_WINDOW_HALF_DAYS = 2;   // two working days either side of the planned day: a five-working-day window
+const SEASON_CUTOFF_MONTH_DAY = '12-23';   // the last install date the planner lays out (crewTailDates) — past it is at risk
+const WINDOW_PUBLISH_REASON_MS = 5 * 60 * 1000;
+let WINDOW_PUBLISH_REASON = null;   // {reason, at} set by the weather flow for the publish that follows its press
+function isoDayStr(v){ const t = ('' + (v == null ? '' : v)).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : ''; }
+/* ⭐ THE WINDOW AROUND A DAY. Working days, so a weekend, Thanksgiving or a lost weather day never counts as a day we might
+   come; clipped to the house's own legal range WITHOUT its current window (or it could never be re-centred), and never
+   before tomorrow (we are not coming on a day that has gone). The planned day is always inside it. */
+function installWindowFor(h, custData, ds, startStr){
+  ds = isoDayStr(ds); if(!ds) return null;
+  const bare = Object.assign({}, h || {}); delete bare.winFrom; delete bare.winTo;
+  const w = (typeof houseDateWindow === 'function') ? houseDateWindow(bare, custData || {}, startStr || '') : {from: '', until: ''};
+  const dt = isoToLocalDate(ds); if(!dt) return null;
+  const lo = new Date(dt.getTime()), hi = new Date(dt.getTime());
+  let n = 0, guard = 0;
+  while(n < INSTALL_WINDOW_HALF_DAYS && guard++ < 60){ lo.setDate(lo.getDate() - 1); if(isWorkingDay(lo)) n++; }
+  n = 0; guard = 0;
+  while(n < INSTALL_WINDOW_HALF_DAYS && guard++ < 60){ hi.setDate(hi.getDate() + 1); if(isWorkingDay(hi)) n++; }
+  let start = isoOf(lo), end = isoOf(hi);
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const tomorrow = isoOf(nextWorkingDay(addDays(isoToLocalDate(today), 1)));
+  if(start < tomorrow) start = tomorrow;
+  if(w.from && start < w.from) start = w.from;
+  if(w.until && end > w.until) end = w.until;
+  if(start > ds) start = ds;
+  if(end < ds) end = ds;
+  /* a clip can land on a weekend (31 October 2026 is a Saturday): the edges step inwards to a day we work */
+  let sd = isoToLocalDate(start), ed = isoToLocalDate(end); guard = 0;
+  while(sd && start < ds && !isWorkingDay(sd) && guard++ < 10){ sd.setDate(sd.getDate() + 1); start = isoOf(sd); }
+  guard = 0;
+  while(ed && end > ds && !isWorkingDay(ed) && guard++ < 10){ ed.setDate(ed.getDate() - 1); end = isoOf(ed); }
+  return {start: start, end: end};
+}
+function fmtWindowLabel(start, end){
+  const a = isoToLocalDate(start), b = isoToLocalDate(end);
+  if(!a) return '';
+  if(!b || start === end) return MO[a.getMonth() + 1] + ' ' + a.getDate();
+  if(a.getMonth() === b.getMonth()) return MO[a.getMonth() + 1] + ' ' + a.getDate() + '–' + b.getDate();
+  return MO[a.getMonth() + 1] + ' ' + a.getDate() + '–' + MO[b.getMonth() + 1] + ' ' + b.getDate();
+}
+/* The earliest coming install day each customer is on: {custId: {h, ds, c}}. Done houses are history; fixes and takedowns
+   are not installs. */
+function comingInstallByCustomer(){
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const out = {};
+  installDays().forEach(function(day){
+    const dt = dayDate(day); if(!dt) return;
+    const ds = isoOf(dt); if(ds < today) return;
+    (day.houses || []).forEach(function(h){
+      if(!h || h.isFix || h.isTakedown || h.done) return;
+      const c = planCustomerFor(h); if(!c || !c.id) return;
+      if(!out[c.id] || ds < out[c.id].ds) out[c.id] = {h: h, ds: ds, c: c};
+    });
+  });
+  return out;
+}
+/* ⭐ WHAT THE RECORDS SHOULD SAY ABOUT THEIR WINDOW, as a diff — the same shape as installStampDiffs, and like it, PURE:
+   nothing here writes. A customer on a coming day inside their window: nothing. On a coming day OUTSIDE it (or with no
+   window yet): a new window around that day — 'booked' the first time, otherwise the reason given (weather) or worked
+   out ('missed' when the crew did not reach them, 'rescheduled' otherwise) and the change counted. On no coming day
+   with a window stamped: cleared, unless their lights are up (history). */
+function installWindowDiffs(customers, opts){
+  if(!Array.isArray(customers) || typeof SEASON === 'undefined') return null;
+  const o = opts || {};
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const startStr = isoOf(seasonStartDate());
+  const where = comingInstallByCustomer();
+  const out = [];
+  customers.forEach(function(item){
+    const d = item && item.data; if(!d || !item.id) return;
+    const curS = isoDayStr(d.installWindowStart), curE = isoDayStr(d.installWindowEnd);
+    const cur = (curS && curE) ? {start: curS, end: curE} : null;
+    const at = where[item.id];
+    if(!at){
+      if(!cur || d.completed === true) return;
+      out.push({id: item.id, set: false, oldWin: cur, updates: {installWindowStart: null, installWindowEnd: null, installWindowSetAt: null, installWindowReason: null}});
+      return;
+    }
+    if(cur && at.ds >= cur.start && at.ds <= cur.end) return;
+    const nw = installWindowFor(at.h, d, at.ds, startStr); if(!nw) return;
+    const n = Math.max(0, Math.floor(Number(d.installWindowChanges) || 0));
+    let reason = 'booked';
+    if(cur) reason = o.reason || ((typeof houseMissedDays === 'function' && houseMissedDays(at.h).length) ? 'missed' : 'rescheduled');
+    out.push({id: item.id, set: true, changed: !!cur, oldWin: cur, newWin: nw, house: at.h, day: at.ds,
+      updates: {installWindowStart: nw.start, installWindowEnd: nw.end, installWindowSetAt: today, installWindowReason: reason, installWindowChanges: cur ? n + 1 : n}});
+  });
+  return out;
+}
+/* The diff applied to what this page holds: the customer cache and the house's own winFrom / winTo, so the planner
+   honours a window the moment it is published rather than after the next five-minute sync. Used by the writer after a
+   successful commit, and by the suites. */
+function applyInstallWindowDiffsLocally(diffs){
+  let n = 0;
+  (diffs || []).forEach(function(x){
+    const local = (typeof jobAddresses !== 'undefined') ? jobAddresses.find(function(a){ return a.id === x.id; }) : null;
+    if(local && local.data) Object.assign(local.data, x.updates);
+    if(x.house){ if(x.set){ x.house.winFrom = x.updates.installWindowStart; x.house.winTo = x.updates.installWindowEnd; } }
+    if(!x.set){ installDays().forEach(function(day){ (day.houses || []).forEach(function(h){
+      const c = planCustomerFor(h); if(c && c.id === x.id){ delete h.winFrom; delete h.winTo; } }); }); }
+    n++;
+  });
+  return n;
+}
+let installWindowSyncInFlight = null;
+async function syncInstallWindowsFromSchedule(){
+  if(installWindowSyncInFlight) return installWindowSyncInFlight;
+  installWindowSyncInFlight = (async function(){
+    if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
+    if(typeof SEASON === 'undefined' || !SEASON.length) return 0;
+    const ctx = (WINDOW_PUBLISH_REASON && (Date.now() - WINDOW_PUBLISH_REASON.at) < WINDOW_PUBLISH_REASON_MS) ? WINDOW_PUBLISH_REASON : null;
+    const diffs = installWindowDiffs(jobAddresses, {reason: ctx ? ctx.reason : ''});
+    if(!diffs || !diffs.length){ if(ctx && !ctx.keep) WINDOW_PUBLISH_REASON = null; return 0; }
+    let written = 0;
+    const BATCH_LIMIT = 400;
+    for(let i = 0; i < diffs.length; i += BATCH_LIMIT){
+      const chunk = diffs.slice(i, i + BATCH_LIMIT);
+      const batch = writeBatch(db);
+      chunk.forEach(function(x){ batch.update(doc(db, 'jobAddresses', x.id), Object.assign({}, x.updates)); });
+      try{
+        await batch.commit();
+        if(typeof huNoteWrite === 'function') huNoteWrite('windows', chunk.length, 0);
+        applyInstallWindowDiffsLocally(chunk);
+        written += chunk.length;
+      }catch(err){
+        console.error('[HU] could not publish ' + chunk.length + ' install window(s) onto customer records', err);
+      }
+    }
+    WINDOW_PUBLISH_REASON = null;
+    if(written){
+      /* the houses now carry their window, so the plan is saved with it, and the texts tab lists the changes */
+      try{ if(typeof scheduleSave === 'function') scheduleSave(); }catch(e){ /* the save is a convenience here; the records are written */ }
+      try{ if(activeTab === 'texts' || activeTab === 'schedule') renderActive(); }catch(e){ /* a redraw is decoration */ }
+    }
+    return written;
+  })();
+  try{ return await installWindowSyncInFlight; }
+  finally{ installWindowSyncInFlight = null; }
+}
+if(typeof window !== 'undefined' && window){
+  window.scheduleSyncInstallWindows = function(){ return syncInstallWindowsFromSchedule(); };
+  window.scheduleInstallWindowDiffs = function(opts){ return installWindowDiffs((typeof jobAddresses !== 'undefined') ? jobAddresses : [], opts); };
+}
+/* ---------- at risk ---------- */
+/* Every coming house after its customer's last allowed day (their own timing or the office's date — NOT the window, which
+   the mirror simply moves), after their published window, past the season cutoff, or Confirmed and on no day at all. */
+function atRiskHouses(){
+  const out = [];
+  const where = comingInstallByCustomer();
+  const cutoff = BASE_START.getFullYear() + '-' + SEASON_CUTOFF_MONTH_DAY;
+  Object.keys(where).forEach(function(id){
+    const at = where[id], h = at.h, d = (at.c && at.c.data) || {};
+    const bare = Object.assign({}, h); delete bare.winFrom; delete bare.winTo;
+    const until = (typeof houseDeadline === 'function') ? (houseDeadline(bare) || '') : '';
+    const name = personName(h.name, h) || d.name || '(no name)';
+    const town = extractCleanCity(h.city || d.city) || '';
+    if(until && at.ds > until) out.push({kind: 'deadline', name: name, town: town, day: at.ds, until: until, phone: d.phone || h.phone || ''});
+    else if(at.ds > cutoff) out.push({kind: 'cutoff', name: name, town: town, day: at.ds, until: cutoff, phone: d.phone || h.phone || ''});
+    else if(isoDayStr(h.winTo) && at.ds > h.winTo) out.push({kind: 'window', name: name, town: town, day: at.ds, until: h.winTo, phone: d.phone || h.phone || ''});
+  });
+  if(typeof confirmedNotOnAnyDay === 'function'){
+    confirmedNotOnAnyDay().forEach(function(item){ const d = (item && item.data) || {};
+      out.push({kind: 'noDay', name: d.name || item.id, town: extractCleanCity(d.city) || '', day: '', until: '', phone: d.phone || ''}); });
+  }
+  const rank = {deadline: 0, cutoff: 1, noDay: 2, window: 3};
+  out.sort(function(a, b){ return (rank[a.kind] - rank[b.kind]) || String(a.day).localeCompare(String(b.day)) || a.name.localeCompare(b.name); });
+  return out;
+}
+/* ---------- the texts ---------- */
+function missedTextMessage(){
+  return 'Hi from Highlighting Utah — our crew did not reach your house today, and we are sorry. You are at the top of our list for the next day a crew is in your area, and we will text your exact day the evening before. Reply STOP to opt out.';
+}
+function installWindowTextMessage(start, end, reason){
+  const w = fmtWindowLabel(start, end);
+  if(reason === 'booked') return 'Thanks for booking Highlighting Utah! Your estimated install window is ' + w + '. We will text your exact day the evening before, and you can check your status any time in your member portal at highlightingutah.com. Reply STOP to opt out.';
+  if(reason === 'weather') return 'Hi from Highlighting Utah — the weather has pushed our schedule back. Your new estimated install window is ' + w + '. We will text your exact day the evening before. Reply STOP to opt out.';
+  return 'Hi from Highlighting Utah — your estimated install window has moved to ' + w + '. We will text your exact day the evening before. Reply STOP to opt out.';
+}
+/* One list of numbers for a bulk text, the same rules as the day's \U0001f4f1 buttons (dayPhoneList): formatted, one per phone,
+   STOP honoured and named, no usable number named. */
+function textRowsPhones(rows){
+  const seen = new Set(), numbers = [], noPhone = [], optedOut = [];
+  rows.forEach(function(r){
+    const d = (r.c && r.c.data) || {};
+    const name = d.name || (r.h && r.h.name) || '(no name)';
+    if(d.smsOptedOut){ optedOut.push(name); return; }
+    let digits = String(d.phone || (r.h && r.h.phone) || '').replace(/\D/g, '');
+    if(digits.length === 11 && digits.charAt(0) === '1') digits = digits.slice(1);
+    if(digits.length !== 10){ noPhone.push(name); return; }
+    if(seen.has(digits)) return;
+    seen.add(digits);
+    numbers.push('(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6));
+  });
+  return {numbers: numbers, noPhone: noPhone, optedOut: optedOut};
+}
+/* ⭐ WHAT IS DUE TO GO OUT, in three groups the blueprint names: tomorrow's confirmations (the evening before, once the
+   crews are checked), today's missed houses (by 6 pm), and every install window that is new or has moved since it was
+   last texted. Each row remembers whether it was texted through a stamp on the customer, so a list that was sent is
+   not sent again and a customer who came back onto a list is. */
+function textGroups(){
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const groups = [];
+  const tom = (typeof tomorrowsInstallDay === 'function') ? tomorrowsInstallDay() : null;
+  if(tom){
+    const ds = isoOf(dayDate(tom)); const rows = [];
+    crewIndexes().forEach(function(i){
+      printNotDone(crewHousesFor(i, tom)).forEach(function(h){
+        const c = planCustomerFor(h); if(!c) return;
+        rows.push({c: c, h: h, texted: ((c.data || {}).installConfirmedFor === ds)});
+      });
+    });
+    const l = dlabel(dayDate(tom));
+    groups.push({key: 'confirm', kind: 'confirm', title: 'Tomorrow — ' + l.wd + ' ' + l.full + ': confirm the day by text',
+      lead: 'The evening-before text. ' + (dayHasHeldCrew(tom) ? 'The crews are checked for this day, so the list cannot change under the text.' : 'Tip: check the crews for tomorrow first (✅ Schedule … for tomorrow on the day), so nothing reschedules a house you have just confirmed.'),
+      message: dayTextMessage(tom, 'night'), rows: rows, stamp: {installConfirmedFor: ds}});
+  }
+  const missedRows = [];
+  installDays().forEach(function(day){
+    (day.houses || []).forEach(function(h){
+      if(!h || h.done || h.isFix || h.isTakedown) return;
+      const md = houseMissedDays(h); if(!md.length) return;
+      const last = md[md.length - 1]; if(last !== today) return;
+      const off = dayOffOn(last); if(off && off.kind === 'lost') return;   // a lost day is a weather text, not a missed one
+      const c = planCustomerFor(h); if(!c) return;
+      missedRows.push({c: c, h: h, texted: ((c.data || {}).missedTextedFor === today)});
+    });
+  });
+  if(missedRows.length) groups.push({key: 'missed', kind: 'missed', title: 'Missed today — tell them before 6 pm',
+    lead: 'Houses the crew did not reach today. The blueprint’s rule: a house the crew did not reach goes first on that crew’s next day, and the customer hears about it the same evening.',
+    message: missedTextMessage(), rows: missedRows, stamp: {missedTextedFor: today}});
+  const byKey = {};
+  const where = comingInstallByCustomer();
+  (typeof jobAddresses !== 'undefined' ? jobAddresses : []).forEach(function(item){
+    const d = (item && item.data) || {}; if(!item || !item.id) return;
+    const st = isoDayStr(d.installWindowStart), en = isoDayStr(d.installWindowEnd);
+    if(!st || !en || d.completed === true) return;
+    const key = st + '|' + en;
+    if(d.installWindowTextedFor === key) return;
+    if(typeof isOffTheSchedule === 'function' && isOffTheSchedule(d)) return;
+    const at = where[item.id]; if(!at) return;   // off the schedule: the mirror is about to clear the window
+    const reason = (d.installWindowReason === 'booked' || d.installWindowReason === 'weather') ? d.installWindowReason : 'moved';
+    const gk = reason + '|' + key;
+    if(!byKey[gk]) byKey[gk] = {key: 'win-' + gk, kind: 'window', reason: reason, start: st, end: en, rows: []};
+    byKey[gk].rows.push({c: item, h: at.h, texted: false});
+  });
+  Object.keys(byKey).sort().forEach(function(gk){
+    const g = byKey[gk];
+    g.title = (g.reason === 'booked' ? 'New window ' : (g.reason === 'weather' ? 'Weather — new window ' : 'Window moved to ')) + fmtWindowLabel(g.start, g.end);
+    g.lead = g.reason === 'booked' ? 'Their first window. Sent once, when they are placed.' : (g.reason === 'weather' ? 'Their window moved because a day was lost to weather.' : 'Their window moved because the planner had no day left inside it (a missed house, a pin, or a full week).');
+    g.message = installWindowTextMessage(g.start, g.end, g.reason);
+    g.stamp = {installWindowTextedFor: g.start + '|' + g.end};
+    groups.push(g);
+  });
+  return groups;
+}
+/* Writes one stamp onto every customer in the rows not yet texted: the log that stops a duplicate. */
+async function stampTexted(group){
+  const todo = group.rows.filter(function(r){ return !r.texted && r.c && r.c.id; });
+  if(!todo.length){ toast('Everybody on this list is already marked as texted'); return 0; }
+  const batch = writeBatch(db);
+  todo.forEach(function(r){ batch.update(doc(db, 'jobAddresses', r.c.id), Object.assign({}, group.stamp)); });
+  try{ await batch.commit(); }
+  catch(err){ console.error('[HU] could not mark the texts as sent', err); toast('Could not save that — ' + ((err && err.message) || 'try again')); return 0; }
+  todo.forEach(function(r){ if(r.c.data) Object.assign(r.c.data, group.stamp); });
+  if(typeof huNoteWrite === 'function') huNoteWrite('texted', todo.length, 0);
+  toast(todo.length + ' marked as texted');
+  renderActive();
+  return todo.length;
+}
+/* ---------- season fill ---------- */
+/* How full each timing option is: houses asking for it against the crew-days inside it (working days × crews × a
+   crew's day). The blueprint caps signups at 85% of this and keeps the rest for weather; the RSVP form does not read
+   this yet ([[SCH-162]] — decided, not built), so it is shown here for the office to watch. */
+const SEASON_FILL_CAP_PCT = 85;
+function seasonFillRows(){
+  const yr = BASE_START.getFullYear();
+  const tg = thanksgivingDate(yr);
+  const start = isoOf(seasonStartDate());
+  const cutoff = yr + '-' + SEASON_CUTOFF_MONTH_DAY;
+  const dayBefore = isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() - 1));
+  const dayAfter = isoOf(new Date(tg.getFullYear(), tg.getMonth(), tg.getDate() + 1));
+  const opts = [
+    {key: 'oct', label: 'October', from: yr + '-10-01', to: yr + '-10-31'},
+    {key: 'prethx', label: 'Before Thanksgiving', from: start, to: dayBefore},
+    {key: 'nov', label: 'November', from: yr + '-11-01', to: yr + '-11-30'},
+    {key: 'thx', label: 'After Thanksgiving', from: dayAfter, to: cutoff},
+    {key: 'any', label: 'No preference (flex pool)', from: start, to: cutoff}];
+  const counts = {};
+  installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(!h || h.isFix || h.isTakedown) return; const k = prefKey(h.pref); counts[k] = (counts[k] || 0) + 1; }); });
+  const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
+  return opts.map(function(o){
+    let days = 0; const a = isoToLocalDate(o.from), b = isoToLocalDate(o.to);
+    if(a && b){ const cur = new Date(a.getTime()); let g = 0; while(cur <= b && g++ < 200){ if(isWorkingDay(cur)) days++; cur.setDate(cur.getDate() + 1); } }
+    const cap = days * crews * crewCap();
+    const booked = counts[o.key] || 0;
+    return {key: o.key, label: o.label, from: o.from, to: o.to, days: days, capacity: cap, booked: booked,
+      pct: cap ? Math.round(booked / cap * 100) : 0, capAt: Math.floor(cap * SEASON_FILL_CAP_PCT / 100)};
+  });
+}
+/* ---------- the reschedule report ---------- */
+function rescheduleReport(){
+  const r = {windowChanges: 0, byReason: {}, customersWithWindow: 0, missedHouses: 0, missedByTown: {}, lostDays: 0, halfDays: 0,
+             confirmTexts: 0, windowTexts: 0, missedTexts: 0};
+  (typeof jobAddresses !== 'undefined' ? jobAddresses : []).forEach(function(item){
+    const d = (item && item.data) || {};
+    if(isoDayStr(d.installWindowStart)){ r.customersWithWindow++; const why = d.installWindowReason || 'booked'; if(why !== 'booked') r.byReason[why] = (r.byReason[why] || 0) + 1; }
+    r.windowChanges += Math.max(0, Math.floor(Number(d.installWindowChanges) || 0));
+    if(d.installConfirmedFor) r.confirmTexts++;
+    if(d.installWindowTextedFor) r.windowTexts++;
+    if(d.missedTextedFor) r.missedTexts++;
+  });
+  installDays().forEach(function(d){ (d.houses || []).forEach(function(h){ if(!h || h.isFix || h.isTakedown) return;
+    const n = houseMissedDays(h).length; if(!n) return; r.missedHouses += n;
+    const t = extractCleanCity(h.city) || 'no town'; r.missedByTown[t] = (r.missedByTown[t] || 0) + n; }); });
+  Object.keys(DAYS_OFF || {}).forEach(function(ds){ const o = dayOffOn(ds); if(!o) return; if(o.kind === 'lost') r.lostDays++; else r.halfDays++; });
+  return r;
+}
+/* ---------- the tab ---------- */
+function textGroupHTML(g){
+  const ph = textRowsPhones(g.rows.filter(function(r){ return !r.texted; }));
+  const sent = g.rows.filter(function(r){ return r.texted; }).length;
+  const rows = g.rows.map(function(r){
+    const d = (r.c && r.c.data) || {};
+    return '<div class="newrow" style="padding-left:28px;' + (r.texted ? 'opacity:.55' : '') + '"><div><div class="meta"><b>' + esc(d.name || (r.h && r.h.name) || '(no name)') + '</b> · ' +
+      esc(extractCleanCity(d.city || (r.h && r.h.city)) || 'no town') + ' · ' + esc(d.phone || (r.h && r.h.phone) || 'no phone') + (d.smsOptedOut ? ' · <b style="color:var(--red)">STOP</b>' : '') +
+      (r.texted ? ' · ✓ texted' : '') + '</div></div></div>';
+  }).join('');
+  return '<div class="newrow"><div style="flex:1"><div class="who">' + esc(g.title) + ' <span class="cnt">' + g.rows.length + '</span></div><div class="meta">' + esc(g.lead) + '</div></div></div>' +
+    '<div style="padding:4px 15px 10px 28px;display:flex;flex-direction:column;gap:6px">' +
+    '<div class="meta">' + ph.numbers.length + ' number' + (ph.numbers.length === 1 ? '' : 's') + ' still to text' + (sent ? ' · ' + sent + ' already texted' : '') +
+      (ph.optedOut.length ? ' · <b style="color:var(--red)">STOP, not texted:</b> ' + esc(ph.optedOut.join(', ')) : '') +
+      (ph.noPhone.length ? ' · <b style="color:#9a5b16">no usable number — ring or email:</b> ' + esc(ph.noPhone.join(', ')) : '') + '</div>' +
+    '<textarea readonly rows="2" data-txnums="' + esc(g.key) + '" style="width:100%;font-size:12.5px;padding:7px;border:1px solid var(--line);border-radius:8px;font-family:inherit">' + esc(ph.numbers.join(', ')) + '</textarea>' +
+    '<textarea readonly rows="3" data-txmsg="' + esc(g.key) + '" style="width:100%;font-size:12.5px;padding:7px;border:1px solid var(--line);border-radius:8px;font-family:inherit">' + esc(g.message) + '</textarea>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mini" data-txact="copynums" data-txkey="' + esc(g.key) + '">Copy numbers</button>' +
+    '<button class="mini" data-txact="copymsg" data-txkey="' + esc(g.key) + '">Copy message</button>' +
+    '<button class="mini warn" data-txact="mark" data-txkey="' + esc(g.key) + '"' + (ph.numbers.length ? '' : ' disabled style="opacity:.5"') + '>Mark ' + ph.numbers.length + ' as texted</button></div>' +
+    '</div>' + rows;
+}
+let TEXT_GROUPS_SHOWN = [];
+function renderTextsPane(){
+  const el = RT.getElementById('textsPane'); if(!el) return;
+  const groups = textGroups(); TEXT_GROUPS_SHOWN = groups;
+  const due = groups.reduce(function(n, g){ return n + g.rows.filter(function(r){ return !r.texted; }).length; }, 0);
+  let h = '<h3>\U0001f4ac Texts & windows</h3>' +
+    '<div class="traynote">Texts carry the schedule: a customer is told their <b>estimated window</b> when they are placed, their <b>exact day the evening before</b>, and the same day when a house was <b>missed</b> or <b>weather</b> moved them. ' +
+    'There is no texting service wired in — copy the numbers and the message into the bulk tool, then press <b>Mark as texted</b> so nobody is listed twice. ' +
+    'Windows are published by the Schedule itself (every save and every Recalculate), and once published the planner keeps a customer inside their window unless a day is lost.</div>';
+  h += '<div class="grouph">Due to go out · ' + due + '</div>';
+  h += groups.length ? groups.map(textGroupHTML).join('') : '<div class="traynote">Nothing is due. Every window has been texted, there is no install day after today to confirm, and nobody was missed today.</div>';
+  /* at risk */
+  const risk = atRiskHouses();
+  const RISK_WORDS = {deadline: 'after their last allowed day', cutoff: 'after the season cutoff (' + SEASON_CUTOFF_MONTH_DAY.replace('-', '/') + ')', window: 'after the window they were told', noDay: 'Confirmed, on no day'};
+  h += '<div class="grouph">At risk · ' + risk.length + '</div>';
+  h += '<div class="traynote">Anybody the plan has after the last day they may be hung, past the season cutoff, past the window they were texted, or on no day at all. The ways out, in the blueprint’s order: add a crew day (Force exact date on a Saturday, or Crews on this date), move a flex customer out of the way (Reschedule to), or ring the customer.</div>';
+  h += risk.length ? risk.map(function(x){
+    return '<div class="newrow"><div><div class="meta"><b>' + esc(x.name) + '</b> · ' + esc(x.town || 'no town') + (x.phone ? ' · ' + esc(x.phone) : '') + '</div>' +
+      '<div class="meta" style="color:var(--red)">' + esc(RISK_WORDS[x.kind] || x.kind) + (x.day ? ' — planned ' + esc(x.day) : '') + (x.until && x.kind !== 'cutoff' ? ', last day ' + esc(x.until) : '') + '</div></div></div>';
+  }).join('') : '<div class="traynote">Nobody is at risk.</div>';
+  /* season fill */
+  const fill = seasonFillRows();
+  h += '<div class="grouph">Season fill · booked against the crew-days inside each window</div>';
+  h += '<div class="traynote">A window is "full" at ' + SEASON_FILL_CAP_PCT + '% of its crew-days; the rest is the weather buffer. Capacity = working days × crews × ' + crewCap() + ' houses a crew-day.</div>';
+  h += fill.map(function(f){
+    const over = f.booked > f.capAt;
+    return '<div class="newrow"><div style="flex:1"><div class="meta"><b>' + esc(f.label) + '</b> · ' + esc(f.from) + ' → ' + esc(f.to) + ' · ' + f.days + ' working day' + (f.days === 1 ? '' : 's') + '</div>' +
+      '<div class="obar" style="margin-top:4px"><i style="width:' + Math.min(100, f.pct) + '%' + (over ? ';background:var(--red)' : '') + '"></i></div></div>' +
+      '<div style="font-weight:700;white-space:nowrap;' + (over ? 'color:var(--red)' : '') + '">' + f.booked + ' / ' + f.capacity + ' · ' + f.pct + '%' + (over ? ' · over the ' + SEASON_FILL_CAP_PCT + '% cap' : '') + '</div></div>';
+  }).join('');
+  /* report */
+  const rp = rescheduleReport();
+  const reasons = Object.keys(rp.byReason).map(function(k){ return k + ' ' + rp.byReason[k]; }).join(', ');
+  const towns = Object.keys(rp.missedByTown).sort(function(a, b){ return rp.missedByTown[b] - rp.missedByTown[a]; }).slice(0, 6).map(function(t){ return t + ' ' + rp.missedByTown[t]; }).join(', ');
+  h += '<div class="grouph">This season’s reschedules</div>' +
+    '<div class="traynote">The cost of slips, counted so "the schedule is messy" has a number: how many windows moved after they were promised, how many houses the crews did not reach, how many days the weather took, and what it took to tell people.</div>' +
+    '<div class="newrow"><div class="meta"><b>' + rp.windowChanges + '</b> window change' + (rp.windowChanges === 1 ? '' : 's') + ' after the first text' + (reasons ? ' (current reasons: ' + esc(reasons) + ')' : '') + ' · <b>' + rp.customersWithWindow + '</b> customer' + (rp.customersWithWindow === 1 ? '' : 's') + ' with a window published</div></div>' +
+    '<div class="newrow"><div class="meta"><b>' + rp.missedHouses + '</b> missed house-day' + (rp.missedHouses === 1 ? '' : 's') + (towns ? ' · by town: ' + esc(towns) : '') + '</div></div>' +
+    '<div class="newrow"><div class="meta"><b>' + rp.lostDays + '</b> day' + (rp.lostDays === 1 ? '' : 's') + ' lost to weather · <b>' + rp.halfDays + '</b> half day' + (rp.halfDays === 1 ? '' : 's') + '</div></div>' +
+    '<div class="newrow"><div class="meta">Texts marked sent: <b>' + rp.windowTexts + '</b> window, <b>' + rp.confirmTexts + '</b> confirmation, <b>' + rp.missedTexts + '</b> missed-house</div></div>';
+  el.innerHTML = h;
+}
+function textsAction(act, el){
+  const key = el.dataset.txkey;
+  const g = TEXT_GROUPS_SHOWN.filter(function(x){ return x.key === key; })[0];
+  if(!g) return;
+  const copy = function(value, ta, label){
+    const done = function(){ toast(label); };
+    const fallback = function(){ if(ta){ ta.focus(); ta.select(); } toast('Selected — press Ctrl+C to copy'); };
+    if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(done, fallback); else fallback();
+  };
+  if(act === 'copynums'){ const ta = RT.querySelector('[data-txnums="' + key + '"]'); copy(ta ? ta.value : '', ta, 'Numbers copied'); return; }
+  if(act === 'copymsg'){ const ta = RT.querySelector('[data-txmsg="' + key + '"]'); copy(ta ? ta.value : '', ta, 'Message copied'); return; }
+  if(act === 'mark'){ stampTexted(g); return; }
+}
+/* ---------- the weather delay ---------- */
+let weatherUI = null;
+function openWeather(){
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  weatherUI = {dates: [], kind: 'lost', reason: '', preview: null, busy: false, pick: today};
+  renderWeather();
+}
+function closeWeather(){ weatherUI = null; renderWeather(); }
+/* Every house on each date to be marked, and where the plan has it now: {custId: ds}. */
+function planDatesByCustomer(){
+  const out = {};
+  installDays().forEach(function(day){ const dt = dayDate(day); if(!dt) return; const ds = isoOf(dt);
+    (day.houses || []).forEach(function(h){ if(!h || h.done || h.isFix || h.isTakedown) return; const c = planCustomerFor(h); if(c && c.id && !out[c.id]) out[c.id] = {ds: ds, name: personName(h.name, h) || h.name || '(no name)'}; }); });
+  return out;
+}
+/* ⭐ THE PREVIEW: the real press, on a copy. The days are marked, the press runs in memory (recalculateCore, exactly what
+   the button runs), who moved and whose window changes are read off the result, and the plan is put back from the
+   snapshot before anything is saved. Nothing reaches Firestore and no text is listed until Apply. */
+function weatherPreview(dates, kind, reason, coreFn){
+  const out = {moved: [], onLost: 0, windows: [], atRisk: [], error: ''};
+  if(typeof coreFn !== 'function'){ out.error = 'the press is not available to preview'; return out; }
+  const before = JSON.stringify(serialize());
+  const was = planDatesByCustomer();
+  try{
+    dates.forEach(function(ds){ setDayOff(ds, kind, reason); });
+    refreshLockedDates({releaseFrozen: true}); freezePrintedDays();
+    const core = coreFn();
+    const now = planDatesByCustomer();
+    Object.keys(was).forEach(function(id){
+      const a = was[id].ds, b = now[id] ? now[id].ds : '';
+      const onLost = dates.indexOf(a) !== -1;
+      if(onLost) out.onLost++;
+      if(b && b !== a) out.moved.push({name: was[id].name, from: a, to: b, onLost: onLost, days: workingDaysBetween(a, b)});
+      else if(!b && onLost) out.moved.push({name: was[id].name, from: a, to: '', onLost: true, days: null});
+    });
+    const diffs = installWindowDiffs((typeof jobAddresses !== 'undefined') ? jobAddresses : [], {reason: 'weather'}) || [];
+    out.windows = diffs.filter(function(x){ return x.set && x.changed; }).map(function(x){ return {name: personName(x.house.name, x.house) || x.house.name, from: fmtWindowLabel(x.oldWin.start, x.oldWin.end), to: fmtWindowLabel(x.newWin.start, x.newWin.end)}; });
+    out.newWindows = diffs.filter(function(x){ return x.set && !x.changed; }).length;
+    out.atRisk = atRiskHouses().filter(function(x){ return x.kind !== 'window'; });
+    out.invariants = (core.invariants || []).length;
+    out.pastLastDay = core.r ? (core.r.pastLastDayNames || []) : [];
+  }catch(err){ console.error('[HU] weather preview failed', err); out.error = String((err && err.message) || err); }
+  finally{ try{ hydrate(JSON.parse(before)); computeDates(); }catch(err){ console.error('[HU] could not put the plan back after the preview', err); } }
+  return out;
+}
+function weatherApply(){
+  const u = weatherUI; if(!u || !u.dates.length) return;
+  u.dates.forEach(function(ds){ setDayOff(ds, u.kind, u.reason); });
+  WINDOW_PUBLISH_REASON = {reason: 'weather', at: Date.now()};
+  weatherUI = null; renderWeather();
+  scheduleSave();
+  toast((u.dates.length === 1 ? 'Day' : 'Days') + ' marked ' + (u.kind === 'lost' ? 'lost' : 'half') + ' — recalculating; the texts will be listed under \U0001f4ac Texts & windows');
+  const btn = RT.getElementById('recalcBtn'); if(btn) btn.click();
+  switchTab('texts');
+}
+function weatherAction(act, el, coreFn){
+  const u = weatherUI;
+  if(act === 'close'){ closeWeather(); return; }
+  if(act === 'clearexisting'){ setDayOff(el.dataset.wdate, '', ''); scheduleSave(); renderWeather(); renderActive(); toast(el.dataset.wdate + ' is a normal day again — press ⚙ Recalculate everything to use it'); return; }
+  if(!u) return;
+  if(act === 'add'){
+    const inp = RT.getElementById('wDate'), kind = RT.getElementById('wKind'), rsn = RT.getElementById('wReason');
+    const ds = isoDayStr(inp && inp.value); if(!ds){ toast('Pick a date'); return; }
+    u.kind = (kind && kind.value === 'half') ? 'half' : 'lost'; u.reason = (rsn && rsn.value) || '';
+    if(u.dates.indexOf(ds) === -1) u.dates.push(ds); u.dates.sort(); u.preview = null; u.pick = ds;
+    renderWeather(); return;
+  }
+  if(act === 'remove'){ u.dates = u.dates.filter(function(x){ return x !== el.dataset.wdate; }); u.preview = null; renderWeather(); return; }
+  if(act === 'preview'){
+    const kind = RT.getElementById('wKind'), rsn = RT.getElementById('wReason');
+    if(kind) u.kind = kind.value === 'half' ? 'half' : 'lost'; if(rsn) u.reason = rsn.value || '';
+    if(!u.dates.length){ toast('Add the lost day first'); return; }
+    if(typeof jobAddresses === 'undefined' || !jobAddresses.length){ toast('Customer list still loading — try again in a moment'); return; }
+    u.preview = weatherPreview(u.dates, u.kind, u.reason, coreFn); renderWeather(); return;
+  }
+  if(act === 'apply'){ if(!u.preview){ toast('Preview first'); return; } weatherApply(); return; }
+}
+function renderWeather(){
+  const box = RT.getElementById('weatherModal'); if(!box) return;
+  const u = weatherUI;
+  if(!u){ box.classList.add('hide'); box.innerHTML = ''; return; }
+  box.classList.remove('hide');
+  const today = (typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date());
+  const existing = Object.keys(DAYS_OFF || {}).filter(function(ds){ return ds >= today && dayOffOn(ds); }).sort();
+  let h = '<div class="card" style="max-width:620px"><h2>\U0001f328 Weather delay</h2>' +
+    '<p class="lead">Pick the day(s) lost. A <b>lost</b> day is taken out of the calendar like a weekend; a <b>half</b> day keeps one crew. Preview shows who moves and whose window changes before anything is saved or texted. Make the call by 6 am: the houses on a lost day go first onto the next open days, everybody else keeps their window unless there is no room left inside it.</p>';
+  if(existing.length) h += '<div class="meta" style="margin-bottom:6px">Already marked: ' + existing.map(function(ds){ const o = dayOffOn(ds); return '<span style="display:inline-block;margin:2px 6px 2px 0">' + esc(ds) + ' (' + esc(o.kind + (o.reason ? ', ' + o.reason : '')) + ') <button class="qbtn" data-wact="clearexisting" data-wdate="' + esc(ds) + '" title="Make this a normal day again">✕</button></span>'; }).join('') + '</div>';
+  h += '<div class="lrow"><span class="lbl">Date</span><input type="date" id="wDate" value="' + esc(u.pick || today) + '" min="' + esc(today) + '">' +
+    '<span class="lbl">What happened</span><select id="wKind" class="moveday"><option value="lost"' + (u.kind === 'lost' ? ' selected' : '') + '>Whole day lost</option><option value="half"' + (u.kind === 'half' ? ' selected' : '') + '>Half day — one crew only</option></select>' +
+    '<input type="text" id="wReason" placeholder="reason (snow, high wind)" value="' + esc(u.reason) + '" style="padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;width:170px">' +
+    '<button class="mini" data-wact="add">+ Add day</button></div>';
+  h += '<div class="lrow"><span class="lbl">Days to mark</span>' + (u.dates.length ? u.dates.map(function(ds){ return '<span class="meta">' + esc(ds) + ' <button class="qbtn" data-wact="remove" data-wdate="' + esc(ds) + '">✕</button></span>'; }).join('') : '<span class="meta">none yet</span>') + '</div>';
+  const p = u.preview;
+  if(p){
+    if(p.error) h += '<div class="wknote" style="margin-top:10px">⚠ The preview could not run: ' + esc(p.error) + '</div>';
+    else{
+      const lost = p.moved.filter(function(m){ return m.onLost; }), others = p.moved.filter(function(m){ return !m.onLost; });
+      h += '<div style="margin-top:12px"><div class="grouph" style="padding-left:0">What would happen</div>' +
+        '<div class="meta"><b>' + p.onLost + '</b> house' + (p.onLost === 1 ? '' : 's') + ' on the lost day' + (u.dates.length === 1 ? '' : 's') + ' → ' + lost.filter(function(m){ return m.to; }).length + ' move on' + (lost.some(function(m){ return !m.to; }) ? ', <b style="color:var(--red)">' + lost.filter(function(m){ return !m.to; }).length + ' find no day</b>' : '') + '</div>' +
+        '<div class="meta"><b>' + others.length + '</b> other' + (others.length === 1 ? '' : 's') + ' shift to make room</div>' +
+        '<div class="meta"><b>' + p.windows.length + '</b> customer' + (p.windows.length === 1 ? '' : 's') + ' would get a <b>new window</b> and a text' + (p.newWindows ? ' (and ' + p.newWindows + ' first window' + (p.newWindows === 1 ? '' : 's') + ' would be published)' : '') + '</div>' +
+        (p.atRisk.length ? '<div class="meta" style="color:var(--red)"><b>' + p.atRisk.length + '</b> at risk afterwards: ' + esc(p.atRisk.slice(0, 8).map(function(x){ return x.name; }).join(', ')) + (p.atRisk.length > 8 ? ' and others' : '') + '</div>' : '<div class="meta">Nobody past their last allowed day afterwards.</div>') +
+        (p.invariants ? '<div class="meta" style="color:var(--red)">⚠ the plan would break ' + p.invariants + ' of its own rules — read the press summary after Apply</div>' : '') + '</div>';
+      if(p.windows.length) h += '<div style="max-height:180px;overflow:auto;margin-top:6px">' + p.windows.slice(0, 60).map(function(w){ return '<div class="lrow" style="padding:5px 0"><span class="who" style="min-width:0">' + esc(w.name) + '</span><span class="meta">' + esc(w.from) + ' → <b>' + esc(w.to) + '</b></span></div>'; }).join('') + (p.windows.length > 60 ? '<div class="meta">… and ' + (p.windows.length - 60) + ' more</div>' : '') + '</div>';
+      if(lost.length) h += '<div style="max-height:140px;overflow:auto;margin-top:6px">' + lost.slice(0, 40).map(function(m){ return '<div class="lrow" style="padding:5px 0"><span class="who" style="min-width:0">' + esc(m.name) + '</span><span class="meta">' + esc(m.from) + ' → <b>' + esc(m.to || 'no day found') + '</b>' + (typeof m.days === 'number' ? ' (' + m.days + ' working day' + (m.days === 1 ? '' : 's') + ' later)' : '') + '</span></div>'; }).join('') + '</div>';
+    }
+  }
+  h += '<div class="foot"><button class="mini" data-wact="close">Cancel</button><button class="mini" data-wact="preview">Preview</button>' +
+    '<button class="mini warn" data-wact="apply"' + (p && !p.error ? '' : ' disabled style="opacity:.5"') + ' title="Marks the days, runs ⚙ Recalculate everything, publishes the new windows and lists the texts">Apply and recalculate</button></div></div>';
+  box.innerHTML = h;
+}
 function recordRecalc(parts){
   LAST_RECALC={at:new Date().toISOString(),by:recalcWho(),summary:String((parts||[]).join(' \u00b7 ')).slice(0,4000)};
   paintLastRecalc();
@@ -77919,6 +78478,46 @@ function paintForecastNote(){
    laid out by the ordinary maths. See dayLimitOn, and the note in planNewCrewDays
    for why this is a DATE rather than a day. */
 let DAY_LIMITS={};
+/* ⭐⭐ DAYS LOST TO WEATHER ([[SCH-159]], 2026-11-23). The owner's 2027 blueprint: "One button in the admin page handles a
+   lost day, start to finish" — the admin picks the lost day(s) and a reason, those days flip to non-work days, the
+   scheduler reruns, a preview shows who moves, and only then is anything sent.
+   Keyed by DATE and saved with the plan as `daysOff` (PLAN_SCHEMA 5), for the same reason dayLimits is: Recalculate
+   replaces every day object, and "the 10th was snowed out" is a fact about the date whatever houses end up on it.
+   `{kind:'lost'|'half', reason}`. A LOST day is not a working day anywhere (isWorkingDay reads it through
+   window.scheduleDaysOff). A HALF day stays a working day held to one crew (dayLimits 'crew'), which is the blueprint's
+   "mark the day at 50% capacity instead of a full loss". Past dates are kept: the reschedule report counts them. */
+let DAYS_OFF={};
+const DAY_OFF_KINDS=['lost','half'];
+function normalizeDaysOff(raw){
+  const out={};
+  Object.keys(raw||{}).forEach(function(ds){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+    const v=raw[ds]; const kind=v&&v.kind;
+    if(DAY_OFF_KINDS.indexOf(kind)===-1) return;
+    out[ds]={kind:kind,reason:String((v&&v.reason)||'').slice(0,120),setLimit:!!(v&&v.setLimit)};
+  });
+  return out;
+}
+function dayOffOn(ds){ const v=DAYS_OFF&&DAYS_OFF[ds]; return (v&&DAY_OFF_KINDS.indexOf(v.kind)!==-1)?v:null; }
+/* Returns what the date is now. '' clears it. A half day also sets the one-crew limit; clearing a half day lifts that
+   limit only if this is what set it (`setLimit`) — a one-crew date the office set itself stays set. */
+function setDayOff(ds,kind,reason){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(ds||''))) return '';
+  const was=dayOffOn(ds);
+  const want=DAY_OFF_KINDS.indexOf(kind)===-1?'':kind;
+  const canLimit=(typeof setDayLimitOn==='function'&&typeof dayLimitOn==='function');
+  if(want){
+    const setLimit=want==='half'?((was&&was.kind==='half')?!!was.setLimit:(canLimit&&dayLimitOn(ds)!=='crew')):false;
+    DAYS_OFF[ds]={kind:want,reason:String(reason||'').slice(0,120),setLimit:setLimit};
+  }
+  else delete DAYS_OFF[ds];
+  if(canLimit){
+    if(want==='half') setDayLimitOn(ds,'crew');
+    else if(was&&was.kind==='half'&&was.setLimit&&dayLimitOn(ds)==='crew') setDayLimitOn(ds,'');
+  }
+  return want;
+}
+if(typeof window!=='undefined'&&window) window.scheduleDaysOff=function(){ return DAYS_OFF; };
 /* ---------- date engine ---------- */
 function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
 function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}
@@ -81359,9 +81958,11 @@ function renderActive(){
   else if(activeTab==='waiting'){renderWaitingRsvp();renderDayMaps(null);}
   else if(activeTab==='owes'){renderOwesLastYear();renderDayMaps(null);}
   else if(activeTab==='printing'){renderPrinting();renderDayMaps(null);}
+  else if(activeTab==='texts'){renderTextsPane();renderDayMaps(null);}
   else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');const tq=RT.getElementById('takeQ').value.trim().toLowerCase();if(tq)renderSearchIn(tq,td,'takePanel');else renderPanelInto('takePanel',getDay(selTake));}
   renderCrewBar();
   renderLeftovers();
+  renderWeather();
 }
 /* Whichever day the tab you are on is showing — that is the day the crew bar
    reports its Auto cities against, so what it says matches the panel below. */
@@ -81792,7 +82393,7 @@ function renderOneMan(){
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
   /* There is no crew to pick on a day that one person is doing alone. */
-  if(activeTab==='oneman'||activeTab==='printing'||activeTab==='waiting'||activeTab==='owes'){bar.style.display='none';return;}
+  if(activeTab==='oneman'||activeTab==='printing'||activeTab==='waiting'||activeTab==='owes'||activeTab==='texts'){bar.style.display='none';return;}
   bar.style.display='';
   const day=currentDay();
   const cities=planCities();
@@ -81911,7 +82512,7 @@ function renderImportedAt(){
      changes, so the older it is the further it has drifted from the real list. */
   el.style.color = days > 14 ? 'var(--ember)' : 'var(--muted)';
 }
-function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','waiting','owes','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
+function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','waiting','owes','printing','takedowns','texts'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
 function switchTab(name){activeTab=name;syncTabs();renderActive();}
 /* ---------- persistence (Firestore) ---------- */
 /* ⛔⛔ [[SCH-138]] A PAGE OLDER THAN THE PLAN NEVER SAVES IT (2026-10-16). Dax: "the hang tomorrow button broke so im assuming a
@@ -81923,7 +82524,7 @@ function switchTab(name){activeTab=name;syncTabs();renderActive();}
    reloads itself into the new code. ⚠ BUMP PLAN_SCHEMA WHENEVER serialize() GAINS OR LOSES A FIELD on the plan or a day —
    schedule-v2.test.js (38.x) fingerprints serialize() and fails the build until you do. Houses are saved whole, so a new
    house field needs no bump. ⚠ A page from before this guard existed cannot be stopped from here: it must be reloaded once. */
-const PLAN_SCHEMA = 4;   // 3: lastRecalc ([[SCH-139]]); 4: a day's fixedOn ([[SCH-140]])
+const PLAN_SCHEMA = 5;   // 3: lastRecalc ([[SCH-139]]); 4: a day's fixedOn ([[SCH-140]]); 5: daysOff ([[SCH-159]])
 let PLAN_PAGE_OUTDATED = false;
 function planSchemaOf(o){ const n = Math.floor(Number(o && o.schema)); return n > 0 ? n : 1; }
 function planIsNewerThanPage(o){ return planSchemaOf(o) > PLAN_SCHEMA; }
@@ -81975,6 +82576,8 @@ function serialize(){
        Recalculate everything honour it: the rebuild replaces every day object, so
        anything stored on a day (soloCrew) is gone by the time the builder runs. */
     dayLimits:Object.assign({},DAY_LIMITS),
+    /* [[SCH-159]] the dates lost (or halved) to weather, with the reason typed — by date, like dayLimits */
+    daysOff:Object.assign({},DAYS_OFF),
     /* [[SCH-116]] which schedule day the crew is on when they are behind. With the plan, so every office device agrees. */
     hangDay:(HANG_DAY&&HANG_DAY.date&&HANG_DAY.setOn)?{date:String(HANG_DAY.date),setOn:String(HANG_DAY.setOn)}:null,
     lastRecalcOn:LAST_RECALC_ON||null,
@@ -82202,6 +82805,13 @@ function houseAllowedFrom(h, startStr){
   let out = (nb && nb > base) ? nb : base;
   const want = ('' + ((h && h.wantFrom) || '')).trim();
   if(want && want > out) out = want;
+  /* ⭐ AND THE WINDOW THE CUSTOMER WAS TOLD IS A FLOOR TOO ([[SCH-158]]). A published window is a promise: the planner
+     may not pull a house earlier than the week its customer was texted any more than later. The latest floor still
+     wins, so a window can never drag anybody into a month they ruled out. ⚠ A window that has already gone (a house
+     the crew missed) is a floor in the past, which binds nothing — the house goes to the first day that has room and
+     the mirror then publishes its new window. */
+  const winFrom = ('' + ((h && h.winFrom) || '')).trim();
+  if(winFrom && winFrom > out) out = winFrom;
   /* ⭐ AND IF THAT DAY IS ONE THEY ARE AWAY, THE FLOOR STEPS PAST IT ([[SCH-98]]).
      ⚠ THIS IS NOT THE WHOLE AWAY RULE AND MUST NOT BE MISTAKEN FOR IT. It only moves the
      day they OPEN on. A holiday in the middle of a season they are otherwise open for —
@@ -82339,6 +82949,15 @@ function houseDeadline(h){
     const floor = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, '') || '') : '';
     if(!floor || wantTo >= floor) return wantTo;
   }
+  /* ⭐ THE PUBLISHED WINDOW CLOSES ([[SCH-158]]). Below the office's date and the customer's own wanted-until (both
+     are a person's word and are what the window was computed inside), above the month: an October customer told
+     "Oct 12–16" is held to the 16th, not to the 31st. The tighter of the two always wins — the window is computed
+     inside the month's own last day, so this only ever narrows. ⚠ NEVER A CONTRADICTION: a window end sitting before
+     the floor is ignored (the same rule wantTo has), because packTailCrewDays reads an impossible window as "never
+     move me". */
+  /* ⚠ AN INNER FUNCTION, NOT A SIBLING: three run-all suites and away-calendar.test.js lift houseDeadline alone into a
+     bare sandbox, so the month branches below have to travel with it. Nothing about them changed. */
+  const prefUntil = (function(){
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
   if(p.indexOf('BEFORE THANKS') !== -1 || p === 'THANKSGIVING'){
     return isoOf(thanksgivingDate(BASE_START.getFullYear()));
@@ -82354,6 +82973,13 @@ function houseDeadline(h){
   if(prefSpecificDate(p, BASE_START.getFullYear())) return '';
   if(p.indexOf('OCT')===0) return (BASE_START.getFullYear())+'-10-31';
   return '';
+  })();
+  const winTo = ('' + ((h && h.winTo) || '')).trim();
+  if(winTo && (!prefUntil || winTo < prefUntil)){
+    const wfloor = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, '') || '') : '';
+    if(!wfloor || winTo >= wfloor) return winTo;
+  }
+  return prefUntil;
 }
 /* ⭐ NEW HANGS COME FIRST, whatever month they asked for.
    Owner, 2026-08-17: "the very top priority is new hangs, so if a new hang
@@ -83718,7 +84344,18 @@ const SCHEDULE_SYNC_FIELDS = [
                                       Kept, it was a window of one day in the past — no day could ever be legal for
                                       them, and every rule reported them for the rest of the season. */
                                    read:function(d){ const s = ('' + (d.stuckOnDate || '')).trim();
-                                     return (s && typeof scheduleTodayStr === 'function' && s < scheduleTodayStr()) ? '' : s; }}
+                                     return (s && typeof scheduleTodayStr === 'function' && s < scheduleTodayStr()) ? '' : s; }},
+  /* ⭐⭐ THE PUBLISHED INSTALL WINDOW ([[SCH-158]], 2026-11-23). Once a customer has been told "your estimated install
+     window is Nov 10–14", that window rides onto the house as a floor and a ceiling (houseAllowedFrom / houseDeadline),
+     so the planner keeps them inside it: "once your window is set, it only moves for weather. New bookings never push
+     existing customers back." Written onto the customer by syncInstallWindowsFromSchedule (the same mirror that writes
+     scheduledDate) and read back here like every other customer fact. blankClears for the same reason as stuck: a
+     cleared window is the mirror saying this house is on no coming day, and a stale window would hold a house to a
+     week that has gone. Plain ISO day strings, like away / wantFrom / wantTo. */
+  {key:'winFrom', label:'install window from', blankClears:true,
+                                   read:function(d){ const s = ('' + ((d && d.installWindowStart) || '')).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''; }},
+  {key:'winTo', label:'install window until', blankClears:true,
+                                   read:function(d){ const s = ('' + ((d && d.installWindowEnd) || '')).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''; }}
 ];
 /* ---------------- NOBODY IS HUNG BEFORE THEY ASKED TO BE ------------------
    Owner, 2026-08-17: "the first day should not be doing any Nov people, in
@@ -86971,6 +87608,8 @@ function hydrate(o){
   // A plan saved before this existed comes back with nothing marked, which is the
   // ordinary maths — exactly what it had.
   DAY_LIMITS=normalizeDayLimits(o.dayLimits); pruneDayLimits();
+  /* [[SCH-159]] a plan saved before this existed comes back with no weather days, which is the ordinary calendar */
+  DAYS_OFF=normalizeDaysOff(o.daysOff);
   /* [[SCH-116]] only two plain dates are accepted back; anything else means "on today's date". */
   HANG_DAY=(o.hangDay&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.date||''))&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.hangDay.setOn||'')))
     ?{date:String(o.hangDay.date),setOn:String(o.hangDay.setOn)}:null;
@@ -87467,57 +88106,10 @@ RT.addEventListener('click',e=>{const t=e.target;
        longer one of the next two is let go here, and only here. */
     try{ refreshLockedDates({releaseFrozen: true}); freezePrintedDays(); }catch(err){ console.error('[HU] could not work out the printed days',err); }
     const before=JSON.stringify(serialize());
-    /* ⭐ [[SCH-119]] everybody ticked done since the last press leaves the day lists and the sheets now — after
-       `before` is taken, so Undo brings them back too. Hidden, never removed: see dayCrewHouses. */
-    let hiddenDone=0;
-    try{ hiddenDone=markDoneHousesHidden((typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date())); }
-    catch(err){ console.error('[HU] could not hide the finished houses',err); }
-    /* ⭐ [[SCH-136]] the customers marked for tomorrow are put on it — and only them — BEFORE the locked days are
-       snapshotted (it is the one change to tomorrow this press is asked to make) and after `before`, so Undo takes it back.
-       Frozen again straight away, so nothing below re-deals the new lists. */
-    let tomorrowMarks=null;
-    try{ tomorrowMarks=applyTomorrowMarks(); if(tomorrowMarks.dates.length){ refreshLockedDates(); freezePrintedDays(); } }
-    catch(err){ console.error('[HU] could not place the customers marked for tomorrow',err); }
-    /* ⭐ SCHEDULE V2: the printed days as they stood BEFORE the press, so invariant 7 (no locked day
-       changed) is measured against what the crew is holding rather than assumed. */
-    let lockedBefore=null;
-    try{ if(typeof lockedDaySnapshot==='function') lockedBefore=lockedDaySnapshot(); }catch(err){ console.error('[HU] could not snapshot the locked days',err); }
-    let pulled=[];
-    try{ pulled=syncHousesFromCustomers(); }catch(err){ console.error('Customer sync failed:',err); }
+    const core=recalculateCore();
+    const hiddenDone=core.hiddenDone, tomorrowMarks=core.tomorrowMarks, lockedBefore=core.lockedBefore, pulled=core.pulled,
+          r=core.r, td=core.td, lateNet=core.lateNet, routes=core.routes, invariants=core.invariants;
     const towns=pulled.filter(function(c){ return c.field==='town'; }).length;
-    /* A rebuild with nothing left to lay out is not a failed press: the towns
-       may still have moved and the routes still need generating, so its error
-       is reported at the end rather than abandoning the other two. */
-    const r=rebuildSeasonDays();
-    /* ⭐ [[SCH-88]] — the takedown days are rebuilt from the customers on the same press,
-       BEFORE the routes are generated so the new takedown days are put in driving order
-       too. Guarded on its own: a takedown fault must not cost the install rebuild. */
-    let td=null;
-    try{ td=rebuildTakedownDays(); computeDates(); }
-    catch(err){ console.error('[HU] takedown rebuild failed',err); }
-    /* [[SCH-140]] every window checked once more after the takedowns — against the lock worked out at the START of the press,
-       never a fresh one: the rebuild can put new days in front of a locked day, and a lock re-worked here would stop
-       protecting a sheet the crew may already hold (measured: a house taken off a locked 20 November) */
-    try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }
-    catch(err){ console.error('[HU] could not make the last check of every window',err); }
-    /* [[SCH-146]] THE HEADLINE, ASKED ONCE MORE AT THE VERY END. rebuildSeasonDays' safety net runs before the takedowns,
-       the window checks and the short-day fold above; whatever any of those does, nobody Confirmed leaves this press on no day. */
-    let lateNet={placed:[],still:[]};
-    try{
-      if(typeof placeConfirmedLeftOff==='function'){
-        const t=new Date(); t.setHours(0,0,0,0);
-        lateNet=placeConfirmedLeftOff(isoOf(nextWorkingDay(new Date(t.getFullYear(),t.getMonth(),t.getDate()+1))), isoOf(seasonStartDate()));
-        if(lateNet.placed.length){ keepEveryHouseLegal(); computeDates(); }
-      }
-    }catch(err){ console.error('[HU] could not make the last check that every confirmed customer is on a day',err); }
-    const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
-    /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button
-       and in the console; never repaired here — a check that quietly fixed what it found would hide
-       the rule that broke it. It should find nothing. */
-    let invariants=[];
-    try{ if(typeof validateSeasonPlan==='function') invariants=validateSeasonPlan({lockedBefore:lockedBefore}); }
-    catch(err){ console.error('[HU] the plan could not be checked',err); }
-    if(invariants.length) console.warn('[HU] Recalculate: the plan breaks '+invariants.length+' invariant(s)',invariants);
     /* ⭐ AND THE RECORDS STOP CLAIMING A DAY THEY NO LONGER HAVE. Addie asked for
        this to happen on THIS button — "make sure that this updates when you
        recalculate everything too" — rather than waiting for a sweep on a timer.
@@ -87678,6 +88270,63 @@ RT.addEventListener('click',e=>{const t=e.target;
     recordRecalc(parts);scheduleSave();
     toast(parts.join(' · '));
   }
+  /* ⭐ THE PRESS, IN MEMORY ([[SCH-159]], 2026-11-23). Everything ⚙ Recalculate everything does to the plan between taking its
+     Undo copy and writing the summary, lifted into its own function NOT ONE LINE CHANGED, declared beside runRecalculateEverything inside the listener (run-all Suite 26 reads the press from this slice), so the 🌨 Weather delay
+     preview can run the real press on a snapshot and put the plan back (hydrate) before anything is saved or texted. The
+     listener still owns the forecast wait, the lock refresh, Undo, the summary, the save and the mirror. */
+  function recalculateCore(){
+      /* ⭐ [[SCH-119]] everybody ticked done since the last press leaves the day lists and the sheets now — after
+         `before` is taken, so Undo brings them back too. Hidden, never removed: see dayCrewHouses. */
+      let hiddenDone=0;
+      try{ hiddenDone=markDoneHousesHidden((typeof mtnNowParts==='function')?mtnNowParts().date:isoOf(new Date())); }
+      catch(err){ console.error('[HU] could not hide the finished houses',err); }
+      /* ⭐ [[SCH-136]] the customers marked for tomorrow are put on it — and only them — BEFORE the locked days are
+         snapshotted (it is the one change to tomorrow this press is asked to make) and after `before`, so Undo takes it back.
+         Frozen again straight away, so nothing below re-deals the new lists. */
+      let tomorrowMarks=null;
+      try{ tomorrowMarks=applyTomorrowMarks(); if(tomorrowMarks.dates.length){ refreshLockedDates(); freezePrintedDays(); } }
+      catch(err){ console.error('[HU] could not place the customers marked for tomorrow',err); }
+      /* ⭐ SCHEDULE V2: the printed days as they stood BEFORE the press, so invariant 7 (no locked day
+         changed) is measured against what the crew is holding rather than assumed. */
+      let lockedBefore=null;
+      try{ if(typeof lockedDaySnapshot==='function') lockedBefore=lockedDaySnapshot(); }catch(err){ console.error('[HU] could not snapshot the locked days',err); }
+      let pulled=[];
+      try{ pulled=syncHousesFromCustomers(); }catch(err){ console.error('Customer sync failed:',err); }
+      /* A rebuild with nothing left to lay out is not a failed press: the towns
+         may still have moved and the routes still need generating, so its error
+         is reported at the end rather than abandoning the other two. */
+      const r=rebuildSeasonDays();
+      /* ⭐ [[SCH-88]] — the takedown days are rebuilt from the customers on the same press,
+         BEFORE the routes are generated so the new takedown days are put in driving order
+         too. Guarded on its own: a takedown fault must not cost the install rebuild. */
+      let td=null;
+      try{ td=rebuildTakedownDays(); computeDates(); }
+      catch(err){ console.error('[HU] takedown rebuild failed',err); }
+      /* [[SCH-140]] every window checked once more after the takedowns — against the lock worked out at the START of the press,
+         never a fresh one: the rebuild can put new days in front of a locked day, and a lock re-worked here would stop
+         protecting a sheet the crew may already hold (measured: a house taken off a locked 20 November) */
+      try{ keepEveryHouseLegal(); if(foldShortCrewDays().moved.length) keepEveryHouseLegal(); computeDates(); }
+      catch(err){ console.error('[HU] could not make the last check of every window',err); }
+      /* [[SCH-146]] THE HEADLINE, ASKED ONCE MORE AT THE VERY END. rebuildSeasonDays' safety net runs before the takedowns,
+         the window checks and the short-day fold above; whatever any of those does, nobody Confirmed leaves this press on no day. */
+      let lateNet={placed:[],still:[]};
+      try{
+        if(typeof placeConfirmedLeftOff==='function'){
+          const t=new Date(); t.setHours(0,0,0,0);
+          lateNet=placeConfirmedLeftOff(isoOf(nextWorkingDay(new Date(t.getFullYear(),t.getMonth(),t.getDate()+1))), isoOf(seasonStartDate()));
+          if(lateNet.placed.length){ keepEveryHouseLegal(); computeDates(); }
+        }
+      }catch(err){ console.error('[HU] could not make the last check that every confirmed customer is on a day',err); }
+      const routes=generateAllRoutes({lockedBefore:lockedBefore||{}});
+      /* ⭐ SCHEDULE V2: THE PLAN PROVES ITS OWN INVARIANTS, every press. Reported by name on the button
+         and in the console; never repaired here — a check that quietly fixed what it found would hide
+         the rule that broke it. It should find nothing. */
+      let invariants=[];
+      try{ if(typeof validateSeasonPlan==='function') invariants=validateSeasonPlan({lockedBefore:lockedBefore}); }
+      catch(err){ console.error('[HU] the plan could not be checked',err); }
+      if(invariants.length) console.warn('[HU] Recalculate: the plan breaks '+invariants.length+' invariant(s)',invariants);
+      return {hiddenDone:hiddenDone,tomorrowMarks:tomorrowMarks,lockedBefore:lockedBefore,pulled:pulled,r:r,td:td,lateNet:lateNet,routes:routes,invariants:invariants};
+  }
   if(t.id==='undoRebuildBtn'){
     if(!preRebuild){toast('Nothing to undo');return;}
     hydrate(JSON.parse(preRebuild));
@@ -87693,6 +88342,12 @@ RT.addEventListener('click',e=>{const t=e.target;
   if(t.id==='printPlanBtn'){printWholePlan();return;}
   /* closest, not t itself — the button can carry an icon or a span, and a
      click that lands on the child would otherwise do nothing. */
+  /* [[SCH-159]] / [[SCH-161]] the weather delay and the texts tab */
+  if(t.id==='weatherBtn'){openWeather();return;}
+  const wEl=t.dataset.wact?t:t.closest('[data-wact]');
+  if(wEl){weatherAction(wEl.dataset.wact,wEl,recalculateCore);return;}
+  const txEl=t.dataset.txact?t:t.closest('[data-txact]');
+  if(txEl){if(!txEl.disabled)textsAction(txEl.dataset.txact,txEl);return;}
   const leftoverEl=t.dataset.leftover?t:t.closest('[data-leftover]');
   if(leftoverEl){openLeftovers(leftoverEl.dataset.leftover);return;}
   const pickDoneEl=t.dataset.lpickdone?t:t.closest('[data-lpickdone]');

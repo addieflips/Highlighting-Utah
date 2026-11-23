@@ -5571,8 +5571,23 @@ function renderScheduleStrip(rec){
   } else if(rec.completed){
     text = '✅ Installed' + (when ? ' on ' + when : '') + ' — we\'ll be back in January to take them down.';
     bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
+  } else if(portalConfirmedDay(rec)){
+    /* [[SCH-160]] the exact day, only once the office has texted it the evening before */
+    text = '\u2705 Confirmed for ' + portalNiceDate(rec.scheduledDate) + '. Please make sure our crew can reach your outlets and the yard \u2014 you don\'t need to be home.';
+    bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
+  } else if(portalWindowText(rec)){
+    /* \u2b50 THE WINDOW, NOT THE DAY ([[SCH-158]] / [[SCH-160]], 2026-11-23). The owner's 2027 blueprint: "Customers get an
+       estimated one-week window, not a fixed date, and the exact day is confirmed by text the evening before." Until
+       now this line printed scheduledDate itself, which the Schedule re-lays on every Recalculate \u2014 so a customer
+       could watch their date move three times in a week. The window is written by the Schedule's own mirror and only
+       moves when a day is lost or the planner had no room, and the line says which. The day itself appears above only
+       once it has been confirmed. ⚠ NO QUEUE NUMBER, NO CREW, NO STOP ORDER: "#62" invites comparisons with the
+       neighbours and looks bad when somebody with a deadline moves ahead. */
+    text = portalWindowText(rec);
+    if(String(rec.installWindowReason || '') === 'weather'){ bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16'; }
   } else if(when){
-    text = '📅 Scheduled for ' + when + '. You don\'t need to be home, and we\'ll text if the weather moves us.';
+    /* a record the mirror has not reached yet (older plan, or the window not published): the week, never the day */
+    text = '\ud83d\udcc5 Estimated install: the week of ' + portalNiceDate(portalWeekMondayOf(rec.scheduledDate)) + '. We\'ll text your exact day the evening before.';
   } else if(String(rec.rsvpStatus || '') === 'no'){
     strip.style.display = 'none';
     return;
@@ -5610,6 +5625,42 @@ function renderScheduleStrip(rec){
   strip.style.display = 'block';
 }
 
+/* [[SCH-160]] The exact day is shown only when the office has texted it as confirmed for THAT day and the day has not
+   gone. installConfirmedFor is stamped by "Mark as texted" on the Schedule's Texts tab; a confirmation for a day the
+   plan has since left is not a confirmation. Compared as plain YYYY-MM-DD strings, like everything else on the record. */
+function portalConfirmedDay(rec){
+  var c = String((rec && rec.installConfirmedFor) || ''), d = String((rec && rec.scheduledDate) || '');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(c) || c !== d) return false;
+  var n = new Date(); var today = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+  return c >= today;
+}
+/* "Nov 10\u201314", from two plain YYYY-MM-DD strings; '' when the record carries no window. */
+function portalWindowLabel(start, end){
+  var m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(start || '')), m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(end || ''));
+  if(!m1 || !m2) return '';
+  var MO = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var a = MO[Number(m1[2])] + ' ' + Number(m1[3]);
+  if(start === end) return a;
+  if(m1[2] === m2[2]) return a + '\u2013' + Number(m2[3]);
+  return a + '\u2013' + MO[Number(m2[2])] + ' ' + Number(m2[3]);
+}
+function portalWindowText(rec){
+  var w = portalWindowLabel(rec && rec.installWindowStart, rec && rec.installWindowEnd);
+  if(!w) return '';
+  var why = String((rec && rec.installWindowReason) || '');
+  var lead = why === 'weather' ? '\ud83c\udf28 Delayed by weather \u2014 your new estimated install window is ' + w + '.'
+           : '\ud83d\udcc5 Estimated install window: ' + w + ' \u00b7 on track.';
+  var set = String((rec && rec.installWindowSetAt) || '');
+  return lead + ' We\'ll text your exact day the evening before.' + (/^\d{4}-\d{2}-\d{2}$/.test(set) ? ' Updated ' + portalNiceDate(set) + '.' : '');
+}
+/* The Monday of the week a YYYY-MM-DD day falls in, as YYYY-MM-DD \u2014 the fallback before a window is published. */
+function portalWeekMondayOf(value){
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+  if(!m) return String(value || '');
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  var back = (d.getDay() + 6) % 7; d.setDate(d.getDate() - back);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 /* scheduledDate is stored as a plain YYYY-MM-DD string. new Date('2026-11-18')
    parses as UTC midnight, which in Mountain Time is the previous evening — so
    the customer would be told the 17th. Split it and build a local date. */

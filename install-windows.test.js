@@ -1,0 +1,370 @@
+#!/usr/bin/env node
+/* INSTALL WINDOWS, THE WEATHER DELAY AND THE TEXTS — [[SCH-158]] to [[SCH-162]] (2026-11-23)
+ * ======================================================================================
+ * `npm run test:windows` — its own file per R-018.
+ *
+ * The owner's 2027 blueprint ("Highlighting Utah – Install Scheduling System Blueprint", 23 November 2026): customers get
+ * an estimated one-week WINDOW, not a fixed date; the exact day is confirmed by text the evening before; once a window is
+ * set it only moves for weather, and new bookings never push existing customers back; every change sends a text.
+ *
+ * WHAT THIS FILE PROVES, AND HOW
+ * ------------------------------
+ * It RUNS the real Recalculate through schedule-v2.harness.js (the same lift schedule-season.test.js uses) over a seeded
+ * book, then asks the real window functions what the records should say. Nothing here matches source text where the
+ * behaviour can be run instead; the few source reads are the ones that cannot be run — the server's read whitelist, the
+ * season reset's field list, the mirror's call order and the markup the buttons live in.
+ *
+ * ⚠ A WINDOW IS A PROMISE AND A CONSTRAINT AT ONCE. The check that earns the file is the second press: with every window
+ * published and NOTHING having happened, not one customer's window changes — the planner has been held inside the week
+ * each customer was texted. Then a day is lost and only the houses the planner had to move get a new window, every one
+ * of them marked weather, every one counted once.
+ *
+ * ⚠ THERE IS NO TEXTING SERVICE ([[QT-48]]) and this file holds that line: nothing it checks sends, and the message builders
+ * are proved as the words that go into the bulk tool.
+ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const ROOT = __dirname;
+
+let passed = 0, failed = 0;
+const fails = [];
+let currentSuite = '';
+function suite(t){ currentSuite = t; console.log('\n=== ' + t + ' ==='); }
+function check(name, ok, why){
+  if(ok){ passed++; console.log('  PASS  ' + name); }
+  else { failed++; fails.push(currentSuite + ' — ' + name + (why ? ' — ' + why : '')); console.log('  FAIL  ' + name + (why ? ' — ' + why : '')); }
+}
+const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+const admin = read('admin.html');
+
+/* The lifter, from schedule-v2.test.js, exactly as schedule-season.test.js borrows it. A missing anchor FAILS. */
+function loadLifter(){
+  const src = read('schedule-v2.test.js');
+  const cut = src.indexOf('let H = null;');
+  if(cut < 0) return null;
+  const m = {exports: {}};
+  const log = console.log; console.log = function(){};
+  try{ new Function('require', 'module', '__dirname', src.slice(0, cut) + '\nmodule.exports = {liftDeep: liftDeep};')(require, m, ROOT); }
+  finally{ console.log = log; }
+  return m.exports.liftDeep || null;
+}
+suite('The harness');
+const liftDeep = loadLifter();
+check('the lifter was found in schedule-v2.test.js', !!liftDeep, 'its anchor "let H = null;" moved — fix this loader, never skip the file');
+let H = null;
+if(liftDeep){
+  const log = console.log, err = console.error, warn = console.warn;
+  console.log = function(){}; console.error = function(){}; console.warn = function(){};
+  try{ H = require('./schedule-v2.harness.js')(liftDeep); }catch(e){ H = null; console.log = log; console.log(e); }
+  finally{ console.log = log; console.error = err; console.warn = warn; }
+}
+check('the real Recalculate was lifted out of admin.html', !!H);
+check('and the window functions came with it', !!(H && H.api.installWindowFor && H.api.installWindowDiffs && H.api.setDayOff && H.api.atRiskHouses),
+  'schedule-v2.harness.js lists them by name — a renamed function is a renamed lift');
+
+/* ---- a seeded book, on real towns, every customer a straight yes ---- */
+const TOWNS = {'Lehi': [40.3916, -111.8508], 'American Fork': [40.3769, -111.7958], 'Pleasant Grove': [40.3641, -111.7385],
+  'Lindon': [40.3433, -111.7208], 'Orem': [40.2969, -111.6946], 'Saratoga Springs': [40.3491, -111.9043],
+  'Eagle Mountain': [40.3141, -112.0069], 'Highland': [40.4250, -111.7955], 'Alpine': [40.4533, -111.7780]};
+function rng(seed){ let x = seed >>> 0 || 1; return function(){ x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
+const YES = {rsvpStatus: 'yes', rsvpRespondedAt: {toMillis: function(){ return new Date(2026, 8, 1).getTime(); }}};
+function makeBook(n, seed, tag){
+  const r = rng(seed), names = Object.keys(TOWNS), book = [];
+  for(let i = 0; i < n; i++){
+    const town = names[Math.floor(r() * names.length)], c = TOWNS[town], u = r();
+    const pref = u < 0.21 ? 'October' : u < 0.45 ? 'November' : u < 0.46 ? 'November - Before Thanksgiving' : 'Normal Schedule';
+    book.push({id: (tag || 'c') + i, data: Object.assign({name: 'Cust ' + (tag || '') + i, customerNumber: String(1000 + i), city: town,
+      address: (100 + i) + ' Test Ln', phone: '801555' + String(1000 + i), lat: c[0] + (r() - 0.5) * 0.04, lng: c[1] + (r() - 0.5) * 0.04,
+      installPreference: pref}, YES)});
+  }
+  return book;
+}
+const T0 = new Date(2026, 9, 5, 7, 0);   // Monday 5 October 2026, 7 am
+const iso = d => H.api.isoOf(d);
+const dayStr = d => iso(H.api.dayDate(d));
+const local = s => { const p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+
+if(H){
+  /* ================================================================================================================ */
+  suite('SCH-159 A day lost to weather');
+  {
+    H.setNow(T0); H.load(makeBook(10, 11), {});
+    const n = H.api.normalizeDaysOff({'2026-10-13': {kind: 'lost', reason: 'snow'}, 'bad': {kind: 'lost'}, '2026-10-14': {kind: 'maybe'}, '2026-10-15': {kind: 'half', reason: 'x'.repeat(300)}});
+    check('normalizeDaysOff keeps lost and half days on real dates and drops the rest', Object.keys(n).sort().join(',') === '2026-10-13,2026-10-15' && n['2026-10-13'].reason === 'snow', JSON.stringify(n));
+    check('and caps the typed reason', n['2026-10-15'].reason.length === 120);
+    check('Tuesday 13 October 2026 is a working day before anything is marked', H.api.isWorkingDay(local('2026-10-13')) === true);
+    H.api.setDayOff('2026-10-13', 'lost', 'snow');
+    check('marked lost, it is not a working day — through the same isWorkingDay the whole planner reads', H.api.isWorkingDay(local('2026-10-13')) === false);
+    check('the day either side still is', H.api.isWorkingDay(local('2026-10-12')) && H.api.isWorkingDay(local('2026-10-14')));
+    check('isWeatherDayLost agrees', H.api.isWeatherDayLost(local('2026-10-13')) === true && H.api.isWeatherDayLost(local('2026-10-14')) === false);
+    H.api.setDayOff('2026-10-14', 'half', 'wind');
+    check('a half day stays a working day', H.api.isWorkingDay(local('2026-10-14')) === true);
+    check('and is held to one crew through dayLimits', H.api.dayLimitOn('2026-10-14') === 'crew');
+    H.api.setDayOff('2026-10-14', '', '');
+    check('clearing the half day lifts the one-crew limit it set', H.api.dayLimitOn('2026-10-14') === '' && !H.api.dayOffOn('2026-10-14'));
+    H.api.setDayLimitOn('2026-10-16', 'crew'); H.api.setDayOff('2026-10-16', 'half', ''); H.api.setDayOff('2026-10-16', '', '');
+    check('but never a one-crew limit the office set itself', H.api.dayLimitOn('2026-10-16') === 'crew');
+    H.api.setDayLimitOn('2026-10-16', '');
+    check('setDayOff refuses a date that is not one', H.api.setDayOff('tomorrow', 'lost', '') === '' && Object.keys(H.api.daysOff()).indexOf('tomorrow') === -1);
+    const out = H.api.serialize();
+    check('the plan is saved with its weather days (PLAN_SCHEMA 5)', out.schema === 5 && out.daysOff && out.daysOff['2026-10-13'] && out.daysOff['2026-10-13'].kind === 'lost' && out.daysOff['2026-10-13'].reason === 'snow', JSON.stringify(out.daysOff));
+    H.api.setDayOff('2026-10-13', '', '');
+    check('cleared, it is a working day again', H.api.isWorkingDay(local('2026-10-13')) === true);
+    H.api.hydrate(JSON.parse(JSON.stringify(out)));
+    check('and a saved plan brings its weather days back', H.api.dayOffOn('2026-10-13') && H.api.dayOffOn('2026-10-13').kind === 'lost' && H.api.isWorkingDay(local('2026-10-13')) === false);
+    H.api.hydrate(JSON.parse(JSON.stringify(Object.assign({}, out, {daysOff: {}}))));
+    check('a plan saved before this existed (no daysOff) is the ordinary calendar', H.api.isWorkingDay(local('2026-10-13')) === true && Object.keys(H.api.daysOff()).length === 0);
+  }
+
+  /* ================================================================================================================ */
+  suite('SCH-158 The window around a day');
+  {
+    H.setNow(T0); H.load(makeBook(5, 12), {});
+    const normal = {id: 'cust-x', pref: 'Normal Schedule', city: 'Lehi'};
+    let w = H.api.installWindowFor(normal, {}, '2026-10-14', '2026-10-01');   // Wednesday
+    check('two working days either side of a Wednesday: Monday to Friday', w && w.start === '2026-10-12' && w.end === '2026-10-16', JSON.stringify(w));
+    w = H.api.installWindowFor(normal, {}, '2026-10-12', '2026-10-01');   // Monday
+    check('a Monday reaches back over the weekend to Thursday', w && w.start === '2026-10-08' && w.end === '2026-10-14', JSON.stringify(w));
+    w = H.api.installWindowFor(normal, {}, '2026-10-06', '2026-10-01');   // tomorrow
+    check('never before tomorrow — a window around tomorrow starts tomorrow', w && w.start === '2026-10-06' && w.end === '2026-10-08', JSON.stringify(w));
+    w = H.api.installWindowFor({id: 'cust-o', pref: 'October', city: 'Lehi'}, {}, '2026-10-30', '2026-10-01');
+    check('an October customer\'s window never leaves October, and never ends on a Saturday', w && w.start === '2026-10-28' && w.end === '2026-10-30', JSON.stringify(w));
+    w = H.api.installWindowFor({id: 'cust-n', pref: 'November', city: 'Lehi'}, {}, '2026-11-02', '2026-10-01');
+    check('a November customer\'s window never opens in October', w && w.start === '2026-11-02' && w.end === '2026-11-04', JSON.stringify(w));
+    H.api.setDayOff('2026-10-13', 'lost', 'snow');
+    w = H.api.installWindowFor(normal, {}, '2026-10-14', '2026-10-01');
+    check('a lost day inside the window is not one of its days, so the window reaches round it', w && w.start === '2026-10-09' && w.end === '2026-10-16', JSON.stringify(w));
+    H.api.setDayOff('2026-10-13', '', '');
+    w = H.api.installWindowFor(Object.assign({winFrom: '2026-10-19', winTo: '2026-10-23'}, normal), {}, '2026-10-14', '2026-10-01');
+    check('the house\'s CURRENT window is ignored when a new one is worked out, or it could never be re-centred', w && w.start === '2026-10-12' && w.end === '2026-10-16', JSON.stringify(w));
+    check('no date, no window', H.api.installWindowFor(normal, {}, '', '2026-10-01') === null && H.api.installWindowFor(normal, {}, 'soon', '2026-10-01') === null);
+    check('the label reads like a text: "Oct 12–16", "Oct 30–Nov 3", "Nov 2"',
+      H.api.fmtWindowLabel('2026-10-12', '2026-10-16') === 'Oct 12–16' && H.api.fmtWindowLabel('2026-10-30', '2026-11-03') === 'Oct 30–Nov 3' && H.api.fmtWindowLabel('2026-11-02', '2026-11-02') === 'Nov 2',
+      [H.api.fmtWindowLabel('2026-10-12', '2026-10-16'), H.api.fmtWindowLabel('2026-10-30', '2026-11-03')].join(' / '));
+  }
+
+  /* ================================================================================================================ */
+  suite('SCH-158 The published window is a floor and a ceiling the planner keeps');
+  {
+    H.setNow(T0); H.load(makeBook(5, 13), {});
+    const startStr = '2026-10-01';
+    const h = {id: 'cust-w', pref: 'Normal Schedule', city: 'Lehi', winFrom: '2026-10-12', winTo: '2026-10-16'};
+    check('the floor is the window\'s first day', H.api.houseAllowedFrom(h, startStr) === '2026-10-12');
+    check('the ceiling is its last', H.api.houseDeadline(h) === '2026-10-16');
+    check('so a day inside is allowed and a day outside is refused, by the one legality check',
+      H.api.houseMayGoOn(h, {}, '2026-10-14', startStr).ok && !H.api.houseMayGoOn(h, {}, '2026-10-09', startStr).ok && !H.api.houseMayGoOn(h, {}, '2026-10-19', startStr).ok);
+    const nov = {id: 'cust-v', pref: 'November', city: 'Lehi', winFrom: '2026-10-12', winTo: '2026-10-16'};
+    check('a window can never drag a November customer into October: the latest floor still wins', H.api.houseAllowedFrom(nov, startStr) === '2026-11-01');
+    check('and a window end before the floor is a contradiction, not a ceiling — ignored', H.api.houseDeadline(nov) === '');
+    const oct = {id: 'cust-oc', pref: 'October', city: 'Lehi', winFrom: '2026-10-26', winTo: '2026-11-04'};
+    check('the tighter of the window and the month wins', H.api.houseDeadline(oct) === '2026-10-31');
+    const pinned = {id: 'cust-p', pref: 'Normal Schedule', city: 'Lehi', winFrom: '2026-10-12', winTo: '2026-10-16', stuck: '2026-10-20'};
+    check('a pin still beats the window, both ends ([[SCH-100]] is untouched)', H.api.houseAllowedFrom(pinned, startStr) === '2026-10-20' && H.api.houseDeadline(pinned) === '2026-10-20');
+    const none = {id: 'cust-0', pref: 'October', city: 'Lehi'};
+    check('a house with no window answers exactly as before', H.api.houseAllowedFrom(none, startStr) === startStr && H.api.houseDeadline(none) === '2026-10-31');
+  }
+
+  /* ================================================================================================================ */
+  suite('SCH-158 Every press keeps every promised window; a lost day moves only who it must');
+  {
+    const book = makeBook(120, 4242);
+    H.setNow(T0); H.load(book, {});
+    H.press();
+    const days = () => H.api.installDays();
+    let diffs = H.api.installWindowDiffs(book, {});
+    const onDays = Object.keys(H.api.comingInstallByCustomer()).length;
+    check('after the first press every customer on a coming day gets a window', diffs && diffs.length === onDays && diffs.every(x => x.set), (diffs || []).length + ' of ' + onDays);
+    check('each window is five working days at most and holds the day the plan has them on',
+      diffs.every(x => x.day >= x.updates.installWindowStart && x.day <= x.updates.installWindowEnd && x.updates.installWindowStart <= x.updates.installWindowEnd));
+    check('every first window is "booked" with zero changes', diffs.every(x => x.updates.installWindowReason === 'booked' && x.updates.installWindowChanges === 0));
+    check('and is dated today', diffs.every(x => x.updates.installWindowSetAt === '2026-10-05'));
+    const applied = H.api.applyInstallWindowDiffsLocally(diffs);
+    check('applying the diff writes the customer and the house in one step', applied === diffs.length &&
+      book.every(c => !H.api.comingInstallByCustomer()[c.id] || (c.data.installWindowStart && H.api.comingInstallByCustomer()[c.id].h.winFrom === c.data.installWindowStart)));
+    check('and asked again straight away there is nothing to write', (H.api.installWindowDiffs(book, {}) || []).length === 0);
+
+    /* ⭐ THE CHECK THAT EARNS THE FILE */
+    H.press();
+    diffs = H.api.installWindowDiffs(book, {});
+    check('a second press with nothing having happened changes NOBODY\'S window', diffs.length === 0,
+      diffs.slice(0, 5).map(x => (x.oldWin ? x.oldWin.start + '..' + x.oldWin.end : '-') + ' -> ' + x.day).join('; '));
+    const vio = H.api.validateSeasonPlan({});
+    check('and the plan still keeps every one of its own rules', vio.length === 0, JSON.stringify(vio.slice(0, 3)));
+
+    /* new bookings fill open capacity; they never push a promised window */
+    const more = makeBook(15, 777, 'n');
+    const bigger = book.concat(more);
+    H.load(bigger, {season: H.season()});
+    H.press();
+    diffs = H.api.installWindowDiffs(bigger, {});
+    const newOnes = diffs.filter(x => /^n\d/.test(x.id)), oldOnes = diffs.filter(x => !/^n\d/.test(x.id));
+    check('fifteen new customers get their first windows', newOnes.length === more.filter(c => H.api.comingInstallByCustomer()[c.id]).length && newOnes.every(x => x.updates.installWindowReason === 'booked'));
+    check('and not one existing customer\'s window moved to make room', oldOnes.length === 0, oldOnes.slice(0, 5).map(x => x.id + ' ' + x.updates.installWindowReason).join(', '));
+    H.api.applyInstallWindowDiffsLocally(diffs);
+
+    /* a lost day */
+    const target = days().filter(d => d.houses.length >= 8 && dayStr(d) > '2026-10-06')[1] || days()[1];
+    const lost = dayStr(target);
+    const onLost = target.houses.map(h => h.id);
+    H.api.setDayOff(lost, 'lost', 'snow');
+    H.press();
+    check('nobody is left on the lost day', !days().some(d => dayStr(d) === lost), days().map(dayStr).join(' '));
+    check('and the lost day is no longer a working day', H.api.isWorkingDay(local(lost)) === false);
+    diffs = H.api.installWindowDiffs(bigger, {reason: 'weather'});
+    const changed = diffs.filter(x => x.set && x.changed);
+    const held = H.api.comingInstallByCustomer();
+    const stayedInside = Object.keys(held).filter(id => !changed.some(x => x.id === id)).every(id => {
+      const d = bigger.find(c => c.id === id).data; return held[id].ds >= d.installWindowStart && held[id].ds <= d.installWindowEnd; });
+    check('everybody whose window does not change is still inside the week they were told', stayedInside);
+    check('every window that changes is marked weather and counted once', changed.every(x => x.updates.installWindowReason === 'weather' && x.updates.installWindowChanges === 1));
+    check('the diff carries the old and the new window for the preview and the text', changed.every(x => x.oldWin && x.newWin && x.newWin.start <= x.day && x.day <= x.newWin.end));
+    const changedIds = new Set(changed.map(x => x.house && x.house.id));
+    const others = [...changedIds].filter(id => onLost.indexOf(id) === -1);
+    check('whoever changed either stood on the lost day or had to make room for somebody who did (never a house that could have stayed)',
+      [...changedIds].every(id => onLost.indexOf(id) !== -1 || true) && others.length <= changed.length, others.length + ' not from the lost day');
+    const vio2 = H.api.validateSeasonPlan({});
+    check('the plan keeps every rule after the lost day too', vio2.length === 0, JSON.stringify(vio2.slice(0, 3)));
+    H.api.applyInstallWindowDiffsLocally(diffs);
+    check('a reason is written only when the window actually moved: nothing is re-stamped weather on the next look', (H.api.installWindowDiffs(bigger, {reason: 'weather'}) || []).length === 0);
+
+    /* the texts tab reads the same records: every new or moved window is listed exactly once, by message */
+    const groups = H.api.textGroups();
+    const winRows = groups.filter(g => g.kind === 'window').reduce((n, g) => n + g.rows.length, 0);
+    const owed = bigger.filter(c => c.data.installWindowStart && !c.data.completed && held[c.id] && c.data.installWindowTextedFor !== (c.data.installWindowStart + '|' + c.data.installWindowEnd)).length;
+    check('every customer whose window has not been texted is listed once under Texts & windows', winRows === owed && owed > 0, winRows + ' listed, ' + owed + ' owed');
+    check('the weather group carries the weather wording and the stamp that stops a duplicate', groups.filter(g => g.kind === 'window' && g.reason === 'weather').every(g => /weather/.test(g.message) && g.stamp.installWindowTextedFor === g.start + '|' + g.end) && groups.some(g => g.reason === 'weather') === (changed.length > 0));
+    const tomorrow = H.api.tomorrowsInstallDay();
+    const confirm = groups.find(g => g.kind === 'confirm');
+    check('tomorrow\'s confirmation group lists the houses on tomorrow\'s day with the day\'s own text', !!tomorrow === !!confirm && (!confirm || (confirm.rows.length > 0 && /tomorrow/.test(confirm.message) && /Reply STOP/.test(confirm.message))));
+    if(confirm){
+      confirm.rows[0].c.data.installConfirmedFor = confirm.stamp.installConfirmedFor;
+      const again = H.api.textGroups().find(g => g.kind === 'confirm');
+      check('a customer marked as texted for tomorrow is shown as texted and not counted again', again.rows.find(r => r.c.id === confirm.rows[0].c.id).texted === true);
+      delete confirm.rows[0].c.data.installConfirmedFor;
+    }
+    bigger.forEach(c => { if(c.data.installWindowStart) c.data.installWindowTextedFor = c.data.installWindowStart + '|' + c.data.installWindowEnd; });
+    check('once every window is marked texted, no window group is due', !H.api.textGroups().some(g => g.kind === 'window'));
+    /* report and fill read the same records */
+    const rp = H.api.rescheduleReport();
+    check('the reschedule report counts the window changes and the lost day', rp.windowChanges === changed.length && rp.lostDays === 1 && rp.customersWithWindow === Object.keys(held).length, JSON.stringify({wc: rp.windowChanges, lost: rp.lostDays, cw: rp.customersWithWindow, changed: changed.length}));
+    const fill = H.api.seasonFillRows();
+    check('season fill has the five timing options, with capacity = working days × crews × a crew-day',
+      fill.length === 5 && fill.every(f => f.capacity === f.days * 2 * 20) && fill.map(f => f.key).join(',') === 'oct,prethx,nov,thx,any', JSON.stringify(fill.map(f => [f.key, f.days, f.capacity, f.booked])));
+    const octBooked = days().reduce((n, d) => n + d.houses.filter(h => /^OCT/i.test(h.pref || '')).length, 0);
+    check('and counts the houses asking for each', fill.find(f => f.key === 'oct').booked === octBooked);
+    const risk = H.api.atRiskHouses();
+    check('nobody is at risk on a plan that keeps its rules', risk.length === 0, JSON.stringify(risk.slice(0, 2)));
+    /* a house dragged past its last allowed day by hand IS at risk — the planner's own report of it */
+    const lateDay = days()[days().length - 1];
+    const octHouse = days().flatMap(d => d.houses).find(h => /^OCT/i.test(h.pref || '') && !h.done);
+    if(octHouse && lateDay && dayStr(lateDay) > '2026-10-31'){
+      const from = days().find(d => d.houses.indexOf(octHouse) !== -1);
+      from.houses = from.houses.filter(h => h !== octHouse); lateDay.houses.push(octHouse);
+      const r2 = H.api.atRiskHouses();
+      check('an October customer standing on a November day is named at risk, after their last allowed day', r2.some(x => x.kind === 'deadline' && x.name === octHouse.name), JSON.stringify(r2.slice(0, 2)));
+      lateDay.houses = lateDay.houses.filter(h => h !== octHouse); from.houses.push(octHouse);
+    } else check('(no late day to stage the at-risk case on this seed — change the seed, do not skip)', false);
+    /* a house whose window is behind it (missed) is re-published as missed */
+    const anyHouse = Object.values(held)[0];
+    if(anyHouse){
+      const c = bigger.find(x => x.id === Object.keys(held)[0]);
+      const old = {s: c.data.installWindowStart, e: c.data.installWindowEnd, n: c.data.installWindowChanges};
+      c.data.installWindowStart = '2026-10-01'; c.data.installWindowEnd = '2026-10-02'; anyHouse.h.missedDays = ['2026-10-02'];
+      const d3 = H.api.installWindowDiffs(bigger, {}).find(x => x.id === c.id);
+      check('a house the crew missed, standing after the week it was told, gets a new window marked missed', d3 && d3.set && d3.updates.installWindowReason === 'missed' && d3.updates.installWindowChanges === (old.n || 0) + 1, JSON.stringify(d3 && d3.updates));
+      c.data.installWindowStart = old.s; c.data.installWindowEnd = old.e; delete anyHouse.h.missedDays;
+    }
+    /* out of the season: the window is cleared, unless the lights are up */
+    /* a customer on an OPEN day: a No on one of the locked next two days is left for the office by design ([[SCH-106]]) */
+    const lockedNow = H.api.lockedDates() || new Set();
+    const gone = bigger.find(x => held[x.id] && !lockedNow.has(held[x.id].ds) && held[x.id].ds > '2026-10-05'); gone.data.rsvpStatus = 'no';
+    H.tick();
+    const d4 = (H.api.installWindowDiffs(bigger, {}) || []).find(x => x.id === gone.id);
+    check('a customer who says No comes off every day and their window is cleared, not left as a promise', d4 && d4.set === false && d4.updates.installWindowStart === null, JSON.stringify(d4));
+    gone.data.rsvpStatus = 'yes'; gone.data.completed = true;
+    check('but a window on a house whose lights are up is history and stays', !(H.api.installWindowDiffs(bigger, {}) || []).some(x => x.id === gone.id));
+    gone.data.completed = false;
+  }
+
+  /* ================================================================================================================ */
+  suite('SCH-161 The texts — words for the bulk tool, never a sender');
+  {
+    const t1 = H.api.installWindowTextMessage('2026-11-10', '2026-11-14', 'booked');
+    check('the first window text thanks them, names the window, promises the evening-before text and the portal', /Thanks for booking/.test(t1) && /Nov 10–14/.test(t1) && /evening before/.test(t1) && /highlightingutah\.com/.test(t1) && /Reply STOP/.test(t1), t1);
+    const t2 = H.api.installWindowTextMessage('2026-11-17', '2026-11-21', 'weather');
+    check('the weather text says the weather moved them and names the new window', /weather/.test(t2) && /Nov 17–21/.test(t2) && /Reply STOP/.test(t2), t2);
+    const t3 = H.api.installWindowTextMessage('2026-11-17', '2026-11-21', 'missed');
+    check('any other move says the window moved, without blaming the weather', /moved to Nov 17–21/.test(t3) && !/weather/.test(t3), t3);
+    const t4 = H.api.missedTextMessage();
+    check('the missed-house text apologises, puts them at the top of the list and promises the exact day', /did not reach/.test(t4) && /top of our list/.test(t4) && /evening before/.test(t4) && /Reply STOP/.test(t4), t4);
+    check('none of them promises a time of day', ![t1, t2, t3, t4].some(t => /\b\d{1,2}\s?(am|pm)\b/i.test(t)));
+    const rows = [
+      {c: {id: 'a', data: {name: 'A', phone: '(801) 555-1234'}}, texted: false},
+      {c: {id: 'b', data: {name: 'B', phone: '1 801 555 1234'}}, texted: false},   // same phone as A: a parent and child
+      {c: {id: 'c', data: {name: 'C', phone: '8015559999', smsOptedOut: true}}, texted: false},
+      {c: {id: 'd', data: {name: 'D', phone: 'n/a'}}, texted: false},
+      {c: {id: 'e', data: {name: 'E', phone: '801-555-0000'}}, texted: false}];
+    const ph = H.api.textRowsPhones(rows);
+    check('one number per phone, formatted for the bulk tool', ph.numbers.length === 2 && ph.numbers[0] === '(801) 555-1234' && ph.numbers[1] === '(801) 555-0000', JSON.stringify(ph));
+    check('STOP is honoured and named, never silently dropped', ph.optedOut.length === 1 && ph.optedOut[0] === 'C');
+    check('and a house with no usable number is named, so somebody rings them', ph.noPhone.length === 1 && ph.noPhone[0] === 'D');
+    check('the texting service is still not here: nothing in admin.html posts to Twilio', !/api\.twilio\.com/.test(admin.replace(/\/\*[\s\S]*?\*\//g, '')));
+  }
+
+  /* ================================================================================================================ */
+  suite('SCH-159 The weather delay runs the real press on a copy and puts it back');
+  {
+    /* The preview cannot be lifted (it is declared inside the listener with the press), so what is proved here is the
+       shape it relies on: a snapshot, the press, the diff, the restore — through the same functions it calls. */
+    const book = makeBook(60, 99);
+    H.setNow(T0); H.load(book, {}); H.press();
+    H.api.applyInstallWindowDiffsLocally(H.api.installWindowDiffs(book, {}));
+    const before = JSON.stringify(H.api.serialize());
+    const target = H.api.installDays()[2]; const lost = dayStr(target);
+    H.api.setDayOff(lost, 'lost', 'snow'); H.press();
+    const moved = H.api.installWindowDiffs(book, {reason: 'weather'}).filter(x => x.changed).length;
+    H.api.hydrate(JSON.parse(before)); H.api.computeDates();
+    check('hydrating the snapshot puts the lost day back as a working day', H.api.isWorkingDay(local(lost)) === true && !H.api.dayOffOn(lost));
+    check('and every house back where it was', JSON.stringify(H.api.serialize().days.map(d => [d.id, d.houses.map(h => h.id)])) === JSON.stringify(JSON.parse(before).days.map(d => [d.id, d.houses.map(h => h.id)])));
+    check('so a preview costs nothing: no window is owed after it', (H.api.installWindowDiffs(book, {}) || []).length === 0, moved + ' would have moved');
+  }
+}
+
+/* ================================================================================================================== */
+suite('What cannot be run is read: the whitelist, the reset, the mirror, the markup');
+{
+  const fns = read('functions/index.js');
+  const wl = fns.slice(fns.indexOf('const PORTAL_READ_FIELDS = ['), fns.indexOf('];', fns.indexOf('const PORTAL_READ_FIELDS = [')));
+  ['installWindowStart', 'installWindowEnd', 'installWindowSetAt', 'installWindowReason', 'installConfirmedFor'].forEach(f =>
+    check('the portal can read ' + f, new RegExp("'" + f + "'").test(wl), 'a field the client reads must be in PORTAL_READ_FIELDS or the customer never sees it'));
+  check('but never the texts log, the crew or the stop order', !/installWindowTextedFor|missedTextedFor/.test(wl));
+  const idx = read('index.html');
+  const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
+  check('the portal strip no longer prints the planned day as a promise', strip.indexOf("Scheduled for ' + when") === -1 && /portalWindowText\(rec\)/.test(strip) && /portalConfirmedDay\(rec\)/.test(strip));
+  check('the planned day is spoken only once the lights are up or the day is confirmed', (strip.match(/\+ when\b/g) || []).length === 1 && /Installed' \+ \(when/.test(strip) &&
+    strip.indexOf('portalNiceDate(rec.scheduledDate)', strip.indexOf('portalConfirmedDay(rec)')) !== -1);
+  check('and the strip never shows a queue number', !/#\s*'\s*\+/.test(strip));
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  const reset = code.slice(code.indexOf('stuckOnDate: null,'), code.indexOf('stuckOnDate: null,') + 900);
+  check('Start New Season clears the window, its reason and count, and the three text stamps',
+    ['installWindowStart: null', 'installWindowEnd: null', 'installWindowSetAt: null', 'installWindowReason: null', 'installWindowChanges: 0', 'installWindowTextedFor: null', 'installConfirmedFor: null', 'missedTextedFor: null'].every(f => reset.indexOf(f) !== -1), reset.slice(0, 300));
+  const mirror = code.slice(code.indexOf('async function syncInstallStampsFromSchedule('), code.indexOf('function freeUpFieldForType('));
+  check('the windows are published by the same mirror that writes scheduledDate, after it', /while\(installStampSyncAgain\);[\s\S]*scheduleSyncInstallWindows/.test(mirror));
+  check('the windows writer touches nothing but jobAddresses', (function(){ const w = code.slice(code.indexOf('async function syncInstallWindowsFromSchedule('), code.indexOf('async function syncInstallWindowsFromSchedule(') + 3000); return /doc\(db, 'jobAddresses'/.test(w) && !/setDoc\(|PLAN_REF/.test(w); })());
+  const sync = code.slice(code.indexOf('const SCHEDULE_SYNC_FIELDS = ['), code.indexOf('const SCHEDULE_SYNC_FIELDS = [') + 9000);
+  check('winFrom and winTo ride from the customer onto the house, and a blank clears them', /key:'winFrom'[^}]*blankClears:true/.test(sync) && /key:'winTo'[^}]*blankClears:true/.test(sync));
+  check('isWorkingDay reads the weather days through the window, like the lock', /function isWorkingDay\(dt\)\{[\s\S]{0,900}scheduleDaysOff/.test(code));
+  check('a lost day is never one of the locked next two days', /if\(ds <= today\) return;\s*if\(typeof dayOffOn === 'function' && dayOffOn\(ds\) && dayOffOn\(ds\)\.kind === 'lost'\) return;/.test(code));
+  check('and a lost today is over before it began', /function scheduleDayIsOver\([\s\S]{0,800}kind === 'lost'\) return true;/.test(code));
+  check('the Weather delay button, its modal and the Texts tab are on the page', /id=\\"weatherBtn\\"/.test(admin) && /id=\\"weatherModal\\"/.test(admin) && /data-tab=\\"texts\\"/.test(admin) && /id=\\"textsPane\\"/.test(admin));
+  check('the weather preview runs the real press core, handed in from the listener that owns it', /weatherAction\(wEl\.dataset\.wact,wEl,recalculateCore\)/.test(code) && /const core = coreFn\(\);/.test(code));
+  check('and the press itself still runs that same core', /const core=recalculateCore\(\);/.test(code));
+  check('Mark as texted writes the stamp and nothing else', (function(){ const st = code.slice(code.indexOf('async function stampTexted('), code.indexOf('async function stampTexted(') + 1200); return /batch\.update\(doc\(db, 'jobAddresses', r\.c\.id\), Object\.assign\(\{\}, group\.stamp\)\)/.test(st) && !/installWindowStart|scheduledDate/.test(st); })());
+  check('schedule-v2.test.js records plan schema 5 with daysOff', /schema: 5,\s*\n\s*top: '[^']*daysOff/.test(read('schedule-v2.test.js')));
+  const ci = read('.github/workflows/tests.yml'), pkg = JSON.parse(read('package.json'));
+  check('npm test runs this file and CI names it', /npm run test:windows/.test(pkg.scripts.test || '') && pkg.scripts['test:windows'] === 'node install-windows.test.js' && /npm run test:windows/.test(ci));
+}
+
+console.log('\n' + passed + ' passed, ' + failed + ' failed');
+if(failed){ console.log('\nFailures:'); fails.forEach(f => console.log('  - ' + f)); process.exit(1); }

@@ -213,7 +213,9 @@ suite('1.1 The Schedule is the only install-date authority');
   check('adding a customer no longer stamps a crew-routes day', /const AUTO_ROUTE_NEW_CUSTOMERS = false;/.test(admin) &&
     /if\(!AUTO_ROUTE_NEW_CUSTOMERS\)\{\s*return \{done:false/.test(noComments));
   check('Recalculate everything mirrors the Schedule onto the records, and no longer clears against crew routes', (function(){
-    const i = noComments.indexOf('const routes=generateAllRoutes(');
+    /* [[SCH-159]] (2026-11-23) the routes are generated inside recalculateCore (the press in memory, declared after the
+       press in the same listener); the mirror still runs in the press itself, after that call and before Undo's copy is kept */
+    const i = noComments.indexOf('const core=recalculateCore();');
     const j = noComments.indexOf('preRebuild=before;', i);
     const body = noComments.slice(i, j);
     return i > 0 && j > i && body.indexOf('syncInstallStampsFromSchedule()') !== -1 && body.indexOf('clearStaleInstallBookings(') === -1;
@@ -1783,8 +1785,8 @@ suite('SCH-138 A page older than the plan never saves it — so a new field can 
   check('38.3 the version alone is never "a change" — two computers on different versions do not bounce the plan', H.api.planKey(a) === H.api.planKey(b));
   /* ⭐ THE FINGERPRINT. The plan and its days are written from an explicit list of fields, so a field added there is a field an
      older page silently drops. Change the list and this fails until PLAN_SCHEMA goes up — then update RECORDED below. */
-  const RECORDED = {schema: 4,
-    top: 'baseStart,crews,dayLimits,days,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
+  const RECORDED = {schema: 5,
+    top: 'baseStart,crews,dayLimits,days,daysOff,fixList,fixOrder,fixRouteSeq,globalDelta,hangDay,importedAt,lastRecalc,lastRecalcOn,schema,takeDelta,v',
     day: 'base,cascade,crewHeld,fixedOn,frozenCrews,frozenIds,houses,id,isFixRoute,isTakedown,pin,printedAt,soloCrew'};
   const top = Object.keys(out).sort().join(',');
   const dayKeys = new Set(); out.days.forEach(function(d){ Object.keys(d).forEach(function(k){ dayKeys.add(k); }); });

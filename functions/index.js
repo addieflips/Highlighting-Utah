@@ -859,7 +859,13 @@ const PORTAL_READ_FIELDS = [
      answer was already on the record, just never sent. The DATE only — never
      assignedCrew and never the stop order, which are internal and would turn
      into "why am I last?" calls. */
-  'scheduledDate', 'completed', 'removalDone'
+  'scheduledDate', 'completed', 'removalDone',
+  /* [[SCH-158]] / [[SCH-160]] (2026-11-23) THE WINDOW, NOT THE DAY. The owner's 2027 blueprint: customers see an
+     estimated one-week window, and the exact day only once it is confirmed the evening before, so a Recalculate that
+     moves a house two days inside its week is not a change they ever see. The window and when it was set, why it last
+     moved (weather / missed / booked), and the day the office texted as confirmed. The crew and the stop order stay
+     internal, as above. */
+  'installWindowStart', 'installWindowEnd', 'installWindowSetAt', 'installWindowReason', 'installConfirmedFor'
 ];
 
 function generatePortalToken() {

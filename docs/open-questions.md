@@ -2509,3 +2509,39 @@ and wrong only to miss the ones who answered by link. Corrected before anything 
 **Resulting map change:** [[RS-81]]. The three allowances came off the `maybeNextYear` spine in
 `connections/manifest.js` in the same change, so the reader census now fails if any of the
 three goes back to reading the flag alone.
+
+## Q-037 · intent · OPEN · raised 2026-11-23
+**The 2027 blueprint's Tier 2 — what is the owner's call before it is built?** Tier 1 of the
+*Install Scheduling System Blueprint* shipped on 2026-11-23 ([[SCH-158]]–[[SCH-161]]): locked
+install windows, the weather-delay button with a preview, the evening-before confirmation and
+missed-house texts as lists for the bulk tool, the at-risk list and the reschedule report. The
+blueprint's own plan puts the rest in Tier 2 ("if time allows, otherwise 2028"), and each piece
+turns on something only the owner can decide:
+
+1. **Signup capacity caps (85%).** The blueprint greys a timing option out on the RSVP form when
+   its window is 85% booked. The RSVP form offers no timing choice today — Installation Timing is
+   set by the office, and [[SCH-23]] keeps the two Thanksgiving options admin-only. Should the
+   form start asking (which options, and does a returning customer's last answer pre-fill)? Until
+   then the fill is shown on Schedule › Texts & windows for the office to watch.
+2. **Capacity in hours per house size (S/M/L).** The planner counts houses per crew-day (20 a
+   crew, 40 a day, 8 a one-man day). Moving to hours per house would change every builder rule
+   and needs this season's log of actual hours per house first (the blueprint's step 1). Keep
+   houses, or switch, and when?
+3. **A texting service.** [[QT-48]]: there is no Twilio and nothing sends. The blueprint registers
+   the business for texting in March 2027. Which service, and does the office want the three lists
+   sent automatically once it exists, or always pressed by hand?
+4. **The rush lane, the rush fee and the flex-pool credit.** How many crew hours a week are kept
+   open, what the fee is, and what a bumped flex customer is credited — money, so [[R-006]]
+   applies and nothing here guesses a figure.
+5. **The three-working-day maximum wait past a window.** The five-mile and ten-a-crew rules can
+   hold an area back; the blueprint caps any slip at three working days whatever the drive. Is
+   three the number, and does it beat the five-mile rule when they disagree?
+6. **When a window is first published.** Today it is published the first time the Schedule
+   places a customer, which on a September Recalculate is every customer at once, December ones
+   included. Publish only inside N weeks of the day instead?
+
+**Why it is not built:** every item is a business number or a policy; a default taken here would
+reach the RSVP form, the invoice or the customer's phone. Tier 1 does not depend on any of them.
+
+**Resulting map change:** [[SCH-162]] records the blueprint's own Tier 2 ruling (decided, not
+built) and points here.
