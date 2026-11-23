@@ -2664,6 +2664,9 @@
             <p class="form-note" style="margin:8px 0 4px;">Holidays, trips, anything that means nobody is home. No crew is sent on these days &mdash; the schedule works around them and puts them on the next day that suits. <b>Both boxes are needed</b> for a row to count; one date on its own is ignored and the save will say so. Takes effect <b>on its own</b> &mdash; the schedule picks it up within a few minutes, and nobody else on the plan is moved. No need to press anything.</p>
             <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Stuck on one exact day</label>
             <input type="date" id="editCustStuckOn" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line); font-family:inherit; font-size:13px;">
+            <!-- [[SCH-163]] the install window the customer was told, read-only: the Schedule writes it, the office reads it -->
+            <label style="display:block; font-size:12px; font-weight:600; margin:16px 0 6px;">Install window the customer was told</label>
+            <div id="editCustWindowRead" class="form-note" style="margin:0 0 4px;"></div>
             <p class="form-note" style="margin:6px 0 4px;">Pins them to that day and <b>nothing moves them off it</b> &mdash; not Recalculate everything, not the tidy-up sweeps, not the five-minute sync. Use it when a day has been agreed and must not change. It <b>overrules everything else on this screen</b>, including their timing preference, their away dates and the date above. Leave blank and they are scheduled normally. Takes effect <b>on its own</b> within a few minutes &mdash; no need to press anything. &#9888; A day inside the next two working days is already printed, so a pin onto one is refused and the Schedule tab says whose; and if you pin somebody to a date the schedule has no day for at all, it says so and you press <b>Recalculate everything</b> to create that day.</p>
           </div>
           <!-- ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Filled by
@@ -43787,10 +43790,10 @@ function calendarFlags(d, h, opts){
   if(wt) out.push({kind: 'after', text: 'NOT AFTER ' + calendarDayLabel(wt),
                    title: 'Don\u2019t hang after ' + calendarDayLabel(wt) + ' \u2014 Recalculate pulls them back before it',
                    pending: !!(h && hasRec && ('' + (hh.wantTo || '')).trim() !== wt)});
+  const today = o.today || ((typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
+    : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : new Date().toISOString().slice(0, 10)));
   const st = ('' + (hasRec ? (rec.stuckOnDate || '') : (hh.stuck || ''))).trim();
   if(st){
-    const today = o.today || ((typeof scheduleTodayStr === 'function') ? scheduleTodayStr()
-      : ((typeof mtnNowParts === 'function') ? mtnNowParts().date : new Date().toISOString().slice(0, 10)));
     const past = st < today;
     out.push({kind: 'pinned', text: 'STUCK ' + calendarDayLabel(st) + (past ? ' (passed)' : ''),
               title: past ? ('Stuck on ' + calendarDayLabel(st) + ' \u2014 that day has passed, so the pin no longer holds them; ' +
@@ -43798,8 +43801,41 @@ function calendarFlags(d, h, opts){
                           : ('Stuck on ' + calendarDayLabel(st) + ' \u2014 nothing moves them off it'),
               pending: false});
   }
+  /* ⭐ THE WINDOW THE CUSTOMER WAS TOLD, ON THE SAME ROW ([[SCH-163]], 2026-11-23). The owner, asked where the 2027 windows
+     would show: "i want it to show in there back office." So it is a chip beside the calendar ones, on the All Customers
+     row, the Edit Customer form and the Schedule stop alike — one rule, three screens, like the others here. It says the
+     window, what has happened to it (texted / not yet texted / CONFIRMED for a day / moved by weather or a missed day), and
+     is read off the customer record first and the plan's copy (winFrom / winTo) second, exactly like the three above.
+     ⚠ IT NEVER REPLACES THE HANG-DAY PILL: the headline rule ([[SCH-86]]) says that pill is the Schedule's own day, and
+     this is what the customer was told about it. The two sit together on purpose. */
+  const isoDay = function(v){ const t = ('' + (v == null ? '' : v)).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : ''; };
+  const ws = isoDay(hasRec ? rec.installWindowStart : hh.winFrom), we = isoDay(hasRec ? rec.installWindowEnd : hh.winTo);
+  if(ws && we){
+    const why = hasRec ? ('' + (rec.installWindowReason || '')) : '';
+    const texted = hasRec && rec.installWindowTextedFor === ws + '|' + we;
+    const conf = hasRec ? isoDay(rec.installConfirmedFor) : '';
+    const confirmed = !!conf && conf === isoDay(rec.scheduledDate) && conf >= today;
+    const moves = hasRec ? Math.max(0, Math.floor(Number(rec.installWindowChanges) || 0)) : 0;
+    const setOn = hasRec ? isoDay(rec.installWindowSetAt) : '';
+    const state = confirmed ? ' \u00b7 CONFIRMED ' + calendarDayLabel(conf) : (texted ? ' \u00b7 texted' : ' \u00b7 not texted yet');
+    const cause = why === 'weather' ? ' \u00b7 weather' : (why === 'missed' ? ' \u00b7 missed' : (why === 'rescheduled' ? ' \u00b7 moved' : ''));
+    out.push({kind: 'window', text: 'WINDOW ' + calendarRangeLabel(ws, we) + state + cause,
+              title: 'The install window the customer was told: ' + calendarRangeLabel(ws, we) +
+                     (setOn ? ', set ' + calendarDayLabel(setOn) : '') +
+                     (moves ? ', moved ' + moves + ' time' + (moves === 1 ? '' : 's') + ' since first told' : '') +
+                     (why === 'weather' ? ' (last move: weather)' : why === 'missed' ? ' (last move: the crew did not reach them)' : why === 'rescheduled' ? ' (last move: no room left inside it)' : '') +
+                     (confirmed ? '. Confirmed by text for ' + calendarDayLabel(conf) : (texted ? '. Texted' : '. Not texted yet \u2014 see Schedule \u203a Texts & windows')) +
+                     '. The planner keeps them inside it; it moves only when a day is lost or there is no room.',
+              pending: !!(h && hasRec && (('' + (hh.winFrom || '')).trim() !== ws || ('' + (hh.winTo || '')).trim() !== we))});
+  }
   out.forEach(function(f){ if(f.pending) f.title += ' (saved \u2014 the schedule picks it up within a few minutes)'; });
   return out;
+}
+/* [[SCH-163]] the window line on Edit Customer, read off the same rule as the chips so the three screens cannot disagree */
+function installWindowReadHtml(d){
+  const f = (typeof calendarFlags === 'function') ? calendarFlags(d || null, null).filter(function(x){ return x.kind === 'window'; })[0] : null;
+  if(!f) return 'Not published yet \u2014 the Schedule writes it the first time they are placed on a day, and it appears here, on their All Customers row and in their member portal.';
+  return '<b>' + esc(f.text) + '</b><br>' + esc(f.title);
 }
 /* The All Customers row's pills, under the hang-day pill. Inline styles like nextVisitChip beside it. */
 function calendarChipsHtml(d){
@@ -43809,7 +43845,8 @@ function calendarChipsHtml(d){
     away:   'background:#FBEFD9; color:#8A5A12; border-color:#EFD9B4;',
     before: 'background:#EEF1F5; color:#48566A; border-color:#D6DDE6;',
     after:  'background:#EEF1F5; color:#48566A; border-color:#D6DDE6;',
-    pinned: 'background:#E7F0FF; color:#2A4D8F; border-color:#C9D9F2;'
+    pinned: 'background:#E7F0FF; color:#2A4D8F; border-color:#C9D9F2;',
+    window: 'background:#E6F2EA; color:#2E6B3E; border-color:#B8D9C2;'
   };
   return '<br>' + flags.map(function(f){
     return '<span title="' + esc(f.title) + '" style="display:inline-block; border:1px solid; border-radius:999px; ' +
@@ -62363,6 +62400,9 @@ function openEditCustomerModal(id){
   document.getElementById('editCustWantFrom').value = ('' + (d.wantedFrom || '')).trim();
   document.getElementById('editCustWantTo').value = ('' + (d.wantedTo || '')).trim();
   document.getElementById('editCustStuckOn').value = ('' + (d.stuckOnDate || '')).trim();
+  /* [[SCH-163]] the window line, filled on every open like the three above (the form is repointed house to house) */
+  const ecWin = document.getElementById('editCustWindowRead');
+  if(ecWin) ecWin.innerHTML = (typeof installWindowReadHtml === 'function') ? installWindowReadHtml(d) : '';
   awayFillHost('editCustAwayList', d.awayDates);
   awayWireHost('editCustAwayList', 'editCustAwayAdd');
   document.getElementById('editCustFeet').value = d.measuredFeet || '';

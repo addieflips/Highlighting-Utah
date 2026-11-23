@@ -332,6 +332,67 @@ if(H){
 }
 
 /* ================================================================================================================== */
+suite('SCH-163 The window shows in the back office: All Customers, Edit Customer, the Schedule stop');
+{
+  /* The owner, asked where the 2027 windows would show: "i want it to show in there back office." One rule (calendarFlags)
+     draws it on all three screens, beside AWAY / NOT BEFORE / NOT AFTER / STUCK, so this lifts that rule the way run-all
+     Suite 435 does and RUNS it. */
+  let api = null;
+  try{
+    const L = liftDeep(['calendarFlags', 'calendarChipsHtml', 'installWindowReadHtml'], {provided: ['esc', 'scheduleTodayStr', 'mtnNowParts']});
+    api = new Function('"use strict"; function esc(s){ return String(s).replace(/</g, "&lt;"); } function scheduleTodayStr(){ return "2026-11-05"; }\n' +
+      L.code + '\nreturn {flags: calendarFlags, chips: calendarChipsHtml, read: installWindowReadHtml};')();
+  }catch(e){ check('the calendar rule and the window line lift', false, e.message); }
+  if(api){
+    const base = {installWindowStart: '2026-11-10', installWindowEnd: '2026-11-14', installWindowReason: 'booked', installWindowSetAt: '2026-10-20', installWindowChanges: 0, scheduledDate: '2026-11-12'};
+    const by = (f, k) => f.filter(x => x.kind === k)[0];
+    let f = api.flags(base, null);
+    check('a published window reads as WINDOW with its days, and says it has not been texted', by(f, 'window') && by(f, 'window').text === 'WINDOW Nov 10\u201314 \u00b7 not texted yet', JSON.stringify(f));
+    check('its title says when it was set and where the text is', /set Oct 20/.test(by(f, 'window').title) && /Texts & windows/.test(by(f, 'window').title), by(f, 'window').title);
+    f = api.flags(Object.assign({}, base, {installWindowTextedFor: '2026-11-10|2026-11-14'}), null);
+    check('texted for exactly this window, it says texted', by(f, 'window').text === 'WINDOW Nov 10\u201314 \u00b7 texted');
+    f = api.flags(Object.assign({}, base, {installWindowTextedFor: '2026-11-03|2026-11-07'}), null);
+    check('texted for an OLDER window, it says not texted yet — the new one still has to go out', /not texted yet/.test(by(f, 'window').text));
+    f = api.flags(Object.assign({}, base, {installConfirmedFor: '2026-11-12'}), null);
+    check('confirmed by text for the day the plan has them on, it says CONFIRMED and the day', by(f, 'window').text === 'WINDOW Nov 10\u201314 \u00b7 CONFIRMED Nov 12', by(f, 'window').text);
+    f = api.flags(Object.assign({}, base, {installConfirmedFor: '2026-11-11'}), null);
+    check('a confirmation for a day the plan has since left is not a confirmation', !/CONFIRMED/.test(by(f, 'window').text));
+    f = api.flags(Object.assign({}, base, {installWindowReason: 'weather', installWindowChanges: 2}), null);
+    check('a window moved by weather says so, and the title counts the moves', /\u00b7 weather$/.test(by(f, 'window').text) && /moved 2 times/.test(by(f, 'window').title) && /weather/.test(by(f, 'window').title), by(f, 'window').text + ' // ' + by(f, 'window').title);
+    f = api.flags(Object.assign({}, base, {installWindowReason: 'missed'}), null);
+    check('a window moved because the crew missed them says missed', /\u00b7 missed$/.test(by(f, 'window').text));
+    f = api.flags({name: 'Nobody', city: 'Lehi'}, null);
+    check('a customer with no window draws no window chip — nothing on ~960 rows until one is published', !by(f, 'window') && f.length === 0);
+    f = api.flags(base, {winFrom: '2026-11-10', winTo: '2026-11-14'});
+    check('a plan copy that agrees with the record is not called pending', by(f, 'window').pending === false);
+    f = api.flags(base, {winFrom: '2026-11-03', winTo: '2026-11-07'});
+    check('a plan copy that differs is said to be waiting for the sync', by(f, 'window').pending === true && /picks it up/.test(by(f, 'window').title));
+    f = api.flags(null, {winFrom: '2026-11-10', winTo: '2026-11-14'});
+    check('a house the plan cannot match reads its own copy', by(f, 'window') && /WINDOW Nov 10\u201314/.test(by(f, 'window').text));
+    const chips = api.chips(Object.assign({}, base, {wantedTo: '2026-11-20'}));
+    check('the All Customers chips carry the window beside the calendar ones, in its own green', /WINDOW Nov 10\u201314/.test(chips) && /NOT AFTER Nov 20/.test(chips) && /#E6F2EA/.test(chips), chips);
+    check('the Edit Customer line reads the same rule, and says so when nothing is published yet',
+      /<b>WINDOW Nov 10\u201314/.test(api.read(base)) && /Not published yet/.test(api.read({name: 'Nobody'})), api.read(base));
+  }
+  /* the Schedule stop: stopFlagBadges draws every non-pin calendar flag as a badge, so the window rides along */
+  let sfb = null;
+  try{
+    const L = liftDeep(['stopFlagBadges'], {provided: ['esc', 'scheduleTodayStr', 'mtnNowParts', 'customerForHouse', 'planCustomerFor', 'isRushInstall', 'houseMissedCount', 'stuckDayOf']});
+    sfb = new Function('"use strict"; function esc(s){ return String(s).replace(/</g, "&lt;"); } function scheduleTodayStr(){ return "2026-11-05"; } ' +
+      'function customerForHouse(){ return null; } function planCustomerFor(){ return null; } function isRushInstall(){ return false; } function houseMissedCount(){ return 0; } function stuckDayOf(){ return ""; }\n' +
+      L.code + '\nreturn stopFlagBadges;')();
+  }catch(e){ check('stopFlagBadges lifts', false, e.message); }
+  if(sfb){
+    const out = sfb({id: 'csv-9', winFrom: '2026-11-10', winTo: '2026-11-14'});
+    check('a Schedule stop whose house carries a window wears WINDOW beside its other badges', /windowbadge/.test(out) && /WINDOW Nov 10\u201314/.test(out), out);
+    check('and a takedown or fix row does not', sfb({id: 'csv-9', isTakedown: true, winFrom: '2026-11-10', winTo: '2026-11-14'}) === '');
+  }
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+  check('Edit Customer has the window line under Their Own Calendar', /id="editCustWindowRead"/.test(admin) && admin.indexOf('id="editCustWindowRead"') > admin.indexOf('id="editCustStuckOn"'));
+  check('and fills it on every open, from the same rule, right after the stuck day', /editCustStuckOn'\)\.value = \(''[^\n]*\n[\s\S]{0,200}editCustWindowRead[\s\S]{0,120}installWindowReadHtml\(d\)/.test(code));
+}
+
+/* ================================================================================================================== */
 suite('What cannot be run is read: the whitelist, the reset, the mirror, the markup');
 {
   const fns = read('functions/index.js');

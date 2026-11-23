@@ -105,6 +105,9 @@ touching scheduling must know before editing anything:
   the real press on a snapshot** through `recalculateCore` — the press body lifted into its own function, declared
   AFTER `runRecalculateEverything` inside the same listener (run-all Suites 26 and 351 and schedule-v2 1.x read that
   slice; move it and they go red for the right reason).
+- **The office sees the window on the customer** ([[SCH-163]]): a `window` kind in `calendarFlags`, so it is a chip on the
+  All Customers row, a badge on the Schedule stop and a read-only line on Edit Customer (`installWindowReadHtml`). It sits
+  beside the hang-day pill and never replaces it ([[SCH-86]]).
 - **The texts are lists for the bulk tool** (Schedule › 💬 Texts & windows), never a sender — [[QT-48]] stands. **Mark
   as texted** stamps `installConfirmedFor` / `missedTextedFor` / `installWindowTextedFor`; that is the duplicates log.
 - **Gate:** `install-windows.test.js` (`npm run test:windows`, its own CI step) runs the real press and requires that a

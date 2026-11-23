@@ -3257,6 +3257,14 @@ weather day, a crew that fell behind (the house carries `missedDays`), a pin. `i
 presses twice over a seeded book and requires that nobody's window moved, adds fifteen customers and
 requires the same, then loses a day.
 
+**And the office sees it on the customer** ([[SCH-163]]). The owner: *"i want it to show in there back office."* The
+window is a chip beside AWAY / NOT BEFORE / NOT AFTER / STUCK — the same `calendarFlags` rule, kind `window` — on the All
+Customers row (under the hang-day pill, which stays the Schedule's own day per [[SCH-86]]), on the Schedule stop
+(`stopFlagBadges`), and as a read-only line under Their Own Calendar on Edit Customer (`installWindowReadHtml`). It reads
+`WINDOW Nov 10–14 · not texted yet`, `· texted`, or `· CONFIRMED Nov 12`, and adds `· weather` / `· missed` / `· moved`
+when the window has moved; the title carries when it was set and how many times it has moved. Record first, the plan's
+`winFrom`/`winTo` second, pending when they differ. Nothing on these screens writes it.
+
 **🌨 Weather delay** (season bar, [[SCH-159]]): pick the day(s), lost or half, a reason; **Preview**
 runs the real press on a snapshot (`recalculateCore` — the press lifted into its own function beside
 `runRecalculateEverything`, inside the same listener — then `hydrate` puts the plan back) and shows
