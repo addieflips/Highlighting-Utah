@@ -2062,6 +2062,14 @@ if (JSDOM) {
   /* 2026-10-20: the Google Maps side link beside the card's address — lifted, never stubbed (Suite 388 runs it). */
   ['mapsLinkFor', 'mapOpenLinkHtml'].forEach(n =>
     eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
+  /* [[QT-60]] (2026-11-23): the out-of-area pill and note read the book through these. LIFTED, never
+     stubbed — a stub here would let the card agree with a fiction about where we work. Suite 436 runs
+     the rule on its own; the render check further down proves the card really carries it. */
+  global.extractCleanCity = real('extractCleanCity');
+  global.serviceAreaMemo = null;
+  global.SERVICE_AREA_MIN_SHARE = Number((admin.match(/const SERVICE_AREA_MIN_SHARE = ([^;]+);/) || [])[1]);
+  ['serviceAreaCounts', 'quoteTownOf', 'quoteAreaCheck', 'quoteAreaWords', 'quoteAreaPillHtml', 'quoteAreaWarningHtml'].forEach(n =>
+    eval(extractFn(admin, n) + '\nglobal.' + n + ' = ' + n + ';'));
   /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
      Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
      through quoteEstimatedPrice now so the card and the measure tool apply the
@@ -2185,6 +2193,36 @@ if (JSDOM) {
       quotePricingOpenIds.has('q1') && pricing(c1c).classList.contains('open'));
     quotePricingOpenIds.delete('q1');
 
+    /* [[QT-60]]: a quote from a town the book barely holds wears the pill AND the note; one from a
+       town we work wears neither. RENDERED, not matched — the mechanism is Suite 436's; this is the
+       wiring, which a check on the helper alone cannot see (delete the two calls from renderQuoteRows
+       and every helper check still passes while nothing reaches the screen). */
+    {
+      const savedBook = global.jobAddresses;
+      global.jobAddresses = [];
+      for (let i = 0; i < 120; i++) global.jobAddresses.push({ id: 'b' + i, data: { city: i % 2 ? 'Lehi' : 'Lehi, UT 84043' } });
+      global.jobAddresses.push({ id: 'salem', data: { city: 'Salem' } });
+      renderQuoteRows([
+        { id: 'in', data: { name: 'In Town', phone: '1', email: 'a@x.com', address: '1 Main St, Lehi 84043', status: 'new' } },
+        { id: 'out', data: { name: 'Out Of Town', phone: '2', email: 'b@x.com', address: '9 Far Rd, Tooele 84074', status: 'new' } },
+        { id: 'thin', data: { name: 'Thin Town', phone: '3', email: 'c@x.com', city: 'Salem', address: '2 Elm St, Salem 84653', status: 'new' } }
+      ]);
+      const rows = document.getElementById('quotesList').querySelectorAll('.row-item');
+      const [rIn, rOut, rThin] = rows;
+      check('render', 'QT-60: a Lehi quote carries no out-of-area pill and no note',
+        rIn && !rIn.querySelector('.quote-area-pill') && !rIn.querySelector('.quote-area-warning'));
+      check('render', 'QT-60: a Tooele quote (town read off the address) wears the pill in the badge line and the note under the address',
+        rOut && rOut.querySelector('.row-name-line .quote-area-pill') && /Outside our area · Tooele/.test(rOut.querySelector('.quote-area-pill').textContent) &&
+        rOut.querySelector('.quote-area-warning') && /We have no houses in Tooele\./.test(rOut.querySelector('.quote-area-warning').textContent),
+        rOut ? rOut.innerHTML.slice(0, 600) : 'no row');
+      check('render', 'QT-60: a Salem quote says how many houses we have there, so the office can decide',
+        rThin && rThin.querySelector('.quote-area-warning') && /Only 1 of our 121 houses is in Salem \(0\.8%\)\./.test(rThin.querySelector('.quote-area-warning').textContent),
+        rThin ? rThin.textContent.slice(0, 300) : 'no row');
+      check('render', 'QT-60: the note is above the possible-existing-customer box and never replaces the Convert button',
+        rOut && rOut.querySelector('[data-converttocust]') !== null);
+      global.jobAddresses = savedBook;
+      renderQuoteRows(fixtures);
+    }
     // every handler the card depends on must survive future edits
     [['data-converttocust', 'Convert to Customer'],
      ['data-previewquoteaddr', 'address map preview'],
@@ -69435,4 +69473,80 @@ suite('435. Their own calendar dates show on the Schedule row and the All Custom
   check('S435', 'both badge styles are in the Schedule’s stylesheet',
     /\.awaybadge\{display:inline-block;background:#fbefd9/.test(admin) && /\.windowbadge\{display:inline-block;background:#eef1f5/.test(admin));
   check('S435', 'the Schedule row leaves the pin to its STUCK badge', /if\(f\.kind==='pinned'\)return;/.test(stripped));
+}
+
+suite('436. A quote from outside where we work is said on the card');
+{
+  /* [[QT-60]], 2026-11-23. Addie: "can we have a boundary with a warning outside our boundary? We don't do
+     toole, north salt lake, salem ... if it has a low percentage of houses then we probably don't do those
+     on the regular." The boundary is READ OFF THE BOOK — a town is ours when it holds at least
+     SERVICE_AREA_MIN_SHARE of the customers — so the check RUNS the rule over a fixture book rather than
+     matching a list of towns. Her three examples hold 0, 1 and 5 houses on the live book of 964. */
+  const names = ['serviceAreaCounts', 'quoteTownOf', 'quoteAreaCheck', 'quoteAreaWords', 'quoteAreaPillHtml', 'quoteAreaWarningHtml'];
+  const srcs = names.map(n => extractFn(admin, n));
+  const ecc = extractFn(admin, 'extractCleanCity');
+  const shareSrc = (admin.match(/const SERVICE_AREA_MIN_SHARE = [^;]+;/) || [''])[0];
+  check('S436', 'the rule and its helpers were found', srcs.every(Boolean) && !!ecc && !!shareSrc, names.filter((n, i) => !srcs[i]).join(', '));
+  if (srcs.every(Boolean) && ecc && shareSrc) {
+    const F = new Function('esc', 'let serviceAreaMemo = null;' + shareSrc + ecc + srcs.join('\n') +
+      ';return {counts: serviceAreaCounts, town: quoteTownOf, check: quoteAreaCheck, words: quoteAreaWords, pill: quoteAreaPillHtml, note: quoteAreaWarningHtml, ' +
+      'reset: function(){ serviceAreaMemo = null; }, share: SERVICE_AREA_MIN_SHARE};')(s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'));
+    check('S436', 'the line is one house in a hundred', F.share === 0.01, String(F.share));
+    /* A book shaped the way the real one is: the big towns, one EXACTLY on the line, one just under it, and
+       her three examples. 1000 houses, so Vineyard (10) is exactly 1% and in, Lindon (9) is 0.9% and out.
+       ⚠ EXACTLY, not near: the first draft had 985 houses, Vineyard sat at 1.02%, and a sabotage turning
+       `>=` into `>` sailed through — the boundary check could not fail. */
+    const book = [];
+    const add = (town, n) => { for (let i = 0; i < n; i++) book.push({ id: town + i, data: { city: i % 3 === 0 ? town + ', UT 84000' : town } }); };
+    add('Lehi', 915); add('American Fork', 60); add('Vineyard', 10); add('Lindon', 9); add('Salem', 5); add('North Salt Lake', 1);
+    const c = F.counts(book);
+    check('S436', 'RUN: the book is counted by cleaned town — "Lehi, UT 84000" and "Lehi" are one town', c.total === 1000 && c.counts.lehi === 915 && c.counts['american fork'] === 60);
+    const salem = F.check({ city: 'Salem', address: '2 Elm St, Salem 84653' }, book);
+    check('S436', 'RUN: Salem (5 houses, 0.5%) is outside', salem && salem.town === 'Salem' && salem.count === 5 && salem.total === 1000, JSON.stringify(salem));
+    check('S436', 'RUN: its words name the count so the office can judge', F.words(salem) === 'Only 5 of our 1000 houses are in Salem (0.5%).', F.words(salem));
+    const nsl = F.check({ city: 'North Salt Lake' }, book);
+    check('S436', 'RUN: North Salt Lake (1 house) is outside, and one house reads "is"', nsl && nsl.count === 1 && /^Only 1 of our 1000 houses is in North Salt Lake/.test(F.words(nsl)));
+    const tooele = F.check({ address: '9 Far Rd, Tooele 84074' }, book);
+    check('S436', 'RUN: Tooele (no houses) is outside, with the town read off the ADDRESS when the quote has no city', tooele && tooele.town === 'Tooele' && tooele.count === 0 && F.words(tooele) === 'We have no houses in Tooele.');
+    check('S436', 'RUN: Lehi is inside, whatever the case or the state and zip around it',
+      F.check({ city: 'lehi' }, book) === null && F.check({ city: 'Lehi, UT 84043' }, book) === null && F.check({ address: '1 Main St, Lehi 84043' }, book) === null);
+    check('S436', 'RUN: a town exactly on the line is inside, one just under it is outside (Vineyard 10 in, Lindon 9 out)',
+      F.check({ city: 'Vineyard' }, book) === null && F.check({ city: 'Lindon' }, book) !== null);
+    check('S436', 'RUN: the city on the quote wins over the address when both are there',
+      (F.check({ city: 'Salem', address: '1 Main St, Lehi' }, book) || {}).town === 'Salem');
+    check('S436', 'RUN: no town anywhere on the quote → nothing said (never a warning about a blank)',
+      F.check({}, book) === null && F.check({ city: '', address: '' }, book) === null && F.check({ address: '84043' }, book) === null && F.check(null, book) === null);
+    F.reset();
+    check('S436', 'RUN: a book that has not loaded says nothing — fail safe while loading, not every card shouting',
+      F.check({ city: 'Tooele' }, []) === null && F.check({ city: 'Tooele' }, null) === null && F.check({ city: 'Tooele' }, [{ id: 'x', data: {} }]) === null);
+    check('S436', 'RUN: the pill and the note are empty strings for a town we work, so they add nothing to ~50 ordinary cards',
+      F.pill({ city: 'Lehi' }, book) === '' && F.note({ city: 'Lehi' }, book) === '');
+    const pill = F.pill({ city: 'Tooele' }, book), note = F.note({ city: 'Tooele' }, book);
+    check('S436', 'RUN: the pill names the town and carries the words as its title', /class="status-pill quote-area-pill"/.test(pill) && /Outside our area &middot; Tooele/.test(pill) && /title="We have no houses in Tooele\."/.test(pill), pill);
+    check('S436', 'RUN: the note names the town, the count and that it is a check, not a refusal', /class="quote-area-warning"/.test(note) && /Outside our usual area — Tooele\./.test(note) && /check before pricing or converting/.test(note), note);
+    const evil = F.note({ city: 'Tooele<b>x</b>' }, book) + F.pill({ city: 'Tooele<b>x</b>' }, book);
+    check('S436', 'RUN: the town goes through esc — a typed town cannot open a tag', !/<b>/.test(evil) && /&lt;b/.test(evil), evil);
+    /* the memo: once per render. Mutating the list without changing its length is served from the memo
+       (the documented limit), and clearing the memo — which renderQuoteRows does at its top — recounts. */
+    F.reset();
+    const live = book.slice();
+    F.counts(live);
+    live[0].data.city = 'Tooele';
+    check('S436', 'RUN: the same list at the same length is answered from the memo', F.counts(live).counts.tooele === undefined);
+    F.reset();
+    check('S436', 'RUN: and a cleared memo recounts', F.counts(live).counts.tooele === 1);
+    live[0].data.city = 'Lehi, UT 84000';
+  }
+  const rqr = (() => { const s = admin.indexOf('function renderQuoteRows(filtered){'); const e = admin.indexOf('attachDeleteHandlers(list);', s); return s === -1 || e === -1 ? '' : stripComments(admin.slice(s, e)); })();
+  check('S436', 'renderQuoteRows was found', rqr.length > 1000);
+  check('S436', 'the card asks both helpers, against the live book', /quoteAreaPillHtml\(d, jobAddresses\)/.test(rqr) && /quoteAreaWarningHtml\(d, jobAddresses\)/.test(rqr));
+  check('S436', 'the pill sits inside the badge line — after it opens, before the address button closes it',
+    rqr.indexOf('row-name-line') < rqr.indexOf('quoteAreaPillHtml(d, jobAddresses)') && rqr.indexOf('quoteAreaPillHtml(d, jobAddresses)') < rqr.indexOf('address-link-btn'));
+  check('S436', 'the note comes after the phone line and before the contact-match box',
+    rqr.indexOf('row-phone-line') < rqr.indexOf('quoteAreaWarningHtml(d, jobAddresses)') && rqr.indexOf('quoteAreaWarningHtml(d, jobAddresses)') < rqr.indexOf('quoteContactMatchHtml(item)'));
+  check('S436', 'the memo is cleared at the top of every render', /serviceAreaMemo = null;/.test(rqr) && rqr.indexOf('serviceAreaMemo = null;') < rqr.indexOf('filtered.forEach('));
+  check('S436', 'it warns, it never refuses — nothing on the card is gated on the rule (only the two html helpers ask it)',
+    !/quoteAreaCheck\(/.test(rqr) && (stripComments(admin).match(/quoteAreaCheck\(/g) || []).length === 3);
+  check('S436', 'nothing writes a service-area answer to a quote or a customer — it is derived on every draw',
+    !/(updateDoc|setDoc|addDoc)\([^;]*(serviceArea|quoteArea|outOfArea)/.test(stripComments(admin)));
 }

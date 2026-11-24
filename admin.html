@@ -18357,6 +18357,93 @@ function showConvertQuoteChoice(quoteId, d){
     autoConvertQuoteToCustomer(quoteId, d, wire);
   });
 }
+/* ⭐ A QUOTE FROM OUTSIDE WHERE WE WORK IS SAID ON THE CARD ([[QT-60]], 2026-11-23).
+   Addie: "For quotes on the admin page can we have a boundary with a warning outside our
+   boundary? We don't do toole, north salt lake, salem, If you look at the citys we do have
+   then you can see what we do but if it has a low percentage of houses then we probably
+   don't do those on the regular."
+
+   ⭐ THE BOUNDARY IS READ OFF THE BOOK, NEVER TYPED. A town is one we work when at least
+   SERVICE_AREA_MIN_SHARE of the customers on file are in it — one in a hundred, about ten
+   houses on a book of ~960. Measured on the live book the day this was built: Lehi 175,
+   American Fork 75 … Vineyard 10 are in; Lindon 8, West Jordan 7, Cottonwood Heights 6,
+   Murray 5, Salem 5, Spanish Fork 4, Payson 2, Santaquin 2 and five towns holding one
+   house each are out; Tooele has none. That is her own rule — her three examples hold 0,
+   1 and 5 houses — and it moves on its own as the book does, so nobody keeps a list.
+   ⚠ A TYPED LIST WAS CONSIDERED AND NOT BUILT. The public site's Areas We Serve already
+   names 29 towns, Salem, Payson and Santaquin among them, so it is a second opinion about
+   where we work; a hand-kept list here would be a third, and the one nobody looks at is
+   the one that goes stale.
+
+   ⚠ IT WARNS, IT NEVER REFUSES. The office can still price, send and convert — a one-off
+   house a mile past the line is their call, and the card says how many houses we have in
+   that town so they can make it. Nothing is written to the quote.
+
+   ⚠ IT SAYS NOTHING IT CANNOT KNOW. No town on the quote and none readable off the
+   address → no warning. A book that has not loaded yet → no warning, rather than every
+   card shouting for the second after login (cnFreePool's rule: fail safe while loading).
+
+   ⚠ THE TOWN IS READ TWO WAYS, IN ORDER: the quote's own `city` (the public form writes
+   it), then the one-line `address` (an office- or portal-raised quote carries only that —
+   see the server's quote-to-customer split), both through extractCleanCity so
+   "Lehi, UT 84043" and "Lehi" are one town. Compared lower-cased.
+
+   ⚠ THE BOOK IS COUNTED ONCE PER RENDER (serviceAreaMemo, cleared at the top of
+   renderQuoteRows): ~960 customers per card over a list of fifty cards is the shape that
+   has locked this page up before. */
+const SERVICE_AREA_MIN_SHARE = 0.01;
+let serviceAreaMemo = null;
+function serviceAreaCounts(customers){
+  const list = Array.isArray(customers) ? customers : [];
+  if(serviceAreaMemo && serviceAreaMemo.src === list && serviceAreaMemo.n === list.length) return serviceAreaMemo.val;
+  const counts = {};
+  let total = 0;
+  list.forEach(function(a){
+    const d = a && a.data;
+    if(!d) return;
+    const town = extractCleanCity(d.city || '').toLowerCase();
+    if(!town) return;
+    counts[town] = (counts[town] || 0) + 1;
+    total++;
+  });
+  const val = {counts: counts, total: total};
+  serviceAreaMemo = {src: list, n: list.length, val: val};
+  return val;
+}
+function quoteTownOf(d){
+  const q = d || {};
+  return extractCleanCity(q.city || '') || extractCleanCity(q.address || '');
+}
+/* null = nothing to say; otherwise {town, count, total, share} for a town under the line. */
+function quoteAreaCheck(d, customers){
+  const town = quoteTownOf(d);
+  if(!town) return null;
+  const book = serviceAreaCounts(customers);
+  if(!book.total) return null;
+  const count = book.counts[town.toLowerCase()] || 0;
+  const share = count / book.total;
+  if(share >= SERVICE_AREA_MIN_SHARE) return null;
+  return {town: town, count: count, total: book.total, share: share};
+}
+function quoteAreaWords(a){
+  if(!a) return '';
+  if(!a.count) return 'We have no houses in ' + a.town + '.';
+  const pct = Math.round(a.share * 1000) / 10;
+  return 'Only ' + a.count + ' of our ' + a.total + ' houses ' + (a.count === 1 ? 'is' : 'are') + ' in ' + a.town + ' (' + pct + '%).';
+}
+function quoteAreaPillHtml(d, customers){
+  const a = quoteAreaCheck(d, customers);
+  if(!a) return '';
+  return ' <span class="status-pill quote-area-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;" title="' + esc(quoteAreaWords(a)) + '">&#9888; Outside our area &middot; ' + esc(a.town) + '</span>';
+}
+function quoteAreaWarningHtml(d, customers){
+  const a = quoteAreaCheck(d, customers);
+  if(!a) return '';
+  return '<div class="quote-area-warning" style="margin-top:6px; background:#FDECEA; border:1px solid #F5B5B0; border-radius:10px; padding:8px 12px; font-size:13px; color:#7F1D1D;">' +
+    '<strong>&#9888; Outside our usual area — ' + esc(a.town) + '.</strong> ' + esc(quoteAreaWords(a)) +
+    ' We don’t normally take houses there — check before pricing or converting.' +
+    '</div>';
+}
 /* ⭐ WHAT KIND OF QUOTE THIS IS. Owner, 2026-08-18: "lets make every quote
    labeled as first time quote, color change, house addition", then "one of the
    three, or if i forgot something also that".
@@ -18407,6 +18494,7 @@ function quoteKindLabel(d){
 function renderQuoteRows(filtered){
   const list = document.getElementById('quotesList');
   let html = '';
+  serviceAreaMemo = null; /* count the book once for this render — see serviceAreaCounts */
   filtered.forEach(function(item){
     const d = item.data;
     const status = d.status || 'new';
@@ -18435,9 +18523,11 @@ function renderQuoteRows(filtered){
             : ' <span class="status-pill" style="background:#E6F0E9; color:#2E6B3E; font-weight:700;">New house</span>')) : '')+
         (d.quoteArchived ? ' <span class="status-pill" style="background:#F0EFEC; color:#6E6858;">Archived'+(d.quoteArchivedReason ? ' \u2014 '+esc(d.quoteArchivedReason) : '')+'</span>' : '')+
         (d.smsOptedOut ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C;">No texts (STOP)</span>' : '')+
-        (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+'</div>'+
+        (Number(d.quoteNudgeCount) ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Nudged '+d.quoteNudgeCount+'&times;</span>' : '')+(d.existingCustomerAddressChange ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Existing Customer &mdash; Address Changed</span>' : '')+(d.approvalStatus === 'approved' ? ' <span class="status-pill status-paid">&#10003; Approved</span>' : '')+(d.approvalStatus === 'declined' ? ' <span class="status-pill status-due">Declined</span>' : '')+(d.approvalStatus === 'maybe_next_year' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>' : '')+(isStaleUnresponsive(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9200; 10 Day Unresponsive</span>' : '')+(d.outletTimer === 'Yes' ? ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">&#9201; Wants Timer</span>' : '')+quoteAreaPillHtml(d, jobAddresses)+'</div>'+
         '<button type="button" class="address-link-btn" data-previewquoteaddr="'+esc(d.address)+'">'+esc(d.address)+'</button>'+mapOpenLinkHtml(d.address)+
         '<div class="row-phone-line">'+esc(d.phone)+' &middot; '+esc(d.email)+' &middot; '+fmtDate(d.createdAt)+'</div>'+
+        /* [[QT-60]]: a town under the line is said here, once, under the address it is about. */
+        quoteAreaWarningHtml(d, jobAddresses)+
         quoteContactMatchHtml(item)+
         /* ⭐ THE CONTACT DETAILS ARE EDITABLE HERE, AND ONLY HERE. Until
            2026-08-19 a quote card could change the feet, the price, the set-up
