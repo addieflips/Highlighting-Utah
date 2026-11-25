@@ -5391,14 +5391,14 @@ function renderPortalHouses(){
   box.innerHTML = '<div style="font-weight:700; margin-bottom:6px;">Who this bill covers &mdash; ' + portalHouses.length + ' properties</div>' +
     portalHouses.map(function(h){
       var label = h.propertyLabel ? ' <span style="opacity:.75;">(' + escapeHtmlPortal(h.propertyLabel) + ')</span>' : '';
-      var state = h.removalDone ? 'taken down'
+      var state = portalScheduleHidden(h.scheduledDate) ? '' : h.removalDone ? 'taken down'
                 : (h.completed ? 'installed'
                 : (h.scheduledDate ? 'scheduled for ' + escapeHtmlPortal(portalNiceDate(h.scheduledDate)) : 'not scheduled yet'));
       var price = (Number(h.housePrice) || 0) > 0
         ? '<span style="float:right; font-weight:600;">' + fmt(Number(h.housePrice)) + '</span>' : '';
       return '<div style="padding:4px 0; border-top:1px solid #C3D8EC;">' + price +
              '<div style="font-weight:600;">' + escapeHtmlPortal(h.name || 'Name not on file') + label + '</div>' +
-             '<div style="opacity:.8;">' + escapeHtmlPortal(h.address || 'address on file') + ' &mdash; ' + state + '</div>' +
+             '<div style="opacity:.8;">' + escapeHtmlPortal(h.address || 'address on file') + (state ? ' &mdash; ' + state : '') + '</div>' +   // [[SCH-171]]
              '</div>';
     }).join('') +
     '<div style="margin-top:8px; opacity:.85;">' +
@@ -5574,6 +5574,19 @@ function renderScheduleStrip(rec){
   var strip = document.getElementById('portalScheduleStrip');
   if(!strip) return;
   if(!rec){ strip.style.display = 'none'; return; }
+  /* ⛔ [[SCH-171]] NOTHING ABOUT SCHEDULING IN THE PORTAL THIS SEASON BUT ONE LINE WITH NO DATE IN IT. The owner, 2026-11-25:
+     "Everything about scheduling is turned off in virtual office but scheduling in admin portal stays as it is", then "Can
+     say something like weather can delay install date or something but nothing that says an actual date." So for the 2026
+     season a house still waiting for its lights reads one weather line — no day, no window, no week, no month — and an
+     installed, taken-down, declined or sitting-out house reads nothing. See portalScheduleHidden. */
+  if(portalScheduleHidden(rec.scheduledDate)){
+    var st26 = String(rec.rsvpStatus || '').toLowerCase();
+    if(rec.completed || rec.removalDone || st26 === 'no' || st26 === 'backnextyear'){ strip.style.display = 'none'; return; }
+    strip.style.background = '#EAF1FA'; strip.style.border = '1px solid #C3D8EC'; strip.style.color = '#2B5C8A';
+    strip.textContent = '\ud83c\udf28 Install timing depends on the weather, so we don\'t list an exact date here. We\'ll reach out before our crew comes.';
+    strip.style.display = 'block';
+    return;
+  }
 
   var when = rec.scheduledDate ? portalNiceDate(rec.scheduledDate) : '';
   var text = '', card = '', bg = '#EAF1FA', bd = '#C3D8EC', fg = '#2B5C8A';
@@ -5605,12 +5618,6 @@ function renderScheduleStrip(rec){
        neighbours and looks bad when somebody with a deadline moves ahead. */
     text = portalWindowText(rec);
     if(String(rec.installWindowReason || '') === 'weather'){ bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16'; }
-  } else if(when && String(rec.scheduledDate).slice(0, 4) < '2027'){
-    /* ⛔ [[SCH-170]] (2026-11-25) WINDOWS START WITH THE 2027 SEASON. The owner: "I thought I said schedule shouldn't start
-       for next year but it looks like it is showing for this year." So an install day before 2027 is shown as the day, in
-       exactly the words this line used before [[SCH-158]] shipped. The year is read off the install day itself, the same
-       cut admin.html makes with INSTALL_WINDOWS_FROM; change one, change the other. */
-    text = '\ud83d\udcc5 Scheduled for ' + when + '. You don\'t need to be home, and we\'ll text if the weather moves us.';
   } else if(when){
     /* a record the mirror has not reached yet (older plan, or the window not published): the week, never the day */
     text = '\ud83d\udcc5 Estimated install: the week of ' + portalNiceDate(portalWeekMondayOf(rec.scheduledDate)) + '. We\'ll text your exact day the evening before.';
@@ -5654,6 +5661,17 @@ function renderScheduleStrip(rec){
 /* [[SCH-160]] The exact day is shown only when the office has texted it as confirmed for THAT day and the day has not
    gone. installConfirmedFor is stamped by "Mark as texted" on the Schedule's Texts tab; a confirmation for a day the
    plan has since left is not a confirmation. Compared as plain YYYY-MM-DD strings, like everything else on the record. */
+/* ⛔ [[SCH-171]] (2026-11-25) WHETHER THE PORTAL SAYS ANYTHING ABOUT SCHEDULING. Hidden for the whole 2026 season: while
+   today is before 2027, and for any install day before 2027 after that (a record Start New Season has not reached yet).
+   The admin Schedule is untouched by this — it only decides what the CUSTOMER is shown. The 2027 cut is the same one
+   admin.html makes with INSTALL_WINDOWS_FROM; change one, change the other. */
+function portalScheduleHidden(dateStr){
+  var n = new Date();
+  var today = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+  if(today < '2027-01-01') return true;
+  var d = String(dateStr || '');
+  return /^\d{4}-/.test(d) && d.slice(0, 4) < '2027';
+}
 function portalConfirmedDay(rec){
   var c = String((rec && rec.installConfirmedFor) || ''), d = String((rec && rec.scheduledDate) || '');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(c) || c !== d) return false;

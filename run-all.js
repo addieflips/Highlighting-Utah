@@ -6477,6 +6477,8 @@ suite('10f. Portal sign-in reads, and multi-property customers');
     } else {
       const dom = new JSDOM('<div id="invHouses"></div>');
       const render = new Function('document', 'escapeHtmlPortal', 'portalNiceDate', 'fmt',
+        /* [[SCH-171]] the row's scheduling line asks portalScheduleHidden — lifted, never stubbed */
+        (extractFn(idx, 'portalScheduleHidden') || '') + '\n' +
         'return function(houses){ var portalHouses = houses;\n' + rphSrc +
         '\nrenderPortalHouses(); return document.getElementById("invHouses"); };'
       )(dom.window.document,
@@ -6502,6 +6504,13 @@ suite('10f. Portal sign-in reads, and multi-property customers');
         render([{ address: '1 Elm' }, { address: '2 Oak' }]).innerHTML.indexOf('Name not on file') !== -1,
         'dropping the row would leave a list that no longer adds up to the total');
 
+      /* [[SCH-171]] the owner, 2026-11-25: "Everything about scheduling is turned off in virtual office". This suite runs on
+         the real clock, which is the 2026 season until New Year's Day, so the rows must carry no scheduled/installed line. */
+      if (new Date().getFullYear() < 2027) {
+        check('multi-house', 'this season no row says when a house is scheduled or that it is installed',
+          !/scheduled for|installed|not scheduled yet|Oct 3/i.test(two.innerHTML) && two.innerHTML.indexOf('2 Oak') !== -1,
+          'the portal shows nothing about scheduling in the 2026 season');
+      }
       const one = render([{ name: 'Solo Jones', address: '9 Vine', housePrice: 200 }]);
       check('multi-house', 'the ordinary one-house customer sees nothing at all',
         one.style.display === 'none',

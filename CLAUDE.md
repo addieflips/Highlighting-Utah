@@ -90,7 +90,7 @@ touching scheduling must know before editing anything:
 
 ## ⭐ INSTALL WINDOWS (2026-11-23) — THE CUSTOMER IS TOLD A WEEK, AND THE PLANNER KEEPS IT
 
-⛔ **NEXT SEASON ONLY ([[SCH-170]], 2026-11-25):** `INSTALL_WINDOWS_FROM` is 2027-01-01 — a 2026 install day gets no window, old ones are cleared, the portal shows the day. Do not move that date without the owner.
+⛔ **NEXT SEASON ONLY ([[SCH-170]], 2026-11-25):** `INSTALL_WINDOWS_FROM` is 2027-01-01 — a 2026 install day gets no window and old ones are cleared. ⛔ **And the portal says nothing about scheduling this season ([[SCH-171]])** except one no-date weather line (`portalScheduleHidden`); the admin Schedule is unchanged. Do not move either 2027 cut without the owner.
 [[SCH-158]]–[[SCH-162]], from the owner's 2027 *Install Scheduling System Blueprint*; full account in
 `system-map.md` §5, *Install windows, the weather delay and the texts*. Built on Schedule V2, not beside it.
 
