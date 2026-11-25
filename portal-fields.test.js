@@ -479,11 +479,14 @@ check('and neither notice asks the customer to chase us',
     // ---- the open-question strip ---------------------------------------
     {
       const dom = new JSDOM('<div id="portalScheduleStrip" style="display:none"></div>');
-      const fn = new Function('document', 'portalNiceDate',
-        /* [[SCH-160]] the strip reads the window and the confirmed day through four helpers of its own — lifted, never stubbed */
-        lift('portalConfirmedDay') + lift('portalWindowLabel') + lift('portalWindowText') + lift('portalWeekMondayOf') +
-        lift('renderScheduleStrip') + '\nreturn renderScheduleStrip;'
-      )(dom.window.document, v => String(v));
+      /* [[SCH-171]] the strip says nothing about scheduling in the 2026 season, so it is RUN under a clock: 2027 for every
+         check below that is about what it says, 2026 for the checks that it says nothing. The clock is the only stand-in;
+         the five helpers are lifted, never stubbed. */
+      const clockAt = iso => { const R = Date; return class extends R { constructor(...a){ if(a.length) super(...a); else super(iso); } static now(){ return new R(iso).getTime(); } }; };
+      const stripSrc = lift('portalScheduleHidden') + lift('portalConfirmedDay') + lift('portalWindowLabel') + lift('portalWindowText') + lift('portalWeekMondayOf') +
+        lift('renderScheduleStrip') + '\nreturn renderScheduleStrip;';
+      const fn = new Function('document', 'portalNiceDate', 'Date', stripSrc)(dom.window.document, v => String(v), clockAt('2027-06-01T12:00:00'));
+      const fn2026 = new Function('document', 'portalNiceDate', 'Date', stripSrc)(dom.window.document, v => String(v), clockAt('2026-11-25T12:00:00'));
       const el = dom.window.document.getElementById('portalScheduleStrip');
 
       fn({ askSameAsLastYear: true });
@@ -513,16 +516,23 @@ check('and neither notice asks the customer to chase us',
         /Nov 15\u201319/.test(el.textContent) && !/2027-11-17/.test(el.textContent) && /on track/i.test(el.textContent) && /2027-11-01/.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
       fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
-      /* [[SCH-171]] this season the portal shows NO install day: the owner, "everyone should be on the schedule just not
-         show in the virtual office". The same line an unscheduled customer reads, even with a window or a confirmation on the record. */
+      /* [[SCH-171]] the owner, 2026-11-25: "Everything about scheduling is turned off in virtual office but scheduling in
+         admin portal stays as it is", then "Can say something like weather can delay install date or something but nothing
+         that says an actual date." In the 2026 season a waiting house reads ONE weather line and nothing with a date in it. */
+      const hiddenAfter = rec => { el.style.display = 'block'; el.textContent = 'stale'; fn2026(rec); return el.style.display === 'none'; };
+      const weatherOnly = rec => { el.style.display = 'none'; el.textContent = 'stale'; fn2026(rec);
+        const t = el.textContent;
+        return el.style.display === 'block' && /weather/i.test(t) && !/\d/.test(t) &&
+          !/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|week of|window|Confirmed|Scheduled for/i.test(t); };
+      check('this season a scheduled house reads only the weather line, with no date, day, week or month in it', weatherOnly({ scheduledDate: '2026-11-18' }), JSON.stringify(el.textContent));
+      check('and so does a house with a window or a confirmation on the record, an unscheduled one, and a re-quote question',
+        weatherOnly({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installConfirmedFor: '2026-11-18' }) &&
+        weatherOnly({}) && weatherOnly({ askSameAsLastYear: true }));
+      check('an installed, taken-down, declined or sitting-out house reads nothing at all',
+        hiddenAfter({ completed: true, scheduledDate: '2026-11-12' }) && hiddenAfter({ removalDone: true }) && hiddenAfter({ rsvpStatus: 'no' }) &&
+        hiddenAfter({ rsvpStatus: 'backnextyear' }));
       fn({ scheduledDate: '2026-11-18' });
-      check('a 2026 install day is not shown in the portal',
-        /on the list for this season/i.test(el.textContent) && !/2026-11-18/.test(el.textContent) && !/week of|window|Scheduled for/i.test(el.textContent),
-        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
-      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked', installConfirmedFor: '2026-11-18' });
-      check('and neither is a 2026 window or a 2026 confirmation still on the record',
-        /on the list for this season/i.test(el.textContent) && !/window|Confirmed|2026-11-18/i.test(el.textContent),
-        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      check('and a 2026 install day left on a record into 2027 never shows its date', !/18|Nov/.test(el.style.display === 'none' ? '' : el.textContent));
       fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
       check('and a window moved by weather says so',
         /weather/i.test(el.textContent) && !/on track/i.test(el.textContent),

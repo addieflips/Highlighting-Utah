@@ -90,15 +90,19 @@ test.describe('Member Portal', () => {
    * the invoice record (INVOICE_READ_FIELDS: no scheduledDate, no completed, no
    * window) and every customer read "You're on the list". The jsdom gate hands
    * renderScheduleStrip a record directly and could not see it; only a browser can. */
+  /* [[SCH-171]] the strip says nothing this season, so these two run with the page clock in the 2027 season. */
   test('the schedule strip shows the installed day once the customer record lands', async ({ page }) => {
-    const cust = CUSTOMERS.standard; // completed on 2026-11-12 in the fixture
-    await open(page, `/index.html#/payment?token=${cust.token}`);
+    await page.clock.setFixedTime(new Date('2027-11-20T12:00:00'));
+    const cust = JSON.parse(JSON.stringify(CUSTOMERS.standard));
+    Object.assign(cust.record, { completed: true, scheduledDate: '2027-11-12' });
+    await open(page, `/index.html#/payment?token=${cust.token}`, { customers: { standard: cust } });
     const strip = page.locator('#portalScheduleStrip');
-    await expect(strip).toContainText(/Installed on Thursday, November 12/);
+    await expect(strip).toContainText(/Installed on Friday, November 12/);
     await expect(strip).not.toContainText(/on the list for this season/);
   });
 
   test('the schedule strip shows the promised install window, never the day', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2027-10-01T12:00:00'));
     const cust = JSON.parse(JSON.stringify(CUSTOMERS.standard));
     Object.assign(cust.record, {
       completed: false, scheduledDate: '2027-11-17',
@@ -111,9 +115,9 @@ test.describe('Member Portal', () => {
     await expect(strip).not.toContainText(/Nov 17/);
   });
 
-  /* [[SCH-171]] this season the portal shows no install day at all, even if a window written for it is still on the
-   * record: the owner, "everyone should be on the schedule just not show in the virtual office". */
-  test('this season the schedule strip shows no install day and no window', async ({ page }) => {
+  /* [[SCH-171]] this season the portal says nothing about scheduling: the owner, "Everything about scheduling is turned
+   * off in virtual office but scheduling in admin portal stays as it is." Run on the real clock (2026). */
+  test('this season the portal shows only a weather line, never a date', async ({ page }) => {
     const cust = JSON.parse(JSON.stringify(CUSTOMERS.standard));
     Object.assign(cust.record, {
       completed: false, scheduledDate: '2026-11-18',
@@ -122,8 +126,12 @@ test.describe('Member Portal', () => {
     });
     await open(page, `/index.html#/payment?token=${cust.token}`, { customers: { standard: cust } });
     const strip = page.locator('#portalScheduleStrip');
-    await expect(strip).toContainText(/on the list for this season/);
-    await expect(strip).not.toContainText(/window|November 18|Scheduled for/i);
+    /* wait for the customer record to land (the name fills from it), then the strip must still be hidden */
+    await openTab(page, 'info');
+    await expect(page.locator('#infoName')).toHaveValue(cust.record.name);
+    await openTab(page, 'payment');
+    await expect(strip).toContainText(/weather/);
+    await expect(strip).not.toContainText(/\d|November|Wednesday|window|Scheduled for/);
   });
 
   /* ---- t11 — paying by card ---------------------------------------------

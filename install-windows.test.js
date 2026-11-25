@@ -129,14 +129,15 @@ check('the Texts tab says windows start with 2027 while they have not', /if\(!in
 {
   const idx = read('index.html');
   const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
-  /* ⚠ REPOINTED 2026-11-25 ([[SCH-171]]): the owner, the same day, "everyone should be on the schedule just not show in the
-     virtual office" — a pre-2027 install shows NO day in the portal, only the on-the-list line. */
-  check('the portal shows no install day for a pre-2027 install, only the on-the-list line', (function(){
-    const g = strip.indexOf("when && String(rec.scheduledDate).slice(0, 4) < '2027'){"), next = strip.indexOf('} else if(when){', g);
-    const branch = g === -1 ? '' : strip.slice(g, next === -1 ? undefined : next).replace(/\/\*[\s\S]*?\*\//g, '');
-    return !!branch && /on the list for this season/.test(branch) && !/when|scheduledDate\)\s*\+|portalNiceDate/.test(branch.slice(branch.indexOf('{') + 1));
+  /* ⚠ REPOINTED 2026-11-25 ([[SCH-171]]): the owner, "Everything about scheduling is turned off in virtual office but
+     scheduling in admin portal stays as it is." The strip's first act is to hide itself for the 2026 season. */
+  check('the portal strip speaks only its no-date weather line in the 2026 season, before anything else', /if\(portalScheduleHidden\(rec\.scheduledDate\)\)\{[\s\S]{0,400}?strip\.style\.display = 'none'; return; \}\s*strip\.style\.background[^\n]*\n\s*strip\.textContent = '[^\n]*weather[^\n]*';\s*strip\.style\.display = 'block';\s*return;/.test(strip.replace(/\/\*[\s\S]*?\*\//g, '')) && (function(){
+    const code = strip.replace(/\/\*[\s\S]*?\*\//g, '');
+    const gate = code.indexOf('if(portalScheduleHidden(rec.scheduledDate)){');
+    return gate !== -1 && gate < code.indexOf('var when') && gate < code.indexOf('rec.removalDone');
   })());
-  check('and the confirmed day is never shown before 2027 either', /portalConfirmedDay\(rec\) && String\(rec\.scheduledDate\)\.slice\(0, 4\) >= '2027'/.test(strip));
+  check('and the cut is today before 2027, or an install day before 2027', /function portalScheduleHidden\(dateStr\)\{[\s\S]{0,400}today < '2027-01-01'\) return true;[\s\S]{0,200}d\.slice\(0, 4\) < '2027'/.test(idx));
+  check('and the houses on a bill lose their scheduling line with it', /var state = portalScheduleHidden\(h\.scheduledDate\) \? '' :/.test(idx));
   check('and never shows a window whose start is before 2027', /String\(rec\.installWindowStart \|\| ''\)\.slice\(0, 4\) >= '2027' && portalWindowText\(rec\)/.test(strip));
   check('the portal and the page cut at the same year', /let INSTALL_WINDOWS_FROM = '2027-01-01';/.test(admin));
 }
