@@ -5595,7 +5595,7 @@ function renderScheduleStrip(rec){
       '<div style="font-size:26px; font-weight:700; line-height:1.15; margin:4px 0 8px;">' + portalNiceDate(rec.scheduledDate) + '</div>' +
       '<div style="font-weight:500;">Please make sure our crew can reach your outlets and the yard \u2014 you don\'t need to be home.</div>';
     bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
-  } else if(portalWindowText(rec)){
+  } else if(String(rec.installWindowStart || '').slice(0, 4) >= '2027' && portalWindowText(rec)){   // [[SCH-170]]
     /* \u2b50 THE WINDOW, NOT THE DAY ([[SCH-158]] / [[SCH-160]], 2026-11-23). The owner's 2027 blueprint: "Customers get an
        estimated one-week window, not a fixed date, and the exact day is confirmed by text the evening before." Until
        now this line printed scheduledDate itself, which the Schedule re-lays on every Recalculate \u2014 so a customer
@@ -5605,6 +5605,12 @@ function renderScheduleStrip(rec){
        neighbours and looks bad when somebody with a deadline moves ahead. */
     text = portalWindowText(rec);
     if(String(rec.installWindowReason || '') === 'weather'){ bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16'; }
+  } else if(when && String(rec.scheduledDate).slice(0, 4) < '2027'){
+    /* ⛔ [[SCH-170]] (2026-11-25) WINDOWS START WITH THE 2027 SEASON. The owner: "I thought I said schedule shouldn't start
+       for next year but it looks like it is showing for this year." So an install day before 2027 is shown as the day, in
+       exactly the words this line used before [[SCH-158]] shipped. The year is read off the install day itself, the same
+       cut admin.html makes with INSTALL_WINDOWS_FROM; change one, change the other. */
+    text = '\ud83d\udcc5 Scheduled for ' + when + '. You don\'t need to be home, and we\'ll text if the weather moves us.';
   } else if(when){
     /* a record the mirror has not reached yet (older plan, or the window not published): the week, never the day */
     text = '\ud83d\udcc5 Estimated install: the week of ' + portalNiceDate(portalWeekMondayOf(rec.scheduledDate)) + '. We\'ll text your exact day the evening before.';

@@ -85,6 +85,55 @@ const iso = d => H.api.isoOf(d);
 const dayStr = d => iso(H.api.dayDate(d));
 const local = s => { const p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
 
+/* ================================================================================================================== */
+suite('SCH-170 Windows start with the 2027 season: the 2026 season gets none, and loses any already written');
+if(H){
+  /* The owner, 2026-11-25: "I thought I said schedule shouldn't start for next year but it looks like it is showing for this
+     year." Everything below this suite runs NEXT season's rules on this season's fixtures, by moving the harness's copy of
+     INSTALL_WINDOWS_FROM back a year. This suite runs FIRST, against the value admin.html ships. */
+  check('the page ships the gate at 1 January 2027', H.api.windowsFrom() === '2027-01-01', H.api.windowsFrom());
+  check('a 2026 install day is not live, a 2027 one is', !H.api.installWindowsLiveFor('2026-11-24') && H.api.installWindowsLiveFor('2027-10-12'));
+  const book = makeBook(60, 9090);
+  H.setNow(T0); H.load(book, {});
+  H.press();
+  const onDays = Object.keys(H.api.comingInstallByCustomer()).length;
+  check('the 2026 fixture has customers on coming days', onDays > 30, onDays + '');
+  check('and not one of them is given a window', (H.api.installWindowDiffs(book, {}) || []).filter(x => x.set).length === 0);
+  /* a window written on 23 November for a 2026 day — what the live book holds — is cleared, count, texted mark and all */
+  const victims = book.slice(0, 5);
+  victims[0].data.installWindowStart = '2026-11-23'; victims[0].data.installWindowEnd = '2026-11-27';
+  victims[0].data.installWindowSetAt = '2026-11-23'; victims[0].data.installWindowReason = 'booked'; victims[0].data.installWindowChanges = 0;
+  victims[0].data.installWindowTextedFor = '2026-11-23|2026-11-27';
+  victims[1].data.installWindowStart = '2026-11-09'; victims[1].data.installWindowEnd = '2026-11-13'; victims[1].data.completed = true;
+  victims[2].data.installConfirmedFor = '2026-11-24'; victims[2].data.missedTextedFor = '2026-11-20';
+  const diffs = H.api.installWindowDiffs(book, {}) || [];
+  const d0 = diffs.find(x => x.id === victims[0].id), d1 = diffs.find(x => x.id === victims[1].id);
+  check('a 2026 window is cleared, with its reason, count and texted mark', d0 && !d0.set && d0.gated &&
+    ['installWindowStart', 'installWindowEnd', 'installWindowSetAt', 'installWindowReason', 'installWindowChanges', 'installWindowTextedFor'].every(k => d0.updates[k] === null), JSON.stringify(d0));
+  check('even on a house whose lights are already up', d1 && d1.gated);
+  check('the confirmation and missed-text stamps are left alone — those lists still run this season', !diffs.some(x => x.id === victims[2].id));
+  check('the clear touches no other field', d0 && Object.keys(d0.updates).length === 6);
+  H.api.applyInstallWindowDiffsLocally(diffs);
+  check('and once applied there is nothing left to clear', (H.api.installWindowDiffs(book, {}) || []).length === 0);
+  const startStr = iso(H.api.dayDate(H.api.installDays()[0]));
+  const h26 = {id: 'cust-26', pref: 'Normal Schedule', city: 'Lehi', winFrom: '2026-11-23', winTo: '2026-11-27'};
+  check('the planner ignores a 2026 window copy still on a house: no floor', H.api.houseAllowedFrom(h26, '2026-10-05') === '2026-10-05', H.api.houseAllowedFrom(h26, '2026-10-05'));
+  check('and no ceiling', H.api.houseDeadline(h26) === '', H.api.houseDeadline(h26));
+  const h27 = {id: 'cust-27', pref: 'Normal Schedule', city: 'Lehi', winFrom: '2027-10-11', winTo: '2027-10-15'};
+  check('a 2027 window copy is still a floor and a ceiling', H.api.houseAllowedFrom(h27, '2026-10-05') === '2027-10-11' && H.api.houseDeadline(h27) === '2027-10-15');
+  /* everything after this point is next season's behaviour, run on these fixtures */
+  H.api.setWindowsFrom('2026-01-01');
+}
+const codeNoComments = admin.replace(/\/\*[\s\S]*?\*\//g, '');
+check('the Texts tab says windows start with 2027 while they have not', /if\(!installWindowsLiveFor\([^)]*scheduleTodayStr[\s\S]{0,200}Install windows start with the 2027 season/.test(codeNoComments));
+{
+  const idx = read('index.html');
+  const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
+  check('the portal shows a pre-2027 install as the day, in the words it used before windows', /when && String\(rec\.scheduledDate\)\.slice\(0, 4\) < '2027'\)\{[\s\S]{0,700}Scheduled for ' \+ when/.test(strip));
+  check('and never shows a window whose start is before 2027', /String\(rec\.installWindowStart \|\| ''\)\.slice\(0, 4\) >= '2027' && portalWindowText\(rec\)/.test(strip));
+  check('the portal and the page cut at the same year', /let INSTALL_WINDOWS_FROM = '2027-01-01';/.test(admin));
+}
+
 if(H){
   /* ================================================================================================================ */
   suite('SCH-159 A day lost to weather');
@@ -455,8 +504,13 @@ suite('What cannot be run is read: the whitelist, the reset, the mirror, the mar
   check('but never the texts log, the crew or the stop order', !/installWindowTextedFor|missedTextedFor/.test(wl));
   const idx = read('index.html');
   const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
-  check('the portal strip no longer prints the planned day as a promise', strip.indexOf("Scheduled for ' + when") === -1 && /portalWindowText\(rec\)/.test(strip) && /portalConfirmedDay\(rec\)/.test(strip));
-  check('the planned day is spoken only once the lights are up or the day is confirmed', (strip.match(/\+ when\b/g) || []).length === 1 && /Installed' \+ \(when/.test(strip) &&
+  /* ⚠ REPOINTED 2026-11-25 ([[SCH-170]]): "Scheduled for" is back, but ONLY for an install day before 2027 — it must sit
+     inside that one guarded branch and nowhere else, so a 2027 house is still never promised the day before confirmation. */
+  check('the portal strip prints the planned day as a promise only for a pre-2027 install', (function(){
+    const at = strip.indexOf("Scheduled for ' + when"), guard = strip.indexOf("slice(0, 4) < '2027'){"), next = strip.indexOf('} else if(when){', guard);
+    return at !== -1 && guard !== -1 && at > guard && (next === -1 || at < next) && strip.indexOf("Scheduled for ' + when", at + 1) === -1;
+  })() && /portalWindowText\(rec\)/.test(strip) && /portalConfirmedDay\(rec\)/.test(strip));
+  check('the planned day is spoken only once the lights are up, the day is confirmed, or (before 2027) as the day itself', (strip.match(/\+ when\b/g) || []).length === 2 && /Installed' \+ \(when/.test(strip) &&
     strip.indexOf('portalNiceDate(rec.scheduledDate)', strip.indexOf('portalConfirmedDay(rec)')) !== -1);
   check('and the strip never shows a queue number', !/#\s*'\s*\+/.test(strip));
   const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');

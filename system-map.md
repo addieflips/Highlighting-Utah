@@ -3228,6 +3228,8 @@ purpose, and the priority and colour-change cases.
 
 ### Install windows, the weather delay and the texts (2026-11-23)
 
+⛔ **FROM THE 2027 SEASON ONLY ([[SCH-170]], 2026-11-25).** It shipped live on 23 November and ran on 2026 for two days, which the owner had not asked for. `INSTALL_WINDOWS_FROM` (2027-01-01) and `installWindowsLiveFor` decide it: no window for an install day before that date, any already written cleared by the next sync (`installWindowDiffs`, `gated: true`), the planner ignoring a pre-2027 window copy, and the portal showing a pre-2027 day as *Scheduled for <day>*. The Install day column, the Weather delay button and the confirmed-day card stay on now. Everything below describes the 2027 behaviour.
+
 Rulings [[SCH-158]] to [[SCH-162]], from the owner's *Install Scheduling System Blueprint* for the
 2027 season. Built ON Schedule V2: the day builder, the priority ladder, the lock and the crew split
 are unchanged; what changed is what a customer is TOLD, and that the planner then keeps it.

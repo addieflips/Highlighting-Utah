@@ -501,16 +501,28 @@ check('and neither notice asks the customer to chase us',
          before, so a date in hand is still told about — as the week it falls in — and the "working it out" line still
          must not appear. 18 November 2026 is a Wednesday; its Monday is the 16th. The two branches that give the day
          itself are checked just below. */
-      fn({ askSameAsLastYear: true, scheduledDate: '2026-11-18' });
+      /* ⚠ MOVED TO 2027 ON 2026-11-25 ([[SCH-170]]): windows and the week-of line start with the 2027 season; a 2026 day
+         is shown as the day again, checked just below. 17 November 2027 is a Wednesday; its Monday is the 15th. */
+      fn({ askSameAsLastYear: true, scheduledDate: '2027-11-17' });
       check('but a house with a date is told its install week, flag or no flag',
-        /week of 2026-11-16/.test(el.textContent) && !/2026-11-18/.test(el.textContent) && !/last year/i.test(el.textContent),
+        /week of 2027-11-15/.test(el.textContent) && !/2027-11-17/.test(el.textContent) && !/last year/i.test(el.textContent),
         'a date in hand means it was decided in practice; still saying we are working it ' +
         'out is the same contradiction pointing the other way — and the day itself waits for the confirmation text. got: ' + JSON.stringify(el.textContent.slice(0, 110)));
-      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked', installWindowSetAt: '2026-11-01' });
+      fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'booked', installWindowSetAt: '2027-11-01' });
       check('a published window is what the customer reads, with the day it was set, never the day itself',
-        /Nov 16\u201320/.test(el.textContent) && !/2026-11-18/.test(el.textContent) && /on track/i.test(el.textContent) && /2026-11-01/.test(el.textContent),
+        /Nov 15\u201319/.test(el.textContent) && !/2027-11-17/.test(el.textContent) && /on track/i.test(el.textContent) && /2027-11-01/.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
-      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'weather' });
+      fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
+      /* [[SCH-170]] this season: the day, in the pre-window words, even if a window was written before the sync cleared it */
+      fn({ scheduledDate: '2026-11-18' });
+      check('a 2026 install day is shown as the day, as before windows existed',
+        /Scheduled for 2026-11-18/.test(el.textContent) && !/week of/i.test(el.textContent) && !/window/i.test(el.textContent),
+        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked' });
+      check('and a 2026 window still on the record is never shown',
+        /Scheduled for 2026-11-18/.test(el.textContent) && !/window/i.test(el.textContent),
+        'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
+      fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
       check('and a window moved by weather says so',
         /weather/i.test(el.textContent) && !/on track/i.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
