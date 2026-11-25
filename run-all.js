@@ -17184,7 +17184,8 @@ suite('Suite 46. Nobody is hung before the month they asked for');
          every fixture below still gets the four-town answer it was written for. */
       dayLimitSrc({haveDates: true}) +
       fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
-      fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
+      (admin.match(/let INSTALL_WINDOWS_FROM = '[^']+';/) || [''])[0] + fn('installWindowsLiveFor') + /* [[SCH-170]] houseDeadline asks whether a window copy is live — lifted, never stubbed */
+        fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
       src + 'this.run = enforceInstallTiming;';
     /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
        (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
@@ -17214,6 +17215,7 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            also asks. Leaving it out is a ReferenceError inside a forEach, which
            surfaces as the whole suite dying with no failure list; stubbing it would
            make every claim below about WHICH day is chosen a claim about the stub. */
+        (admin.match(/let INSTALL_WINDOWS_FROM = '[^']+';/) || [''])[0] + fn('installWindowsLiveFor') + /* [[SCH-170]] houseDeadline asks whether a window copy is live — lifted, never stubbed */
         fn('thanksgivingDate') + STAFF_SRC + fn('houseDeadline') + fn('nextInstallDayFor') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
@@ -61827,6 +61829,7 @@ suite('Suite 316. Closest to a date the office typed');
     fn('anyStampMillis') + fn('prefSpecificDate') +
     fn('isoToLocalDate') + fn('addWorkingDays') + fn('workingDaysBetween') +
     fn('staffDateWindowEnd') + fn('deadlineIsClose') + fn('newHangWaitDays') +
+    (admin.match(/let INSTALL_WINDOWS_FROM = '[^']+';/) || [''])[0] + fn('installWindowsLiveFor') + /* [[SCH-170]] the floor and the ceiling ask whether a window copy is live — lifted, never stubbed */
     fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
     'this.from = houseAllowedFrom; this.until = houseDeadline; this.pri = houseInstallPriority;' +
     'this.close = deadlineIsClose; this.waited = newHangWaitDays; this.wd = workingDaysBetween;';

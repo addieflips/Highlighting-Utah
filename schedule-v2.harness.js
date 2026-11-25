@@ -49,7 +49,7 @@ module.exports = function makeHarness(liftDeep){
     'cascade', 'getDay', 'findHouse', 'setDayLimitOn', 'dayLimitOn', 'crewDaysOverTownLimit', 'unassignedHousesFor', 'oneManDays', 'houseOnWarehouseList',
     'forceDayDateByHand', 'setSeasonStartByHand', 'setHangDayByHand', 'settleAfterHandChange', 'freeInstallDayFor', 'installDayOnDate', 'keepEveryHouseLegal', 'pastDeadlineSoonestDay', 'foldShortCrewDays',
     /* [[SCH-158]] / [[SCH-159]] the weather days, the install windows and the press in memory, for install-windows.test.js */
-    'DAYS_OFF', 'DAY_OFF_KINDS', 'normalizeDaysOff', 'dayOffOn', 'setDayOff', 'isWeatherDayLost', 'installWindowFor', 'installWindowDiffs', 'applyInstallWindowDiffsLocally',
+    'INSTALL_WINDOWS_FROM', 'installWindowsLiveFor', 'DAYS_OFF', 'DAY_OFF_KINDS', 'normalizeDaysOff', 'dayOffOn', 'setDayOff', 'isWeatherDayLost', 'installWindowFor', 'installWindowDiffs', 'applyInstallWindowDiffsLocally',
     'comingInstallByCustomer', 'atRiskHouses', 'fmtWindowLabel', 'installWindowTextMessage', 'missedTextMessage', 'textRowsPhones', 'seasonFillRows', 'rescheduleReport', 'planDatesByCustomer', 'textGroups'],
     {provided: Array.from(CUT)});
 
@@ -160,7 +160,9 @@ module.exports = function makeHarness(liftDeep){
     '        daysOff: function(){ return DAYS_OFF; }, setDayOff: setDayOff, dayOffOn: dayOffOn, normalizeDaysOff: normalizeDaysOff, isWeatherDayLost: isWeatherDayLost,',
     '        installWindowFor: installWindowFor, installWindowDiffs: installWindowDiffs, applyInstallWindowDiffsLocally: applyInstallWindowDiffsLocally, comingInstallByCustomer: comingInstallByCustomer,',
     '        atRiskHouses: atRiskHouses, fmtWindowLabel: fmtWindowLabel, installWindowTextMessage: installWindowTextMessage, missedTextMessage: missedTextMessage, textRowsPhones: textRowsPhones,',
-    '        seasonFillRows: seasonFillRows, rescheduleReport: rescheduleReport, planDatesByCustomer: planDatesByCustomer, textGroups: textGroups, isWorkingDay: isWorkingDay, houseAllowedFrom: houseAllowedFrom}',
+    '        seasonFillRows: seasonFillRows, rescheduleReport: rescheduleReport, planDatesByCustomer: planDatesByCustomer, textGroups: textGroups, isWorkingDay: isWorkingDay, houseAllowedFrom: houseAllowedFrom,',
+    /* [[SCH-170]] the shipped gate is 2027; install-windows.test.js reads it, then runs next season\'s rules on 2026 fixtures */
+    '        windowsFrom: function(){ return INSTALL_WINDOWS_FROM; }, setWindowsFrom: function(v){ INSTALL_WINDOWS_FROM = v; }, installWindowsLiveFor: installWindowsLiveFor}',
     '};'
   ].join('\n');
 

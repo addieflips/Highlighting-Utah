@@ -78030,6 +78030,14 @@ function recalcWho(){
      message to paste into the bulk tool, exactly like the \U0001f4f1 Numbers buttons on a day; "Mark as texted" stamps the
      customer so nobody is listed twice. A sender can be added later without changing what is listed.
    ==================================================================================================================== */
+/* ⛔ WINDOWS START WITH THE 2027 SEASON ([[SCH-170]], 2026-11-25). The owner: "I thought I said schedule shouldn't start
+   for next year but it looks like it is showing for this year." It shipped live on 23 November and ran on the 2026 season.
+   A house whose install day is before INSTALL_WINDOWS_FROM gets no window, any window already written for such a day is
+   cleared by the next sync (installWindowDiffs), and the planner ignores a pre-2027 window copy (houseAllowedFrom /
+   houseDeadline). The portal reads the same date, by the year of the install day. ⚠ `let`, not `const`, ONLY so the
+   offline harness can run next season's behaviour on this season's fixtures; nothing on the page reassigns it. */
+let INSTALL_WINDOWS_FROM = '2027-01-01';
+function installWindowsLiveFor(ds){ ds = ('' + (ds == null ? '' : ds)).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(ds) && ds >= INSTALL_WINDOWS_FROM; }
 const INSTALL_WINDOW_HALF_DAYS = 2;   // two working days either side of the planned day: a five-working-day window
 const SEASON_CUTOFF_MONTH_DAY = '12-23';   // the last install date the planner lays out (crewTailDates) — past it is at risk
 const WINDOW_PUBLISH_REASON_MS = 5 * 60 * 1000;
@@ -78103,6 +78111,13 @@ function installWindowDiffs(customers, opts){
     const curS = isoDayStr(d.installWindowStart), curE = isoDayStr(d.installWindowEnd);
     const cur = (curS && curE) ? {start: curS, end: curE} : null;
     const at = where[item.id];
+    /* [[SCH-170]] a window for a day before INSTALL_WINDOWS_FROM is never valid: cleared, done house or not, with its
+       count and its texted mark, so the record reads as it did before windows existed. */
+    if(cur && !installWindowsLiveFor(cur.start)){
+      out.push({id: item.id, set: false, gated: true, oldWin: cur, updates: {installWindowStart: null, installWindowEnd: null, installWindowSetAt: null, installWindowReason: null, installWindowChanges: null, installWindowTextedFor: null}});
+      return;
+    }
+    if(at && !installWindowsLiveFor(at.ds)) return;
     if(!at){
       if(!cur || d.completed === true) return;
       out.push({id: item.id, set: false, oldWin: cur, updates: {installWindowStart: null, installWindowEnd: null, installWindowSetAt: null, installWindowReason: null}});
@@ -78377,6 +78392,9 @@ function renderTextsPane(){
     '<div class="traynote">Texts carry the schedule: a customer is told their <b>estimated window</b> when they are placed, their <b>exact day the evening before</b>, and the same day when a house was <b>missed</b> or <b>weather</b> moved them. ' +
     'There is no texting service wired in — copy the numbers and the message into the bulk tool, then press <b>Mark as texted</b> so nobody is listed twice. ' +
     'Windows are published by the Schedule itself (every save and every Recalculate), and once published the planner keeps a customer inside their window unless a day is lost.</div>';
+  /* [[SCH-170]] before the 2027 season nobody is told a window: say so where the windows would have been listed */
+  if(!installWindowsLiveFor((typeof scheduleTodayStr === 'function') ? scheduleTodayStr() : isoOf(new Date())))
+    h += '<div class="traynote" style="border-left:3px solid var(--gold,#C9A227);padding-left:8px"><b>Install windows start with the 2027 season.</b> This season customers see their install day in the portal and get no window texts; only the evening-before confirmations and the missed-house texts below apply.</div>';
   h += '<div class="grouph">Due to go out · ' + due + '</div>';
   h += groups.length ? groups.map(textGroupHTML).join('') : '<div class="traynote">Nothing is due. Every window has been texted, there is no install day after today to confirm, and nobody was missed today.</div>';
   /* at risk */
@@ -82899,7 +82917,7 @@ function houseAllowedFrom(h, startStr){
      the crew missed) is a floor in the past, which binds nothing — the house goes to the first day that has room and
      the mirror then publishes its new window. */
   const winFrom = ('' + ((h && h.winFrom) || '')).trim();
-  if(winFrom && winFrom > out) out = winFrom;
+  if(winFrom && winFrom > out && (typeof installWindowsLiveFor !== 'function' || installWindowsLiveFor(winFrom))) out = winFrom;   // [[SCH-170]]
   /* ⭐ AND IF THAT DAY IS ONE THEY ARE AWAY, THE FLOOR STEPS PAST IT ([[SCH-98]]).
      ⚠ THIS IS NOT THE WHOLE AWAY RULE AND MUST NOT BE MISTAKEN FOR IT. It only moves the
      day they OPEN on. A holiday in the middle of a season they are otherwise open for —
@@ -83063,7 +83081,7 @@ function houseDeadline(h){
   return '';
   })();
   const winTo = ('' + ((h && h.winTo) || '')).trim();
-  if(winTo && (!prefUntil || winTo < prefUntil)){
+  if(winTo && (typeof installWindowsLiveFor !== 'function' || installWindowsLiveFor(winTo)) && (!prefUntil || winTo < prefUntil)){   // [[SCH-170]]
     const wfloor = (typeof houseAllowedFrom === 'function') ? (houseAllowedFrom(h, '') || '') : '';
     if(!wfloor || winTo >= wfloor) return winTo;
   }
