@@ -513,27 +513,28 @@ check('and neither notice asks the customer to chase us',
         /Nov 15\u201319/.test(el.textContent) && !/2027-11-17/.test(el.textContent) && /on track/i.test(el.textContent) && /2027-11-01/.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
       fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
-      /* [[SCH-170]] this season: the day, in the pre-window words, even if a window was written before the sync cleared it */
+      /* [[SCH-171]] this season the portal shows NO install day: the owner, "everyone should be on the schedule just not
+         show in the virtual office". The same line an unscheduled customer reads, even with a window or a confirmation on the record. */
       fn({ scheduledDate: '2026-11-18' });
-      check('a 2026 install day is shown as the day, as before windows existed',
-        /Scheduled for 2026-11-18/.test(el.textContent) && !/week of/i.test(el.textContent) && !/window/i.test(el.textContent),
+      check('a 2026 install day is not shown in the portal',
+        /on the list for this season/i.test(el.textContent) && !/2026-11-18/.test(el.textContent) && !/week of|window|Scheduled for/i.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
-      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked' });
-      check('and a 2026 window still on the record is never shown',
-        /Scheduled for 2026-11-18/.test(el.textContent) && !/window/i.test(el.textContent),
+      fn({ scheduledDate: '2026-11-18', installWindowStart: '2026-11-16', installWindowEnd: '2026-11-20', installWindowReason: 'booked', installConfirmedFor: '2026-11-18' });
+      check('and neither is a 2026 window or a 2026 confirmation still on the record',
+        /on the list for this season/i.test(el.textContent) && !/window|Confirmed|2026-11-18/i.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
       fn({ scheduledDate: '2027-11-17', installWindowStart: '2027-11-15', installWindowEnd: '2027-11-19', installWindowReason: 'weather' });
       check('and a window moved by weather says so',
         /weather/i.test(el.textContent) && !/on track/i.test(el.textContent),
         'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
       {
-        const far = new Date(); far.setDate(far.getDate() + 3);
-        const farIso = far.getFullYear() + '-' + String(far.getMonth() + 1).padStart(2, '0') + '-' + String(far.getDate()).padStart(2, '0');
+        /* [[SCH-171]] the confirmed day only shows from the 2027 season, so this fixture sits in 2027 */
+        const farIso = '2027-11-17';
         fn({ scheduledDate: farIso, installConfirmedFor: farIso, installWindowStart: farIso, installWindowEnd: farIso });
         check('the exact day appears once the office has texted it as confirmed for that day',
           /Confirmed for/.test(el.textContent) && el.textContent.indexOf(farIso) !== -1,
           'got: ' + JSON.stringify(el.textContent.slice(0, 140)));
-        fn({ scheduledDate: farIso, installConfirmedFor: '2026-01-05', installWindowStart: farIso, installWindowEnd: farIso });
+        fn({ scheduledDate: farIso, installConfirmedFor: '2027-01-05', installWindowStart: farIso, installWindowEnd: farIso });
         check('but a confirmation for a different day is not a confirmation',
           !/Confirmed for/.test(el.textContent),
           'got: ' + JSON.stringify(el.textContent.slice(0, 140)));

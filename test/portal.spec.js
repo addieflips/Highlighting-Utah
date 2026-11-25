@@ -111,9 +111,9 @@ test.describe('Member Portal', () => {
     await expect(strip).not.toContainText(/Nov 17/);
   });
 
-  /* [[SCH-170]] windows start with the 2027 season: a 2026 install day is the day, as before, even if a window
-   * written for it is still on the record. */
-  test('this season the schedule strip shows the install day, never a window', async ({ page }) => {
+  /* [[SCH-171]] this season the portal shows no install day at all, even if a window written for it is still on the
+   * record: the owner, "everyone should be on the schedule just not show in the virtual office". */
+  test('this season the schedule strip shows no install day and no window', async ({ page }) => {
     const cust = JSON.parse(JSON.stringify(CUSTOMERS.standard));
     Object.assign(cust.record, {
       completed: false, scheduledDate: '2026-11-18',
@@ -122,8 +122,8 @@ test.describe('Member Portal', () => {
     });
     await open(page, `/index.html#/payment?token=${cust.token}`, { customers: { standard: cust } });
     const strip = page.locator('#portalScheduleStrip');
-    await expect(strip).toContainText(/Scheduled for Wednesday, November 18/);
-    await expect(strip).not.toContainText(/window/i);
+    await expect(strip).toContainText(/on the list for this season/);
+    await expect(strip).not.toContainText(/window|November 18|Scheduled for/i);
   });
 
   /* ---- t11 — paying by card ---------------------------------------------

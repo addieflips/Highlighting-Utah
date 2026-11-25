@@ -129,7 +129,14 @@ check('the Texts tab says windows start with 2027 while they have not', /if\(!in
 {
   const idx = read('index.html');
   const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
-  check('the portal shows a pre-2027 install as the day, in the words it used before windows', /when && String\(rec\.scheduledDate\)\.slice\(0, 4\) < '2027'\)\{[\s\S]{0,700}Scheduled for ' \+ when/.test(strip));
+  /* ⚠ REPOINTED 2026-11-25 ([[SCH-171]]): the owner, the same day, "everyone should be on the schedule just not show in the
+     virtual office" — a pre-2027 install shows NO day in the portal, only the on-the-list line. */
+  check('the portal shows no install day for a pre-2027 install, only the on-the-list line', (function(){
+    const g = strip.indexOf("when && String(rec.scheduledDate).slice(0, 4) < '2027'){"), next = strip.indexOf('} else if(when){', g);
+    const branch = g === -1 ? '' : strip.slice(g, next === -1 ? undefined : next).replace(/\/\*[\s\S]*?\*\//g, '');
+    return !!branch && /on the list for this season/.test(branch) && !/when|scheduledDate\)\s*\+|portalNiceDate/.test(branch.slice(branch.indexOf('{') + 1));
+  })());
+  check('and the confirmed day is never shown before 2027 either', /portalConfirmedDay\(rec\) && String\(rec\.scheduledDate\)\.slice\(0, 4\) >= '2027'/.test(strip));
   check('and never shows a window whose start is before 2027', /String\(rec\.installWindowStart \|\| ''\)\.slice\(0, 4\) >= '2027' && portalWindowText\(rec\)/.test(strip));
   check('the portal and the page cut at the same year', /let INSTALL_WINDOWS_FROM = '2027-01-01';/.test(admin));
 }
@@ -504,13 +511,10 @@ suite('What cannot be run is read: the whitelist, the reset, the mirror, the mar
   check('but never the texts log, the crew or the stop order', !/installWindowTextedFor|missedTextedFor/.test(wl));
   const idx = read('index.html');
   const strip = idx.slice(idx.indexOf('function renderScheduleStrip('), idx.indexOf('\n}', idx.indexOf('function renderScheduleStrip(')));
-  /* ⚠ REPOINTED 2026-11-25 ([[SCH-170]]): "Scheduled for" is back, but ONLY for an install day before 2027 — it must sit
-     inside that one guarded branch and nowhere else, so a 2027 house is still never promised the day before confirmation. */
-  check('the portal strip prints the planned day as a promise only for a pre-2027 install', (function(){
-    const at = strip.indexOf("Scheduled for ' + when"), guard = strip.indexOf("slice(0, 4) < '2027'){"), next = strip.indexOf('} else if(when){', guard);
-    return at !== -1 && guard !== -1 && at > guard && (next === -1 || at < next) && strip.indexOf("Scheduled for ' + when", at + 1) === -1;
-  })() && /portalWindowText\(rec\)/.test(strip) && /portalConfirmedDay\(rec\)/.test(strip));
-  check('the planned day is spoken only once the lights are up, the day is confirmed, or (before 2027) as the day itself', (strip.match(/\+ when\b/g) || []).length === 2 && /Installed' \+ \(when/.test(strip) &&
+  /* ⚠ REPOINTED TWICE 2026-11-25: [[SCH-170]] put "Scheduled for" back for 2026, then [[SCH-171]] took the day out of the
+     portal for 2026 altogether. So the planned day is never printed as a promise, in any year. */
+  check('the portal strip never prints the planned day as a promise', strip.indexOf("Scheduled for ' + when") === -1 && /portalWindowText\(rec\)/.test(strip) && /portalConfirmedDay\(rec\)/.test(strip));
+  check('the planned day is spoken only once the lights are up or (from 2027) the day is confirmed', (strip.match(/\+ when\b/g) || []).length === 1 && /Installed' \+ \(when/.test(strip) &&
     strip.indexOf('portalNiceDate(rec.scheduledDate)', strip.indexOf('portalConfirmedDay(rec)')) !== -1);
   check('and the strip never shows a queue number', !/#\s*'\s*\+/.test(strip));
   const code = admin.replace(/\/\*[\s\S]*?\*\//g, '');

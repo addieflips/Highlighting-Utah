@@ -5584,7 +5584,7 @@ function renderScheduleStrip(rec){
   } else if(rec.completed){
     text = '✅ Installed' + (when ? ' on ' + when : '') + ' — we\'ll be back in January to take them down.';
     bg = '#E6F2EA'; bd = '#b8d9c2'; fg = '#2E6B3E';
-  } else if(portalConfirmedDay(rec)){
+  } else if(portalConfirmedDay(rec) && String(rec.scheduledDate).slice(0, 4) >= '2027'){   // [[SCH-171]] no day in the portal before 2027
     /* [[SCH-160]] the exact day, only once the office has texted it the evening before */
     text = '\u2705 Confirmed for ' + portalNiceDate(rec.scheduledDate) + '. Please make sure our crew can reach your outlets and the yard \u2014 you don\'t need to be home.';
     /* ⭐ A DATE CARD, NOT A LINE (2026-11-23). The owner, asked how to make the day of install more
@@ -5606,11 +5606,13 @@ function renderScheduleStrip(rec){
     text = portalWindowText(rec);
     if(String(rec.installWindowReason || '') === 'weather'){ bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16'; }
   } else if(when && String(rec.scheduledDate).slice(0, 4) < '2027'){
-    /* ⛔ [[SCH-170]] (2026-11-25) WINDOWS START WITH THE 2027 SEASON. The owner: "I thought I said schedule shouldn't start
-       for next year but it looks like it is showing for this year." So an install day before 2027 is shown as the day, in
-       exactly the words this line used before [[SCH-158]] shipped. The year is read off the install day itself, the same
-       cut admin.html makes with INSTALL_WINDOWS_FROM; change one, change the other. */
-    text = '\ud83d\udcc5 Scheduled for ' + when + '. You don\'t need to be home, and we\'ll text if the weather moves us.';
+    /* ⛔ [[SCH-171]] (2026-11-25) THIS SEASON THE PORTAL SHOWS NO INSTALL DAY AT ALL. The owner: "everyone should be on the
+       schedule just not show in the virtual office." [[SCH-170]] put the 2026 day back here as "Scheduled for <day>"; this
+       narrows it: the Schedule still places everybody, and the customer reads the same line an unscheduled customer reads.
+       The year is read off the install day itself, the same cut admin.html makes with INSTALL_WINDOWS_FROM; change one,
+       change the other. From 2027 the window and the confirmed day show as [[SCH-158]] / [[SCH-160]] built them. */
+    text = '\ud83d\udccb You\'re on the list for this season. We\'ll be in touch with your install date.';
+    bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16';
   } else if(when){
     /* a record the mirror has not reached yet (older plan, or the window not published): the week, never the day */
     text = '\ud83d\udcc5 Estimated install: the week of ' + portalNiceDate(portalWeekMondayOf(rec.scheduledDate)) + '. We\'ll text your exact day the evening before.';
